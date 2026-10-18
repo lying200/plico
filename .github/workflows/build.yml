@@ -44,6 +44,9 @@ jobs:
             target
           key: windows-release-${{ hashFiles('Cargo.lock', 'vendor/**', 'build.rs') }}
           restore-keys: windows-release-
+      # Offline packaging also reads metadata for test/build dependencies.
+      - name: Fetch locked Windows dependencies
+        run: cargo fetch --locked --target x86_64-pc-windows-msvc
       - name: Build Windows executable and helpers
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bins
       - name: Package

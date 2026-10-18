@@ -277,7 +277,7 @@ fn source_selection_clamps_ranges_and_preserves_original_bytes(cx: &mut TestAppC
 }
 
 #[gpui::test]
-fn change_navigation_wraps_groups_and_unchanged_documents_stay_in_place(cx: &mut TestAppContext) {
+fn change_navigation_stops_at_edges_and_unchanged_documents_stay_in_place(cx: &mut TestAppContext) {
     let state = cx.new(|cx| {
         DiffState::new(
             [document(
@@ -295,11 +295,11 @@ fn change_navigation_wraps_groups_and_unchanged_documents_stay_in_place(cx: &mut
         assert_eq!(state.list().logical_scroll_top().item_ix, 2);
         state.next_change(cx);
         assert_eq!(state.list().logical_scroll_top().item_ix, 4);
-        state.next_change(cx);
-        assert_eq!(state.list().logical_scroll_top().item_ix, 2);
-        state.previous_change(cx);
+        assert!(!state.try_move_change(true, cx));
         assert_eq!(state.list().logical_scroll_top().item_ix, 4);
         state.previous_change(cx);
+        assert_eq!(state.list().logical_scroll_top().item_ix, 2);
+        assert!(!state.try_move_change(false, cx));
         assert_eq!(state.list().logical_scroll_top().item_ix, 2);
     });
 

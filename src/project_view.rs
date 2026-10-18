@@ -384,7 +384,7 @@ impl Render for FileTab {
             let position = self.reading_position;
             let language = file_language(&self.path);
             let editing = self.documents.get_or_create(self.root.clone(), self.path.clone(), document, |text, cx| cx.new(|cx| {
-                let mut state = EditorState::new(window, cx).default_value(text.to_owned()).line_number(true).language(language);
+                let mut state = EditorState::new(window, cx).tab_size(gpui_kit::component::input::TabSize { tab_size: 4, hard_tabs: false }).default_value(text.to_owned()).line_number(true).language(language);
                 state.set_readonly(false, cx);
                 if let Some(position) = position {
                     let start = state.text().position_to_offset(&position.start);

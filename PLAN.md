@@ -4339,3 +4339,25 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 继续基础编辑保稿验收，未新增功能范围。最终Windows release SHA256 `B71CF4E6EF2A63F89BC59EC070DD7C3DA7A95D13D63D2DDDEBB5AC224C431176`，在独立 `Plico-validation/edit-close` 仓库中通过Source编辑后由外部写入冲突内容，再关闭窗口：窗口保持打开，磁盘外部字节未被覆盖，编辑器完整草稿保留；恢复测试文件原基线后再次关闭，窗口退出且磁盘精确等于草稿。HEAD/index不变、stderr为空，自有进程正常结束，用户Rebased未操作。
 
 证据 `artifacts/edit-close/startup.json`、`assertions.json`、`close-conflict.png`（已查看）及verify/resume脚本。第一轮复制校验因错误行出现后编辑区域下移、脚本仍点击旧坐标失败；没有将失败断言当作通过。检查截图确认草稿仍在，resume在同一存活窗口以新坐标全选复制验证完整正文，然后执行保存重试和退出断言。此轮覆盖普通输入保存冲突与恢复，不覆盖原生IME候选窗或所有关闭入口；旧便携包未更新。
+
+## Preview 使用阻断修复（2026-10-19）
+
+仅在 `/home/echoyn/code/plico` 实施。旧 `gitui` 代码与未提交内容已移到工作区外备份，避免误改；未丢弃其改动。
+
+- 修复真实 Tab 在文件编辑器中被渲染为零宽的缩进问题，保留原文件内容及光标字节映射。
+- F7／Shift+F7 按 Rebased 的文件内导航 → 边界提示 → 再次按键跨文件处理，首尾不循环。
+- 历史“加载更多”固定紧凑高度。
+- 标题栏交互按钮与原生拖动命中隔离，覆盖设置、更新项目、推送、项目／分支／主菜单；保留悬停说明。
+- 欢迎页打开项目按原窗口中心定位，成功创建项目窗口后再关闭欢迎页；已有项目窗口切换项目保留尺寸。
+
+源码依据、映射和保留差异见 `docs/REBASED-REFERENCE.md` 同日记录。Tab 字节／坐标回归测试和两个 F7 边界测试已通过，Windows release 构建通过。Windows 原生验收证据见 `artifacts/fixes-20261019/`：
+
+- `physical-before.png` / `physical-after.png`：真实左键点击欢迎页设置，修复前无响应，修复后打开；`main-settings-left.png` 覆盖主窗口设置。
+- `update-ready.png`、`push-ready.png`、`push-tooltip.png`：标题栏更新／推送真实左键打开弹窗，推送悬停提示正常。仅使用临时仓库和本地 bare remote，未执行更新／推送确认。
+- `window-bounds.json`：欢迎页与项目窗口横向中心均为屏幕 x=1920，纵向中心相差 5 物理像素（原生边框尺寸），不再以固定左上角放大。
+- `source-tabs.png`、`source-tabs-end.png`：复制 Spring Framework 的 IOConsumer.java 到临时仓库验证，嵌套 Tab 正常显示。编辑、自动保存、撤销、再次保存后，`source-roundtrip.json` 的 SHA-256 与初始内容一致。
+- `f7-boundary.png`、`f7-next-file.png`、`f7-last-no-wrap.png`：独立 Diff Tab 边界提示、二次按键跨文件、末尾重复按键不循环；`load-more-compact.png` 验证紧凑分页条。未做滚动自动化。
+
+已知验证限制：桌面测试总计 8 通过、1 失败，失败为既有 `releasing_diff_clears_padding_from_retained_source`。临时恢复全部 Rust 文件到未修改 `cbde5aa` 后，同一测试仍以相同断言失败（实际 0，期望 2），记录为独立问题，不宣称全套测试通过。Tab 默认四列，未新增 `.editorconfig` 解析；本轮跨文件 F7 原生验收限独立 Tab，旧式底部 Log 预览尚未接入跨文件提示。
+
+本轮作为修复提交推送至 main；不创建发布标签或更新现有 Release。

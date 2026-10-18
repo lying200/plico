@@ -2063,7 +2063,7 @@ impl<M: InputModeKind> TextElement<M> {
 
             debug_assert_eq!(line_item.len(), line_text.len());
 
-            let mut wrapped_lines: SmallVec<[ShapedLine; 1]> = SmallVec::with_capacity(1);
+            let mut wrapped_lines: SmallVec<[crate::input::display_map::InputLine; 1]> = SmallVec::with_capacity(1);
             let mut line_has_background = false;
 
             for range in &line_item.wrapped_lines {
@@ -2081,9 +2081,8 @@ impl<M: InputModeKind> TextElement<M> {
                 let sub_line: SharedString = line_text[range.clone()].to_string().into();
                 let line_runs =
                     align_runs_to_char_boundaries(&sub_line, &line_runs).unwrap_or(line_runs);
-                let shaped_line = window
-                    .text_system()
-                    .shape_line(sub_line, font_size, &line_runs, None);
+                let shaped_line = crate::input::display_map::InputLine::with_tabs(
+                    sub_line, font_size, &line_runs, state.mode.tab_size().tab_size, window.text_system());
 
                 line_has_background |= has_background(&line_runs);
                 wrapped_lines.push(shaped_line);
@@ -2102,7 +2101,7 @@ impl<M: InputModeKind> TextElement<M> {
             };
 
             let line_layout = LineLayout::new()
-                .lines(wrapped_lines)
+                .inline_lines(wrapped_lines)
                 .wrap_indent(wrap_indent)
                 .with_background(line_has_background)
                 .with_whitespaces(whitespace_indicators.clone());
@@ -2524,6 +2523,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         };
 
         self.state.update(cx, |state, cx| {
+            state.display_map.set_tab_size(state.mode.tab_size().tab_size, cx);
             state.display_map.set_font(font, text_size, cx);
             state.display_map.ensure_text_prepared(&state.text, cx);
         });
@@ -2745,9 +2745,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 Some((_, width)) => width,
                 None => {
                     let longest_line: SharedString = longest_line.to_string().into();
-                    window
-                        .text_system()
-                        .shape_line(
+                    crate::input::display_map::InputLine::with_tabs(
                             longest_line.clone(),
                             text_size,
                             &[TextRun {
@@ -2758,7 +2756,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                                 underline: None,
                                 strikethrough: None,
                             }],
-                            wrap_width,
+                            state.mode.tab_size().tab_size, window.text_system(),
                         )
                         .width
                 }
@@ -3810,7 +3808,7 @@ mod tests {
             let element = TextElement::new(editor.clone());
 
             for offsets in [[0, 2, 4], [0, 4, 2], [4, 0, 2]] {
-                editor.update(cx, |state, _| {
+                editor.update(cx, |state, cx| {
                     state.selections.replace_all(
                         offsets
                             .into_iter()
@@ -3823,7 +3821,7 @@ mod tests {
                     state.last_selected_range = Some(*state.active_selection());
                     state.scroll_handle.set_offset(point(px(0.), px(0.)));
                     state.deferred_scroll_offset = None;
-            state.publish_scroll_offset(cx);
+                    state.publish_scroll_offset(cx);
                 });
                 let mut bounds = input_bounds;
                 let (baseline, _, _) =

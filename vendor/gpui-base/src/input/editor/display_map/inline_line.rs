@@ -33,6 +33,39 @@ impl From<ShapedLine> for InputLine {
     }
 }
 impl InputLine {
+    /// Shape tabs as source-byte-preserving gaps, never as font glyphs.
+    pub(crate) fn with_tabs(text: SharedString, font_size: Pixels, runs: &[gpui::TextRun], tab_size: usize, text_system: &gpui::WindowTextSystem) -> Self {
+        if !text.contains('\t') {
+            return text_system.shape_line(text, font_size, runs, None).into();
+        }
+        let mut space_run = runs[0].clone();
+        space_run.len = 1;
+        let stop = text_system.shape_line(" ".into(), font_size, &[space_run], None).width * tab_size.max(1) as f32;
+        let mut fragments = Vec::new();
+        let mut start = 0;
+        let mut x = px(0.);
+        for end in text.match_indices('\t').map(|(i,_)|i).chain(std::iter::once(text.len())) {
+            if end > start {
+                let mut offset = 0;
+                let part_runs: Vec<_> = runs.iter().filter_map(|run| {
+                    let a = offset.max(start); let b = (offset + run.len).min(end);
+                    offset += run.len;
+                    (a < b).then(|| {let mut r=run.clone();r.len=b-a;r})
+                }).collect();
+                let line=text_system.shape_line(text[start..end].to_owned().into(),font_size,&part_runs,None);
+                let width=line.width;
+                fragments.push(InlineFragment {range:start..end,x,width,text:Some(line)});
+                x += width;
+            }
+            if end < text.len() {
+                let width=stop * ((x / stop).floor() + 1.) - x;
+                fragments.push(InlineFragment {range:end..end+1,x,width,text:None});
+                x += width;
+            }
+            start=end+1;
+        }
+        Self::inline(text,fragments)
+    }
     pub(crate) fn inline(text: SharedString, fragments: Vec<InlineFragment>) -> Self {
         let width = fragments.last().map_or(px(0.), |f| f.x + f.width);
         Self {
@@ -152,5 +185,34 @@ impl InputLine {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test,target_os="linux"))]
+mod tab_tests {
+    use super::*;
+    #[test]
+    fn tab_shaping_preserves_source_offsets_and_tab_stops() {
+        let platform=gpui_platform::current_platform(true);
+        let cx=gpui::TestAppContext::build_with_text_system(gpui::TestDispatcher::new(0),None,platform.text_system());
+        cx.update(|cx| {
+            let system=gpui::WindowTextSystem::new(cx.text_system().clone());
+            let run=gpui::TextRun {len:1,font:gpui::font("monospace"),color:gpui::black(),background_color:None,underline:None,strikethrough:None};
+            let space=system.shape_line(" ".into(),px(14.),&[run.clone()],None).width;
+            assert!(space>px(0.));
+            for text in ["\t\ttry {", "a\tb", "中文\tvalue", "\t"] {
+                let mut r=run.clone();r.len=text.len();
+                let line=InputLine::with_tabs(text.to_owned().into(),px(14.),&[r],4,&system);
+                assert_eq!(line.text.as_ref(),text);
+                assert_eq!(line.len,text.len());
+                for (i,_) in text.match_indices('\t') {
+                    let left=line.x_for_index(i);let right=line.x_for_index(i+1);
+                    assert!(right>left);
+                    assert!((right/(space*4.)-(right/(space*4.)).round()).abs()<0.001);
+                    assert_eq!(line.closest_index_for_x(left+(right-left)*0.25),i);
+                    assert_eq!(line.closest_index_for_x(left+(right-left)*0.75),i+1);
+                }
+            }
+        });
     }
 }

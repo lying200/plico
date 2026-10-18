@@ -1264,23 +1264,36 @@ impl DiffState {
         range
     }
 
-    fn move_change(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let top = self.list.logical_scroll_top().item_ix;
+    pub fn try_move_change(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
+        self.move_change(forward, cx)
+    }
+    pub fn move_to_edge_change(&mut self, first: bool, cx: &mut Context<Self>) {
+        let row = if first { self.change_rows.first() } else { self.change_rows.last() }.copied();
+        if let Some(ix) = row {
+            self.source_position = self.row_position(ix);
+            self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+            cx.notify();
+        }
+    }
+    fn move_change(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
+        let top = self.source_position.as_ref().and_then(|p| self.source_row(p))
+            .unwrap_or_else(|| self.list.logical_scroll_top().item_ix);
         let groups = &self.change_rows;
         let target = if forward {
             groups
                 .get(groups.partition_point(|ix| *ix <= top))
                 .copied()
-                .or(groups.first().copied())
+
         } else {
             groups
                 .partition_point(|ix| *ix < top)
                 .checked_sub(1)
                 .and_then(|ix| groups.get(ix))
                 .copied()
-                .or(groups.last().copied())
+
         };
         if let Some(ix) = target {
+            self.source_position = self.row_position(ix);
             if self.is_three_way() {
                 if let Some(window) = self.window { TextSelection::clear_for_window(window, cx); }
                 self.selection.set_local_selection(false, cx);
@@ -1295,7 +1308,9 @@ impl DiffState {
                 offset_in_item: px(0.),
             });
             cx.notify();
+            return true;
         }
+        false
     }
 
     /// The source line shown by a row, looking past headers within its file.

@@ -87,9 +87,12 @@ fn open_project_window(path: std::path::PathBuf, limit: usize, cx: &mut gpui_kit
     open_project_window_with_report(path, limit, None, cx)
 }
 fn open_project_window_with_report(path: std::path::PathBuf, limit: usize, report: Option<std::sync::Arc<startup_report::Probe>>, cx: &mut gpui_kit::App) -> gpui_kit::Result<()> {
+    open_project_window_at(path, limit, report, None, cx)
+}
+fn open_project_window_at(path: std::path::PathBuf, limit: usize, report: Option<std::sync::Arc<startup_report::Probe>>, bounds: Option<gpui_kit::Bounds<gpui_kit::Pixels>>, cx: &mut gpui_kit::App) -> gpui_kit::Result<()> {
     let welcome = path.as_os_str().is_empty();
     gpui_kit::open_window(WindowOptions {
-        window_bounds: Some(WindowBounds::centered(if welcome { size(px(800.), px(520.)) } else { size(px(1440.), px(900.)) }, cx)),
+        window_bounds: Some(bounds.map(WindowBounds::Windowed).unwrap_or_else(|| WindowBounds::centered(if welcome { size(px(800.), px(520.)) } else { size(px(1440.), px(900.)) }, cx))),
         window_min_size: Some(size(px(720.), px(480.))),
         app_id: Some("Plico".into()),
         ..TitleBar::window_options()

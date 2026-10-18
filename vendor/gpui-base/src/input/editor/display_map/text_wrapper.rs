@@ -37,7 +37,7 @@ fn measured_wrap_boundaries(
 ) -> Vec<gpui::Boundary> {
     let indent = if wrapping_indent == WrappingIndent::Same {
         text.chars()
-            .take_while(|&c| c == ' ')
+            .take_while(|&c| c == ' ' || c == '\t')
             .count()
             .min(gpui::LineWrapper::MAX_INDENT as usize)
     } else {
@@ -224,6 +224,7 @@ pub(crate) struct TextWrapper {
     /// If is none, it means the text is not wrapped
     wrap_width: Option<Pixels>,
     wrapping_indent: WrappingIndent,
+    tab_size: usize,
     /// The lines by split \n
     pub(crate) lines: SumTree<LineItem>,
 
@@ -240,6 +241,7 @@ impl TextWrapper {
             font_size,
             wrap_width,
             wrapping_indent: WrappingIndent::default(),
+            tab_size: 2,
             lines: SumTree::new(&()),
             inline_metrics: Rc::from([]),
             _initialized: false,
@@ -325,6 +327,12 @@ impl TextWrapper {
         self.update_all(&self.text.clone(), cx);
     }
 
+    pub(crate) fn set_tab_size(&mut self, tab_size: usize, cx: &mut App) {
+        if self.tab_size == tab_size {return;}
+        self.tab_size=tab_size;
+        self.update_all(&self.text.clone(),cx);
+    }
+
     pub(crate) fn set_wrapping_indent(&mut self, wrapping_indent: WrappingIndent, cx: &mut App) {
         if wrapping_indent == self.wrapping_indent {
             return;
@@ -377,6 +385,7 @@ impl TextWrapper {
         let font = self.font.clone();
         let font_size = self.font_size;
         let wrapping_indent = self.wrapping_indent;
+        let tab_size=self.tab_size;
         self._update(
             changed_text,
             range,
@@ -410,9 +419,8 @@ impl TextWrapper {
                         wrap_width,
                         wrapping_indent,
                         |text| {
-                            text_system
-                                .layout_line(
-                                    text,
+                            InputLine::with_tabs(
+                                    text.to_owned().into(),
                                     font_size,
                                     &[gpui::TextRun {
                                         len: text.len(),
@@ -422,7 +430,7 @@ impl TextWrapper {
                                         underline: None,
                                         strikethrough: None,
                                     }],
-                                    None,
+                                    tab_size, &text_system,
                                 )
                                 .width
                         },

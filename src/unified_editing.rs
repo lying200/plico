@@ -23,7 +23,7 @@ impl UnifiedEditing {
             projection: UnifiedEditProjection::new(file),source:file.source(DiffSide::Modified).to_owned(),valid:true,composing:false,
         }));
         let editor=cx.new(|cx| {
-            let mut editor=EditorState::new(window,cx).default_value(mapping.borrow().projection.text().to_owned()).language(language.to_owned()).line_number(true);
+            let mut editor=EditorState::new(window,cx).tab_size(gpui_kit::component::input::TabSize { tab_size: 4, hard_tabs: false }).default_value(mapping.borrow().projection.text().to_owned()).language(language.to_owned()).line_number(true);
             let state=mapping.clone();let working=source.clone();let docs=documents.clone();
             editor.set_edit_guard(move |edits,cx| {
                 let state=state.borrow();
@@ -123,7 +123,7 @@ mod tests {
         let file=DiffFile::from_sources(Some(("a",baseline)),Some(("a","keep\n"))).unwrap();
         let mut source=None;let mut unified=None;
         let (_,cx)=cx.add_window_view(|window,cx| {
-            let working=cx.new(|cx|EditorState::new(window,cx).default_value("keep\n"));
+            let working=cx.new(|cx|EditorState::new(window,cx).tab_size(gpui_kit::component::input::TabSize { tab_size: 4, hard_tabs: false }).default_value("keep\n"));
             let view=UnifiedEditing::new(&file,working.clone(),Documents::default(),"plain_text",window,cx);
             let probe=cx.new(|_|Probe(view.editor.clone()));
             source=Some(working);unified=Some(view);Root::new(probe,window,cx)

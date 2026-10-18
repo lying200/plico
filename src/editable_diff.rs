@@ -34,11 +34,11 @@ impl EditableDiff {
         let language = crate::project_view::file_language(&id.path);
         let baseline: Arc<str> = contents.original.into();
         let original = cx.new(|cx| {
-            let mut editor = EditorState::new(window,cx).default_value(baseline.to_string()).line_number(true).language(language);
+            let mut editor = EditorState::new(window,cx).tab_size(gpui_kit::component::input::TabSize { tab_size: 4, hard_tabs: false }).default_value(baseline.to_string()).line_number(true).language(language);
             editor.set_readonly(true,cx); editor
         });
         let working = documents.get_or_create(id.repository.clone(),id.path.clone(),contents.working,|text,cx|cx.new(|cx|
-            EditorState::new(window,cx).default_value(text.to_owned()).line_number(true).language(language)),cx);
+            EditorState::new(window,cx).tab_size(gpui_kit::component::input::TabSize { tab_size: 4, hard_tabs: false }).default_value(text.to_owned()).line_number(true).language(language)),cx);
         let editor = working.read(cx).editor.clone();
         let original_marks=original.update(cx,|s,cx|s.create_decorations_collection(Vec::new(),cx));
         let working_marks=editor.update(cx,|s,cx|s.create_decorations_collection(Vec::new(),cx));
@@ -110,11 +110,21 @@ impl EditableDiff {
         let editor = if self.original_active { &self.original } else { &self.working.read(cx).editor };
         (self.original_active, editor.read(cx).cursor_position().line as usize)
     }
-    pub fn navigate(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn try_navigate(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let (original,line)=self.source_position(cx);
         let index = if next { self.changes.iter().position(|&(a,b)| if original {a > line} else {b > line}) }
             else { self.changes.iter().rposition(|&(a,b)| if original {a < line} else {b < line}) };
-        let Some(index)=index else {return;};
+        let Some(index)=index else {return false;};
+        self.navigate_index(index, window, cx);
+        true
+    }
+    pub fn navigate_edge(&mut self, first: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.changes.is_empty() { return false; }
+        self.navigate_index(if first {0} else {self.changes.len()-1}, window, cx);
+        true
+    }
+    fn navigate_index(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let original=self.original_active;
         let (old,new)=self.changes[index];
         if self.unified_mode {if let Some(v)=&self.unified {v.navigate_to(new,window,cx);return;}}
         let working=self.working.read(cx).editor.clone();

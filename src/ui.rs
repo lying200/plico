@@ -353,6 +353,12 @@ fn observe_review_width(owner: WeakEntity<Review>, navigation: bool)
         });
     }
 }
+// Interactive title-bar controls must hide the native caption hitbox beneath them.
+// Otherwise Windows consumes physical left clicks as window dragging.
+fn titlebar_button(id: &'static str) -> Button {
+    Button::new(id).occlude().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
 impl Review {
     pub fn new(path: PathBuf, limit: usize, startup_report: Option<Arc<crate::startup_report::Probe>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         window.set_window_title(&if path.as_os_str().is_empty() { "Plico".into() } else { format!("Plico – {}", path.file_name().unwrap_or_default().to_string_lossy()) });
@@ -609,7 +615,23 @@ impl Review {
     fn choose_project_window(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.fetch_token.is_some() || self.settings_open { return; }
         if self.repo.path.as_os_str().is_empty() {
-            self.open_repository(path, window, cx);
+            if !path.is_dir() { self.error = Some(t("Project folder is unavailable").into()); cx.notify(); return; }
+            let old = window.bounds();
+            let mut bounds = Bounds::new(
+                point(old.origin.x + (old.size.width - px(1440.)) / 2., old.origin.y + (old.size.height - px(900.)) / 2.),
+                size(px(1440.), px(900.)),
+            );
+            if let Some(display) = window.display(cx) {
+                let screen = display.bounds();
+                bounds.size.width = bounds.size.width.min(screen.size.width);
+                bounds.size.height = bounds.size.height.min(screen.size.height);
+                bounds.origin.x = bounds.origin.x.max(screen.origin.x).min(screen.origin.x + screen.size.width - bounds.size.width);
+                bounds.origin.y = bounds.origin.y.max(screen.origin.y).min(screen.origin.y + screen.size.height - bounds.size.height);
+            }
+            match crate::open_project_window_at(path, self.limit, None, Some(bounds), cx) {
+                Ok(()) => window.remove_window(),
+                Err(error) => { self.error = Some(error.to_string()); cx.notify(); }
+            }
             return;
         }
         let owner = cx.entity().downgrade();
@@ -641,7 +663,6 @@ impl Review {
         if self.fetch_token.is_some() { return; }
         if !path.is_dir() { self.error = Some(t("Project folder is unavailable").into()); cx.notify(); return; }
         self.source_token.cancel();self.source_generation+=1;self.source_task=Task::ready(());
-        window.resize(size(px(1440.), px(900.)));
         self.recent_recorded = false;
                     self.welcome = false;
                     self.dismiss_repository_menu(cx);
@@ -2588,7 +2609,7 @@ impl Review {
         gpui_kit::component::popover::Popover::new("repository-branch-popup").appearance(false)
             .overlay_closable(false)
             .open(self.repository_menu_open)
-            .trigger(Button::new("repository-branch-menu").ghost()
+            .trigger(titlebar_button("repository-branch-menu").ghost()
                 .disabled(self.fetch_token.is_some() || self.settings_open || head.is_none())
                 .child(h_flex().items_center().gap_1().child(jb_icon(if self.operation_state.as_ref().is_some_and(|state| state.in_progress()) {
                     "warning_dark.svg"
@@ -3401,7 +3422,7 @@ impl Review {
     fn main_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let disabled = self.fetch_token.is_some() || self.settings_open;
-        Button::new("main-menu").ghost()
+        titlebar_button("main-menu").ghost()
             .icon(jb_icon("windowsMenu@20x20_dark.svg")).icon_size(px(16.))
             .tooltip(t("Main menu")).accessibility_label(t("Main menu"))
             .dropdown_menu(move |menu, window, cx| {
@@ -3430,7 +3451,7 @@ impl Review {
     fn project_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let name = self.repo.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        Button::new("project-menu").ghost().min_w_0().flex_shrink_1().max_w(px(340.))
+        titlebar_button("project-menu").ghost().min_w_0().flex_shrink_1().max_w(px(340.))
             .disabled(self.fetch_token.is_some() || self.settings_open)
             .tooltip(self.repo.path.to_string_lossy().trim_start_matches("\\\\?\\").to_owned())
             .accessibility_label(format!("{}: {}", t("Project"), name))
@@ -3490,28 +3511,28 @@ impl Review {
                 .child(gpui_kit::img("branding/plico.svg").size(px(20.))))
             .child(self.main_menu(cx))
             .child(self.project_menu(cx))
-            .child(Button::new("update-project").ghost().icon(jb_icon("update_dark.svg")).icon_size(px(16.))
+            .child(titlebar_button("update-project").ghost().icon(jb_icon("update_dark.svg")).icon_size(px(16.))
                 .tooltip(t("Update Project")).accessibility_label(t("Update Project"))
                 .disabled(self.fetch_token.is_some() || self.settings_open)
                 .on_click(cx.listener(|s, _, w, cx| s.open_project_update(w, cx))))
-            .child(Button::new("push").ghost().icon(jb_icon("push_dark.svg").size(px(16.))).icon_size(px(16.)).tooltip(t("Push")).accessibility_label(t("Push")).disabled(self.fetch_token.is_some() || self.settings_open)
+            .child(titlebar_button("push").ghost().icon(jb_icon("push_dark.svg").size(px(16.))).icon_size(px(16.)).tooltip(t("Push")).accessibility_label(t("Push")).disabled(self.fetch_token.is_some() || self.settings_open)
                 .on_click(cx.listener(|s, _, w, cx| s.open_push(w, cx))))
             .child(self.repository_branch_menu(cx))
             .when(self.operation_state.as_ref().is_some_and(|state| state.operation == plico::operation_state::Operation::Merge), |v| v
                 .when(self.operation_state.as_ref().is_some_and(|state| state.conflicts.is_empty()), |v| v.child(
-                    Button::new("complete-merge").primary().label(t("Complete Merge")).disabled(self.fetch_token.is_some() || self.settings_open)
+                    titlebar_button("complete-merge").primary().label(t("Complete Merge")).disabled(self.fetch_token.is_some() || self.settings_open)
                         .on_click(cx.listener(|s, _, w, cx| s.start_merge_operation(plico::merge_operation::Action::Commit, w, cx)))))
-                .child(Button::new("abort-merge").label(t("Abort Merge")).disabled(self.fetch_token.is_some() || self.settings_open)
+                .child(titlebar_button("abort-merge").label(t("Abort Merge")).disabled(self.fetch_token.is_some() || self.settings_open)
                     .on_click(cx.listener(|s, _, w, cx| s.confirm_abort_merge(w, cx)))))
             .when(self.operation_state.as_ref().is_some_and(|state| matches!(state.operation,
                 plico::operation_state::Operation::RebaseApply | plico::operation_state::Operation::RebaseMerge)), |v| v
-                .child(Button::new("continue-rebase").primary().label(t("Continue Rebase"))
+                .child(titlebar_button("continue-rebase").primary().label(t("Continue Rebase"))
                     .disabled(self.fetch_token.is_some() || self.settings_open || self.operation_state.as_ref().is_some_and(|state| !state.conflicts.is_empty()))
                     .on_click(cx.listener(|s, _, w, cx| s.start_rebase_operation(false, w, cx))))
-                .child(Button::new("abort-rebase").label(t("Abort Rebase")).disabled(self.fetch_token.is_some() || self.settings_open)
+                .child(titlebar_button("abort-rebase").label(t("Abort Rebase")).disabled(self.fetch_token.is_some() || self.settings_open)
                     .on_click(cx.listener(|s, _, w, cx| s.confirm_abort_rebase(w, cx)))))
             .child(div().flex_1())
-            .child(Button::new("settings").ghost().icon(jb_icon("settings_dark.svg").size(px(14.))).icon_size(px(14.)).tooltip(format!("{} (Ctrl+Alt+S)", t("Settings"))).accessibility_label(t("Settings"))
+            .child(titlebar_button("settings").ghost().icon(jb_icon("settings_dark.svg").size(px(14.))).icon_size(px(14.)).tooltip(format!("{} (Ctrl+Alt+S)", t("Settings"))).accessibility_label(t("Settings"))
                 .on_click(cx.listener(|s, _, w, cx| { s.open_settings(w, cx); })))
     }
     fn left_tool_windows(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -4476,7 +4497,7 @@ impl Review {
             )
             .when(self.history_offset > 0 || self.snapshot.as_ref().is_some_and(|s| s.more), |v| v.child(
                 h_flex()
-                    .h(px(28.))
+                    .h(px(24.)).min_h(px(24.)).max_h(px(24.)).flex_shrink_0().items_center()
                     .px_2()
                     .text_size(px(12.))
                     .text_color(rgb(MUTED))
@@ -5488,7 +5509,7 @@ impl Render for Review {
                 .on_action(cx.listener(|s, _: &Back, _, cx| { s.close_settings(cx); cx.notify(); }))
                 .child(TitleBar::new().bg(rgb(PANEL)).border_color(rgb(PANEL)).child(
                     h_flex().w_full().px_2().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(20.))).child("Plico").child(div().flex_1())
-                        .child(Button::new("welcome-settings").ghost().small().icon(jb_icon("settings_dark.svg").size(px(14.))).icon_size(px(14.))
+                        .child(titlebar_button("welcome-settings").ghost().small().icon(jb_icon("settings_dark.svg").size(px(14.))).icon_size(px(14.))
                             .tooltip(format!("{} (Ctrl+Alt+S)", t("Settings"))).accessibility_label(t("Settings"))
                             .on_click(cx.listener(|s, _, w, cx| { s.open_settings(w, cx); })))))
                 .child(h_flex().flex_1().min_h_0().items_stretch()

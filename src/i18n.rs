@@ -133,6 +133,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Recovery record cleared; saved changes kept" => "恢复记录已清除，保存的更改已保留",
         "Recovery record was not cleared. Refresh and review the repository state." => "未清除恢复记录，请刷新并检查仓库状态。",
         "Refresh" => "刷新",
+        "Press F7 again to go to the next file" => "再次按 F7 转到下一个文件",
+        "Press Shift+F7 again to go to the previous file" => "再次按 Shift+F7 转到上一个文件",
         "Load more files…" => "加载更多文件…",
         "Folder changed. Refresh to reload its files." => "目录已变化，请刷新后重新加载文件。",
         "Local changes" => "本地变更",

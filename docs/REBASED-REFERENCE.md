@@ -1781,3 +1781,14 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 继续基础编辑保稿验收，未新增功能范围。最终Windows release SHA256 `B71CF4E6EF2A63F89BC59EC070DD7C3DA7A95D13D63D2DDDEBB5AC224C431176`，在独立 `Plico-validation/edit-close` 仓库中通过Source编辑后由外部写入冲突内容，再关闭窗口：窗口保持打开，磁盘外部字节未被覆盖，编辑器完整草稿保留；恢复测试文件原基线后再次关闭，窗口退出且磁盘精确等于草稿。HEAD/index不变、stderr为空，自有进程正常结束，用户Rebased未操作。
 
 证据 `artifacts/edit-close/startup.json`、`assertions.json`、`close-conflict.png`（已查看）及verify/resume脚本。第一轮复制校验因错误行出现后编辑区域下移、脚本仍点击旧坐标失败；没有将失败断言当作通过。检查截图确认草稿仍在，resume在同一存活窗口以新坐标全选复制验证完整正文，然后执行保存重试和退出断言。此轮覆盖普通输入保存冲突与恢复，不覆盖原生IME候选窗或所有关闭入口；旧便携包未更新。
+
+## Preview 修复：Tab 缩进、F7 边界、标题栏点击与欢迎页定位（2026-10-19）
+
+源码快照仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`；宿主机参考为用户安装的 Rebased 1.1.20，未假定其构建与此 commit 完全一致。本轮实际读取：
+
+- `platform/platform-impl/src/com/intellij/openapi/editor/impl/view/TabFragment.java`：Tab 占一个源字符，绘制为空、宽度到下一个 tab stop；点击映射到原始字符边界。对应 `vendor/gpui-base/src/input/editor/display_map/inline_line.rs`，以及 editor 绘制／换行测量。保留原文和 UTF-8 索引，不把文档中的 Tab 替换为空格；当前源码编辑器默认四列，尚不解析项目 `.editorconfig`。
+- `platform/diff-impl/src/com/intellij/diff/actions/impl/DiffDifferenceNavigationAction.kt`、`DiffNextDifferenceAction.kt`、`tools/util/CrossFilePrevNextDifferenceIterableSupport.kt`、`PrevNextDifferenceIterableBase.java`、`impl/DiffRequestProcessor.java` 的 `DiffNavigator`：先导航文件内差异，边界首次提示、同方向再次触发才跨文件；没有相邻文件时停止。跨文件定位下一文件首个／上一文件末个差异。对应 `src/diff_tab.rs`、`src/editable_diff.rs`、vendored `diff/state.rs`。轻量提示放在 Diff 内，不实现上游提示气泡的全部位置与配置选项。
+- `platform/platform-impl/src/com/intellij/ide/actions/SettingsEntryPointAction.java`：设置入口是普通 action button，`actionPerformed` 打开 popup，不是右键专属操作。本地保留直接打开设置的既有简化入口。Windows 实测物理左键失败而直接投递客户区点击消息成功，结合 GPUI native caption hit-test 定位到标题栏 Drag hitbox；`src/ui.rs` 的 `titlebar_button` 遮挡底层 caption 命中并阻止左键冒泡，应用于设置、更新、推送和标题栏菜单，保留空白区域拖动。
+- `platform/platform-impl/src/com/intellij/openapi/wm/impl/welcomeScreen/FlatWelcomeFrame.kt`：欢迎页独立管理窗口尺寸／位置。该文件不证明项目窗口必然围绕欢迎页中心；本地按用户明确要求，以欢迎页中心创建项目窗口并限制在当前显示器内，成功后关闭欢迎页；普通项目切换不再强行调整窗口大小。对应 `src/main.rs`、`src/ui.rs`。
+
+“加载更多”仍是本地有界历史分页入口，不声称是上游同款控件；固定 24 DIP 高并禁止 flex 拉伸，避免占用额外阅读空间。

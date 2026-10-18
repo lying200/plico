@@ -124,6 +124,11 @@ impl WrapMap {
         self.wrapper.set_wrap_width(wrap_width, cx);
     }
 
+    pub(super) fn set_tab_size(&mut self, tab_size: usize, cx: &mut App) {
+        self.wrapper.set_tab_size(tab_size,cx);
+
+    }
+
     /// Set the wrapping indent mode for continuation lines.
     pub(super) fn set_wrapping_indent(&mut self, wrapping_indent: WrappingIndent, cx: &mut App) {
         self.wrapper.set_wrapping_indent(wrapping_indent, cx);

@@ -49,6 +49,8 @@ manifest = {"format": 1, "kind": "development-preview", "target": "x86_64-pc-win
             "executable_sha256": hashlib.sha256(exe.read_bytes()).hexdigest(),
             "askpass_sha256": hashlib.sha256(helper.read_bytes()).hexdigest(),
             "editor_sha256": hashlib.sha256(editor.read_bytes()).hexdigest(),
+            "version": next(p["version"] for p in metadata["packages"] if p["name"] == "plico"),
+            "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
             "dependencies": packages}
 args.output.parent.mkdir(parents=True, exist_ok=True)
 with zipfile.ZipFile(args.output, "x", compression=zipfile.ZIP_DEFLATED, strict_timestamps=False) as archive:
@@ -58,5 +60,8 @@ with zipfile.ZipFile(args.output, "x", compression=zipfile.ZIP_DEFLATED, strict_
 with zipfile.ZipFile(args.output) as archive:
     if archive.testzip() is not None:
         raise SystemExit("Archive validation failed")
+checksum = hashlib.sha256(args.output.read_bytes()).hexdigest()
+args.output.with_suffix(args.output.suffix + ".sha256").write_text(
+    f"{checksum}  {args.output.name}\n", encoding="utf-8")
 print(json.dumps({"archive": str(args.output), "bytes": args.output.stat().st_size,
                   "executable_sha256": manifest["executable_sha256"]}))

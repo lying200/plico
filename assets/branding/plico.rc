@@ -11,8 +11,8 @@ BEGIN
   BEGIN
    VALUE "FileDescription", "Plico\0"
    VALUE "ProductName", "Plico\0"
-   VALUE "FileVersion", "0.1.0\0"
-   VALUE "ProductVersion", "0.1.0\0"
+   VALUE "FileVersion", "0.1.0-preview.1\0"
+   VALUE "ProductVersion", "0.1.0-preview.1\0"
    VALUE "OriginalFilename", "Plico.exe\0"
   END
  END

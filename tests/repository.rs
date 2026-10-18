@@ -1533,7 +1533,9 @@ fn filtered_navigation_preserves_display_order_filters_and_real_parents() {
         LogFilter { paths: vec!["review.txt".into()], ..Default::default() },
         LogFilter { text: "needle (base|tip)".into(), regex: true, ..Default::default() },
         LogFilter { text: "needle".into(), authors: Some(vec![]), ..Default::default() },
-        LogFilter { after: Some(i64::MAX / 2), ..Default::default() },
+        // Git falls back to the current time for out-of-range dates.
+        // Use a valid future timestamp so separate queries cannot disagree at a second boundary.
+        LogFilter { after: Some(chrono::Utc::now().timestamp() + 86_400), ..Default::default() },
         // Matching hashes ignore even an invalid path and empty author set.
         LogFilter { text: format!("{},{}", &base[..8], &tip[..8]), paths: vec!["../outside".into()], authors: Some(vec![]), ..Default::default() },
     ];
@@ -1543,8 +1545,12 @@ fn filtered_navigation_preserves_display_order_filters_and_real_parents() {
         row.segments.iter().map(|edge| (edge.from(), edge.to(), edge.upper(), edge.full(), edge.dotted(), edge.color)).collect::<Vec<_>>());
     for filter in filters {
         let all = history::read_filtered(&repo, None, 0, 10, Some(&roots), &filter, &token).unwrap();
+        if filter.after.is_some() {
+            assert!(all.snapshot.commits.is_empty(), "future date must exclude fixture commits");
+        }
         for target in [&base, &hidden, &tip] {
-            match history::locate_filtered(&repo, &roots, target, 1, &filter, &token).unwrap() {
+            match history::locate_filtered(&repo, &roots, target, 1, &filter, &token)
+                .unwrap_or_else(|error| panic!("filter {filter:?}, target {target}: {error}")) {
                 FilteredLocation::Found(found) => {
                     let index = all.snapshot.commits.iter().position(|c| &c.id == target).unwrap();
                     assert_eq!(found.offset + found.selected, index);

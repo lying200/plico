@@ -1,0 +1,325 @@
+Diff title path shortening
+
+src/diff_path_title.rs adapts separator selection from SplitBySeparatorPolicy.java
+and the filename-preserving rule in FilePathDiffTitleCustomizer.kt.
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+Sources:
+platform/util/ui/src/com/intellij/util/ui/SplitBySeparatorPolicy.java
+platform/diff-impl/src/com/intellij/diff/impl/ui/FilePathDiffTitleCustomizer.kt
+
+The Rust adaptation measures whole-component candidates with GPUI instead of
+iterating Java string lengths, and renders within the read-only Diff title.
+The Apache-2.0 license text is included at licenses/assets/icons/LICENSE.txt.
+
+Commit reference icons
+
+src/ui.rs::reference_icon adapts LabelIcon.java and TagPainter.kt geometry and
+opaque layering from platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/.
+Copyright 2000-2023 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+The Rust adaptation layers cached SVG masks (assets/icons/reference-*.svg)
+using the current row background, preserving TagPainter geometry and occlusion.
+The Apache-2.0 license text is included at licenses/assets/icons/LICENSE.txt.
+
+Containing branches presentation
+
+src/containing_branches.rs adapts the width-reserving summary and expansion rules
+from CommitPresentationUtil.java and CommitDetailsPanel.kt under
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/{frame,details/commit}/.
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+The Rust adaptation uses GPUI text measurement and a cancellable per-selection query.
+The Apache-2.0 license text is included at licenses/assets/icons/LICENSE.txt.
+
+Natural reference ordering
+
+src/natural_order.rs adapts NaturalComparator.java from
+platform/util/base/src/com/intellij/openapi/util/text/.
+Copyright 2000-2022 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+The Rust version has an allocation-free ASCII path; Unicode names use UTF-16
+units with Rust case mappings (Unicode/JDK table differences remain possible).
+The Apache-2.0 license text is included at licenses/assets/icons/LICENSE.txt.
+
+Combined committed-change preview
+
+src/combined_changes.rs translates CommittedChangesTreeBrowser.zipChanges.
+Test scenarios are adapted from ZipChangesTest.kt.
+Copyright JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0 (text: assets/icons/LICENSE.txt).
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+Sources:
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/committed/CommittedChangesTreeBrowser.java
+platform/vcs-impl/testSrc/com/intellij/openapi/vcs/changes/committed/ZipChangesTest.kt
+The Rust translation uses indexed FIFO buckets and bounds input metadata to
+100,000 changes. It does not retain file bodies or infer branch topology.
+
+Revision endpoint conversion in combined_changes::from_file follows
+plugins/git4idea/backend/src/history/GitChangesParser.java (same reference/license).
+
+Repository::push_commit_changes follows GitLogParser.PathsParser and
+GitChangeType.fromString (plugins/git4idea/backend/src/history/, same reference
+and Apache-2.0 license) for combined status mapping and missing rename paths.
+
+Log parent-status merger
+------------------------
+src/log_changes.rs adapts VcsStatusMerger.kt from JetBrains/Rebased.
+Copyright 2000-2017 JetBrains s.r.o. Licensed under Apache-2.0.
+Reference commit: 4aec35256d765c217aa0d662b82ac4e860c396fd
+Source: platform/vcs-log/impl/src/com/intellij/vcs/log/impl/VcsStatusMerger.kt
+Repository: https://github.com/detachhead/rebased
+Modifications: Rust Change model, bounded metadata input, explicit status validation.
+
+Squash replay plan and message draft
+-----------------------------------
+src/squash_plan.rs adapts JetBrains/Rebased ordering and message rules.
+Copyright 2000-2026 JetBrains s.r.o. and contributors. Apache-2.0.
+Reference commit: 4aec35256d765c217aa0d662b82ac4e860c396fd
+Sources: plugins/git4idea/backend/src/rebase/interactive/GitRebaseTodoModel.kt,
+plugins/git4idea/backend/src/rebase/log/squash/GitSquashOperation.kt,
+plugins/git4idea/backend/src/rebase/GitSquashedCommitsMessage.kt.
+Modifications: bounded Rust full-OID linear replay plan; no generic interactive
+model, pre-existing unite groups or update-ref entries. Message deduplication
+preserves input order; output syntax excludes user messages/subjects.
+
+Squash preparation gate
+-----------------------
+src/squash_check.rs follows GitCommitEditingActionBase.checkHeadLinearHistory /
+lastCheckCommitsEditingAvailability and GitProtectedBranches.kt (same Rebased
+commit and Apache-2.0 license above). Rust reads a bounded first-parent path
+instead of the IDE permanent graph, checks local remote-ref ancestry, and
+revalidates branch/HEAD/ref/shallow snapshots. This is read-only preparation.
+
+Squash todo reconciliation additionally follows GitRebaseEntry.kt and
+GitInteractiveRebaseFile.java at the same Rebased reference. Full-range snapshot
+comparison and binary-search abbreviation validation are local additions.
+
+Squash persistent reword mapping
+--------------------------------
+src/squash_message.rs follows GitRewordedCommitMessageProvider.kt from
+plugins/git4idea/backend/src/rebase/interactive/ (same Rebased reference).
+Copyright 2000-2021 JetBrains s.r.o. and contributors. Apache-2.0.
+Local changes: per-worktree rebase lifecycle storage, orig-head binding, bounded
+binary record and one-shot marker; no project workspace service dependency.
+
+src/squash_operation.rs follows GitSquashOperation/GitCommitEditingOperation,
+GitRebaseProcess and GitImpl.rebase at the same reference (Apache-2.0). Local
+implementation uses the bounded process runner, per-operation editor routing
+and explicit post-command HEAD/state inspection rather than IDE services.
+
+src/squash_undo.rs follows GitCommitEditingOperationResult.Complete from
+plugins/git4idea/backend/src/rebase/log/GitCommitEditingOperationResult.kt
+(same reference, Copyright 2000-2020 JetBrains s.r.o., Apache-2.0). Local additions
+bind the action to its worktree/branch and inspect actual state after reset.
+
+src/rebase_editor.rs follows GitRebaser continuation routing and
+GitInteractiveRebaseEditorHandler message fallback at the same Rebased commit
+(Apache-2.0). Rust uses operation-scoped helper forwarding and teardown.
+
+Squash local-change preservation follows GitRebaseProcess.java,
+GitStashChangesSaver.java and GitImpl.java (same Rebased reference, JetBrains
+and contributors, Apache-2.0). Local adaptation reuses update_session and adds
+bounded per-worktree squash_saved ownership records and top-stash checks.
+
+Squash Continue/Abort restoration also follows GitAbortRebaseProcess.java::doAbort
+(same Rebased commit, JetBrains and contributors, Apache-2.0). Rust binds persisted
+ownership to current rebase metadata and reports restoration separately.
+
+src/squash_dialog.rs and the Log Squash UI flow follow GitSquashLogAction.kt and
+GitNewCommitMessageActionDialog.kt (same Rebased reference, JetBrains and
+contributors, Apache-2.0). Local GPUI dialog uses bounded message loading,
+existing editor routing and shared operation status reporting.
+
+Squash UI completion/Undo follows GitCommitEditingUiUtils.kt,
+GitCommitEditingNotifications.kt and GitCommitEditingOperationResult.kt
+(same Rebased reference, JetBrains and contributors, Apache-2.0). Local Git
+fallback derives first-rewritten/original focus IDs and uses a status-bar action
+and fresh bounded history navigation instead of IDE notifications/services.
+
+src/squash_session.rs and continuation result handling follow GitRebaseSpec.java
+and GitCommitEditingOperationResult.kt (same Rebased reference, JetBrains and
+contributors, Apache-2.0). Local adaptation persists bounded Squash-only origin
+metadata under Git's rebase directory and validates it before creating Undo.
+
+Squash validation presentation additionally references DialogWrapper.java
+(platform/platform-api) and GitBundle.properties (plugins/git4idea/shared),
+Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains and contributors,
+Apache-2.0: component-less validation text above actions and disabled OK.
+Local Rust/GPUI adaptation: src/squash_dialog.rs and src/i18n.rs.
+
+Log adjacent-row navigation follows GoToParentOrChildAction.kt and
+VisibleGraphImpl.kt::getAdjacentRows from detachhead/rebased
+4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains and contributors,
+Apache-2.0. Local mapping: src/filtered_graph.rs and src/history.rs;
+uses the previously attributed dotted-filter projection.
+
+Navigation numbering follows JetBrains ActionStepBuilder.java::appendAction;
+version comparison follows CompareRevisionsFromLogAction.kt, GitLogDiffHandler.java,
+GitChangeUtils.java and CompareWithLocalDialog.java, from Rebased
+4aec35256d765c217aa0d662b82ac4e860c396fd (Apache-2.0).
+Local adaptations: vendor/gpui-component/src/menu/popup_menu.rs,
+src/ui.rs and src/git.rs::revision_changes.
+
+Compare Versions tool-window integration additionally follows
+ChangesBrowserToolWindow.kt and TreeHandlerDiffRequestProcessor.kt
+(TreeHandlerEditorDiffPreview), Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd,
+JetBrains and contributors, Apache-2.0. Local mapping: src/compare_view.rs
+and src/ui.rs; existing attributed JetBrains icons are reused.
+
+Compare preview identity and Escape lifecycle in src/ui.rs and src/diff_tab.rs
+also follow platform/diff-impl/src/com/intellij/openapi/vcs/changes/EditorTabDiffPreview.kt
+(Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains contributors,
+Apache-2.0), alongside TreeHandlerEditorDiffPreview listed above.
+
+Comparison refresh/error lifecycle additionally references
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/browser/LoadingChangesPanel.java
+from Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
+(JetBrains and contributors, Apache-2.0).
+
+Project file-name visibility defaults:
+Adapted from JetBrains FileTypeManagerImpl.DEFAULT_IGNORED and file-name matcher semantics.
+Copyright 2000-2026 JetBrains s.r.o. and contributors. Apache License 2.0.
+Source: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+Paths and local adaptations: docs/REBASED-REFERENCE.md.
+Apache-2.0 license text is included in licenses/assets/themes when packaged.
+
+File and selection history / source navigation:
+Copyright 2000-2026 JetBrains s.r.o. and contributors. Apache License 2.0.
+Rust adaptations in src/file_history.rs, src/history_view.rs, src/project_view.rs,
+src/diff_tab.rs and src/ui.rs reference GitFileHistory, FileHistoryModel, Block, DiffUtil,
+VcsSelectionHistoryDialog, SelectedBlockHistoryAction and OpenInEditorAction.
+Commit and exact source paths: docs/REBASED-REFERENCE.md.
+
+File history details layout
+
+src/history_view.rs adapts FileHistoryPanel.java, CommitDetailsListPanel.kt,
+CommitDetailsPanel.kt and VcsLogCommitSelectionListenerForDetails.kt from
+platform/vcs-log/impl/src/com/intellij/vcs/log/{history,ui/details,ui/details/commit,ui/frame}/.
+Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache-2.0.
+Reference commit: 4aec35256d765c217aa0d662b82ac4e860c396fd.
+The adaptation uses cancellable bounded metadata reads and the existing GPUI
+commit presentation, reference icons and containing-branch components.
+
+File history parent comparisons and merge requests
+
+src/file_history.rs adapts FileHistoryUtil.kt, FileHistoryModel.java,
+VcsStatusMerger.kt and MergedChangeDiffRequestProvider.java under
+platform/vcs-log/impl/src/com/intellij/vcs/log/{history,impl}/.
+Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache-2.0.
+Reference commit: 4aec35256d765c217aa0d662b82ac4e860c396fd.
+The adaptation retains bounded immutable content identities, graph-parent
+ordering, status merging, and three-side/two-side request reduction rules.
+The three-column renderer is not yet implemented.
+
+Three-way merge-result alignment and rendering
+
+src/three_way.rs and the GPUI Diff three-column integration adapt
+ComparisonMergeUtil.kt (FairMergeBuilder), MergeRangeUtil.kt, MergeConflictType.kt,
+SimpleThreesideTextDiffProvider.java, SimpleThreesideDiffViewer.java and
+ThreesideTextDiffViewer.java from platform/util/diff and platform/diff-impl.
+Copyright 2000-2025 JetBrains s.r.o. and contributors. Apache-2.0.
+Reference commit: 4aec35256d765c217aa0d662b82ac4e860c396fd.
+The Rust implementation uses bounded Patience comparisons and a shared virtual
+row list for three readonly source columns. Source text is never padded.
+
+Three-way inner word highlighting rules are adapted from JetBrains Rebased
+4aec35256d765c217aa0d662b82ac4e860c396fd, Apache-2.0:
+platform/diff-impl/src/com/intellij/diff/util/DiffUtil.java::compareThreesideInner
+and tools/util/text/{SimpleThreesideTextDiffProvider,MergeInnerDifferences}.java.
+Local mapping: src/three_way.rs::inner_ranges and the vendored Diff rendering layer.
+Unicode word segmentation uses similar; full ByWordRt parity is not claimed.
+
+Graph vertical-segment storage optimization (src/graph.rs, src/ui.rs) preserves
+Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd row-edge semantics inspected in
+PrintElementGeneratorImpl.kt::getPrintElements and SimpleGraphCellPainter.kt.
+The full-row storage coalescing is a local optimization, not upstream code.
+
+File-history detail visibility (HistoryView / layout_preferences) follows
+Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, Apache-2.0:
+FileHistoryUiProperties.kt, FileHistoryPanel.java, ShowDetailsAction.java,
+BooleanPropertyToggleAction.java and intellij.platform.vcs.log.impl.xml.
+The mapped show_dark.svg icon is unmodified; see assets/icons/SOURCE.txt.
+Per-project app-data persistence and on-demand release are local adaptations.
+
+Windows clipboard ownership fix
+
+vendor/gpui-pre-windows 0.3.9 is the Apache-2.0 gpui-pre snapshot of
+zed@93d745668805029476e6d7fbb19652116fed51de (crate provenance is retained).
+Local clipboard.rs/platform.rs adaptation passes the platform's existing hidden
+window to OpenClipboard for writes; reads retain null-owner examination.
+It adds no UI window or clipboard polling service. Native regression checks
+GetClipboardOwner plus Unicode, metadata and embedded-NUL round trips.
+Win32 contract reference (API documentation, not copied implementation):
+https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openclipboard
+
+Windows clipboard acquisition retry behavior follows Rebased, Apache-2.0,
+commit 4aec35256d765c217aa0d662b82ac4e860c396fd:
+platform/platform-impl/src/com/intellij/ide/ClipboardSynchronizer.java,
+ClipboardHandler.setContent / WindowsClipboardHandler.getRetries.
+The local gpui-pre-windows adaptation makes up to five write acquisitions,
+with bounded 5ms gaps, retaining the existing hidden owner window and data
+on acquisition failure. No Java code or clipboard history is incorporated.
+
+Project avatar font
+
+Unmodified JetBrainsMono-SemiBold.ttf is embedded for project avatar initials.
+SIL Open Font License 1.1, included at licenses/assets/fonts/JetBrainsMono-OFL.txt.
+Source and SHA-256: licenses/assets/fonts/SOURCE.txt.
+
+Graph print projection and regression fixtures
+
+src/graph_print.rs adapts GraphLayoutBuilder.kt, GraphElementComparatorByLayoutIndex.java
+and PrintElementGeneratorImpl.kt; src/graph.rs::text_offset_columns adapts
+GraphCommitCellUtil.kt. src/graph.rs::arrow_at adapts SimpleGraphCellPainter.kt
+node-first elliptical hit testing; src/ui.rs arrow actions follow VisibleGraphImpl.kt
+and GraphCommitCellController.java. Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Apache License 2.0, reference detachhead/rebased commit
+4aec35256d765c217aa0d662b82ac4e860c396fd. Exact paths and differences are in
+docs/REBASED-REFERENCE.md. The unmodified graph test fixtures and their origin
+are recorded at tests/fixtures/REBASED-SOURCE.txt. Existing Apache text included
+at licenses/assets/icons/LICENSE.txt.
+
+Plico application artwork: user supplied logo, source and modifications recorded in assets/branding/SOURCE.txt. Original SVG retained; no additional third-party license is inferred.
+
+Graph hover outline order and themed highlight
+src/ui.rs::graph_cell adapts the selected-element painting order from
+platform/vcs-log/impl/src/com/intellij/vcs/log/paint/SimpleGraphCellPainter.kt,
+with the themed MARK_COLOR meaning from platform/util/ui/src/com/intellij/ui/JBColor.java.
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+The Rust adaptation reuses the existing hover identity and immutable geometry,
+paints a device-visible outline before the ordinary branch-color line/arrow,
+and retains existing GPUI geometry instead of Java2D pixel alignment.
+The Apache-2.0 text is included at licenses/assets/icons/LICENSE.txt.
+
+Graph HEAD node marker
+src/ui.rs::graph_cell adapts the outer/background/inner circle composition from
+platform/vcs-log/impl/src/com/intellij/vcs/log/paint/HeadNodePainter.kt;
+full HEAD identity follows ui/table/GraphTableModel.kt and HeadPrintElements.kt.
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+The Rust adaptation retains GPUI logical geometry and passes row background
+as presentation data, outside immutable/shared graph geometry.
+The Apache-2.0 text is included at licenses/assets/icons/LICENSE.txt.
+
+Push panel and force-push behavior translated from detachhead/rebased
+(commit 4aec35256d765c217aa0d662b82ac4e860c396fd), JetBrains Apache-2.0:
+platform/dvcs-impl/.../push/ui/{VcsPushDialog.java,ForcePushAction.kt,PushLog.java,SingleRepositoryNode.java,PushLogChangesBrowser.kt}
+platform/dvcs-api/.../push/PushSettings.java
+plugins/git4idea/backend/src/push/{GitPushOperation.java,GitPushOptionsPanel.java,GitPushSupport.java}
+plugins/git4idea/backend/src/{commands/GitImpl.java,config/GitSharedSettings.java}
+plugins/git4idea/shared/src/git4idea/push/GitPushTagMode.kt
+plugins/git4idea/tests/git4idea/push/GitPushOperationSingleRepoTest.kt
+platform/platform-impl/.../{DarculaComboBoxUI.java,DarculaOptionButtonUI.kt,BasicOptionButtonUI.kt}
+platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json
+Source and local mapping: docs/REBASED-REFERENCE.md. Existing Apache-2.0 text
+is distributed with the JetBrains icon/theme attribution.
+
+Checkbox focus rendering reference: platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaCheckBoxUI.java (same Rebased commit and Apache-2.0 license).

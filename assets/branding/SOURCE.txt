@@ -1,0 +1,5 @@
+Plico application logo
+Provided by the project owner on 2026-10-18: C:\Users\echoyn\Downloads\git_client_icon(1).svg.
+Original retained as plico-original.svg. plico.svg removes the opaque outer canvas and crops to the existing rounded tile; branch geometry and gradients are unchanged. On 2026-10-18, the owner requested optical alignment: the colored branch group is translated down 22 SVG units (about 0.50 logical px at the 20 px title-bar size); the tile and viewBox stay fixed.
+plico.ico contains 16, 20, 24, 32, 40, 48, 64, 128 and 256 px PNG images rendered by librsvg; regenerate with scripts/generate-app-icon.py.
+User supplied artwork; no third-party license is inferred or assigned here.

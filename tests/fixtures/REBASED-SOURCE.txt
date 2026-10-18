@@ -1,0 +1,11 @@
+Unmodified graph print fixtures from detachhead/rebased.
+Reference commit: 4aec35256d765c217aa0d662b82ac4e860c396fd
+Copyright 2000-2024 JetBrains s.r.o. and contributors.
+Apache License 2.0 (repository LICENSE; assets/icons/LICENSE.txt).
+Sources:
+platform/vcs-log/graph/testData/elementGenerator/manyNodes_{in,out}.txt
+platform/vcs-log/graph/testData/elementGenerator/longEdges_{in,out}.txt
+Test harness reference:
+platform/vcs-log/graph/test/com/intellij/vcs/log/graph/impl/print/PrintElementGeneratorTest.kt
+The Rust comparison ignores presentation-manager colors and normalizes element order,
+while checking every node position, edge endpoint, dashed style and arrow.

@@ -1,0 +1,10 @@
+Syntax palette adapted from JetBrains Rebased, Apache-2.0.
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+https://github.com/detachhead/rebased/blob/4aec35256d765c217aa0d662b82ac4e860c396fd/platform/platform-resources/src/themes/islands/IslandSchemeDark.xml
+DEFAULT_* foreground values mapped to Tree-sitter capture names.
+Function calls/declarations and semantic types cannot be distinguished by this shared capture palette.
+
+Popup/control border: ManyIslandsDark.theme.json at the same Rebased commit.
+Menu.separatorColor / Menu.borderColor / Popup.borderColor resolve popup-border
+-> layer-1-border -> gray-40 (#33353B). App panel seams remain separate.
+DarculaMenuSeparatorUI.java uses PopupMenuSeparator.stripeWidth default 1.

@@ -1,0 +1,20 @@
+Unmodified fonts bundled with JetBrains Runtime in IntelliJ IDEA 2026.2.3 (build 262.10968.63).
+Inter: https://github.com/rsms/inter (SIL OFL 1.1).
+JetBrains Mono: https://github.com/JetBrains/JetBrainsMono (SIL OFL 1.1).
+License texts are included alongside the fonts.
+JetBrainsMono-Regular.ttf: sha256 a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f
+Inter-Regular.otf: sha256 a7e791e8f5a0fb02b65663f7fca73e1d1ca9543f772ad480cbd76f4e3fe3f8cc
+Inter-SemiBold.otf: sha256 8c1990b6012254ea2b487161697d107357dd0ee55811cfd91c8c11227bbef457
+
+Chinese branch stripe outlines (assets/ui/branches-stripe-zh.svg):
+Noto Sans CJK SC Regular 2.004, Copyright 2014-2021 Adobe (http://www.adobe.com/).
+Source: https://github.com/notofonts/noto-cjk/blob/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
+Font sha256: 2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
+Only the two label glyph outlines are shipped; the full font is not bundled.
+Generate with scripts/generate-branches-stripe.py --chinese-font <downloaded-font>.
+License: SIL OFL 1.1, included in NotoSansCJK-OFL.txt.
+
+Project avatar face (unmodified): JetBrainsMono-SemiBold.ttf, SIL OFL 1.1.
+Source: https://github.com/detachhead/rebased/blob/4aec35256d765c217aa0d662b82ac4e860c396fd/platform/jewel/int-ui/int-ui-standalone/src/main/resources/fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf
+sha256: 1b3bfa1ed5665a4ce3f9feb68d2d4e40e70bf8b4b7d9a3edd418f321b4e166a0
+Used for AvatarUtils New UI demi-bold initials; existing JetBrainsMono-OFL.txt applies.

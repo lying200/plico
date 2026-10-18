@@ -1,0 +1,56 @@
+[package]
+name = "plico"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "A lightweight Git review desktop"
+
+[features]
+default = ["desktop"]
+desktop-tests = ["desktop", "dep:gpui-component"]
+desktop = ["dep:gpui-kit", "dep:serde_json"]
+
+[dependencies]
+similar = { version = "=2.7.0", features = ["unicode"] }
+gpui-component = { version = "=0.7.3", optional = true, features = ["test-support"] }
+getrandom = "=0.3.4"
+url = "=2.5.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+gpui-kit = { version = "=0.7.3", optional = true, features = ["tree-sitter-languages"] }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+chrono-tz = "0.10"
+
+[[bin]]
+name = "gitui-askpass"
+path = "src/bin/askpass.rs"
+
+[[bin]]
+name = "gitui-editor"
+path = "src/bin/editor.rs"
+
+[[bin]]
+name = "plico"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[profile.release]
+debug = 1
+
+[profile.dev]
+debug = 0
+
+# Upstream's Release shader build assumes a Windows host. This patch also
+# compiles shaders through Windows D3DCompiler when building from WSL.
+[patch.crates-io]
+gpui-base = { path = "vendor/gpui-base" }
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
+gpui-component = { path = "vendor/gpui-component" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+
+[[example]]
+name = "editor_dialog"
+required-features = ["desktop"]

@@ -1,0 +1,353 @@
+//! Small per-user layout preference, independent of repository data.
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
+
+pub const DEFAULT_FILES_FRACTION: f32 = 0.7;
+
+fn settings_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    #[cfg(not(windows))]
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    base.map(|base| base.join("GitReview").join("files-details-ratio"))
+}
+
+fn valid(value: f32) -> bool {
+    value.is_finite() && (0.1..=0.9).contains(&value)
+}
+
+fn read(path: &Path) -> Option<f32> {
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(65)
+        .read_to_string(&mut text)
+        .ok()?;
+    if text.len() > 64 {
+        return None;
+    }
+    let value = text.trim().parse().ok()?;
+    valid(value).then_some(value)
+}
+
+pub fn load_files_fraction() -> f32 {
+    settings_path()
+        .and_then(|path| read(&path))
+        .unwrap_or(DEFAULT_FILES_FRACTION)
+}
+
+pub fn save_files_fraction(value: f32) -> std::io::Result<()> {
+    if !valid(value) {
+        return Ok(());
+    }
+    let Some(path) = settings_path() else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    // Persist only on drag completion; a partial write on abrupt termination
+    // safely falls back to the default on the next startup.
+    std::fs::write(path, format!("{value:.6}\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rejects_invalid_and_oversized_preferences() {
+        let path = std::env::temp_dir().join(format!("gitui-layout-test-{}", std::process::id()));
+        for input in ["NaN", "inf", "-0.3", "1", "garbage", "", &" ".repeat(65)] {
+            std::fs::write(&path, input).unwrap();
+            assert_eq!(read(&path), None, "{input:?}");
+        }
+        std::fs::write(&path, "0.425000\n").unwrap();
+        assert_eq!(read(&path), Some(0.425));
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+/// Missing or invalid preference keeps the default editor-tab layout.
+pub fn load_bottom_preview() -> bool {
+    let Some(path) = settings_path().map(|p| p.with_file_name("diff-location")) else { return false; };
+    let mut value = String::new();
+    std::fs::File::open(path).ok().and_then(|file| file.take(16).read_to_string(&mut value).ok());
+    value.trim() == "bottom"
+}
+pub fn save_bottom_preview(bottom: bool) -> std::io::Result<()> {
+    let Some(path) = settings_path().map(|p| p.with_file_name("diff-location")) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, if bottom { "bottom\n" } else { "tab\n" })
+}
+
+/// Rebased keeps viewer preference per Diff place, shared across repositories.
+#[derive(Clone, Copy)]
+pub enum DiffPlace { Log, Changes }
+impl DiffPlace {
+    fn file_name(self) -> &'static str {
+        match self { Self::Log => "diff-view-log", Self::Changes => "diff-view-changes" }
+    }
+    fn default_unified(self) -> bool { matches!(self, Self::Changes) }
+}
+fn read_diff_unified(path: &Path, place: DiffPlace) -> bool {
+    let mut value = String::new();
+    let read = std::fs::File::open(path).and_then(|file| file.take(17).read_to_string(&mut value));
+    if read.is_ok() && value.len() <= 16 {
+        match value.trim() { "unified" => return true, "split" => return false, _ => {} }
+    }
+    place.default_unified()
+}
+pub fn load_diff_unified(place: DiffPlace) -> bool {
+    settings_path().map(|p| read_diff_unified(&p.with_file_name(place.file_name()), place))
+        .unwrap_or(place.default_unified())
+}
+pub fn save_diff_unified(place: DiffPlace, unified: bool) -> std::io::Result<()> {
+    let Some(path) = settings_path().map(|p| p.with_file_name(place.file_name())) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, if unified { "unified\n" } else { "split\n" })
+}
+#[cfg(test)]
+mod diff_preference_tests {
+    use super::*;
+    #[test]
+    fn viewer_places_have_distinct_defaults_and_reject_corrupt_values() {
+        let path = std::env::temp_dir().join(format!("gitui-diff-mode-{}", std::process::id()));
+        assert_ne!(DiffPlace::Log.file_name(), DiffPlace::Changes.file_name());
+        for input in ["", "invalid", "unifiedxxxxxxxxxx", "splitxxxxxxxxxxxx", " unified         "] {
+            std::fs::write(&path, input).unwrap();
+            assert!(!read_diff_unified(&path, DiffPlace::Log));
+            assert!(read_diff_unified(&path, DiffPlace::Changes));
+        }
+        for (input, expected) in [("unified\n", true), ("split\n", false)] {
+            std::fs::write(&path, input).unwrap();
+            assert_eq!(read_diff_unified(&path, DiffPlace::Log), expected);
+            assert_eq!(read_diff_unified(&path, DiffPlace::Changes), expected);
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert!(!read_diff_unified(&path, DiffPlace::Log));
+        assert!(read_diff_unified(&path, DiffPlace::Changes));
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DiffEmphasis { Lines, #[default] Words, Characters }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiffAppearance {
+    pub line_numbers: bool,
+    pub soft_wrap: bool,
+    pub emphasis: DiffEmphasis,
+}
+impl Default for DiffAppearance {
+    fn default() -> Self { Self { line_numbers: true, soft_wrap: false, emphasis: DiffEmphasis::Words } }
+}
+impl DiffAppearance {
+    fn encode(self) -> String {
+        format!("line-numbers={}\nsoft-wrap={}\nemphasis={}\n", self.line_numbers, self.soft_wrap,
+            match self.emphasis { DiffEmphasis::Lines => "lines", DiffEmphasis::Words => "words", DiffEmphasis::Characters => "characters" })
+    }
+}
+fn read_diff_appearance(path: &Path) -> DiffAppearance {
+    let mut value = String::new();
+    if std::fs::File::open(path).and_then(|file| file.take(129).read_to_string(&mut value)).is_err() || value.len() > 128 {
+        return DiffAppearance::default();
+    }
+    let mut result = DiffAppearance::default();
+    for line in value.lines() {
+        match line {
+            "line-numbers=true" => result.line_numbers = true,
+            "line-numbers=false" => result.line_numbers = false,
+            "soft-wrap=true" => result.soft_wrap = true,
+            "soft-wrap=false" => result.soft_wrap = false,
+            "emphasis=lines" => result.emphasis = DiffEmphasis::Lines,
+            "emphasis=words" => result.emphasis = DiffEmphasis::Words,
+            "emphasis=characters" => result.emphasis = DiffEmphasis::Characters,
+            _ => {},
+        }
+    }
+    result
+}
+fn appearance_path(place: DiffPlace) -> Option<PathBuf> {
+    settings_path().map(|path| path.with_file_name(match place {
+        DiffPlace::Log => "diff-editor-log", DiffPlace::Changes => "diff-editor-changes",
+    }))
+}
+pub fn load_diff_appearance(place: DiffPlace) -> DiffAppearance {
+    appearance_path(place).map(|path| read_diff_appearance(&path)).unwrap_or_default()
+}
+pub fn save_diff_appearance(place: DiffPlace, value: DiffAppearance) -> std::io::Result<()> {
+    let Some(path) = appearance_path(place) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, value.encode())
+}
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+    #[test]
+    fn appearance_roundtrip_and_invalid_fallback() {
+        let path = std::env::temp_dir().join(format!("gitui-appearance-{}", std::process::id()));
+        assert_eq!(read_diff_appearance(&path), DiffAppearance::default());
+        for emphasis in [DiffEmphasis::Lines, DiffEmphasis::Words, DiffEmphasis::Characters] {
+            for line_numbers in [true, false] {
+                for soft_wrap in [true, false] {
+                    let expected = DiffAppearance { line_numbers, soft_wrap, emphasis };
+                    std::fs::write(&path, expected.encode()).unwrap();
+                    assert_eq!(read_diff_appearance(&path), expected);
+                }
+            }
+        }
+        for invalid in ["line-numbers=bad".to_owned(), "emphasis=unknown".into(), "x".repeat(129)] {
+            std::fs::write(&path, invalid).unwrap();
+            assert_eq!(read_diff_appearance(&path), DiffAppearance::default());
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+
+pub fn load_language() -> crate::i18n::Language {
+    let Some(path) = settings_path().map(|p| p.with_file_name("language")) else { return Default::default(); };
+    let mut value = String::new();
+    if std::fs::File::open(path).and_then(|f| f.take(33).read_to_string(&mut value)).is_err() || value.len() > 32 {
+        return Default::default();
+    }
+    crate::i18n::Language::parse(&value)
+}
+pub fn save_language(value: crate::i18n::Language) -> std::io::Result<()> {
+    let path = settings_path().map(|p| p.with_file_name("language"))
+        .ok_or_else(|| std::io::Error::other("User configuration directory is unavailable"))?;
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, value.encode())
+}
+
+/// Project file previews are opt-in, matching the upstream editor default.
+pub fn load_file_preview() -> bool {
+    let Some(path) = settings_path().map(|p| p.with_file_name("file-preview")) else { return false; };
+    let mut value = String::new();
+    std::fs::File::open(path).ok().and_then(|file| file.take(16).read_to_string(&mut value).ok());
+    value.trim() == "true"
+}
+pub fn save_file_preview(enabled: bool) -> std::io::Result<()> {
+    let Some(path) = settings_path().map(|p| p.with_file_name("file-preview")) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, if enabled { "true\n" } else { "false\n" })
+}
+
+// Per-project file history properties live in app data, never in the worktree.
+fn history_project_key(root: &Path) -> Option<String> {
+    let text = root.to_str()?.replace('\\', "/");
+    #[cfg(windows)] let text = text.to_lowercase();
+    Some(text)
+}
+fn history_details_file(root: &Path) -> Option<(PathBuf, String)> {
+    let key=history_project_key(root)?;
+    let hash=key.bytes().fold(0xcbf29ce484222325u64, |h,b|(h ^ b as u64).wrapping_mul(0x100000001b3));
+    Some((settings_path()?.with_file_name(format!("file-history-details-{hash:016x}")),key))
+}
+fn read_history_details(file: &Path, key: &str) -> Option<bool> {
+    let mut text=String::new();
+    std::fs::File::open(file).ok()?.take(65537).read_to_string(&mut text).ok()?;
+    if text.len()>65536{return None;}
+    let (stored,value)=text.split_once('\0')?;
+    if stored!=key{return None;}
+    match value {"true"=>Some(true),"false"=>Some(false),_=>None}
+}
+pub fn load_history_details(root: &Path) -> bool {
+    history_details_file(root).and_then(|(path,key)|read_history_details(&path,&key)).unwrap_or(false)
+}
+pub fn save_history_details(root: &Path, value: bool) -> std::io::Result<()> {
+    let Some((path,key))=history_details_file(root) else {return Ok(());};
+    save_project_boolean(&path, &key, value)
+}
+fn save_project_boolean(path: &Path, key: &str, value: bool) -> std::io::Result<()> {
+    if key.len()>65530{return Err(std::io::Error::other("Project path exceeds settings budget"));}
+    // The stored identity checks the filename hash; a collision must not apply
+    // another project's setting or silently overwrite it.
+    if path.exists() {
+        let mut stored=String::new();
+        std::fs::File::open(&path)?.take(65537).read_to_string(&mut stored)?;
+        if stored.len()<=65536 && stored.split_once('\0').is_some_and(|(k,_)|k!=key) {
+            return Err(std::io::Error::other("Invalid project settings identity"));
+        }
+    }
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path,format!("{key}\0{}",if value{"true"}else{"false"}))
+}
+
+
+fn log_long_edges_file(root: &Path) -> Option<(PathBuf, String)> {
+    root.to_str()?;
+    let key = crate::recent_projects::identity(root);
+    let hash = key.bytes().fold(0xcbf29ce484222325u64, |h,b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    Some((settings_path()?.with_file_name(format!("log-long-edges-{hash:016x}")), key))
+}
+pub fn load_log_long_edges(root: &Path) -> bool {
+    log_long_edges_file(root).and_then(|(path,key)| read_history_details(&path, &key)).unwrap_or(false)
+}
+pub fn save_log_long_edges(root: &Path, value: bool) -> std::io::Result<()> {
+    let Some((path,key)) = log_long_edges_file(root) else { return Ok(()); };
+    save_project_boolean(&path, &key, value)
+}
+
+#[cfg(test)]
+mod log_graph_preference_tests {
+    use super::*;
+    #[test]
+    fn project_boolean_round_trip_rejects_other_project_and_bad_records() {
+        let path = std::env::temp_dir().join(format!("gitui-long-edges-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(read_history_details(&path, "one"), None);
+        for value in [true, false] {
+            save_project_boolean(&path, "one", value).unwrap();
+            assert_eq!(read_history_details(&path, "one"), Some(value));
+            assert_eq!(read_history_details(&path, "two"), None);
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert!(save_project_boolean(&path, "two", true).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::write(&path, "one\0invalid").unwrap();
+        assert_eq!(read_history_details(&path, "one"), None);
+        std::fs::write(&path, "x".repeat(65537)).unwrap();
+        assert_eq!(read_history_details(&path, "one"), None);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+// Rebased PushSettings: remembered confirmations belong to a project and exact
+// remote/branch pair. Hash only selects the file; stored identity is rechecked.
+fn force_push_confirmation_file(root: &Path, remote: &str, branch: &str) -> Option<(PathBuf,String)> {
+    root.to_str()?;
+    let project=crate::recent_projects::identity(root);
+    let key=format!("{}:{}{}:{}{}:{}",project.len(),project,remote.len(),remote,branch.len(),branch);
+    if key.len()>65530 || key.contains('\0'){return None;}
+    let hash=key.bytes().fold(0xcbf29ce484222325u64,|h,b|(h^b as u64).wrapping_mul(0x100000001b3));
+    Some((settings_path()?.with_file_name(format!("force-push-confirmation-{hash:016x}")),key))
+}
+pub fn silent_force_push(root:&Path,remote:&str,branch:&str)->bool {
+    force_push_confirmation_file(root,remote,branch).and_then(|(file,key)|read_history_details(&file,&key)).unwrap_or(false)
+}
+pub fn remember_force_push(root:&Path,remote:&str,branch:&str)->std::io::Result<()> {
+    let (file,key)=force_push_confirmation_file(root,remote,branch).ok_or_else(||std::io::Error::other("Force-push preference identity is unavailable"))?;
+    save_project_boolean(&file,&key,true)
+}
+
+#[cfg(test)]
+mod force_confirmation_tests {
+    use super::*;
+    #[test]
+    fn remembered_force_target_checks_project_remote_and_branch_identity() {
+        let root=std::env::temp_dir();
+        let (_,key)=force_push_confirmation_file(&root,"origin","topic").unwrap();
+        let (_,other)=force_push_confirmation_file(&root,"origin","other").unwrap();
+        let (_,project)=force_push_confirmation_file(&root.join("other"),"origin","topic").unwrap();
+        let (_,remote)=force_push_confirmation_file(&root,"upstream","topic").unwrap();
+        let file=root.join(format!("plico-force-preference-test-{}",std::process::id()));
+        let _=std::fs::remove_file(&file);
+        save_project_boolean(&file,&key,true).unwrap();
+        assert_eq!(read_history_details(&file,&key),Some(true));
+        for other in [&other,&project,&remote]{assert_eq!(read_history_details(&file,other),None);assert!(save_project_boolean(&file,other,true).is_err());}
+        std::fs::write(&file,"truncated").unwrap();assert_eq!(read_history_details(&file,&key),None);
+        std::fs::remove_file(file).unwrap();
+    }
+}

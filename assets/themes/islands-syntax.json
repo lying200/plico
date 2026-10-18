@@ -1,0 +1,56 @@
+{
+  "keyword": {
+    "color": "#cf8e6d"
+  },
+  "boolean": {
+    "color": "#cf8e6d"
+  },
+  "string": {
+    "color": "#6aab73"
+  },
+  "string.escape": {
+    "color": "#cf8e6d"
+  },
+  "number": {
+    "color": "#2aacb8"
+  },
+  "comment": {
+    "color": "#7a7e85"
+  },
+  "comment.doc": {
+    "color": "#5f826b"
+  },
+  "constant": {
+    "color": "#c77dbb"
+  },
+  "property": {
+    "color": "#c77dbb"
+  },
+  "function": {
+    "color": "#56a8f5"
+  },
+  "attribute": {
+    "color": "#b3ae60"
+  },
+  "type": {
+    "color": "#bcbec4"
+  },
+  "constructor": {
+    "color": "#bcbec4"
+  },
+  "variable": {
+    "color": "#bcbec4"
+  },
+  "operator": {
+    "color": "#bcbec4"
+  },
+  "punctuation": {
+    "color": "#bcbec4"
+  },
+  "punctuation.bracket": {
+    "color": "#bcbec4"
+  },
+  "punctuation.delimiter": {
+    "color": "#bcbec4"
+  }
+}

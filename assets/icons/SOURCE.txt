@@ -1,0 +1,100 @@
+JetBrains IntelliJ Platform New UI icons
+Copyright JetBrains s.r.o. and contributors. Apache-2.0.
+Imported SVG files are unmodified except folder_dark_4x.svg: intrinsic dimensions increased
+to 64 x 64 with the original 16 x 16 viewBox, paths and colors preserved.
+This provides a cached high-resolution raster for GPUI colored-image rendering.
+Commit: a0afd3e0be7f3a93e9ce7d146bc43bb68a833e93
+Source: https://github.com/JetBrains/intellij-community/tree/a0afd3e0be7f3a93e9ce7d146bc43bb68a833e93/platform/icons/src/expui
+general/refresh_dark.svg
+general/search_dark.svg
+general/open_dark.svg
+general/chevronDown_dark.svg
+general/chevronRight_dark.svg
+nodes/folder_dark.svg
+general/up_dark.svg
+general/down_dark.svg
+
+Branch icon (same commit, Apache-2.0):
+https://github.com/JetBrains/intellij-community/blob/a0afd3e0be7f3a93e9ce7d146bc43bb68a833e93/platform/dvcs-impl/shared/resources/icons/new/branchLabel_dark.svg
+
+Branch tree icon (same commit, Apache-2.0):
+https://github.com/JetBrains/intellij-community/blob/a0afd3e0be7f3a93e9ce7d146bc43bb68a833e93/platform/icons/src/expui/general/vcs_dark.svg
+
+File type icons from detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/fileTypes/{anyType,text,config,json,markdown,java,javaScript,typeScript,xml,yaml}_dark.svg.
+Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+Bundled as file-*_dark_4x.svg: intrinsic dimensions changed to 64x64;
+original 16x16 viewBox, paths and colors retained for cached HiDPI rasterization.
+
+Diff file navigation: detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/general/{left,right}_dark.svg (unmodified, Apache-2.0).
+
+Tab icons (unmodified, Apache-2.0): detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/icons/src/expui/vcs/diff_dark.svg
+platform/icons/src/expui/general/closeSmall.svg
+
+File tree toolbar icons (unmodified, Apache-2.0): detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/icons/src/expui/general/expandAll_dark.svg
+platform/icons/src/expui/general/collapseAll_dark.svg
+
+Diff viewer selector (unmodified, Apache-2.0): detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/icons/src/expui/diff/{sideBySide,unified}_dark.svg
+
+Readonly Diff title icon (unmodified, Apache-2.0): detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/icons/src/expui/general/locked_dark.svg
+
+Diff settings (unmodified, Apache-2.0): detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/icons/src/expui/general/settings_dark.svg
+
+Reference label masks (locally generated SVG, not unmodified upstream assets):
+reference-mask.svg, reference-outline.svg, reference-front.svg
+Geometry adapted from TagPainter.kt, with the dot only on the front layer.
+Copyright 2000-2023 JetBrains s.r.o. and contributors. Apache-2.0.
+Source: https://github.com/detachhead/rebased/blob/4aec35256d765c217aa0d662b82ac4e860c396fd/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/TagPainter.kt
+Colors are supplied at render time; the filled mask provides opaque occlusion.
+
+favorite.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, platform/icons/src/nodes/favorite.svg; unmodified, JetBrains Apache-2.0.
+
+notFavoriteOnHover.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, platform/icons/src/nodes/notFavoriteOnHover.svg; unmodified, JetBrains Apache-2.0.
+
+currentBranchFavoriteLabel_dark.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, platform/dvcs-impl/shared/resources/icons/new/currentBranchFavoriteLabel_dark.svg; unmodified, JetBrains Apache-2.0.
+
+currentBranchLabel_dark.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, platform/dvcs-impl/shared/resources/icons/new/currentBranchLabel_dark.svg; unmodified, JetBrains Apache-2.0.
+
+Warning dialog: detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/general/warningDialog_dark.svg (Apache-2.0).
+Bundled as warningDialog_dark_4x.svg: intrinsic dimensions 112x112 instead of 28x28;
+original viewBox, paths, colors and copyright retained for cached HiDPI rasterization.
+
+Fetch and Push toolbar icons (unmodified, Apache-2.0): detachhead/rebased commit
+4aec35256d765c217aa0d662b82ac4e860c396fd, platform/icons/src/expui/vcs/{fetch,push}_dark.svg.
+
+windowsMenu@20x20_dark.svg: unchanged platform/icons/src/expui/general/windowsMenu@20x20_dark.svg from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd; Apache-2.0 (LICENSE.txt).
+
+update_dark.svg: unchanged platform/icons/src/expui/vcs/update_dark.svg from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd; Apache-2.0 (LICENSE.txt).
+
+shelve_dark.svg: unchanged platform/icons/src/expui/vcs/shelve_dark.svg from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd; Apache-2.0 (LICENSE.txt).
+
+UI/UX round icons from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd (JetBrains, Apache-2.0).
+Intrinsic size increased to64; original viewBox/paths/colors retained.
+tool-commit_dark.svg: platform/icons/src/expui/toolwindows/commit@20x20_dark.svg
+tool-project_dark.svg: platform/icons/src/expui/toolwindows/project@20x20_dark.svg
+tool-changes_dark.svg: platform/icons/src/expui/toolwindows/changes@20x20_dark.svg
+file-rust_dark_4x.svg: platform/icons/src/language/rust_dark.svg
+file-c_dark_4x.svg: platform/icons/src/expui/fileTypes/c_dark.svg
+file-cpp_dark_4x.svg: platform/icons/src/expui/fileTypes/cpp_dark.svg
+file-shell_dark_4x.svg: platform/icons/src/expui/fileTypes/shell_dark.svg
+file-python_dark_4x.svg: platform/icons/src/language/python_dark.svg
+
+edit_dark.svg: platform/icons/src/expui/general/edit_dark.svg
+Rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains contributors,
+Apache-2.0. Original viewBox/path/colors retained; intrinsic size64 forHiDPI.
+
+File-history presentation menu: Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/general/show_dark.svg, bundled unmodified as history-show_dark.svg.
+PlatformIconMappings.json maps AllIcons.Actions.GroupBy to expui/general/show.svg.
+Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+
+warning_dark.svg: unmodified platform/icons/src/expui/status/warning_dark.svg
+from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd;
+Copyright JetBrains s.r.o. and contributors, Apache-2.0 (LICENSE.txt).

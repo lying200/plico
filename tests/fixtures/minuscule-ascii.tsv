@@ -1,0 +1,257 @@
+# Rebased 4aec352 NameUtilMatchingTest.kt literal ASCII assertions. JetBrains and contributors, Apache-2.0.
+1	N	NameUtilTest
+1	NU	NameUtilTest
+1	NUT	NameUtilTest
+1	NaUT	NameUtilTest
+0	NeUT	NameUtilTest
+0	NaUTa	NameUtilTest
+1	NaUtT	NameUtilTest
+1	NaUtT	NameUtilTest
+1	NaUtTe	NameUtilTest
+1	AACl	AAClass
+1	ZZZ	ZZZZZZZZZZ
+1		
+1		asdfs
+1	nt	NameUtilTest
+1	repl map	ReplacePathToMacroMap
+1	replmap	ReplacePathToMacroMap
+1	CertificateEx	CertificateEncodingException
+0	ABCD	AbstractButton.DISABLED_ICON_CHANGED_PROPERTY
+1	templipa	template_impl_template_list_panel
+1	templistpa	template_impl_template_list_panel
+1	N	nameUtilTest
+0	N	anameUtilTest
+1	NU	nameUtilTest
+0	NU	anameUtilTest
+1	NUT	nameUtilTest
+1	NaUT	nameUtilTest
+0	NeUT	nameUtilTest
+0	NaUTa	nameUtilTest
+1	NaUtT	nameUtilTest
+1	NaUtT	nameUtilTest
+1	NaUtTe	nameUtilTest
+1	Na Ut Te	name util test
+1	Na Ut Te	name Util Test
+0	Na Ut Ta	name Util Test
+1	na ut te	name util test
+1	na ut	name_util_test
+1	na te	name_util_test
+0	na ti	name_util_test
+0	alias imple	alias simple
+0	alias mple	alias simple
+0	alias nother	alias another
+0	N_T	NameUtilTest
+1	ORGS_ACC	ORGS_POSITION_ACCOUNTABILITY
+1	ORGS-ACC	ORGS-POSITION_ACCOUNTABILITY
+1	ORGS.ACC	ORGS.POSITION_ACCOUNTABILITY
+0	ar*l*p	AbstractResponseHandler
+1	N_U_T	NAME_UTIL_TEST
+1	NUT	NAME_UTIL_TEST
+0	NUT	NameutilTest
+1	NOS	NetOutputStream
+1	BLWN	base_layout_without_navigation.xhtml
+1	BLWN	base-layout-without-navigation.xhtml
+1	FC	faces-config.xml
+1	ARS	activity_report_summary.jsp
+1	AD	arrow_down.gif
+1	VL	vehicle-listings.css
+1	ARS.j	activity_report_summary.jsp
+0	ARS.j	activity_report_summary.xml
+0	ARS.j	activity_report_summary_justsometingwrong.xml
+1	foo.goo	foo.bar.goo
+0	*.ico	sm.th.iks.concierge
+1	fo bar	fooBar
+1	foo bar	fooBar
+1	foo bar	fooGooBar
+1	foo bar	fooGoo bar
+0	 b	fbi
+0	 for	performAction
+1	Google Test.html	Google Test Test.cc.html
+1	Google.html	Google Test Test.cc.html
+1	Google .html	Google Test Test.cc.html
+1	Google Test*.html	Google Test Test.cc.html
+1	A*.html	A.html
+1	A*.html	Abc.html
+1	A*.html	after.html
+0	A*.html	10_after.html
+1	AR.jsp	add_relationship.jsp
+1	AR.jsp	advanced_rule.jsp
+1	AR.jsp	alarm_reduction.jsp
+1	AR.jsp	audiot_report.jsp
+1	AR.jsp	audiot_r.jsp
+1	AR.jsp	alarm_rule_action.jsp
+1	AR.jsp	alarm_rule_admin.jsp
+1	AR.jsp	alarm_rule_administration.jsp
+1	AR.jsp	alarm_rule_controller.jsp
+1	AR.jsp	alarm_rule_frame.jsp
+1	AR.jsp	alarm_rule_severity.jsp
+1	AR.jsp	AddRelationship.jsp
+1	AR.jsp	AdvancedRule.jsp
+1	AR.jsp	AlarmReduction.jsp
+1	AR.jsp	AudiotReport.jsp
+1	AR.jsp	AudiotR.jsp
+1	AR.jsp	AlarmRuleAction.jsp
+1	AR.jsp	AlarmRuleAdmin.jsp
+1	AR.jsp	AlarmRuleAdministration.jsp
+1	AR.jsp	AlarmRuleController.jsp
+1	AR.jsp	AlarmRuleFrame.jsp
+1	AR.jsp	AlarmRuleSeverity.jsp
+1	ja	jquery.autocomplete.js
+0	ja.js	jquery.autocomplete.js
+1	jajs	jquery.autocomplete.js
+1	jjs	jquery.autocomplete.js
+1	j.js	jquery.autocomplete.js
+0	j.ajs	jquery.autocomplete.js
+1	oracle.bnf	oracle-11.2.bnf
+1	*foo.*bar	foo.b.bar
+1	#.p	#.php
+1	#	#.php
+1	a	a.php
+1	comboBox	combobox
+1	combobox	comboBox
+1	.foo	.foo
+1	*inspection*.pro	InspectionsBundle.properties
+0	*inspection*.pro	InspectionsInProgress.png
+0	form	_form.html.erb
+1	_form	_form.html.erb
+1	_form	__form
+1	uct	unit_controller_test
+1	unictest	unit_controller_test
+1	uc	unit_controller_test
+0	nc	unit_controller_test
+0	utc	unit_controller_test
+1	h*:	h:aaa
+1	h:	h:aaa
+1	text:sh	textField:shouldChangeCharactersInRange:replacementString:
+1	abc	aaa:bbb:ccc
+1	textField:sh	textField:shouldChangeCharactersInRange:replacementString:
+1	text*:sh	textField:shouldChangeCharactersInRange:replacementString:
+1	*fo	reformat
+1	*f	reFormat
+1	*f	format
+1	*f	Format
+1	*Stri	string
+1	*f	reformat
+1	*f	reformatCode
+0	*fc	reformatCode
+0	*foc	reformatCode
+1	*forc	reformatCode
+0	*sTC	LazyClassTypeConstructor
+0	*Icon	LEADING_CONSTRUCTOR
+1	*I	LEADING_CONSTRUCTOR
+1	*i	LEADING_CONSTRUCTOR
+1	*in	LEADING_CONSTRUCTOR
+1	*ing	LEADING_CONSTRUCTOR
+0	*inc	LEADING_CONSTRUCTOR
+0	*ico	drawLinePickedOut
+1	*l	AppDelegate
+1	*le	AppDelegate
+1	*leg	AppDelegate
+1	*_dark	collapseAll_dark.png
+1	*_dark.png	collapseAll_dark.png
+1	**_dark.png	collapseAll_dark.png
+1	*zz*	ListConfigzzKey
+1	*zz	ListConfigzzKey
+1	SWU*H*7	SWUpgradeHdlrFSPR7Test
+1	SWU*H*R	SWUpgradeHdlrFSPR7Test
+1	SWU*H*R	SWUPGRADEHDLRFSPR7TEST
+1	*git	GitBlaBla
+1	*Git	GitBlaBla
+0	*get*A	getClass
+1	*git	BlaGitBla
+1	*Git	BlaGitBla
+1	*git	BlagitBla
+1	*Git*	AtpGenerationItem
+1	Collec*Util*	CollectionUtils
+1	Collec*Util*	CollectionUtilsTest
+1	 File. sepa	File.separator
+1	 File. sepa	File._separator
+1	 File. _sepa	File._separator
+1	 _fo	_foo
+1	*BComp	BaseComponent
+1	*OS	ios
+1	*OS	IOS
+1	*OS	osx
+1	*OS	OSX
+1	*LRUMap	SLRUMap
+1	ABC_B.C	abc_b.c
+1	foo	foo
+0	foo	fxoo
+1	foo	fOo
+1	foo	fxOo
+1	foo	fXOo
+1	fOo	foo
+0	fOo	FaOaOaXXXX
+1	ncdfoe	NoClassDefFoundException
+1	fob	FOO_BAR
+1	fo_b	FOO_BAR
+1	fob	FOO BAR
+1	fo b	FOO BAR
+1	AACl	AAClass
+1	ZZZ	ZZZZZZZZZZ
+1	em	emptyList
+1	bui	BuildConfig.groovy
+1	buico	BuildConfig.groovy
+1	buico.gr	BuildConfig.groovy
+1	bui.gr	BuildConfig.groovy
+1	*fz	azzzfzzz
+1	WebLogic	Weblogic
+1	WebLOgic	WebLogic
+1	WEbLogic	WebLogic
+0	WebLogic	Webologic
+1	Wlo	WebLogic
+1	a 	alpha + beta
+1	a 	a 
+1	a 	a
+1	GrDebT 	GroovyDebuggerTest
+0	grdebT 	GroovyDebuggerTest
+0	grdebt 	GroovyDebuggerTest
+1	Foo 	Foo
+0	Foo 	FooBar
+0	Foo 	Foox
+0	Collections 	CollectionSplitter
+1	CollectionS 	CollectionSplitter
+1	*run 	in Runnable.run
+0	*l 	AppDelegate
+0	*le 	AppDelegate
+0	*leg 	AppDelegate
+1	foba4	FooBar4
+1	foba	Foo4Bar
+1	*TEST-* 	TEST-001
+1	*TEST-0* 	TEST-001
+1	*v2 	VARCHAR2
+1	smart8co	SmartType18CompletionTest
+1	smart8co	smart18completion
+0	*012	001122
+1	012	0a1_22
+1	a@b	a@bc
+0	*@in	a int
+1	a/text	a/Text
+1	a/text	a/bbbText
+1	a+b	alpha+beta
+1	a+b	alpha_gamma+beta
+1	a+b	alpha + beta
+1	Foo+	Foo+Bar.txt
+1	Foo+	Foo + Bar.txt
+1	a	alpha+beta
+1	*b	alpha+beta
+1	a + b	alpha+beta
+1	a+	alpha+beta
+0	a 	alpha+beta
+1		alpha+beta
+1	*+ b	alpha+beta
+0	d+g	alphaDelta+betaGamma
+1	*d+g	alphaDelta+betaGamma
+1	a-b	alpha-beta
+1	a-b	alpha - beta
+1	groovy*.jar	groovy-1.7.jar
+0	*.ico	a.i.c.o
+1	PDFRe	PdfRenderer
+1	*pGETPartTimePositionInfo	dbo.pGetPartTimePositionInfo.sql
+1	USerDefa	UserDefaults
+1	NSUSerDefa	NSUserDefaults
+1	NSUSER	NSUserDefaults
+1	NSUSD	NSUserDefaults
+1	NSUserDEF	NSUserDefaults
+1	LSTMa	LineStatusTrackerManager
+1	*pro	spring.activemq.pool.configuration.reconnect-on-exception

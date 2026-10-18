@@ -1,0 +1,7 @@
+Pinyin lookup tables derived from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/util/text-matching/src/com/intellij/psi/codeStyle/PinyinMatcher.kt
+Copyright 2000-2025 JetBrains s.r.o. and contributors. Apache-2.0.
+Indices are the original DATA UTF-16 units in little-endian order.
+Masks encode each ENCODING entry's lowercase ASCII letters as bits 0..25.
+Regenerate using scripts/generate-pinyin-reference.py and the pinned checkout.
+27648 code points starting at U+3400; 579 encoding entries.

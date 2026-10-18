@@ -1,0 +1,10 @@
+/target/
+/.devenv/
+/.direnv/
+/artifacts/
+
+/dist/
+__pycache__/
+*.py[cod]
+
+/.idea/

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Git Client App Icon</title>
+  <desc id="desc">A dark rounded-square app icon with an enlarged purple and cyan Git branch symbol, without an outer gear.</desc>
+  <defs>
+    <linearGradient id="outer-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08090d"/>
+      <stop offset="1" stop-color="#050609"/>
+    </linearGradient>
+    <linearGradient id="tile-bg" x1="0" y1="0" x2="0.95" y2="1">
+      <stop offset="0" stop-color="#191b24"/>
+      <stop offset="0.55" stop-color="#191b24"/>
+      <stop offset="1" stop-color="#171922"/>
+    </linearGradient>
+    <linearGradient id="purple-line" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#8c68f0"/>
+      <stop offset="1" stop-color="#7463ed"/>
+    </linearGradient>
+    <linearGradient id="purple-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a078f7"/>
+      <stop offset="1" stop-color="#8e6aef"/>
+    </linearGradient>
+    <linearGradient id="purple-bottom" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#696be9"/>
+      <stop offset="1" stop-color="#5c5ff0"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#26c4ed"/>
+      <stop offset="1" stop-color="#20b8e7"/>
+    </linearGradient>
+    <clipPath id="tile-clip"><rect x="76" y="76" width="872" height="872" rx="154"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#outer-bg)"/>
+  <g clip-path="url(#tile-clip)">
+    <rect x="76" y="76" width="872" height="872" rx="154" fill="url(#tile-bg)"/>
+    <rect x="76" y="76" width="872" height="872" fill="#191b24" opacity="0.12"/>
+  </g>
+  <!-- Enlarged Git branch symbol -->
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M348 286 V612 Q348 650 385 670 L448 700" stroke="url(#purple-line)" stroke-width="74"/>
+    <path d="M348 286 L535 477 Q555 498 583 483 L630 459" stroke="url(#cyan)" stroke-width="74"/>
+  </g>
+  <circle cx="348" cy="286" r="104" fill="url(#purple-top)"/>
+  <circle cx="505" cy="739" r="104" fill="url(#purple-bottom)"/>
+  <circle cx="718" cy="464" r="99" fill="url(#cyan)"/>
+</svg>

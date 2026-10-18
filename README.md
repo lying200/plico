@@ -8,6 +8,10 @@ Windows 优先、低内存的 Git 审阅客户端，支持 Git Log/Graph、Diff�
 
 第一版已冻结功能范围，已知差异与验证边界见 PLAN.md 的封版决定。以下保留既有项目说明和开发记录。
 
+## License
+
+Plico 源码使用 [Apache-2.0](LICENSE)。第三方代码、图标和字体保留原许可证，详见 [NOTICE](NOTICE) 与 [许可证说明](docs/LICENSING.md)。Plico 是独立项目，不代表 JetBrains 或 Rebased 官方；项目 logo 不包含在源码许可证授权内。
+
 ---
 
 # Plico

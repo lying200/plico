@@ -28,7 +28,8 @@ if not editor.is_file() or editor.read_bytes()[:2] != b"MZ":
     raise SystemExit("Build the Windows editor helper first")
 files = {"Plico.exe": exe, "gitui-askpass.exe": helper, "gitui-editor.exe": editor, "LICENSE.txt": root / "LICENSE",
          "README.txt": root / "docs/WINDOWS-PREVIEW.txt",
-         "THIRD-PARTY.txt": root / "docs/THIRD-PARTY.txt"}
+         "THIRD-PARTY.txt": root / "docs/THIRD-PARTY.txt",
+         "NOTICE.txt": root / "NOTICE", "LICENSING.md": root / "docs/LICENSING.md"}
 for directory in ["fonts", "icons", "themes", "branding"]:
     for path in (root / "assets" / directory).glob("*.txt"):
         files[f"licenses/assets/{directory}/{path.name}"] = path

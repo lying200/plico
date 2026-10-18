@@ -1,0 +1,26 @@
+Plico
+Copyright 2026 Plico contributors.
+
+Plico includes code adapted from IntelliJ IDEA through the Rebased project.
+This software includes code from IntelliJ IDEA
+Copyright (C) JetBrains s.r.o.
+https://www.jetbrains.com/idea/
+Rebased: https://github.com/DetachHead/rebased
+Reference snapshot: 4aec35256d765c217aa0d662b82ac4e860c396fd
+These adaptations are modified Rust/GPUI implementations, not unmodified
+IntelliJ Platform binaries. Paths and modification descriptions are recorded
+in docs/THIRD-PARTY.txt and docs/REBASED-REFERENCE.md.
+
+GPUI and derived components include work by:
+Copyright 2022 - 2025 Zed Industries, Inc.
+Copyright 2024 - 2026 Longbridge <https://longbridge.com>
+The vendored GPUI crates contain local modifications for Windows rendering,
+input, Diff, layout and lifecycle behavior. Their original license files and
+source notices are retained under vendor/.
+
+Fonts and third-party assets retain their own copyright and license terms.
+See assets/fonts/, assets/icons/, assets/themes/ and docs/THIRD-PARTY.txt.
+Plico branding is owner-supplied artwork; see assets/branding/SOURCE.txt.
+
+Plico is an independent project, not affiliated with or endorsed by JetBrains,
+Rebased, Zed Industries or Longbridge. No trademark rights are granted.

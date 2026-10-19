@@ -453,7 +453,8 @@ pub struct InputBaseState<M: InputModeKind> {
     /// The marked range is the temporary insert text on IME typing.
     pub(super) ime_marked_range: Option<CursorSelection>,
     pub(super) last_layout: Option<LastLayout>,
-    pub(super) source_geometry: Option<(Bounds<Pixels>, Pixels, Vec<usize>)>,
+    /// Current prepaint text bounds, line height, visible lines, and unscrolled gutter edge.
+    pub(super) source_geometry: Option<(Bounds<Pixels>, Pixels, Vec<usize>, Pixels)>,
     /// Fresh caret geometry stashed during prepaint for caret-anchored popups.
     ///
     /// Popups are positioned in their deferred prepaint, which runs after the
@@ -11323,15 +11324,16 @@ impl InputBaseState<crate::input::EditorMode> {
         self.silent_replace_text = silent;
     }
 
-    /// Fixed gutter boundary, independent of horizontal scrolling.
+    /// Current-frame gutter boundary, independent of horizontal scrolling.
+    /// Overlay prepaint must not read input_bounds/last_layout from the previous paint.
     pub fn source_gutter_right(&self) -> Option<Pixels> {
-        Some(self.input_bounds.left() + self.last_layout.as_ref()?.line_number_width)
+        self.source_geometry.as_ref().map(|(_, _, _, gutter_right)| *gutter_right)
     }
 
     /// Window-space extent of source lines, including wrapping but excluding
     /// alignment padding after the final line. Used by Diff divider connectors.
     pub fn source_line_extent(&self, range: Range<usize>) -> Option<(Pixels, Pixels)> {
-        let (bounds, height, _) = self.source_geometry.as_ref()?;
+        let (bounds, height, _, _) = self.source_geometry.as_ref()?;
         let height = *height;
         let count = self.display_map.buffer_line_count();
         let start = if range.is_empty() {
@@ -11351,7 +11353,7 @@ impl InputBaseState<crate::input::EditorMode> {
     /// Source lines in the current layout, for an external Diff gutter.
     /// Wrapped continuation rows and alignment padding do not get extra numbers.
     pub fn visible_source_line_extents(&self) -> Vec<(usize, Pixels, Pixels)> {
-        self.source_geometry.as_ref().map_or_else(Vec::new, |(_, _, lines)| {
+        self.source_geometry.as_ref().map_or_else(Vec::new, |(_, _, lines, _)| {
             lines.iter().filter_map(|&line| {
                 self.source_line_extent(line..line + 1).map(|(top, bottom)| (line, top, bottom))
             }).collect()

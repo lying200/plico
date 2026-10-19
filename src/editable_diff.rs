@@ -493,6 +493,50 @@ mod lifecycle_tests {
         });
         cx.update(|window,cx|{let _=window.draw(cx);});
     }
+    // Sample the same prepaint API used by SourceChanges, before editor paint.
+    struct GutterProbe {
+        editor: Entity<EditorState>,
+        inset: f32,
+        samples: std::rc::Rc<std::cell::RefCell<Vec<Option<gpui::Pixels>>>>,
+    }
+    impl Render for GutterProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let editor = self.editor.clone();
+            let samples = self.samples.clone();
+            div().size_full().pl(px(self.inset))
+                .child(div().relative().size_full()
+                    .child(Editor::new(&self.editor).h_full())
+                    .child(gpui::canvas(move |_, _, cx| {
+                        samples.borrow_mut().push(editor.read(cx).source_gutter_right());
+                    }, |_, _, _, _| {}).absolute().size_full()))
+        }
+    }
+    #[gpui::test]
+    fn source_gutter_moves_with_sidebar_in_same_frame(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let samples = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut probe = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let editor = cx.new(|cx| EditorState::new(window, cx)
+                .default_value("first\nsecond").line_number(true));
+            let view = cx.new(|_| GutterProbe { editor, inset: 300., samples: samples.clone() });
+            probe = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        for _ in 0..2 { cx.update(|w, cx| { let _ = w.draw(cx); }); }
+        let before = samples.borrow().last().unwrap().unwrap();
+        let probe = probe.unwrap();
+        for inset in [0., 300., 120.] {
+            cx.update(|w, cx| {
+                probe.update(cx, |p, cx| { p.inset = inset; cx.notify(); });
+                samples.borrow_mut().clear();
+                let _ = w.draw(cx);
+            });
+            let actual = samples.borrow()[0].expect("gutter available during prepaint");
+            assert!((actual - before - px(inset - 300.)).abs() < px(0.01),
+                "marker must follow layout immediately, without another repaint: {actual:?}");
+        }
+    }
     #[gpui::test]
     fn navigation_waits_for_layout_and_reveals_changes_at_upper_third(cx:&mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

@@ -2890,7 +2890,8 @@ impl<M: InputModeKind> Element for TextElement<M> {
             // Sibling Diff canvases prepaint before our paint callback. Publish
             // the geometry of the text we are about to paint, not last frame's.
             state.source_geometry = Some((bounds, last_layout.line_height,
-                last_layout.visible_buffer_lines.to_vec()));
+                last_layout.visible_buffer_lines.to_vec(),
+                input_bounds.left() + last_layout.line_number_width));
         });
 
         let search_match_paths = self.layout_search_matches(&last_layout, &mut bounds, cx);

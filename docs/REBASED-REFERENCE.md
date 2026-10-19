@@ -2054,3 +2054,11 @@ Windows 原生验证使用独立 `Plico-validation/diff-fonts-20261019/markers-f
 Windows release 构建通过。独立 markers-fixture 原生截图位于 `artifacts/diff-fonts-20261019/`：`external-source.png` 显示 12 次外部连续写入后的最后版本和新增文件；`external-conflict-committed.png`／`external-reload-confirm.png` 展示保留草稿与确认；实际复制并断言草稿内容、取消后仍可复制；确认重载后磁盘内容显示正确；`external-deleted.png` 展示外部删除提示并断言文件没有被重新创建；`external-restored.png` 展示外部重建后自动恢复；`external-diff-after.png` 展示已打开 Diff 自动更新以及本地列表中的重命名文件。仅操作独立 fixture，不改用户仓库，不关闭用户 Rebased／IDE。连续滚动仍由用户手测；没有新增滚动自动化或声明像素级完全一致。
 
 补充 Windows→WSL 原生验证：通过 `\\wsl.localhost\legion-wsl\tmp\plico-external-wsl-wwkm7c3_` 打开独立 Linux Git fixture，Linux Python 写入源码及新增文件后，`external-wsl-after.png` 显示 Windows 源码、行标记、项目树已同步，`external-wsl-local.png`／`external-wsl-diff.png` 验证本地列表与 Diff 可用。仅为该测试进程传入精确 fixture 路径的 safe.directory，没有更改宿主全局 Git 配置。该小 fixture 验证功能，不作为远程机器或大型 WSL 仓库性能结论。`working_copy::read_base` 同时补充动态 HEAD 解析：不能仅凭打开时的 A／untracked 状态永久使用空基线，外部首次提交后须读取新提交中的文件。
+
+### 2026-10-19 源码变更标记随侧栏同帧定位
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与快照不保证相同。本轮实读 `platform/diff-impl/src/com/intellij/openapi/vcs/ex/LineStatusMarkerRendererWithPopup.kt::LineStatusGutterMarkerRendererWithPopup.paint` 与 `platform/diff-impl/src/com/intellij/openapi/diff/LineStatusMarkerDrawUtil.java::paintChangedLines/getGutterArea`：标记作为 editor gutter renderer 绘制，绘制时取当前 gutter 区域；布局移动不依赖重新计算 Git ranges。
+
+根因：本地 `SourceChanges` canvas 在 prepaint 生成绘制矩形及点击 hitbox，`source_gutter_right` 却读取到 paint 才更新的 input_bounds/last_layout，因此侧栏移动后横坐标落后一帧；没有后续重绘时会保持旧位置。这与 Git 查询或 80ms 文本变更合并无关。`vendor/gpui-base/src/input/base/{element,state}.rs` 将未水平滚动的 gutter 边界与已有 source_geometry 一起在编辑器 prepaint 发布；绘制与命中区域共用当前帧坐标，不增加定时器、额外重绘或 Git 查询。保留独立 GPUI canvas 的实现差异，不移植 Swing gutter 组件。
+
+回归 `source_gutter_moves_with_sidebar_in_same_frame` 在真实 GPUI 编辑器布局后、paint 前采样标记实际使用的接口：修前收起 300px 仍得到 354.4px 而非 54.4px；修后收起、展开及宽度调整第一帧全部通过。35 项桌面测试通过，仍排除已记录的既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过；独立原生 fixture 截图 `artifacts/gutter-layout-20261019/source.png`、`collapsed.png` 确认侧栏两种布局下标记贴合正文左边，`marker-hit.png` 确认收起后在新位置点击可打开原文弹层。截图仅验证静态结果，同帧时序由回归测试验证；未执行滚动自动化，未改用户仓库或关闭用户窗口。未提交／推送。

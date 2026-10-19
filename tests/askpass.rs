@@ -1,7 +1,7 @@
 use plico::{askpass::Server, auth_request::{Kind, Pending, Requests}, git::Cancel};
 use std::{process::{Command, Stdio}, thread, time::{Duration, Instant}};
 fn helper() -> Command {
-    Command::new(std::env::var_os("GITUI_TEST_ASKPASS_EXE").unwrap_or_else(|| env!("CARGO_BIN_EXE_gitui-askpass").into()))
+    Command::new(std::env::var_os("GITUI_TEST_ASKPASS_EXE").unwrap_or_else(|| env!("CARGO_BIN_EXE_plico-askpass").into()))
 }
 fn pending(requests: &Requests) -> Pending {
     let start = Instant::now();

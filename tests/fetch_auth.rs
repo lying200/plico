@@ -17,7 +17,7 @@ impl Fixture {
         assert!(Command::new("git").arg("-C").arg(&self.0).args(args).output().unwrap().status.success());
     }
     fn helper(&self) -> PathBuf {
-        let source = std::env::var_os("GITUI_TEST_ASKPASS_EXE").unwrap_or_else(|| env!("CARGO_BIN_EXE_gitui-askpass").into());
+        let source = std::env::var_os("GITUI_TEST_ASKPASS_EXE").unwrap_or_else(|| env!("CARGO_BIN_EXE_plico-askpass").into());
         let path = self.0.join(if cfg!(windows) { "askpass helper.exe" } else { "askpass helper" });
         fs::copy(source, &path).unwrap();
         path

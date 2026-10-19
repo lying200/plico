@@ -24,11 +24,11 @@ serde_json = { version = "1", optional = true }
 chrono-tz = "0.10"
 
 [[bin]]
-name = "gitui-askpass"
+name = "plico-askpass"
 path = "src/bin/askpass.rs"
 
 [[bin]]
-name = "gitui-editor"
+name = "plico-editor"
 path = "src/bin/editor.rs"
 
 [[bin]]

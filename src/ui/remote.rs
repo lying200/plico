@@ -238,9 +238,9 @@ impl Review {
             return;
         };
         let helper = exe.with_file_name(if cfg!(windows) {
-            "gitui-askpass.exe"
+            "plico-askpass.exe"
         } else {
-            "gitui-askpass"
+            "plico-askpass"
         });
         if !helper.is_file() {
             self.status_message = Some(t("Authentication helper is unavailable").into());
@@ -248,9 +248,9 @@ impl Review {
             return;
         }
         let editor_helper = exe.with_file_name(if cfg!(windows) {
-            "gitui-editor.exe"
+            "plico-editor.exe"
         } else {
-            "gitui-editor"
+            "plico-editor"
         });
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Update,
@@ -456,9 +456,9 @@ impl Review {
             return;
         };
         let helper = exe.with_file_name(if cfg!(windows) {
-            "gitui-askpass.exe"
+            "plico-askpass.exe"
         } else {
-            "gitui-askpass"
+            "plico-askpass"
         });
         if !helper.is_file() {
             self.status_message = Some(t("Authentication helper is unavailable").into());
@@ -466,9 +466,9 @@ impl Review {
             return;
         }
         let editor_helper = exe.with_file_name(if cfg!(windows) {
-            "gitui-editor.exe"
+            "plico-editor.exe"
         } else {
-            "gitui-editor"
+            "plico-editor"
         });
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Push,
@@ -706,14 +706,14 @@ impl Review {
             return;
         };
         let helper = exe.with_file_name(if cfg!(windows) {
-            "gitui-askpass.exe"
+            "plico-askpass.exe"
         } else {
-            "gitui-askpass"
+            "plico-askpass"
         });
         let editor = exe.with_file_name(if cfg!(windows) {
-            "gitui-editor.exe"
+            "plico-editor.exe"
         } else {
-            "gitui-editor"
+            "plico-editor"
         });
         let (Ok(commit_editor), Ok(sequence_editor)) = (
             plico::editor::command(&editor, false),
@@ -901,9 +901,9 @@ impl Review {
         }
         let helper = match std::env::current_exe() {
             Ok(path) => path.with_file_name(if cfg!(windows) {
-                "gitui-askpass.exe"
+                "plico-askpass.exe"
             } else {
-                "gitui-askpass"
+                "plico-askpass"
             }),
             Err(_) => {
                 self.status_message = Some(t("Authentication helper is unavailable").into());

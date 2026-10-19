@@ -146,9 +146,9 @@ impl Review {
             return;
         };
         let helper = exe.with_file_name(if cfg!(windows) {
-            "gitui-editor.exe"
+            "plico-editor.exe"
         } else {
-            "gitui-editor"
+            "plico-editor"
         });
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Squash,
@@ -553,9 +553,9 @@ impl Review {
             let command = std::env::current_exe().and_then(|exe| {
                 plico::editor::command(
                     &exe.with_file_name(if cfg!(windows) {
-                        "gitui-editor.exe"
+                        "plico-editor.exe"
                     } else {
-                        "gitui-editor"
+                        "plico-editor"
                     }),
                     false,
                 )

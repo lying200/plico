@@ -18,7 +18,7 @@ impl Fixture {
         String::from_utf8(result.stdout).unwrap().trim().into()
     }
     fn helper(&self) -> PathBuf {
-        let src = std::env::var_os("GITUI_TEST_EDITOR_EXE").unwrap_or_else(|| env!("CARGO_BIN_EXE_gitui-editor").into());
+        let src = std::env::var_os("GITUI_TEST_EDITOR_EXE").unwrap_or_else(|| env!("CARGO_BIN_EXE_plico-editor").into());
         let path = self.0.join(if cfg!(windows) { "editor helper.exe" } else { "editor helper" });
         // Keep the quoted Unicode/spaced executable path without creating a
         // writable executable inode while other tests concurrently spawn Git.
@@ -147,7 +147,7 @@ fn merge_update_routes_editor_and_preserves_saved_changes_on_rejection() {
         fs::write(f.0.join("local"), "valuable staged\n").unwrap(); f.git(&["add", "local"]);
         let helper = f.helper();
         let askpass = PathBuf::from(std::env::var_os("GITUI_TEST_ASKPASS_EXE")
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_gitui-askpass").into()));
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_plico-askpass").into()));
         let cancel = Cancel::default(); let requests = Requests::new(cancel.clone());
         let worker_requests = requests.clone(); let worker_cancel = cancel.clone();
         let repo = Repository::new(&f.0);

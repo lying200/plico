@@ -20,13 +20,13 @@ metadata = json.loads(subprocess.check_output(
     ["cargo", "metadata", "--locked", "--offline", "--format-version", "1",
      "--filter-platform", "x86_64-pc-windows-msvc"], cwd=root,
 ))
-helper = exe.with_name("gitui-askpass.exe")
+helper = exe.with_name("plico-askpass.exe")
 if not helper.is_file() or helper.read_bytes()[:2] != b"MZ":
     raise SystemExit("Build the Windows AskPass helper first")
-editor = exe.with_name("gitui-editor.exe")
+editor = exe.with_name("plico-editor.exe")
 if not editor.is_file() or editor.read_bytes()[:2] != b"MZ":
     raise SystemExit("Build the Windows editor helper first")
-files = {"Plico.exe": exe, "gitui-askpass.exe": helper, "gitui-editor.exe": editor, "LICENSE.txt": root / "LICENSE",
+files = {"Plico.exe": exe, "plico-askpass.exe": helper, "plico-editor.exe": editor, "LICENSE.txt": root / "LICENSE",
          "README.txt": root / "docs/WINDOWS-PREVIEW.txt",
          "THIRD-PARTY.txt": root / "docs/THIRD-PARTY.txt",
          "NOTICE.txt": root / "NOTICE", "LICENSING.md": root / "docs/LICENSING.md"}

@@ -99,12 +99,17 @@ impl UnifiedEditing {
         let offset=m.projection.working_range(offset..offset).map(|r|r.start).unwrap_or(0);
         (false,m.source[..offset].bytes().filter(|&c|c==b'\n').count())
     }
-    pub fn navigate_to(&self,line:usize,window:&mut Window,cx:&mut App) {
+    pub fn navigate_to(&self,line:usize,window:&mut Window,cx:&mut App) -> bool {
         let m=self.mapping.borrow();
         let source=if line==0 {0} else {m.source.match_indices('\n').nth(line-1).map(|(i,_)|i+1).unwrap_or(m.source.len())};
-        let Some(offset)=m.projection.display_offset(source) else {return;};
+        let Some(offset)=m.projection.display_offset(source) else {return true;};
         let row=m.projection.text()[..offset].bytes().filter(|&c|c==b'\n').count();
-        self.editor.update(cx,|e,cx|e.set_cursor_position(Position::new(row as u32,0),window,cx));
+        let Some(offsets)=crate::diff_scroll::navigation_offsets(&[self.editor.read(cx)], &[row..row+1]) else {return false;};
+        self.editor.update(cx,|e,cx| {
+            e.set_cursor_position(Position::new(row as u32,0),window,cx);
+            let mut offset=e.scroll_offset();offset.y=offsets[0];e.set_peer_scroll_offset(offset,cx);
+        });
+        true
     }
 }
 

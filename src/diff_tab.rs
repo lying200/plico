@@ -102,6 +102,7 @@ impl DiffTab {
         if self.unavailable.is_some() { return; }
         self.preferred_mode = if layout_preferences::load_diff_unified(self.place()) { DiffMode::Unified } else { DiffMode::Split };
         self.appearance = layout_preferences::load_diff_appearance(self.place());
+        self.pending_navigation = Some(true);
         self.token = Cancel::default(); self.loading = true; self.error = None; self.source_available=false;
         let viewer = cx.new(|cx| DiffState::new([], cx).with_mode(DiffMode::Split).with_context_lines(None).with_inline_unit(crate::diff_settings::inline_unit(self.appearance.emphasis)));
         if focus && !self.embedded { viewer.read(cx).focus_handle(cx).focus(window, cx); }
@@ -318,12 +319,14 @@ impl Render for DiffTab {
         if let Some(editable)=&self.editable {editable.update(cx,|v,cx| {v.appearance(self.appearance,window,cx);v.set_unified(self.preferred_mode==DiffMode::Unified,window,cx);});}
         if !self.loading {
             if let Some(first)=self.pending_navigation {
+                let focused=window.focused(cx);
                 if let Some(editable)=&self.editable {
                     if editable.update(cx,|v,cx|v.navigate_edge(first,window,cx)) {self.pending_navigation=None;}
                 } else if let Some(viewer)=&self.viewer {
                     viewer.update(cx,|v,cx|v.move_to_edge_change(first,cx));
                     self.pending_navigation=None;
                 }
+                if let Some(focused)=focused {focused.focus(window,cx);}
             }
         }
         let id = self.target.identity();

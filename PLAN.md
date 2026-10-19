@@ -4502,3 +4502,9 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - [x] Windows 原生静态验收：`artifacts/diff-fonts-20261019/refresh-nav-{a,b}.png` 显示 Diff 从 a 到 b、左侧选择同步；`refresh-log-after-commit.png` 显示实际提交后 Log 新提交及 HEAD，无手动刷新。没有验证滚动手感。
 
 最终 Windows release 构建通过，重启自己创建的测试进程后正常加载 fixture 的最新 Log 与文件列表；截图 `artifacts/diff-fonts-20261019/curves-start.png`。本轮修复随 v0.1.0-preview.4 发布。基线 profiling 临时 worktree 已移除；独立大仓库 fixture 保留于 `/tmp/plico-perf-{spring,many-files}` 便于复测。
+
+### 2026-10-19 Diff 滚动连接与导航定位修复
+
+- 修复编辑器 paint 后才发布坐标、中栏 prepaint 读取旧帧造成的连接滞后；本帧几何在 prepaint 提供给中栏及外侧行号。
+- 新打开 Diff 默认首处差异；F7／Shift+F7 按 Rebased getTargetOffsets 规则优先放在上方 1/3，长块留两行、首尾做边界调整，反向跨文件仍定位末处。参考、映射与保留差异见 docs/REBASED-REFERENCE.md 同日条目。
+- 30 项桌面相关测试通过（跳过既有 releasing_diff_clears_padding_from_retained_source 基线失败），Windows release 构建通过。原生 navigation-fixture 首次打开／F7／Shift+F7 截图见 artifacts/diff-fonts-20261019/navigation-*.png；持续滚动手感待用户手测。本轮未提交、推送或发版。

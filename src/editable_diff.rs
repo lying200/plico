@@ -24,6 +24,7 @@ pub struct EditableDiff {
     generation: u64,
     pub split_ratio: f32,
     original_active: bool,
+    pending_reveal: Option<usize>,
     active: bool,
     unified_mode: bool,
     unified: Option<crate::unified_editing::UnifiedEditing>,
@@ -62,7 +63,7 @@ impl EditableDiff {
         cx.subscribe(&working,|s,_,_:&crate::editing::Reloaded,cx|s.recompare(cx)).detach();
         cx.observe(&working,|_,_,cx|cx.notify()).detach();
         let source_layout=Some(editor.read(cx).source_layout());
-        let mut view=Self { working:Some(working),source_layout,modified:editor,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,split_ratio:0.5,original_active:false,active:true,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),appearance:None,task:Task::ready(()) };
+        let mut view=Self { working:Some(working),source_layout,modified:editor,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,split_ratio:0.5,original_active:false,pending_reveal:None,active:true,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),appearance:None,task:Task::ready(()) };
         view.recompare(cx); view
     }
     fn bind_scroll(editor:&Entity<EditorState>, original:&Entity<EditorState>, cx:&mut Context<Self>) {
@@ -115,7 +116,7 @@ impl EditableDiff {
         }
         Self {working:None,source_layout:None,modified,original,comparison_baseline:baseline.clone(),baseline,eol_only:false,
             path:path.to_string_lossy().into_owned(),original_marks,working_marks,documents:Documents::default(),
-            generation:0,split_ratio:0.5,original_active:false,active:true,unified_mode:false,unified:None,
+            generation:0,split_ratio:0.5,original_active:false,pending_reveal:None,active:true,unified_mode:false,unified:None,
             last_file:Some(file.clone()),changes:file.change_starts(),line_ranges:file.change_line_ranges(),appearance:None,task:Task::ready(())}
     }
     pub fn appearance(&mut self,value:plico::layout_preferences::DiffAppearance,window:&mut Window,cx:&mut Context<Self>) {
@@ -190,14 +191,40 @@ impl EditableDiff {
         true
     }
     fn navigate_index(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.pending_reveal=Some(index);
+        cx.notify();
         let original=self.original_active;
         let (old,new)=self.changes[index];
-        if self.unified_mode {if let Some(v)=&self.unified {v.navigate_to(new,window,cx);return;}}
+        if self.unified_mode {if let Some(v)=&self.unified {if v.navigate_to(new,window,cx) {self.pending_reveal=None;}return;}}
         let working=self.modified.clone();
         // Move both carets but restore the user's active side last.
         let mut positions=[(self.original.clone(),old),(working,new)];
         if original {positions.swap(0,1);}
         for (editor,line) in positions {editor.update(cx,|e,cx|e.set_cursor_position(gpui_kit::component::input::Position::new(line as u32,0),window,cx));}
+    }
+    fn reveal_pending(&mut self, window:&mut Window, cx: &mut Context<Self>) {
+        let Some(index)=self.pending_reveal else {return;};
+        let Some(&(_,line))=self.changes.get(index) else {self.pending_reveal=None;return;};
+        if self.unified_mode {
+            let focused=window.focused(cx);
+            if let Some(v)=&self.unified {
+                if v.navigate_to(line,window,cx) {self.pending_reveal=None;}
+            }
+            if let Some(focused)=focused {focused.focus(window,cx);}
+            return;
+        }
+        let Some((a,b))=self.line_ranges.get(index) else {self.pending_reveal=None;return;};
+        let Some(offsets)=crate::diff_scroll::navigation_offsets(
+            &[self.original.read(cx),self.modified.read(cx)], &[a.clone(),b.clone()]) else {return;};
+        self.pending_reveal=None;
+        for (editor,y) in [self.original.clone(),self.modified.clone()].into_iter().zip(offsets) {
+            editor.update(cx,|e,cx| {
+                let mut offset=e.scroll_offset();offset.y=y;
+                // Both destinations were computed together; don't remap either
+                // one through the ordinary wheel-scroll anchor afterwards.
+                e.set_peer_scroll_offset(offset,cx);
+            });
+        }
     }
     fn realign(&mut self, cx: &mut Context<Self>) {
         if !self.active || self.unified_mode {return;}
@@ -354,7 +381,8 @@ impl EditableDiff {
     }
 }
 impl Render for EditableDiff {
-    fn render(&mut self,_:&mut Window,cx:&mut Context<Self>)->impl IntoElement {
+    fn render(&mut self,window:&mut Window,cx:&mut Context<Self>)->impl IntoElement {
+        self.reveal_pending(window,cx);
         if self.unified_mode {
             return if let Some(view)=&self.unified {
                 v_flex().size_full().min_h_0()
@@ -387,6 +415,58 @@ mod lifecycle_tests {
     impl Render for Source {
         fn render(&mut self,_:&mut Window,_:&mut Context<Self>)->impl IntoElement {
             div().size_full().child(Editor::new(&self.0).appearance(false).bordered(false).h_full().line_height(px(20.)))
+        }
+    }
+    // A divider is prepainted after its editor, before any editor paint runs.
+    // It must see this frame's geometry on the very first frame as well.
+    struct GeometryProbe(Entity<EditorState>);
+    impl Render for GeometryProbe {
+        fn render(&mut self,_:&mut Window,_:&mut Context<Self>)->impl IntoElement {
+            let editor=self.0.clone();
+            div().size_full().child(Editor::new(&self.0).h_full())
+                .child(gpui::canvas(move |_,_,cx| {
+                    assert!(editor.read(cx).source_line_extent(0..1).is_some(),
+                        "divider prepaint must see current editor geometry");
+                },|_,_,_,_|{}).absolute().size_full())
+        }
+    }
+    #[gpui::test]
+    fn divider_geometry_is_available_before_paint(cx:&mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let (_,cx)=cx.add_window_view(|window,cx| {
+            let editor=cx.new(|cx|EditorState::new(window,cx).default_value("first\nsecond"));
+            let view=cx.new(|_|GeometryProbe(editor));Root::new(view,window,cx)
+        });
+        cx.update(|window,cx|{let _=window.draw(cx);});
+    }
+    #[gpui::test]
+    fn navigation_waits_for_layout_and_reveals_changes_at_upper_third(cx:&mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut diff=None;
+        let (_,cx)=cx.add_window_view(|window,cx| {
+            let old=(0..400).map(|i|format!("line {i}\n")).collect::<String>();
+            let new=old.replace("line 120\n","changed 120\n").replace("line 240\n","changed 240\n");
+            let file=gpui::component::diff::DiffFile::from_editor_sources(Some(("a.txt",&old)),Some(("a.txt",&new))).unwrap();
+            let view=cx.new(|cx|EditableDiff::snapshot(&file,std::path::Path::new("a.txt"),window,cx));
+            view.update(cx,|v,cx|assert!(v.navigate_edge(true,window,cx)));
+            diff=Some(view.clone());Root::new(view,window,cx)
+        });
+        let diff=diff.unwrap();
+        for expected in [120,240,120] {
+            if expected==240 {cx.update(|w,cx|diff.update(cx,|v,cx|assert!(v.try_navigate(true,w,cx))));}
+            else if diff.read_with(cx,|v,cx|v.source_position(cx).1)==240 {
+                cx.update(|w,cx|diff.update(cx,|v,cx|assert!(v.try_navigate(false,w,cx))));
+            }
+            for _ in 0..4 {cx.run_until_parked();cx.update(|w,cx|{let _=w.draw(cx);});}
+            diff.read_with(cx,|v,cx| {
+                assert_eq!(v.source_position(cx).1,expected);
+                assert!(v.pending_reveal.is_none());
+                for e in [&v.original,&v.modified] {
+                    let e=e.read(cx);let viewport=e.input_bounds();
+                    let top=e.source_line_extent(expected..expected+1).unwrap().0-viewport.top();
+                    assert!((top-viewport.size.height/3.).abs()<px(2.),"change {expected} must be framed, got {top:?}, viewport {viewport:?}, height {:?}, offset {:?}",e.line_height(),e.scroll_offset());
+                }
+            });
         }
     }
     #[gpui::test]

@@ -1963,3 +1963,15 @@ Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移
 - `platform/platform-util-io/src/com/intellij/execution/process/OSProcessHandler.java::doDestroyProcess/killProcessTree`：递归销毁进程树。压力测试发现只读 read_stream 原来只终止 git 启动进程，后代继续持有输出管道导致 join 等待。现在复用 `process_tree::ProcessTree`（Windows Job／Unix process group），在取消／超时以及 leader 退出后清理自己的后代再收回读线程。回归测试修前 3.01 秒失败，修后约 0.03 秒通过；不是放宽 30 秒限制。
 
 性能测量、原生截图与限制见 PLAN 同日条目。测试只在独立 fixture 写入，已有 Spring／Rebased 仓库只读。没有运行滚动自动化，没有完成全部像素级验收。
+
+### 2026-10-19 Diff 同帧连接与差异定位
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与快照不保证一致。本轮实际读取 `platform/diff-impl/src/com/intellij/diff/tools/simple/SimpleDiffViewer.java::scrollToChange/MyInitialScrollHelper`：初始化的默认回退定位 FIRST_CHANGE，导航同时移动两侧光标并调用 makeVisible。读取 `tools/util/SyncScrollSupport.java::doMakeVisible/getTargetOffsets`：两侧共享顶部留白，优先视口 1/3；完整变化块能放下时尽量显示全块，过长时留两行；按文件首尾和最大滚动范围调整。普通滚动及 divider 规则沿用前节已经核对的源码。
+
+根因：Plico 编辑器在 paint 才发布 last_bounds，中栏和左侧行号 canvas 在 prepaint 读到上一帧位置。不是刻意等滚动停止的降频。`vendor/gpui-base/src/input/base/{element,state}.rs` 现于 prepaint 发布本帧 source_geometry（文本坐标、行高、可见源行），外部行号和中栏读取同帧数据；不提前执行保存、输入或滚动事件，不增加轮询／延时。
+
+`src/diff_scroll.rs` 将上述双侧定位规则翻译成目标偏移计算；`src/editable_diff.rs` 等首次布局后应用两侧偏移，抑制普通滚动映射覆盖明确的导航目标；`src/diff_tab.rs` 为激活后的文件设置首次差异定位，保留反向跨文件定位末处差异，自动定位不抢走已有焦点。`src/unified_editing.rs` 复用单侧定位；`vendor/gpui-component/src/diff/state.rs` 的专用虚拟列表增加上下文留白。
+
+保留差异：未实现上游导航滚动动画；单栏投影以目标源行定位，虚拟列表按行高估算上下文（软换行／额外注释可能不同于精确像素高度）。双栏使用实际显示行映射及真实视口。没有改动原有按需加载范围或新增全文缓存。
+
+验证：新增首帧 prepaint 回归修前失败、修后通过；新增实际编辑器导航测试覆盖首次布局、下一处／上一处均在上方 1/3，纯函数覆盖短块／长块／首尾。30 项桌面相关测试通过，仍明确跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过；独立 400 行 navigation-fixture 的首处（121 行）与下处（241 行）原生截图见 `artifacts/diff-fonts-20261019/navigation-{current,next,previous}.png`。一次全黑截图被验收脚本拒绝，未计为成功，之后重新截图正常。未执行滚动自动化；持续滚动中的连接效果待用户手测，不以静态截图宣称动态体验已验收。

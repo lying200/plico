@@ -1296,9 +1296,24 @@ impl DiffState {
         let row = if first { self.change_rows.first() } else { self.change_rows.last() }.copied();
         if let Some(ix) = row {
             self.source_position = self.row_position(ix);
-            self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(0.) });
+            self.reveal_change_row(ix);
             cx.notify();
         }
+    }
+    fn reveal_change_row(&mut self, ix: usize) {
+        let height=self.row_height.unwrap_or(px(20.));
+        let viewport=self.list.viewport_bounds().size.height;
+        let changed=|r:&DisplayRow|match r {
+            DisplayRow::Code {changed,..}=>*changed,
+            DisplayRow::Three(r)=>r.tints.iter().any(Option::is_some),
+            _=>false,
+        };
+        let count=self.rows[ix..].iter().take_while(|r|changed(r)).count();
+        let range=height*(count+1) as f32;
+        let gap=height*2.;
+        let shift=if range+gap*2.<=viewport {(viewport-gap-range).min(viewport/3.)}else{gap};
+        let context=(shift.max(px(0.))/height).floor() as usize;
+        self.list.scroll_to(ListOffset {item_ix:ix.saturating_sub(context),offset_in_item:px(0.)});
     }
     fn move_change(&mut self, forward: bool, cx: &mut Context<Self>) -> bool {
         let top = self.source_position.as_ref().and_then(|p| self.source_row(p))
@@ -1328,10 +1343,7 @@ impl DiffState {
                 self.source_position = self.row_position(ix);
                 cx.emit(DiffEvent::SelectionChanged(None));
             }
-            self.list.scroll_to(ListOffset {
-                item_ix: ix,
-                offset_in_item: px(0.),
-            });
+            self.reveal_change_row(ix);
             cx.notify();
             return true;
         }

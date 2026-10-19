@@ -55,9 +55,47 @@ pub fn vertical_offset(master: &EditorState, slave: &EditorState,
     Some(desired.min(px(0.))) // editor clamps the lower document edge
 }
 
+/// Rebased SyncScrollSupport.getTargetOffsets: keep both starts aligned,
+/// prefer the upper third, fit the entire change, and respect document ends.
+pub fn navigation_offsets(editors: &[&EditorState], ranges: &[Range<usize>]) -> Option<Vec<Pixels>> {
+    let mut metrics=Vec::new();
+    for (editor,range) in editors.iter().zip(ranges) {
+        let height=editor.line_height()?;
+        let viewport=editor.input_bounds().size.height;
+        if viewport<=px(0.) || height<=px(0.) {return None;}
+        let top=height*editor.source_boundary_row(range.start) as f32;
+        let bottom=height*editor.source_boundary_row(range.end.saturating_add(1)) as f32;
+        metrics.push((top,(bottom-top).max(height),height*2.,viewport,editor.maximum_vertical_scroll()));
+    }
+    Some(target_offsets(&metrics))
+}
+fn target_offsets(metrics: &[(Pixels,Pixels,Pixels,Pixels,Pixels)]) -> Vec<Pixels> {
+    let shift=metrics.iter().map(|&(top,range,gap,viewport,_)| {
+        let shift=if 2.*gap+range<=viewport {(viewport-gap-range).min(viewport/3.)} else {gap};
+        shift.min(top)
+    }).min().unwrap_or(px(0.));
+    let enough=metrics.iter().all(|&(top,_,_,_,max)|max>top-shift);
+    let end_shift=metrics.iter().map(|&(top,_,_,_,max)|(top-max).max(px(0.))).max().unwrap_or(px(0.));
+    metrics.iter().map(|&(top,range,gap,viewport,max)| {
+        let offset=if enough {top-shift} else {
+            (top-end_shift+(end_shift+range+gap-viewport).max(px(0.))).min(top-gap)
+        };
+        -offset.clamp(px(0.),max)
+    }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn navigation_frames_short_long_and_eof_changes() {
+        let m=|top,range,max|(px(top),px(range),px(40.),px(600.),px(max));
+        assert_eq!(target_offsets(&[m(1000.,60.,2000.),m(1200.,80.,2000.)]),vec![px(-800.),px(-1000.)]);
+        assert_eq!(target_offsets(&[m(1000.,900.,2500.)]),vec![px(-960.)]);
+        assert_eq!(target_offsets(&[m(20.,60.,2000.),m(60.,100.,2000.)]),vec![px(0.),px(-40.)]);
+        let eof=target_offsets(&[m(1900.,100.,1500.)]);
+        assert_eq!(eof,vec![px(-1500.)]);
+    }
     #[test]
     fn history_crlf_coordinates_preserve_eol_changes() {
         use gpui_kit::component::diff::{DiffFile,DiffSide};

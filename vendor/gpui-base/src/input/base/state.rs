@@ -453,6 +453,7 @@ pub struct InputBaseState<M: InputModeKind> {
     /// The marked range is the temporary insert text on IME typing.
     pub(super) ime_marked_range: Option<CursorSelection>,
     pub(super) last_layout: Option<LastLayout>,
+    pub(super) source_geometry: Option<(Bounds<Pixels>, Pixels, Vec<usize>)>,
     /// Fresh caret geometry stashed during prepaint for caret-anchored popups.
     ///
     /// Popups are positioned in their deferred prepaint, which runs after the
@@ -860,6 +861,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             number_max: None,
             mode: LayoutMode::default(),
             last_layout: None,
+            source_geometry: None,
             prepaint_caret_geometry: None,
             last_bounds: None,
             last_selected_range: None,
@@ -3133,6 +3135,10 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Current scroll offset of the editor viewport.
     pub fn scroll_offset(&self) -> gpui::Point<gpui::Pixels> {
         self.scroll_handle.offset()
+    }
+
+    pub fn maximum_vertical_scroll(&self) -> Pixels {
+        (self.scroll_size.height - self.input_bounds.size.height).max(px(0.))
     }
 
     /// Set scroll offset of the editor viewport.
@@ -11320,8 +11326,8 @@ impl InputBaseState<crate::input::EditorMode> {
     /// Window-space extent of source lines, including wrapping but excluding
     /// alignment padding after the final line. Used by Diff divider connectors.
     pub fn source_line_extent(&self, range: Range<usize>) -> Option<(Pixels, Pixels)> {
-        let bounds = self.last_bounds?;
-        let height = self.line_height()?;
+        let (bounds, height, _) = self.source_geometry.as_ref()?;
+        let height = *height;
         let count = self.display_map.buffer_line_count();
         let start = if range.is_empty() {
             // Empty-side marker belongs before alignment padding, at the end
@@ -11340,8 +11346,8 @@ impl InputBaseState<crate::input::EditorMode> {
     /// Source lines in the current layout, for an external Diff gutter.
     /// Wrapped continuation rows and alignment padding do not get extra numbers.
     pub fn visible_source_line_extents(&self) -> Vec<(usize, Pixels, Pixels)> {
-        self.last_layout.as_ref().map_or_else(Vec::new, |layout| {
-            layout.visible_buffer_lines.iter().filter_map(|&line| {
+        self.source_geometry.as_ref().map_or_else(Vec::new, |(_, _, lines)| {
+            lines.iter().filter_map(|&line| {
                 self.source_line_extent(line..line + 1).map(|(top, bottom)| (line, top, bottom))
             }).collect()
         })

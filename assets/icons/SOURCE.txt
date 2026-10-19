@@ -104,3 +104,9 @@ from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd.
 DiffUtil.getArrowIcon(LEFT) selects AllIcons.Diff.ArrowRight;
 PlatformIconMappings.json maps diff/arrowRight.svg to expui/diff/arrowRight@14x14.svg.
 Copyright JetBrains s.r.o. and contributors, Apache-2.0 (LICENSE.txt).
+
+incoming_dark.svg / outgoing_dark.svg: detachhead/rebased commit
+4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/dvcs-impl/shared/resources/icons/new/changes{Update,Push}@12x12_dark.svg
+(mapped by DvcsIconMappings.json; local filenames incoming_dark.svg/outgoing_dark.svg).
+Copyright JetBrains s.r.o. and contributors, Apache-2.0. Unmodified resources.

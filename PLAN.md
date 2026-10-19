@@ -4508,3 +4508,9 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - 修复编辑器 paint 后才发布坐标、中栏 prepaint 读取旧帧造成的连接滞后；本帧几何在 prepaint 提供给中栏及外侧行号。
 - 新打开 Diff 默认首处差异；F7／Shift+F7 按 Rebased getTargetOffsets 规则优先放在上方 1/3，长块留两行、首尾做边界调整，反向跨文件仍定位末处。参考、映射与保留差异见 docs/REBASED-REFERENCE.md 同日条目。
 - 30 项桌面相关测试通过（跳过既有 releasing_diff_clears_padding_from_retained_source 基线失败），Windows release 构建通过。原生 navigation-fixture 首次打开／F7／Shift+F7 截图见 artifacts/diff-fonts-20261019/navigation-*.png；持续滚动手感待用户手测。本轮未提交、推送或发版。
+
+### 2026-10-19 Log 自动刷新与分支更新提示
+
+- 按 Rebased repository→Log 和 incoming/outgoing 分工，新增独立引用观察模块。5 秒检查本地 refs/HEAD，只在变化时保留选择刷新 Log；写操作／查询中推迟，多事件合并，切仓和关闭取消。
+- 当前分支蓝色 incoming／绿色 outgoing 可共存，使用 Rebased 现代 12px 图标；悬停显示上下行数量及未获取／未知状态。远端 5 分钟只读 ls-remote，超时取消和后台无交互，不自动 fetch/pull；具体差异与上游默认 FETCH／20 分钟的区别见 docs/REBASED-REFERENCE.md。
+- 3 项实际 Git 临时仓库测试和 30 项桌面相关测试通过（保留已知基线排除），Windows release 构建通过。原生独立 fixture 验证外部提交／fetch 自动更新 Log 和分支标记、保留原选中提交；截图 artifacts/diff-fonts-20261019/auto-refresh-*.png。真实跨机 WSL 开销及全部像素细节尚未验收。本轮未提交、推送或发布。

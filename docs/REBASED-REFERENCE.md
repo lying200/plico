@@ -1975,3 +1975,21 @@ Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移
 保留差异：未实现上游导航滚动动画；单栏投影以目标源行定位，虚拟列表按行高估算上下文（软换行／额外注释可能不同于精确像素高度）。双栏使用实际显示行映射及真实视口。没有改动原有按需加载范围或新增全文缓存。
 
 验证：新增首帧 prepaint 回归修前失败、修后通过；新增实际编辑器导航测试覆盖首次布局、下一处／上一处均在上方 1/3，纯函数覆盖短块／长块／首尾。30 项桌面相关测试通过，仍明确跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过；独立 400 行 navigation-fixture 的首处（121 行）与下处（241 行）原生截图见 `artifacts/diff-fonts-20261019/navigation-{current,next,previous}.png`。一次全黑截图被验收脚本拒绝，未计为成功，之后重新截图正常。未执行滚动自动化；持续滚动中的连接效果待用户手测，不以静态截图宣称动态体验已验收。
+
+### 2026-10-19 Log 自动刷新与分支上下行标记
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与源码快照不保证一致。本轮实际读取：
+
+- `plugins/git4idea/backend/src/repo/GitRepositoryUpdater.kt::filesChanged`：监听 Git 管理目录的 HEAD、heads/remotes、packed-refs、config、reftable 等变化，更新 repository；index／工作树变更另行通知 changes。`backend/src/log/GitLogProvider.kt::subscribeToRootRefreshEvents/refreshOnRepoUpdate` 把仓库和 tag 更新转成 Log refresh。
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/data/VcsLogRefresherImpl.kt::handleRefreshRequests`：累积多个刷新请求，批量处理后更新数据包，不为每个事件重建一次 UI。
+- `backend/src/branch/GitBranchIncomingOutgoingManager.java::activate/updateIncomingScheduling/requestRemoteInfo/calcBranchesWithIncoming/calculateBranchesWithOutgoing/getCommitsForBranch`：本地仓库事件重算上下行；远端策略支持 FETCH／LS_REMOTE／NONE。LS_REMOTE 比较远端和本地追踪引用 hash，未获取对象时也可显示 incoming，但不编造数量。incoming 比较 upstream，outgoing 比较 push target，二者独立。`shared/src/git4idea/config/GitVcsOptions.kt` 当前快照默认 FETCH，`backend/resources/intellij.vcs.git.backend.xml` 的检查周期默认 20 分钟。
+- `plugins/git4idea/tests/git4idea/branch/GitBranchIncomingOutgoingManagerTest.kt` 已读 fetch／ls-remote／同步／手动获取用例；ls-remote 未获取更新时 incoming count 为 0、hasIncoming 为 true。
+- `shared/src/com/intellij/vcs/git/ui/GitIncomingOutgoingUi.kt`：incoming 蓝色、outgoing 绿色，各自独立可见。`backend/src/ui/branch/GitBranchWidget.kt` 订阅仓库和 incoming/outgoing 事件，tooltip 使用计数。`platform/dvcs-impl/shared/resources/DvcsIconMappings.json` 把旧 incoming/outgoing 映射至 `icons/new/changesUpdate@12x12_dark.svg`／`changesPush@12x12_dark.svg`；本地原样引入现代 12px 资源，来源和许可证见 assets/icons/SOURCE.txt。
+
+本地实现：`src/branch_updates.rs` 封装引用快照、HEAD／上游／推送目标、计数及只读远端检查；`src/ui/auto_refresh.rs` 持有仓库作用域的独立本地／远端任务及取消令牌。每 5 秒只查询引用和 HEAD，引用没有变化不重算 rev-list、不重载 Log、不遍历工作树。忙于查询或写操作时推迟，不中断用户操作，期间的多次外部变化由下一次完整引用快照合并。变化后复用 preserve 刷新，保留筛选、选中 OID 和列表位置。切换仓库／关闭窗口取消旧任务，远端结果还检查仓库路径和 upstream 身份，避免迟到结果污染。入口接入初次打开及欢迎页／项目切换。
+
+远端独立每 5 分钟按当前分支 upstream 执行 ls-remote，30 秒超时、输出有界、取消沿用 ProcessTree；没有自动 fetch/pull，不改对象、引用或工作树。提示数量基于已获取引用，未 fetch 的更新单独显示箭头和说明。远端失败保持 unknown，不弹反复错误窗或假报“已同步”；普通 SSH 使用 BatchMode，GCM 禁止交互，已有自定义 SSH 命令不覆盖、该后台检查返回 unknown，手动 Git 操作不变。
+
+保留差异：没有复制 IDE VFS，使用有界引用轮询以兼容 Windows→WSL UNC，不启动高频递归工作树扫描；不是整个文件系统的自动重载。只检查当前分支远端，采用 LS_REMOTE 而非上述快照的默认 FETCH，周期 5 分钟而非 20 分钟；本轮不新增策略设置。尚未获取的远端提交需显式 fetch 后才会出现在 Log。未进行真实跨机 WSL 性能测量，不宣称与上游事件驱动延迟／开销相同。
+
+验证：3 项临时仓库集成测试覆盖外部提交、分叉双向计数、未获取远端更新、检查不修改 refs、fetch 后计数、游离 HEAD、无提交／无 upstream、tag 变化、取消及三角工作流的独立 push target；30 项现有桌面测试通过（仍排除已知 releasing_diff_clears_padding_from_retained_source 基线失败）。Windows release 构建通过。独立 auto-refresh-fixture + 本地 bare remote 原生截图 `artifacts/diff-fonts-20261019/auto-refresh-start.png` 展示双箭头；外部 fetch＋commit 后 `auto-refresh-external.png` 展示新提交、远端标记更新，原选中 Local change 保留。无用户仓库写入、无真实网络 push。最终现代图标截图记录见 PLAN。

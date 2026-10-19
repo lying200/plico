@@ -153,3 +153,5 @@ pub mod reset_operation;
 
 pub mod active_operation;
 pub mod editor_tabs_state;
+
+pub mod branch_updates;

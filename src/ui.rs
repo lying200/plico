@@ -11,6 +11,7 @@ mod operation;
 mod preview;
 mod remote;
 mod repository;
+mod auto_refresh;
 mod repository_popup;
 mod saved_changes;
 mod settings;
@@ -82,6 +83,7 @@ struct NavigationNotice {
 }
 
 pub struct Review {
+    updates: auto_refresh::AutoRefresh,
     startup_report: Option<Arc<crate::startup_report::Probe>>,
     operation: plico::active_operation::Lifecycle,
     operation_task: Task<()>,
@@ -344,6 +346,7 @@ impl Review {
         let initial_focus = focus.clone();
         window.on_next_frame(move |window, cx| initial_focus.focus(window, cx));
         let mut this = Self {
+            updates: Default::default(),
             startup_report,
             welcome: path.as_os_str().is_empty(),
             ui_chinese: i18n::is_chinese(),
@@ -581,6 +584,7 @@ impl Review {
         .detach();
         if !this.welcome {
             this.refresh(false, cx);
+            this.start_auto_refresh(cx);
         }
         this
     }

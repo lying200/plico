@@ -247,6 +247,7 @@ impl Review {
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.limit = git::HISTORY_PAGE;
         self.refresh(false, cx);
+        self.start_auto_refresh(cx);
         self.focus.focus(window, cx);
     }
     pub(super) fn refresh(&mut self, more: bool, cx: &mut Context<Self>) {

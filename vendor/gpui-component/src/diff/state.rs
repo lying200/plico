@@ -237,6 +237,7 @@ pub struct DiffState {
     layout: Option<LayoutKey>,
     content_width: Pixels,
     row_height: Option<Pixels>,
+    hinted_list_width: Option<Pixels>,
     annotations: HashSet<(Option<DiffLinePosition>, SharedString, ElementId)>,
     window: Option<WindowId>,
     /// Bumped when files or presentation options change, so a preparation
@@ -385,6 +386,7 @@ impl DiffState {
             layout: None,
             content_width: px(0.),
             row_height: None,
+            hinted_list_width: None,
             annotations: HashSet::new(),
             window: None,
             presentation_generation: 0,
@@ -603,6 +605,12 @@ impl DiffState {
     pub(crate) fn list(&self) -> &ListState {
         &self.list
     }
+    /// Layout metrics for application-level rendering regression tests.
+    #[cfg(feature = "test-support")]
+    pub fn test_scroll_metrics(&self) -> (usize, Size<Pixels>, Pixels) {
+        (self.list.item_count(), self.list.viewport_bounds().size,
+         self.list.max_offset_for_scrollbar().y)
+    }
     pub(crate) fn horizontal_scroll(&self) -> &HorizontalScroll {
         &self.horizontal_scroll
     }
@@ -629,13 +637,23 @@ impl DiffState {
     /// Records the painted body size and widest painted row. Returns whether
     /// either changed, so the frame must be laid out again.
     pub(crate) fn record_paint(&mut self, viewport: Size<Pixels>, painted_width: Pixels) -> bool {
+        // GPUI List clears every item height hint during its first prepaint
+        // and whenever its width changes. Restore estimates *after* that
+        // prepaint; otherwise only the visible rows contribute to the scroll
+        // extent, and keyboard navigation appears to load another screen.
+        let list_width = self.list.viewport_bounds().size.width;
+        let hints_invalidated = self.hinted_list_width != Some(list_width);
+        if hints_invalidated {
+            self.apply_row_height_hint();
+            self.hinted_list_width = Some(list_width);
+        }
         let wider = painted_width > self.content_width;
         if wider {
             self.content_width = painted_width;
         }
         let resized = self.viewport != viewport;
         self.viewport = viewport;
-        wider || resized
+        wider || resized || hints_invalidated
     }
 
     /// Replaces the files and resets expansion, selection and viewport.

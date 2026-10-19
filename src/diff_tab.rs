@@ -399,6 +399,54 @@ mod editable_navigation_tests {
         fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {gpui::div()}
     }
     #[gpui::test]
+    fn readonly_tab_has_full_scroll_extent_without_f7(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut viewer = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let before = (0..500).map(|n| format!("const line{n} = {n};\n")).collect::<String>();
+            let after = before.replace("= 250;", "= 999;");
+            let state = cx.new(|cx| DiffState::new([DiffFile::from_sources(
+                Some(("index.tsx", before.as_str())), Some(("index.tsx", after.as_str()))).unwrap()], cx));
+            state.update(cx, |s, cx| {
+                s.set_context_lines(None, cx);
+                s.set_mode(gpui::component::diff::DiffMode::Split, cx);
+            });
+            viewer = Some(state.clone());
+            struct Body(gpui::Entity<DiffState>);
+            impl gpui::Render for Body {
+                fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+                    use gpui::{Styled as _, ParentElement as _};
+                    gpui::component::v_flex().size_full().min_h_0()
+                        .child(gpui::div().h(gpui::px(64.)).flex_shrink_0())
+                        .child(gpui::div().flex_1().min_h_0().child(
+                            gpui::component::diff::Diff::new(&self.0).size_full()
+                                .soft_wrap(false).header_visible(false)))
+                }
+            }
+            let body = cx.new(|_| Body(state));
+            gpui::component::Root::new(body, window, cx)
+        });
+        let viewer = viewer.unwrap();
+        for (mode, width) in [
+            (gpui::component::diff::DiffMode::Split, 1200.),
+            (gpui::component::diff::DiffMode::Split, 900.),
+            (gpui::component::diff::DiffMode::Unified, 900.),
+        ] {
+            cx.simulate_resize(gpui::size(gpui::px(width), gpui::px(800.)));
+            viewer.update(cx, |s, cx| s.set_mode(mode, cx));
+            for _ in 0..3 {
+                cx.run_until_parked();
+                cx.update(|window, cx| { let _ = window.draw(cx); });
+            }
+            viewer.read_with(cx, |state, _| {
+                let (rows, viewport, travel) = state.test_scroll_metrics();
+                assert!(rows >= 500, "full file must be projected: {rows}");
+                assert!(viewport.height > gpui::px(0.) && viewport.height < gpui::px(800.), "bounded viewport: {viewport:?}");
+                assert!(travel > viewport.height * 3., "500 lines must be scrollable without F7 ({mode:?}, width {width}): viewport={viewport:?}, travel={travel:?}");
+            });
+        }
+    }
+    #[gpui::test]
     fn readonly_f7_stops_at_last_change(cx: &mut gpui::TestAppContext) {
         let state=cx.new(|cx|DiffState::new([DiffFile::from_sources(
             Some(("a.txt","head\nold first\nmiddle\nold last\ntail\n")),

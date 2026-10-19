@@ -1847,3 +1847,13 @@ Windows 原生复现：拖动窗口最右边缘，释放后仅移动鼠标到提
 本地改为调用 EditorState::focus，使焦点与 BlinkCursor 启动同步；移除文件加载后及下次 render 的重复聚焦，保留异步加载完成再聚焦与预览不抢焦点的原规则。未改变文字内容、光标颜色或闪烁周期。没有把只读文本的 I 形鼠标指针与编辑插入光标混为一谈。
 
 原生 Windows release 构建通过。`artifacts/eol-reset-20261019/caret-frames.ps1` 每 150 ms 捕获一次正文区域，共 12 帧；`check-caret.ps1` 比较帧像素。修复前 `caret-before.png` 变化为 0，断言失败；修复后 `caret-fixed.png` 与 Log 切换返回后的 `caret-tab-return.png` 均为 546 个变化像素，断言通过。已查看修复后帧序列，变化确为行尾插入光标亮灭。临时 DEBUG-caret/PLICO_CARET_DEBUG 代码已移除；原生脚本保留在忽略的 artifacts 内，不作为跨平台全覆盖声明。
+
+### 只读 Diff 首次打开只有一屏滚动范围（2026-10-19）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，与安装版 Rebased 1.1.20 不保证一致。本轮已读 `platform/diff-impl/src/com/intellij/diff/tools/util/side/TwosideTextDiffViewer.java::createEditorHolders/installEditorListeners` 以及 `platform/diff-impl/src/com/intellij/diff/tools/util/SyncScrollSupport.java::TwosideSyncScrollSupport`：双栏各自持有完整编辑器及滚动模型，监听可见区域并同步另一侧；差异定位与文件内容的滚动范围独立。保留本地差异：GPUI 使用共享虚拟列表对齐双栏，仍只绘制可见行，不引入 Swing 编辑器或全文件预绘制。
+
+失败复现为 500 行 TSX 的实际 Diff 布局：文件行数完整，但首次三帧后 viewport 高 1014px、最大滚动距离只有 15px。`gpui-pre 0.3.9/src/elements/list.rs::List::prepaint` 首次布局和宽度变化时把所有条目的 size_hint 清空；原 `DiffState::update_layout` 在 prepaint 前设置的估算因此失效，F7 跳转只会逐步积累已测行高。异步高亮仅更新 presentation，没有截断文件。
+
+本地 `vendor/gpui-component/src/diff/state.rs::record_paint` 在列表完成 prepaint 后检测其实际宽度变化，恢复未测行高度估算并安排下一帧。每次宽度变化处理一次，不在普通绘制帧重建估算。`src/diff_tab.rs::readonly_tab_has_full_scroll_extent_without_f7` 使用与 Tab 正文相同布局，验证 500 行双栏首次显示、缩窄及切单栏都有完整滚动范围；连同 F7 边界和源码跳转测试共 4 项通过。测试不合成鼠标滚动；真实滚动体验仍由用户手测。完整 Tab 的 debug 测试会触发现有 ModeSelector 重复 hover 样式断言，因此渲染回归测试仅包裹真实 Diff 正文，工具栏另以 Windows release 原生验证。
+
+Windows release 构建通过；自建 500 行 TSX 临时仓库在独立 Diff Tab 的修复前后截图为 `artifacts/diff-extent-20261019/before.png`、`after.png`。原生核对首次挂载、布局及内容显示，没有执行滚轮/拖动滚动自动化。默认滚动条为空闲自动隐藏，静态截图不证明完整滚动范围；该断言由上面的实际 GPUI 布局回归测试验证，用户真实仓库的鼠标滚动仍待手测。本次不宣称像素级验收或发布新包。

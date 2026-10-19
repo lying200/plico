@@ -30,6 +30,7 @@ mod ui_graph;
 mod project_view;
 mod editing;
 mod editable_diff;
+mod diff_scroll;
 mod unified_editing;
 mod history_view;
 mod error_ui;

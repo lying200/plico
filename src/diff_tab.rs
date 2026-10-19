@@ -81,10 +81,11 @@ impl DiffTab {
         self.split_dragging.set(false);
         if let Some(view) = self.editable.take() {
             view.update(cx, |v,cx|v.deactivate(cx));
-            let document = view.read(cx).working.clone();
+            if let Some(document) = view.read(cx).working.clone() {
             document.update(cx, |d,cx|d.save(cx));
             self.documents.retain_pending(self.target.identity().path.clone(), &document, cx);
             if document.read(cx).edited {self.retained_document=Some(document);}
+            }
         }
         self.pending_editable = None;
         self.navigation_boundary = None;
@@ -286,7 +287,23 @@ impl Render for DiffTab {
             }).detach();
             self.editable = Some(editable);
         }
-        if let Some(editable)=&self.editable {editable.update(cx,|v,cx|v.set_unified(self.preferred_mode==DiffMode::Unified,window,cx));}
+        // Unified/one-sided/three-way comparisons keep the specialized viewer.
+        // Ordinary historical split Diff uses two independent read-only editors.
+        if self.preferred_mode != DiffMode::Split && self.editable.as_ref().is_some_and(|v|v.read(cx).working.is_none()) {
+            self.editable.take();
+        }
+        if self.editable.is_none() && !self.loading && self.preferred_mode == DiffMode::Split {
+            let file=self.viewer.as_ref().filter(|v|!v.read(cx).is_three_way())
+                .and_then(|v|v.read(cx).files().first()).filter(|f|!matches!(f.status(),DiffFileStatus::Added|DiffFileStatus::Deleted))
+                .filter(|f|!f.source(gpui_kit::component::diff::DiffSide::Original).is_empty() || !f.source(gpui_kit::component::diff::DiffSide::Modified).is_empty()).cloned();
+            if let Some(file)=file {
+                let focus=self.viewer.as_ref().is_some_and(|v|v.read(cx).focus_handle(cx).is_focused(window));
+                let surface=cx.new(|cx|crate::editable_diff::EditableDiff::snapshot(&file,&self.target.identity().path,window,cx));
+                if focus {surface.update(cx,|v,cx|v.focus(window,cx));}
+                self.editable=Some(surface);
+            }
+        }
+        if let Some(editable)=&self.editable {editable.update(cx,|v,cx| {v.appearance(self.appearance,window,cx);v.set_unified(self.preferred_mode==DiffMode::Unified,window,cx);});}
         if !self.loading {
             if let Some(first)=self.pending_navigation {
                 if let Some(editable)=&self.editable {
@@ -339,7 +356,7 @@ impl Render for DiffTab {
         let titles = div().flex().when(unified, |row| row.flex_col())
             .w_full().flex_shrink_0().border_b_1().border_color(rgb(0x26282c))
             .when(status != Some(DiffFileStatus::Added), |row| row.child(title_cell(before, Some(old_path.display().to_string()), true, if status == Some(DiffFileStatus::Deleted) { 1. } else { self.split_ratio })))
-            .when(status != Some(DiffFileStatus::Deleted), |row| row.child(title_cell(after, after_path, self.editable.is_none(), if status == Some(DiffFileStatus::Added) { 1. } else { 1. - self.split_ratio })));
+            .when(status != Some(DiffFileStatus::Deleted), |row| row.child(title_cell(after, after_path, self.editable.as_ref().is_none_or(|v|v.read(cx).working.is_none()), if status == Some(DiffFileStatus::Added) { 1. } else { 1. - self.split_ratio })));
         let content = if let Some(message) = self.unavailable { div().p_4().child(t(message)).into_any_element() }
         else if self.loading { div().p_4().child(t("Reading Git data…")).into_any_element() }
         else if let Some(error) = self.error.clone() {

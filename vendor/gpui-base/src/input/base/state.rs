@@ -11159,6 +11159,10 @@ impl<M: crate::input::MultiLineMode> InputBaseState<M> {
 
     /// Update the soft wrap mode, default is true.
     pub fn set_soft_wrap(&mut self, wrap: bool, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_soft_wrap(wrap, cx);
+    }
+
+    fn update_soft_wrap(&mut self, wrap: bool, cx: &mut Context<Self>) {
         self.soft_wrap = wrap;
         if wrap {
             let wrap_width = self
@@ -11319,12 +11323,59 @@ impl InputBaseState<crate::input::EditorMode> {
         let bounds = self.last_bounds?;
         let height = self.line_height()?;
         let count = self.display_map.buffer_line_count();
-        let start = if range.start >= count { self.display_map.display_row_count() }
+        let start = if range.is_empty() {
+            // Empty-side marker belongs before alignment padding, at the end
+            // of the preceding real line (including wrapping).
+            if range.start == 0 { 0 } else {
+                self.display_map.buffer_line_to_display_row_range(range.start.saturating_sub(1).min(count.saturating_sub(1)))?.end
+            }
+        } else if range.start >= count { self.display_map.display_row_count() }
             else { self.display_map.buffer_line_to_display_row_range(range.start)?.start };
         let end = if range.is_empty() { start } else {
             self.display_map.buffer_line_to_display_row_range(range.end.saturating_sub(1).min(count.saturating_sub(1)))?.end
         };
         Some((bounds.top() + height * start as f32, bounds.top() + height * end as f32))
+    }
+
+    /// Source lines in the current layout, for an external Diff gutter.
+    /// Wrapped continuation rows and alignment padding do not get extra numbers.
+    pub fn visible_source_line_extents(&self) -> Vec<(usize, Pixels, Pixels)> {
+        self.last_layout.as_ref().map_or_else(Vec::new, |layout| {
+            layout.visible_buffer_lines.iter().filter_map(|&line| {
+                self.source_line_extent(line..line + 1).map(|(top, bottom)| (line, top, bottom))
+            }).collect()
+        })
+    }
+
+    /// Capture/restore presentation when a shared editor leaves a Diff view.
+    pub fn source_layout(&self) -> (bool, bool) {
+        (self.soft_wrap, matches!(&self.mode, LayoutMode::CodeEditor { line_number: true, .. }))
+    }
+
+    pub fn restore_source_layout(&mut self, layout: (bool, bool), cx: &mut Context<Self>) {
+        if self.soft_wrap != layout.0 { self.update_soft_wrap(layout.0, cx); }
+        if let LayoutMode::CodeEditor { line_number, .. } = &mut self.mode {
+            *line_number = layout.1;
+        }
+        cx.notify();
+    }
+
+    /// Diff synchronization geometry. Logical boundaries include the EOF boundary;
+    /// unlike caret positions they may point one row past the last source line.
+    pub fn source_boundary_row(&self, line: usize) -> usize {
+        if line >= self.display_map.buffer_line_count() {
+            self.display_map.display_row_count()
+        } else {
+            self.display_map.buffer_line_to_display_row(line)
+        }
+    }
+
+    pub fn source_line_at_row(&self, row: usize) -> usize {
+        self.display_map.display_row_to_buffer_line(row.min(self.display_map.display_row_count().saturating_sub(1)))
+    }
+
+    pub fn source_line_count(&self) -> usize {
+        self.display_map.buffer_line_count()
     }
 
     /// Visual row at a logical boundary, excluding display-only padding.

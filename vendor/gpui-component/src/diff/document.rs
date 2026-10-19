@@ -694,11 +694,35 @@ impl DiffFile {
         ranges
     }
 
+    /// Keep the existing change pairing while converting physical CRLF byte
+    /// coordinates to the LF text used by EditorState. EOL-only changes remain
+    /// changed; this is coordinate conversion, not another text comparison.
+    pub fn editor_coordinates(&self) -> Self {
+        if !self.source(DiffSide::Original).contains('\r') && !self.source(DiffSide::Modified).contains('\r') {return self.clone();}
+        let normalize=|side:&FileSide| {
+            let mut text=String::with_capacity(side.source.len());
+            let mut lines=Vec::with_capacity(side.lines.len());
+            for line in &side.lines {
+                let start=text.len();
+                text.push_str(&side.source[line.source()].replace("\r\n","\n").replace('\r',"\n"));
+                lines.push((line.line_number,start..text.len()));
+            }
+            FileSide::new(side.path.clone(),text,lines)
+        };
+        let mut file=Self::new(self.status(),normalize(&self.inner.original),normalize(&self.inner.modified),
+            self.inner.pairs.clone(),self.inner.hunks.clone(),self.inner.extended_headers.clone(),self.inner.binary);
+        file.language=self.language.clone();file
+    }
+
     /// Source-byte decorations shared by editable viewers. Run off the UI thread.
     /// Rebased: grey deletion, green insertion, blue replacement; inner changes
     /// use the full colour while their surrounding line uses a 60% background mix.
     pub fn editor_change_highlights(&self, side: DiffSide) -> Vec<(Range<usize>, gpui::HighlightStyle, bool)> {
-        use super::presentation::{changed_runs, DiffInlineUnit};
+        self.editor_change_highlights_with_unit(side, Some(super::presentation::DiffInlineUnit::Word))
+    }
+
+    pub fn editor_change_highlights_with_unit(&self, side: DiffSide, unit: Option<super::presentation::DiffInlineUnit>) -> Vec<(Range<usize>, gpui::HighlightStyle, bool)> {
+        use super::presentation::changed_runs;
         let mut result = Vec::new();
         for pair in self.pairs().iter().filter(|p|p.is_changed()) {
             let (index, other) = match side { DiffSide::Original => (pair.original(),pair.modified()), DiffSide::Modified => (pair.modified(),pair.original()) };
@@ -708,7 +732,7 @@ impl DiffFile {
             if let Some(other)=other {
                 let other=&self.lines(side.other())[other];
                 if line.text().len()<=16384 && other.text().len()<=16384 {
-                    inner=changed_runs(line.text(),other.text(),DiffInlineUnit::Word).0;
+                    if let Some(unit)=unit {inner=changed_runs(line.text(),other.text(),unit).0;}
                 }
             }
             let color: gpui::Hsla = gpui::rgb(if other.is_some() {0x385570} else if side==DiffSide::Original {0x484a4a}else{0x294436}).into();

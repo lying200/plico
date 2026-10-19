@@ -1918,3 +1918,35 @@ Windows release 构建通过；自建 500 行 TSX 临时仓库在独立 Diff Tab
 保留差异及理由：Plico 每个窗口只允许一个此类 UI 操作，不复制上游多仓库／多远端队列；Reset 执行阶段不可取消是既有本地安全策略，并非从上述 Java 类推导出的规则。Log 作为固定回退页；不新增 MRU 或关闭后选择方向设置。没有引入通用工作流框架，也没有把所有 Git 操作合并为一种结果处理。
 
 验证：200 项库测试、18 项桌面测试和 46 项临时仓库 Git 集成测试通过；新增测试覆盖取消仍持锁、过期完成、Reset 阶段、保存失败保留草稿且阻止动作、不经过 render 的文档锁更新及混合 Tab 稳定身份。已知桌面基线失败 `releasing_diff_clears_padding_from_retained_source` 明确排除。cargo check、Windows release 构建通过。Windows 原生独立测试实例确认关闭前面的非活动 Diff 后源码页仍被选中、重新打开、菜单关闭全部、修改源码后立即关闭完成落盘；截图 `artifacts/diff-fonts-20261019/architecture-{close-inactive,tab-menu,close-all,saved-close}.png`。同 HEAD Mixed Reset 在临时仓库成功，未将原生测试记为取消验证；取消的边界由自动化测试覆盖。原生保存测试结束后已恢复临时文件内容；未改用户仓库或关闭用户 Rebased／IDE。
+
+
+### 2026-10-19 Diff 空侧边界、曲线与内侧行号
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与快照不保证一致。已读 `platform/diff-impl/src/com/intellij/diff/util/DiffDrawUtil.java::LineHighlighterBuilder.done/makeCurve/drawCurveTrapezium`：空范围用行分隔标记表示，首行取顶部、其他位置取前一行底部；曲线为三次贝塞尔，两控制点横向比例为 0.3／0.7，纵坐标分别与对应端点相同。`DiffDividerDrawUtil.java::DividerPolygon.paint` 将空端点处理为细边，非空端点保留块高度。已读 `tools/util/side/TwosideTextDiffViewer.java::createEditorHolders` 与 `DiffUtil.java::isMirrored`：左编辑器设置 LEFT 方向，Diff 以此识别镜像布局。用户截图明确要求两侧行号均靠近分隔区。
+
+本地 `src/editable_diff.rs`：连接多边形改成上述曲线；新增／删除的空侧绘制横贯该侧的 1px 边界；原始版本使用独立内侧行号栏，行号取真实可见源行坐标，折行／对齐填充不增加行号，不随横向滚动位移。`vendor/gpui-base/src/input/base/state.rs::source_line_extent` 对空区间取前一真实行的末端，避免标记落在对齐填充之后；提供可见源行范围供行号栏使用。工作区共享文档的行号设置不变，因此返回文件编辑器不受影响。
+
+`vendor/gpui-component/src/diff/mod.rs`：只读双栏原始版本行号从代码横向滚动容器中分离，放到该列右侧；空侧首个对齐行增加边界，中栏按变化块绘制曲线切片。单栏及三栏保留原布局。保留差异：只读 Diff 仍使用对齐虚拟行，未迁移为两个独立编辑器；跨多行的曲线以标准行高估算整体高度，软换行情况下尚未完成精确逐行几何还原。可编辑 Diff 使用实际显示行坐标。此条不宣称完整像素级还原。
+
+验证：18 项现有桌面测试通过（明确排除已知基线失败 `releasing_diff_clears_padding_from_retained_source`）；新增空侧边界测试覆盖对齐填充、首行和 EOF，单独通过。Windows 原生验收及最终构建结果见 PLAN 同日条目。
+
+
+### 2026-10-19 滚动时曲线变化的源码核对（仅分析）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 1.1.20 与快照不保证一致。本轮读取 `platform/diff-impl/src/com/intellij/diff/tools/util/SyncScrollSupport.java::TwosideSyncScrollSupport.visibleAreaChanged/ScrollHelper.syncVerticalScroll/transferVisualLine`：普通同步取视口高度约 1/3 处作为锚点，将其视觉行转换为逻辑行，经对应差异区间映射后回到另一编辑器视觉行，并保留行内像素相位；通过同步禁入计数避免递归。`BaseSyncScrollable.java::getRange/transferLine` 按差异边界映射，区间内按相对行数前进并在对侧区间末端截断，不是简单按总文件长度比例缩放。
+
+已读 `tools/simple/SimpleDiffViewer.java::MySyncScrollable`：只有 needAlignChanges 时强制同步纵向像素偏移；差异范围包括各块起止及文件首尾。`tools/util/side/TwosideTextDiffViewer.java::MyVisibleAreaListener` 每次可见区域变化后重绘；`util/DiffDividerDrawUtil.java::createPolygon/getEditorTopOffset` 使用两侧各自的显示范围与滚动偏移计算端点。因此曲线变形是端点相对位置改变的绘制结果，不是独立的缓动动画。仅凭用户静态截图不能认定现场开启了哪个模式。
+
+Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移复制给另一侧，realign 插入显示空白对齐；中栏已从两侧实际 source_line_extent 重绘，但尚无普通模式的差异锚点滚动映射。`vendor/gpui-component/src/diff/mod.rs` 的只读双栏共用虚拟列表及纵向滚动状态，曲线切片随该列表移动，也不具备两侧独立纵向偏移。结论：具有基础同步及动态重绘，但未实现上游完整的普通同步模式。建议以后按同步映射实现真实位置变化，不添加脱离代码位置的装饰动画。本轮没有更改滚动行为，没有执行滚动自动化或宣称实际滚动手感已验收。
+
+### 2026-10-19 差异锚点同步滚动实现
+
+沿用上节已读的 `4aec35256d765c217aa0d662b82ac4e860c396fd` 中 `BaseSyncScrollable`、`SyncScrollSupport`、`SimpleDiffViewer::MySyncScrollable` 和 `DiffDividerDrawUtil`。`src/diff_scroll.rs` 以视口上方 1/3 为锚点，按差异起止与文档末尾寻找逻辑区间，转换为各自折行后的视觉边界，再按相对行数映射并保留行内像素偏移；一对多映射抑制不足一行的反向微调。水平偏移同步，目标滚动沿用 `set_peer_scroll_offset` 的事件抑制，避免循环反馈。布局事件只重绘，不重新反向驱动主编辑器。
+
+`src/editable_diff.rs` 的双栏去掉显示空白对齐，曲线及空侧细线使用两侧实际几何。历史比较通过 `snapshot` 构造同一双栏视图：两侧均为独立只读 EditorState，不创建 Editing，不注册保存订阅，不开放还原箭头；`DiffTab` 停用时只有实际工作区文档才能走保存。F7、源位置、拖动分栏、折行、字体、行号及高亮粒度保留；单栏、整文件新增／删除和三方比较保留专用 DiffState 渲染。源行／视觉行转换由 `gpui-base` 的 display map 提供，避免手算软换行高度。
+
+保留差异：不增加 Align Changes／同步开关；本轮使用普通映射模式，不实现上游导航动画专用的 anchor 插值或折叠批处理。文件首尾由编辑器自身滚动边界约束。仅活动文件保留双编辑器，历史文本额外建立编辑器 rope／布局；未进行内存基准，不宣称与旧虚拟列表开销相同。此前普通历史双栏曲线按标准行高估算的限制由实际编辑器几何替代，专用单栏／三方路径未扩展。
+
+验证：24 项相关桌面／纯函数测试通过（仍跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败）。新增映射用例覆盖新增／删除两方向、非等长替换、折行边界的行映射及文档首尾；只读快照用例验证无保存文档、F7 源位置和还原入口无效。没有滚动自动化；原生静态呈现与构建记录见 PLAN，滚动手感待用户手测。
+
+补充：`DiffFile::editor_coordinates` 沿用既有差异配对，仅转换 CRLF 源字节范围到编辑器 LF 坐标，保留换行差异；新增回归测试覆盖范围合法及差异不丢失。工作区共享编辑器在退出 Diff 时恢复进入前的折行／行号设置，有生命周期回归验证。

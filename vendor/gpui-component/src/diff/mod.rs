@@ -526,6 +526,7 @@ fn render_diff(
     horizontal.configure(content_width, columns, soft_wrap, props.split_ratio);
     let code = Rc::new(CodePresentation {
         files: state.files().to_vec(),
+        change_ranges: state.files().iter().map(DiffFile::change_line_ranges).collect(),
         columns,
         three_tints: state.three_tints(),
         three_inner: state.three_inner(),
@@ -783,6 +784,7 @@ fn body_focused(state: &DiffState, window: &Window, cx: &mut Context<DiffState>)
 
 struct CodePresentation {
     files: Vec<DiffFile>,
+    change_ranges: Vec<Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>>,
     columns: usize,
     three_tints: Option<Rc<[Vec<Option<DiffTint>>; 3]>>,
     three_inner: Option<Rc<ThreeWayInner>>,
@@ -943,8 +945,7 @@ fn render_row(
                         window,
                         cx,
                     ))
-                    .child(div().w(px(48.)).flex_shrink_0().self_stretch()
-                        .when(*changed && code.change_background, |v| v.bg(gpui::rgb(if original.is_some() && modified.is_some() {0x385570} else if original.is_some() {0x484a4a} else {0x294436}))))
+                    .child(render_connector(*file, *original, *modified, *changed, &code))
                     .child(render_cell(
                         *file,
                         DiffSide::Modified,
@@ -1405,6 +1406,40 @@ fn side_label(side: DiffSide) -> std::borrow::Cow<'static, str> {
     }
 }
 
+/// Each virtual row paints its slice of a block connector. Equal extents
+/// degenerate to a straight band; pure insertion/deletion tapers to the marker.
+fn render_connector(file: usize, original: Option<usize>, modified: Option<usize>, changed: bool, code: &CodePresentation) -> AnyElement {
+    let tint = if original.is_some() && modified.is_some() {0x385570} else if original.is_some() {0x484a4a} else {0x294436};
+    let block = code.change_ranges[file].iter().find_map(|(a,b)| {
+        if a.is_empty() && modified.is_some_and(|ix| b.contains(&ix)) {
+            Some((true, modified.unwrap()-b.start, b.len()))
+        } else if b.is_empty() && original.is_some_and(|ix| a.contains(&ix)) {
+            Some((false, original.unwrap()-a.start, a.len()))
+        } else {None}
+    });
+    let height = code.row_height;
+    div().w(px(48.)).flex_shrink_0().self_stretch().relative()
+        .when(changed && code.change_background, |v| {
+            if let Some((inserted, offset, count)) = block {
+                v.child(gpui::canvas(move |bounds,_,_| bounds, move |_,bounds,window,_| {
+                    let top = bounds.top()-height*offset as f32;
+                    let bottom = top+height*count as f32;
+                    let (a,z,b,y) = if inserted {(top,top+px(1.),top,bottom)} else {(top,bottom,top,top+px(1.))};
+                    let l=bounds.left(); let r=bounds.right(); let delta=bounds.size.width*0.3;
+                    let mut path=gpui::PathBuilder::fill();
+                    path.move_to(point(l,a));
+                    path.cubic_bezier_to(point(r,b),point(l+delta,a),point(r-delta,b));
+                    path.line_to(point(r,y));
+                    path.cubic_bezier_to(point(l,z),point(r-delta,y),point(l+delta,z));
+                    path.close();
+                    window.with_content_mask(Some(gpui::ContentMask {bounds}), |window| {
+                        if let Ok(path)=path.build() {window.paint_path(path,gpui::rgb(tint));}
+                    });
+                }).absolute().size_full())
+            } else {v.bg(gpui::rgb(tint))}
+        }).into_any_element()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_cell(
     file: usize,
@@ -1419,7 +1454,11 @@ fn render_cell(
     let column_width = if code.columns == 2 {
         (code.column_width * 2. * if side == DiffSide::Original { code.split_ratio } else { 1. - code.split_ratio } - px(24.)).max(px(1.))
     } else { code.column_width };
+    let mirrored = code.columns == 2 && side == DiffSide::Original && code.line_number;
+    let gutter = if mirrored { code.gutter_width } else { px(0.) };
     let cell = v_flex()
+        .when(mirrored, |v| v.flex_row())
+        .relative()
         .id((if code.columns == 3 { "three-column" } else if side == DiffSide::Original { "old-column" } else { "new-column" }, file))
         .overflow_hidden()
         .w(column_width)
@@ -1433,10 +1472,14 @@ fn render_cell(
                 .child(div().h(code.row_height))
         });
     let Some(ix) = ix else {
-        return cell.into_any_element();
+        let first_empty = changed && other_ix.is_some_and(|other| code.change_ranges[file].iter().any(|(a,b)| {
+            let (own, peer) = if side == DiffSide::Original {(a,b)} else {(b,a)};
+            own.is_empty() && peer.start == other
+        }));
+        return cell.when(first_empty && code.change_background, |v| v.child(div().absolute().top_0().w_full().h(px(1.)).bg(gpui::rgb(if side == DiffSide::Original {0x294436} else {0x484a4a})))).into_any_element();
     };
     let content = v_flex()
-    .w(if code.soft_wrap { column_width } else { (code.content_width / code.columns as f32).max(column_width) })
+    .w(if code.soft_wrap { column_width-gutter } else { (code.content_width / code.columns as f32).max(column_width)-gutter })
     .id((
         if side == DiffSide::Original {
             "old"
@@ -1458,11 +1501,15 @@ fn render_cell(
         file, side, ix, other_ix, changed, &code, window, cx,
     ))
     .into_any_element();
-    cell.child(if code.soft_wrap {
-        content
-    } else {
+    let content = if code.soft_wrap { content } else {
         HorizontalOffset::new(content, code.horizontal.clone()).into_any_element()
-    }).into_any_element()
+    };
+    if mirrored {
+        let tint = if changed { Some(if code.files[file].lines(side)[ix].counterpart().is_some() {0x385570} else {0x484a4a}) } else { None };
+        cell.child(div().w(column_width-gutter).min_w_0().overflow_hidden().child(content))
+            .child(div().self_stretch().when_some(tint.filter(|_|code.change_background), |v,c|v.bg(gpui::rgb(c)))
+                .child(render_gutter(file,side,Some(ix),&code,cx))).into_any_element()
+    } else { cell.child(content).into_any_element() }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1791,7 +1838,7 @@ fn code_line(
                 handler(hovered.then_some(&position), window, cx)
             })
         })
-        .when(code.line_number, |this| {
+        .when(code.line_number && !(code.mode == DiffMode::Split && code.columns == 2 && side == DiffSide::Original), |this| {
             this.children(
                 gutters
                     .into_iter()

@@ -2048,21 +2048,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
-name = "plico"
-version = "0.1.0-preview.4"
-dependencies = [
- "chrono",
- "chrono-tz",
- "getrandom 0.3.4",
- "gpui-component",
- "gpui-kit",
- "serde_json",
- "similar",
- "url",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "gl_generator"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4850,6 +4835,22 @@ name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
+name = "plico"
+version = "0.1.0-preview.4"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "getrandom 0.3.4",
+ "gpui-component",
+ "gpui-kit",
+ "notify",
+ "serde_json",
+ "similar",
+ "url",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "png"

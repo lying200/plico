@@ -12,6 +12,7 @@ mod preview;
 mod remote;
 mod repository;
 mod auto_refresh;
+mod worktree_sync;
 mod reword;
 mod repository_popup;
 mod saved_changes;
@@ -588,7 +589,7 @@ impl Review {
         .detach();
         if !this.welcome {
             this.refresh(false, cx);
-            this.start_auto_refresh(cx);
+            this.start_auto_refresh(window, cx);
         }
         this
     }

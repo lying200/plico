@@ -11,6 +11,7 @@ desktop-tests = ["desktop", "dep:gpui-component"]
 desktop = ["dep:gpui-kit", "dep:serde_json"]
 
 [dependencies]
+notify = "=8.2.0"
 similar = { version = "=2.7.0", features = ["unicode"] }
 gpui-component = { version = "=0.7.3", optional = true, features = ["test-support"] }
 getrandom = "=0.3.4"

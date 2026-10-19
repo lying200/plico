@@ -14,10 +14,15 @@ pub fn read(target: &Target, cancel: &Cancel) -> Result<Contents, String> {
     let project = Project::new(&id.repository).map_err(|e| format!("{e:?}"))?;
     let bytes = project.read_bytes(path, cancel).map_err(|e| format!("{e:?}"))?;
     let working = Document::new(bytes).map_err(|e| format!("{e:?}"))?;
+    let original = read_base(target, cancel)?;
+    Ok(Contents { original, working })
+}
+
+pub fn read_base(target: &Target, cancel: &Cancel) -> Result<String, String> {
+    let path = &target.identity().path;
+    let id = target.identity();
     let repo = crate::git::Repository::new(id.repository.clone());
-    let original = if id.area == Area::Untracked || target.change().status == "A" {
-        String::new()
-    } else {
+    let original = {
         let old = id.old_path.as_deref().unwrap_or(path);
         validate_path(old)?;
         // Resolve the object first, then read by immutable ID. In particular an
@@ -25,9 +30,18 @@ pub fn read(target: &Target, cancel: &Cancel) -> Result<Contents, String> {
         let listing = if id.area == Area::Unstaged {
             repo.read(&[OsStr::new("--literal-pathspecs"), OsStr::new("ls-files"), OsStr::new("--stage"), OsStr::new("-z"), OsStr::new("--"), old.as_os_str()], cancel)?
         } else {
-            repo.read(&[OsStr::new("--literal-pathspecs"), OsStr::new("ls-tree"), OsStr::new("-z"), OsStr::new("HEAD"), OsStr::new("--"), old.as_os_str()], cancel)?
+            // A formerly untracked/added tab can outlive an external commit.
+            // Resolve today's HEAD, rather than trusting the original status letter.
+            let head = repo.read(&[OsStr::new("rev-parse"), OsStr::new("--revs-only"), OsStr::new("HEAD")], cancel)?;
+            let head = std::str::from_utf8(&head).map_err(|_| "Invalid HEAD")?.trim();
+            if head.is_empty() { return Ok(String::new()); }
+            if !crate::git::is_oid(head) { return Err("Invalid HEAD".into()); }
+            let read = |path: &Path| repo.read(&[OsStr::new("--literal-pathspecs"), OsStr::new("ls-tree"), OsStr::new("-z"), OsStr::new(head), OsStr::new("--"), path.as_os_str()], cancel);
+            let listing = read(old)?;
+            if listing.is_empty() && old != path { validate_path(path)?; read(path)? } else { listing }
         };
         let records: Vec<_> = listing.split(|b| *b == 0).filter(|r| !r.is_empty()).collect();
+        if records.is_empty() { return Ok(String::new()); }
         if records.len() != 1 { return Err("Diff base changed or is unmerged; refresh before editing".into()); }
         let header_end = records[0].iter().position(|b| *b == b'\t').ok_or("Invalid base object record")?;
         let header = &records[0][..header_end];
@@ -50,7 +64,7 @@ pub fn read(target: &Target, cancel: &Cancel) -> Result<Contents, String> {
         document.comparison_text(document.text())
     };
     if cancel.cancelled() { return Err("Cancelled".into()); }
-    Ok(Contents { original, working })
+    Ok(original)
 }
 
 fn validate_path(path: &Path) -> Result<(), String> {

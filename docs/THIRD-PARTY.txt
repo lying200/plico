@@ -334,3 +334,14 @@ assets/icons/rollback_dark.svg comes from platform/icons/src/expui/vcs/revert_da
 assets/icons/copy_dark.svg comes from platform/icons/src/expui/general/copy_dark.svg
 at the same commit. Original SVG copyright notices are preserved.
 The license text is included at licenses/assets/icons/LICENSE.txt.
+
+External file refresh and memory/disk conflict handling
+src/editing/external.rs, src/ui/worktree_sync.rs and Diff refresh integration
+translate behavior from FileDocumentManagerImpl, MemoryDiskConflictResolver,
+ListenerDiffViewerBase and ChangeListManagerImpl in Rebased, commit
+4aec35256d765c217aa0d662b82ac4e860c396fd.
+Copyright JetBrains s.r.o. and contributors; Apache-2.0.
+Source paths, retained differences and validation: docs/REBASED-REFERENCE.md.
+License text: licenses/assets/icons/LICENSE.txt.
+Filesystem notifications use the notify 8.2.0 crate (already present transitively,
+now a direct dependency); its upstream license is CC0-1.0.

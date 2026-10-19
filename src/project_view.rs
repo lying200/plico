@@ -16,6 +16,7 @@ pub struct ProjectView {
     rows: Vec<(Entry, usize, bool)>,
     cursors: BTreeMap<PathBuf, project_files::Cursor>,
     refresh_restore: Option<project_files::ExpansionState>,
+    external_refresh_pending: bool,
     restore_selection: Option<(PathBuf, bool)>,
     active: usize,
     focus: FocusHandle,
@@ -36,7 +37,7 @@ impl ProjectView {
             KeyBinding::new("enter", OpenFile, Some("ProjectBrowser")), KeyBinding::new("right", Expand, Some("ProjectBrowser")),
             KeyBinding::new("left", Collapse, Some("ProjectBrowser")),
         ]);
-        let mut s = Self { root, preview_enabled: plico::layout_preferences::load_file_preview(), preview_task: Task::ready(()), preview_generation: 0, directories: BTreeMap::new(), cursors: BTreeMap::new(), refresh_restore: None, restore_selection: None, rows: vec![], active: 0, focus: cx.focus_handle(),
+        let mut s = Self { root, preview_enabled: plico::layout_preferences::load_file_preview(), preview_task: Task::ready(()), preview_generation: 0, directories: BTreeMap::new(), cursors: BTreeMap::new(), refresh_restore: None, external_refresh_pending: false, restore_selection: None, rows: vec![], active: 0, focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(), loading: None, error: None, token: Cancel::default(), generation: 0, task: Task::ready(()) };
         s.rebuild(); s.expand(PathBuf::new(), cx); s
     }
@@ -70,7 +71,12 @@ impl ProjectView {
         // saved selection, even when it is the same visible fallback row.
         self.restore_selection = None;
     }
+    pub(crate) fn refresh_external(&mut self, cx: &mut Context<Self>) {
+        if self.loading.is_some() { self.external_refresh_pending = true; }
+        else { self.refresh(cx); }
+    }
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.external_refresh_pending = false;
         self.cancel_preview();
         self.token.cancel(); self.generation += 1; self.token = Cancel::default();
         let generation = self.generation; let token = self.token.clone(); let root = self.root.clone();
@@ -106,6 +112,7 @@ impl ProjectView {
                 s.rebuild();
                 if let Some(selected) = s.restore_selection.clone() { s.restore_path(Some(selected)); }
                 if s.error.is_none() { s.refresh_restore = None; s.restore_selection = None; }
+                if std::mem::take(&mut s.external_refresh_pending) { s.refresh(cx); }
                 cx.notify();
             });
         }); cx.notify();
@@ -149,6 +156,7 @@ impl ProjectView {
                     }
                     Err(e) => s.error = Some(error_text(e)),
                 }
+                if std::mem::take(&mut s.external_refresh_pending) { s.refresh(cx); }
                 cx.notify();
             });
         }); cx.notify();
@@ -425,7 +433,7 @@ impl Render for FileTab {
             .child(h_flex().h(px(36.)).flex_shrink_0().px_3().gap_2().child(self.path.to_string_lossy().into_owned()).child(div().flex_1())
                 .child(Button::new("reload-file").ghost().icon(Icon::default().path("jb/refresh_dark.svg").size(px(16.))).tooltip(t("Reload file"))
                     .on_click(cx.listener(|s, _, w, cx| s.reload(w,cx)))))
-            .when_some(self.editing.as_ref().and_then(|d|d.read(cx).error.clone()), |v, error| v.child(div().flex_shrink_0().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
+            .children(self.editing.as_ref().and_then(|d|crate::editing::Editing::error_banner(d, &self.documents, cx)))
             .when_some(self.viewer.clone(), |v, viewer| v.child(
                 div().id("source-file-editor").relative().w_full().flex_1().min_h_0()
                     .child(Editor::new(&viewer).context_menu(|_,_,_|gpui_kit::component::native_menu::NativeMenu::new())

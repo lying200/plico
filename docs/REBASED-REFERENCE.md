@@ -2027,3 +2027,30 @@ Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移
 Windows 原生验证使用独立 `Plico-validation/diff-fonts-20261019/markers-fixture`：初次截图发现 gutter 横坐标重复加了左内边距，已修正；最终 `markers-final-source.png` 显示标记位于行号与正文之间且不压字，`markers-final-deleted.png` 显示现代删除短标记及删除原文预览，`markers-final-added.png` 显示纯新增只有工具栏、最后一块下一项禁用。`markers-popup.png`／`markers-reverted.png`／`markers-undo.png` 验证修改原文预览、单块撤回、Ctrl+Z；宿主 Git 与文件读取核对自动保存结果，其他新增／删除保留，index 未改变。前后导航另修正为下一帧按目标块的实际坐标重新锚定弹层，不沿用上一个块的弹层位置。持续滚动手感仍由用户手测，未投入滚动自动化。未提交、推送或发布。
 
 最终构建补验：`markers-final-added.png` 确认导航弹层已跟随新增块位置；`markers-deleted-restored.png` 与 `markers-restore-deleted.ps1` 实际恢复删除的函数，磁盘断言同时确认原修改块和新增块仍保留、暂存区没有变化。最终 Windows release 构建通过；仅测试自建 fixture，未修改用户仓库或关闭用户 Rebased／IDE。
+
+### 2026-10-19 外部文件修改自动同步
+
+参考 commit：`4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与此快照可能不同。本轮实际读取：
+
+- `platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/FileDocumentManagerImpl.java::MyAsyncFileListener/contentsChanged/reloadFromDisk`：批量 VFS 内容／删除事件，自己保存的事件不重复重载；无未保存修改的共享文档可重载，文档更新后通知下游。
+- 同目录 `MemoryDiskConflictResolver.java::beforeContentChange/processConflicts/askReloadFromDisk`：外部内容与未保存文档冲突时保留内存版本，由用户选择读取磁盘或保留内存，并提供差异比较入口。
+- `platform/diff-impl/src/com/intellij/diff/tools/util/base/ListenerDiffViewerBase.java`：文档 Change／文件内容变化触发 scheduleRediff，监听随 viewer 生命周期释放，批量去重。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ChangeListManagerImpl.kt::scheduleUpdateImpl/invokeAfterUpdate`：通过更新队列调度，不在事件回调中直接完成所有扫描。
+- `platform/platform-tests/testSrc/com/intellij/openapi/fileEditor/impl/FileDocumentManagerImplTest.java`：已读 `testContentChanged_DoNotReloadChangedDocument`、keepMemoryChanges／defaultAsks 用例，确认默认冲突不能擅自合并或覆盖。
+
+本地映射：
+
+- `src/worktree_events.rs`：notify 8.2 系统文件事件；不跟随符号链接，不响应访问事件，忽略 Git objects 等内部噪声和保存临时文件；单个队列最多 512 个路径，溢出变成一次整体失效。300ms 安静窗口、2s 最长合并窗口。
+- `src/ui/worktree_sync.rs`：仓库作用域单一事件源，最多每 2s 消费一批；检查共享文档文件元数据，变化后才读内容，不在 UI 线程执行 IO。UNC／注册失败／worktree 的 Git 管理目录在外部时每 30s 补偿刷新。只有已建立的变更面板、已展开项目树、已打开本地 Diff 才加载对应数据；不因普通文件事件刷新整个 Log。切仓／关闭释放监听和任务，Git 写锁期间延后处理。
+- `src/editing/external.rs`：观察状态与冲突 UI 从 Editing 主文件分离。比较磁盘原始字节而非仅规范化文本；同内容保存事件不重置 Undo。自动重载保留共享实体、行列选区、阅读偏移及 BOM／换行符；重载前复验原始 baseline 身份、保存状态、写锁与当前编辑文本（含 IME preedit）。迟到结果不能覆盖已保存／重载的新文档。
+- 冲突、删除、不可读或不支持的新文件内容保留原文档并阻止自动保存；编辑不会抹掉冲突提示。可复制编辑器内容、确认从磁盘重载；取消保持双方内容。磁盘恢复为原 baseline 后允许恢复保存，干净文档重新出现时自动重载。不把删除解释为创建文件的许可。
+- `src/source_changes.rs` 订阅 Reloaded，立即更新行变更标记。`src/editable_diff.rs` 沿用 Reloaded → recompare；`src/diff_tab.rs` 对 index／HEAD 失效单独更新原侧，不覆盖工作文档；普通本地只读 Diff 重读目标。重叠查询合并，不反复取消慢查询。`src/working_copy.rs::read_base` 不依赖工作文件存在。
+- `src/project_view.rs` 外部树刷新保留路径选择和展开状态，并在正在加载时只排队一次；LocalView 复用已有合并刷新与选择保留。
+
+保留差异：不复制 IDE VFS 和三方合并器。冲突用源码／Diff 上方的非模态提示与显式重载确认，避免 AI 连续写入反复弹框；暂未提供冲突双版本比较／强制覆盖磁盘按钮，可先复制草稿。外部重命名刷新列表，旧路径 Tab 保留内容并报告不可用，不推断身份后自动改路径。文档自动重载清空旧 Undo 历史，防止过期撤销记录套到新文本；自身同字节保存不重载。UNC 的全局列表补偿周期 30s，不保证所有文件系统通知都是实时的；元数据无法区分且通知丢失的同大小／同时间戳替换依赖补偿。历史 commit／stash 快照不跟随工作树修改。未验证跨机器 WSL 性能，不声称解决既有 Windows Git 全仓扫描耗时问题。
+
+验证：文件事件队列单测 1 项、真实文件创建／替换／重命名／删除及读取不产生刷新循环的集成测试 2 项；working_copy 6 项（含 index 基线刷新不读写已删除的工作文件、新文件被外部提交后更新到新的 HEAD 基线）；桌面既有及新增 34 项通过（33 项一轮＋新增 baseline 更新用例一项，排除已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败）。新增桌面测试覆盖物理格式、光标、共享身份、迟到结果、写锁、草稿／preedit、删除与显式恢复，以及更新原侧不动当前文档。
+
+Windows release 构建通过。独立 markers-fixture 原生截图位于 `artifacts/diff-fonts-20261019/`：`external-source.png` 显示 12 次外部连续写入后的最后版本和新增文件；`external-conflict-committed.png`／`external-reload-confirm.png` 展示保留草稿与确认；实际复制并断言草稿内容、取消后仍可复制；确认重载后磁盘内容显示正确；`external-deleted.png` 展示外部删除提示并断言文件没有被重新创建；`external-restored.png` 展示外部重建后自动恢复；`external-diff-after.png` 展示已打开 Diff 自动更新以及本地列表中的重命名文件。仅操作独立 fixture，不改用户仓库，不关闭用户 Rebased／IDE。连续滚动仍由用户手测；没有新增滚动自动化或声明像素级完全一致。
+
+补充 Windows→WSL 原生验证：通过 `\\wsl.localhost\legion-wsl\tmp\plico-external-wsl-wwkm7c3_` 打开独立 Linux Git fixture，Linux Python 写入源码及新增文件后，`external-wsl-after.png` 显示 Windows 源码、行标记、项目树已同步，`external-wsl-local.png`／`external-wsl-diff.png` 验证本地列表与 Diff 可用。仅为该测试进程传入精确 fixture 路径的 safe.directory，没有更改宿主全局 Git 配置。该小 fixture 验证功能，不作为远程机器或大型 WSL 仓库性能结论。`working_copy::read_base` 同时补充动态 HEAD 解析：不能仅凭打开时的 A／untracked 状态永久使用空基线，外部首次提交后须读取新提交中的文件。

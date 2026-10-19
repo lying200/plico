@@ -1,5 +1,7 @@
 //! Shared working-tree documents. Source tabs and local diffs use the same
 //! editor entity, save queue and disk baseline for a repository-relative path.
+mod external;
+
 use std::{cell::{Cell, RefCell}, collections::BTreeMap, path::PathBuf, rc::Rc, time::Duration};
 use gpui_kit::*;
 use gpui_kit::component::input::{EditorState, InputEvent, RopeExt as _};
@@ -82,6 +84,7 @@ pub struct Editing {
     writing: Task<()>,
     reloading: bool,
     reading: Task<()>,
+    external: external::Observation,
 }
 impl EventEmitter<Saved> for Editing {}
 impl EventEmitter<Reloaded> for Editing {}
@@ -95,7 +98,7 @@ impl Editing {
             if !matches!(event, InputEvent::Change) { return; }
             let text = editor.read(cx).text().to_string();
             match s.document.edit(text) {
-                Ok(()) => { s.error = None; s.invalid_edit = false; s.edited = true; }
+                Ok(()) => { if !s.external.conflict { s.error = None; } s.invalid_edit = false; s.edited = true; }
                 Err(error) => {
                     s.invalid_edit = true;
                     s.error = Some(format!("{}: {error:?}", t("Could not save file")));
@@ -111,7 +114,7 @@ impl Editing {
             });
             cx.notify();
         }).detach();
-        Self { editor, error: None, edited: false, invalid_edit: false, root, path, document, idle: Task::ready(()), writing: Task::ready(()), reloading: false, reading: Task::ready(()) }
+        Self { editor, error: None, edited: false, invalid_edit: false, root, path, document, idle: Task::ready(()), writing: Task::ready(()), reloading: false, reading: Task::ready(()), external: Default::default() }
     }
     pub fn pending(&self, cx: &App) -> bool {
         self.reloading || self.document.dirty() || self.document.saving()
@@ -162,12 +165,14 @@ impl Editing {
             editor.set_scroll_offset(scroll,cx);
         });
         self.document=document;
+        self.external.conflict=false;
+        self.external.stamp=None;
         self.invalid_edit=false;self.error=None;
         cx.emit(Reloaded);cx.notify();
     }
     pub fn save(&mut self, cx: &mut Context<Self>) {
         self.idle = Task::ready(());
-        if self.saving() { return; }
+        if self.saving() || self.external.conflict { return; }
         // Re-read the editor, including a previously rejected oversized draft.
         if let Err(error) = self.document.edit(self.editor.read(cx).text().to_string()) {
             self.invalid_edit = true;

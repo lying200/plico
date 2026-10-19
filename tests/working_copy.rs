@@ -158,3 +158,22 @@ fn large_history_preview_keeps_complete_sources_and_changed_ranges() {
     assert_eq!(file.source(DiffSide::Modified),after);
     assert!(!file.change_line_ranges().is_empty());
 }
+
+#[test]
+fn refreshing_index_base_does_not_read_or_write_the_working_file() {
+    let f=Fixture::new();f.write("file.txt","base\n");f.commit("base");
+    let target=target(&f,Area::Unstaged,"M","file.txt",None);
+    f.write("file.txt","new staged\n");f.git(&["add","file.txt"]);
+    fs::remove_file(f.0.join("file.txt")).unwrap();
+    assert_eq!(working_copy::read_base(&target,&Cancel::default()).unwrap(),"new staged\n");
+    assert!(!f.0.join("file.txt").exists());
+}
+
+#[test]
+fn formerly_untracked_tab_follows_external_commit_baseline() {
+    let f=Fixture::new(); f.write("new.txt","first\n");
+    let target=target(&f,Area::Untracked,"?","new.txt",None);
+    assert_eq!(working_copy::read_base(&target,&Cancel::default()).unwrap(),"");
+    f.commit("external commit");
+    assert_eq!(working_copy::read_base(&target,&Cancel::default()).unwrap(),"first\n");
+}

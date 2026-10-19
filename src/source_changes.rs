@@ -60,6 +60,7 @@ impl SourceChanges {
         language: String,
         cx: &mut Context<Self>,
     ) -> Self {
+        cx.subscribe(editing, |s, _, _: &crate::editing::Reloaded, cx| s.recompute(cx)).detach();
         let editor = editing.read(cx).editor.clone();
         let scroll = editor.read(cx).scroll_offset();
         cx.subscribe(&editor, |s, _, event: &InputEvent, cx| {

@@ -5,8 +5,9 @@ use std::time::{Duration, Instant};
 
 pub(super) struct AutoRefresh {
     local: Task<()>,
+    pub(super) worktree: Task<()>,
     remote_task: Task<()>,
-    token: Cancel,
+    pub(super) token: Cancel,
     remote_token: Cancel,
     pub references: Option<References>,
     pub counts: Counts,
@@ -18,6 +19,7 @@ impl Default for AutoRefresh {
     fn default() -> Self {
         Self {
             local: Task::ready(()),
+            worktree: Task::ready(()),
             remote_task: Task::ready(()),
             token: Cancel::default(),
             remote_token: Cancel::default(),
@@ -36,11 +38,12 @@ impl Drop for AutoRefresh {
     }
 }
 impl Review {
-    pub(super) fn start_auto_refresh(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn start_auto_refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.updates = AutoRefresh::default();
         if self.welcome {
             return;
         }
+        self.start_worktree_observation(window, cx);
         let repo = self.repo.clone();
         let token = self.updates.token.clone();
         self.updates.local = cx.spawn(async move |this, cx| {

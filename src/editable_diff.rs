@@ -2,7 +2,7 @@
 //! historical snapshots own read-only editors without a save-capable document.
 use gpui_kit::*;
 use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::component::{h_flex, v_flex, input::{Editor, EditorState, InputEvent, TextDecoration, TextDecorationCollection}, diff::{DiffFile, DiffSide}};
+use gpui_kit::component::{h_flex, v_flex, input::{Editor, EditorState, InputEvent, TextDecoration, TextDecorationCollection, RopeExt as _}, diff::{DiffFile, DiffSide}};
 use crate::editing::{Documents, Editing};
 use plico::{working_copy::Contents, diff_target::Target};
 use std::{sync::Arc, time::Duration};
@@ -35,6 +35,37 @@ pub struct EditableDiff {
     task: Task<()>,
 }
 impl EditableDiff {
+    pub fn update_baseline(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.comparison_baseline.as_ref() == text { return; }
+        self.comparison_baseline = text.clone().into();
+        self.baseline = text.replace("\r\n", "\n").replace('\r', "\n").into();
+        self.original.update(cx, |e, cx| {
+            let scroll = e.scroll_offset(); let selection = e.selected_range();
+            let start = e.text().offset_to_position(selection.start);
+            let end = e.text().offset_to_position(selection.end);
+            let reversed = e.cursor() == selection.start && !selection.is_empty();
+            e.set_value(self.baseline.to_string(), window, cx);
+            let start = e.text().position_to_offset(&start); let end = e.text().position_to_offset(&end);
+            e.set_selected_range_with_direction(start..end, reversed, cx);
+            e.set_scroll_offset(scroll, cx);
+        });
+        self.recompare(cx);
+    }
+    pub fn update_snapshot(&mut self, file: &DiffFile, window: &mut Window, cx: &mut Context<Self>) {
+        if self.working.is_some() { return; }
+        self.update_baseline(file.source(DiffSide::Original).to_string(), window, cx);
+        self.modified.update(cx, |e, cx| {
+            let scroll = e.scroll_offset(); let selection = e.selected_range();
+            let start = e.text().offset_to_position(selection.start);
+            let end = e.text().offset_to_position(selection.end);
+            let reversed = e.cursor() == selection.start && !selection.is_empty();
+            e.set_value(file.source(DiffSide::Modified).to_string(), window, cx);
+            let start = e.text().position_to_offset(&start); let end = e.text().position_to_offset(&end);
+            e.set_selected_range_with_direction(start..end, reversed, cx);
+            e.set_scroll_offset(scroll, cx);
+        });
+        self.recompare(cx);
+    }
     pub fn new(target: &Target, contents: Contents, documents: Documents, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let id = target.identity();
         let language = crate::project_view::file_language(&id.path);
@@ -387,14 +418,14 @@ impl Render for EditableDiff {
             return if let Some(view)=&self.unified {
                 v_flex().size_full().min_h_0()
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
-                    .when_some(self.working.as_ref().and_then(|d|d.read(cx).error.clone()),|v,error|v.child(div().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
+                    .children(self.working.as_ref().and_then(|d|Editing::error_banner(d, &self.documents, cx)))
                     .child(Editor::new(&view.editor).readonly(self.documents.locked() || !view.ready()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))).into_any_element()
             } else {div().p_4().child(plico::i18n::t("Reading Git data…")).into_any_element()};
         }
         let editor=self.modified.clone();
         v_flex().size_full().min_h_0()
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
-            .when_some(self.working.as_ref().and_then(|d|d.read(cx).error.clone()),|v,error|v.child(div().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
+            .children(self.working.as_ref().and_then(|d|Editing::error_banner(d, &self.documents, cx)))
             .child(h_flex().relative().flex_1().min_h_0().w_full().items_stretch().overflow_hidden()
                 .child(h_flex().w(relative(self.split_ratio)).flex_shrink_0().min_w_0().h_full().pr(px(24.))
                     .child(div().flex_1().min_w_0().h_full().child(Editor::new(&self.original).readonly(true).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))))
@@ -416,6 +447,29 @@ mod lifecycle_tests {
         fn render(&mut self,_:&mut Window,_:&mut Context<Self>)->impl IntoElement {
             div().size_full().child(Editor::new(&self.0).appearance(false).bordered(false).h_full().line_height(px(20.)))
         }
+    }
+    #[gpui::test]
+    fn baseline_update_preserves_working_draft_and_cursor(cx:&mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut diff=None;
+        let (_,cx)=cx.add_window_view(|window,cx| {
+            let target=Target::new(plico::git::Repository::new("fixture"),None,plico::git::Change {
+                area:plico::git::Area::Unstaged,path:"a.txt".into(),old_path:None,status:"M".into()
+            }).unwrap();
+            let contents=Contents { original:"old\n".into(),working:plico::file_document::Document::new(b"my draft\n".to_vec()).unwrap() };
+            let view=cx.new(|cx|EditableDiff::new(&target,contents,Documents::default(),window,cx));
+            diff=Some(view.clone());Root::new(view,window,cx)
+        });
+        let diff=diff.unwrap();
+        cx.update(|w,cx|diff.update(cx,|v,cx| {
+            let document=v.working.as_ref().unwrap().entity_id();
+            v.modified.update(cx,|e,cx|e.set_cursor_position(gpui::component::input::Position::new(0,3),w,cx));
+            v.update_baseline("new staged\n".into(),w,cx);
+            assert_eq!(v.working.as_ref().unwrap().entity_id(),document);
+            assert_eq!(v.modified.read(cx).text().to_string(),"my draft\n");
+            assert_eq!(v.modified.read(cx).cursor(),3);
+            assert_eq!(v.original.read(cx).text().to_string(),"new staged\n");
+        }));
     }
     // A divider is prepainted after its editor, before any editor paint runs.
     // It must see this frame's geometry on the very first frame as well.

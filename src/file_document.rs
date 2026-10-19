@@ -62,6 +62,8 @@ impl Document {
         Ok(Self { disk: bytes.into(), text, separator, bom, saving: None })
     }
 
+    pub fn disk(&self) -> Arc<[u8]> { self.disk.clone() }
+
     pub fn text(&self) -> &str { &self.text }
 
     /// Compare physical text without BOM. Keep exact mixed separators for an

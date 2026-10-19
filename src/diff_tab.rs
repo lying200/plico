@@ -38,6 +38,11 @@ pub struct DiffTab {
     token: Cancel,
     generation: u64,
     task: Task<()>,
+    disk_task: Task<()>,
+    disk_generation: u64,
+    disk_refreshing: bool,
+    disk_pending: bool,
+    disk_error: Option<String>,
     loading: bool,
     preferred_mode: DiffMode,
     appearance: DiffAppearance,
@@ -46,8 +51,53 @@ pub struct DiffTab {
 }
 impl Drop for DiffTab { fn drop(&mut self) { self.token.cancel(); } }
 impl DiffTab {
+    pub fn disk_changed(&mut self, batch: &plico::worktree_events::Batch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.target.identity().area == Area::Commit || self.stash_origin.is_some()
+            || self.viewer.is_none() || self.loading || self.documents.locked() { return; }
+        let editable = self.editable.as_ref().is_some_and(|v| v.read(cx).working.is_some());
+        // Working text is refreshed through the shared document, never replaced here.
+        if editable && !batch.index { return; }
+        if !batch.index && !batch.affects(&self.target.identity().path) { return; }
+        if self.disk_refreshing { self.disk_pending = true; return; }
+        self.disk_refreshing = true;
+        self.disk_generation += 1;
+        let ticket = self.disk_generation; let generation = self.generation;
+        let target = self.target.clone(); let token = self.token.clone();
+        self.disk_task = cx.spawn_in(window, async move |this, wx| {
+            let result = wx.background_spawn(async move {
+                if editable { return plico::working_copy::read_base(&target, &token).map(|b| (Some(b), vec![])); }
+                let text = target.read(&token)?;
+                let files = if target.change().area == Area::Untracked { vec![DiffFile::added(target.change().label(), &text)] }
+                    else { DiffFile::parse(&text).map_err(|e| e.to_string())? };
+                Ok((None, files))
+            }).await;
+            let _ = this.update_in(wx, |s, window, cx| {
+                if s.generation != generation || s.disk_generation != ticket { return; }
+                s.disk_refreshing = false;
+                if s.documents.locked() { return; }
+                s.disk_error = None;
+                match result {
+                    Ok((Some(base), _)) => {
+                        if let Some(view) = &s.editable { view.update(cx, |v, cx| v.update_baseline(base, window, cx)); }
+                    }
+                    Ok((None, files)) => {
+                        if let Some(view) = &s.editable {
+                            if let Some(file) = files.first() { view.update(cx, |v, cx| v.update_snapshot(file, window, cx)); }
+                            else { s.editable = None; }
+                        }
+                        if let Some(view) = &s.viewer { view.update(cx, |v, cx| v.set_files(files, cx)); }
+                    }
+                    Err(error) => { s.disk_error = Some(format!("{}: {error}", t("Could not refresh diff"))); }
+                }
+                if std::mem::take(&mut s.disk_pending) {
+                    s.disk_changed(&plico::worktree_events::Batch { all: true, index: true, ..Default::default() }, window, cx);
+                }
+                cx.notify();
+            });
+        });
+    }
     pub fn new(target: Target, chain: Chain) -> Self {
-        Self { navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
+        Self { disk_task: Task::ready(()), disk_generation: 0, disk_refreshing: false, disk_pending: false, disk_error: None, navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
     }
     fn set_split_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
         if self.split_ratio == ratio { return; }
@@ -79,6 +129,7 @@ impl DiffTab {
         self.chain.fork_for(target)
     }
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.disk_task = Task::ready(()); self.disk_refreshing = false; self.disk_pending = false; self.disk_error = None;
         self.split_dragging.set(false);
         if let Some(view) = self.editable.take() {
             view.update(cx, |v,cx|v.deactivate(cx));
@@ -426,7 +477,7 @@ impl Render for DiffTab {
                     })
                 })
                 .child(self.settings_button(cx)))
-            .when_some(self.preference_error.clone(), |view, error| view.child(h_flex().px_3().py_1().gap_2()
+            .when_some(self.disk_error.clone().or_else(||self.preference_error.clone()), |view, error| view.child(h_flex().px_3().py_1().gap_2()
                 .child(div().text_color(rgb(0xf2a6a6)).child(t("Could not save Diff preferences. Try the setting again.")))
                 .child(Button::new("copy-diff-preference-error").link().small().label(t("Copy error details"))
                     .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(error.clone()))))))

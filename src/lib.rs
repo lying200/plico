@@ -159,3 +159,5 @@ pub mod branch_updates;
 pub mod reword;
 
 pub mod line_changes;
+
+pub mod worktree_events;

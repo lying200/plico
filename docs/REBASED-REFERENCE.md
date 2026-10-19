@@ -1792,3 +1792,18 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - `platform/platform-impl/src/com/intellij/openapi/wm/impl/welcomeScreen/FlatWelcomeFrame.kt`：欢迎页独立管理窗口尺寸／位置。该文件不证明项目窗口必然围绕欢迎页中心；本地按用户明确要求，以欢迎页中心创建项目窗口并限制在当前显示器内，成功后关闭欢迎页；普通项目切换不再强行调整窗口大小。对应 `src/main.rs`、`src/ui.rs`。
 
 “加载更多”仍是本地有界历史分页入口，不声称是上游同款控件；固定 24 DIP 高并禁止 flex 拉伸，避免占用额外阅读空间。
+
+## Log Reset（2026-10-19）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，已安装 Rebased 1.1.20，二者不声明完全一致。本轮实际读取：
+
+- `plugins/git4idea/backend/src/reset/GitResetAction.java`：选中提交打开弹窗，默认/记忆模式，确认后后台执行。
+- `plugins/git4idea/shared/src/git4idea/reset/GitResetMode.java`：Soft/Mixed/Hard/Keep；默认 Mixed。
+- `plugins/git4idea/backend/src/reset/GitNewResetDialog.kt` 与 `shared/resources/messages/GitBundle.properties`：源分支（或 detached HEAD）、目标短 hash/说明/作者、纵向单选和模式解释，Reset/Cancel；Hard 在说明中警告丢失本地改动，不额外叠加确认框。
+- `plugins/git4idea/backend/src/reset/GitResetOperation.java`：先保存文档，执行后刷新 VFS、changes、untracked；错误通知。读取 PROPOSE/FAIL 两种覆盖冲突处理策略。
+- `plugins/git4idea/backend/src/commands/GitImpl.java` 的 reset overload/private implementation：`git reset <mode> <target>`。
+- `plugins/git4idea/tests/git4idea/reset/GitResetTest.kt`：Hard 后文件内容刷新、Soft 后变更状态刷新。
+
+本地映射：`src/reset_operation.rs`（Prepared 绑定工作树/HEAD/分支，在写锁下重验、限制输出、查询执行后状态）；`src/reset_dialog.rs`（四模式、说明、确认）；`src/layout_preferences.rs`（仅确认时记录模式）；`src/ui.rs`（单选右键入口、保存编辑器、异步执行、刷新文档/Log/本地变更与已有错误详情）；`tests/reset_operation.rs`（实际临时 Git 仓库）。
+
+保留差异：单仓库；阻止已有 merge/rebase/conflict/index recovery 时执行 Reset，避免破坏现有恢复流程；采用上游 FAIL 策略，Keep 拒绝覆盖本地更改时显示失败，不实现 PROPOSE 的 Smart/Force/Cancel 暂存恢复选择器，不自动降级 Hard。自有锁防止应用内部并发，外部 Git 仍可能竞争。弹窗使用已有 GPUI 模态容器而非 Swing 独立窗口；未声称像素级一致。

@@ -149,3 +149,4 @@ pub mod three_way;
 pub mod commit_date;
 
 pub mod working_copy;
+pub mod reset_operation;

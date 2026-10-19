@@ -70,7 +70,7 @@ impl ProjectView {
         // saved selection, even when it is the same visible fallback row.
         self.restore_selection = None;
     }
-    fn refresh(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
         self.cancel_preview();
         self.token.cancel(); self.generation += 1; self.token = Cancel::default();
         let generation = self.generation; let token = self.token.clone(); let root = self.root.clone();

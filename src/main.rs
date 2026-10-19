@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+mod reset_dialog;
 mod assets;
 mod startup_report;
 mod ui_font;

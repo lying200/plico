@@ -4361,3 +4361,11 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 已知验证限制：桌面测试总计 8 通过、1 失败，失败为既有 `releasing_diff_clears_padding_from_retained_source`。临时恢复全部 Rust 文件到未修改 `cbde5aa` 后，同一测试仍以相同断言失败（实际 0，期望 2），记录为独立问题，不宣称全套测试通过。Tab 默认四列，未新增 `.editorconfig` 解析；本轮跨文件 F7 原生验收限独立 Tab，旧式底部 Log 预览尚未接入跨文件提示。
 
 本轮作为修复提交推送至 main；不创建发布标签或更新现有 Release。
+
+## Log Reset 增量（2026-10-19）
+
+- [x] Log 单选右键“将当前分支重置到此处…”；Rebased 风格目标说明、Soft/Mixed/Hard/Keep 单选、默认 Mixed、记忆确认的模式、Reset/Cancel；Hard 描述明确说明本地改动丢失。
+- [x] 写操作前保存编辑器，在工作树锁下重新核对 HEAD/分支/操作状态；后台执行，结果刷新 Log、本地变更、项目树和共享编辑文档；复用底部状态与展开错误详情。
+- [x] Rebased 源码与保留差异已记录在 `docs/REBASED-REFERENCE.md`。Keep 拒绝覆盖时采用 FAIL 策略，无自动 Hard / Smart Reset。
+- [x] 5 个临时仓库集成测试通过，覆盖四模式、staged/unstaged/untracked、Keep 拒绝覆盖、游离/同 HEAD、状态变更、取消、锁失败及已有 merge；桌面 cargo check 通过。
+- [x] Windows 原生功能阶段 UI 验收：菜单、四模式/默认 Mixed、取消、Hard 选择与执行通过；临时 repo 的 HEAD 从 `828b1031` 回到 `6a79084f`，原有 sample.txt Tab 从 Second content 自动刷新为 Base content，底部提示重置成功，工作区干净且模式保存为 Hard。截图 `artifacts/reset-20261019/menu.png`、`hard-selected.png`、`source-before.png`、`source-after.png`；执行证据 `result.json`。Windows release 构建通过。未完成像素级验收。

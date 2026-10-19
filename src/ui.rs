@@ -3211,6 +3211,47 @@ impl Review {
             }
         }); cx.notify();
     }
+    fn prepare_reset(&mut self, target: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.fetch_token.is_some() || self.document_action_pending || self.welcome { return; }
+        let repo=self.repo.clone(); let token=Cancel::default(); self.fetch_token=Some(token.clone());
+        self.fetch_status=Some(t("Checking…").into()); self.rebase_diagnostic=None;
+        self.fetch_task=cx.spawn_in(window,async move|this,wx| {
+            let result=wx.background_spawn(async move {plico::reset_operation::Prepared::prepare(&repo,target,&token)}).await;
+            let _=wx.update(|w,cx| {let _=this.update(cx,|s,cx| {
+                s.fetch_token.take();s.fetch_status=None;
+                match result {
+                    Err(e)=>{s.rebase_diagnostic=Some(e);s.fetch_status=Some(t("Reset failed").into());},
+                    Ok(prepared)=>{
+                        let prepared=Arc::new(prepared); let owner=cx.entity().downgrade();
+                        crate::reset_dialog::show(prepared.clone(),w,cx,move|mode,w,cx| {
+                            let _=owner.update(cx,|s,cx|s.start_reset(prepared.clone(),mode,w,cx));
+                        });
+                    }
+                }
+                cx.notify();
+            });});
+        });cx.notify();
+    }
+    fn start_reset(&mut self, prepared: Arc<plico::reset_operation::Prepared>, mode: plico::reset_operation::Mode, window: &mut Window, cx: &mut Context<Self>) {
+        if self.document_action_pending {return;}
+        if self.documents.pending(cx) {self.with_saved_documents(window,cx,move|s,w,cx|s.start_reset(prepared,mode,w,cx));return;}
+        if self.fetch_token.is_some() || self.welcome {return;}
+        let repo=self.repo.clone();let token=Cancel::default();self.fetch_token=Some(token.clone());
+        self.fetch_status=Some(t("Resetting…").into());self.rebase_diagnostic=None;
+        self.fetch_task=cx.spawn_in(window,async move|this,wx| {
+            let result=wx.background_spawn(async move {prepared.execute(&repo,mode,&token,&Default::default())}).await;
+            let _=wx.update(|w,cx| {let _=this.update(cx,|s,cx| {
+                s.fetch_token.take();
+                let success=result.as_ref().is_ok_and(|r|r.command.as_ref().is_ok_and(|o|o.status.success() && o.stopped.is_none()) && r.recovery_error.is_none() && r.state.is_ok());
+                s.rebase_diagnostic=plico::rebase_operation::diagnostic(&result);
+                s.fetch_status=Some(t(if success {"Reset successful"} else {"Reset failed"}).into());
+                s.squash_undo=None;s.operation_state=None;
+                for doc in s.documents.all() {doc.update(cx,|d,cx|{if !d.pending(cx){d.reload(w,cx);}});}
+                if let Some(tree)=&s.project_view { tree.update(cx,|v,cx|v.refresh(cx)); }
+                s.user_menu.update(cx,|m,cx|m.refresh(cx));s.refresh_impl(false,true,None,cx);cx.notify();
+            });});
+        });cx.notify();
+    }
     fn undo_squash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.document_action_pending { return; }
         if self.documents.pending(cx) { self.with_saved_documents(window,cx,move|s,w,cx|s.undo_squash(w,cx)); return; }
@@ -4393,6 +4434,8 @@ impl Review {
                                                 let s = s.read(cx); let ids = s.commit_ids();
                                                 let mut hashes = s.log_selection.ordered(&ids); hashes.reverse(); hashes.join(" ")
                                             }).unwrap_or_default();
+                                            let reset_owner=checkout_owner.clone(); let reset_target=target.clone(); let reset_path=path.clone();
+                                            let reset_enabled=checkout_owner.upgrade().is_some_and(|e|{let s=e.read(cx);s.fetch_token.is_none() && !s.document_action_pending && s.log_selection.ordered(&s.commit_ids()).len()==1});
                                             let parent_owner = checkout_owner.clone(); let child_owner = checkout_owner.clone();
                                             let adjacent_enabled = checkout_owner.upgrade().is_some_and(|e| {
                                                 let s = e.read(cx); !s.history_loading && s.log_selection.ordered(&s.commit_ids()).len() == 1
@@ -4439,6 +4482,9 @@ impl Review {
                                                     }
                                                 })
                                                 .separator()
+                                                .item(PopupMenuItem::new(t("Reset Current Branch to Here…")).disabled(!reset_enabled).on_click(move|_,w,cx| {
+                                                    let _=reset_owner.update(cx,|s,cx|{if s.repo.path==reset_path{s.prepare_reset(reset_target.clone(),w,cx);}});
+                                                })).separator()
                                                 .item(PopupMenuItem::new(t("Go to Child Commit")).disabled(!adjacent_enabled).on_click(move |_, w, cx| {
                                                     let _ = child_owner.update(cx, |s, cx| s.navigate_adjacent(false, false, w, cx));
                                                 }))

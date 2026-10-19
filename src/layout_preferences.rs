@@ -351,3 +351,14 @@ mod force_confirmation_tests {
         std::fs::remove_file(file).unwrap();
     }
 }
+
+pub fn load_reset_mode() -> crate::reset_operation::Mode {
+    let value=settings_path().and_then(|p|std::fs::File::open(p.with_file_name("reset-mode")).ok()).and_then(|f| {
+        let mut s=String::new(); f.take(16).read_to_string(&mut s).ok().map(|_|s)
+    }).unwrap_or_default();
+    crate::reset_operation::Mode::ALL.into_iter().find(|m|m.name()==value.trim()).unwrap_or_default()
+}
+pub fn save_reset_mode(mode: crate::reset_operation::Mode)->std::io::Result<()> {
+    let path=settings_path().ok_or_else(||std::io::Error::other("Settings directory unavailable"))?.with_file_name("reset-mode");
+    std::fs::create_dir_all(path.parent().unwrap())?; std::fs::write(path,mode.name())
+}

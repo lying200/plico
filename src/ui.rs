@@ -610,7 +610,8 @@ impl Render for Review {
                                     p.stash_origin = Some(origin);
                                     p
                                 });
-                                let callback = self.diff_source_callback(cx);
+                                self.subscribe_diff_navigation(&preview, cx);
+                    let callback = self.diff_source_callback(cx);
                                 preview.update(cx, |p, cx| {
                                     p.source_callback = Some(callback);
                                     p.activate(_window, cx);
@@ -641,6 +642,7 @@ impl Render for Review {
                         p.documents = self.documents.clone();
                         p
                     });
+                    self.subscribe_diff_navigation(&preview, cx);
                     let callback = self.diff_source_callback(cx);
                     preview.update(cx, |p, cx| {
                         p.source_callback = Some(callback);
@@ -683,12 +685,14 @@ impl Render for Review {
                                 });
                                 preview
                             } else {
-                                cx.new(|_| {
+                                let preview = cx.new(|_| {
                                     let mut p = DiffTab::preview(target, chain);
                                     p.documents = self.documents.clone();
                                     p.snapshot_revision = revision;
                                     p
-                                })
+                                });
+                                self.subscribe_diff_navigation(&preview, cx);
+                                preview
                             };
                             preview.update(cx, |p, cx| {
                                 p.source_callback = Some(callback);

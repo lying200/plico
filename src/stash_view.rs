@@ -21,7 +21,7 @@ enum Row { Group(&'static str), File { group: usize, index: usize } }
 pub struct StashView {
     recovery: Option<plico::squash_saved::Pending>, recovery_error: Option<String>,
     write_busy: bool, notice: Option<String>, diagnostic: Option<String>,
-    focus: FocusHandle,
+    focus: FocusHandle, files_scroll: UniformListScrollHandle,
     repo: Repository, entries: Vec<stash::Entry>, selected: Option<usize>,
     contents: Option<stash::Contents>, rows: Vec<Row>, selected_file: Option<usize>,
     pending_selection: Option<(String, Option<stash::FileIdentity>)>,
@@ -31,7 +31,7 @@ pub struct StashView {
 impl Drop for StashView { fn drop(&mut self) { self.token.cancel(); } }
 impl StashView {
     pub fn new(repo: Repository, cx: &mut Context<Self>) -> Self {
-        let mut s = Self { recovery: None, recovery_error: None, write_busy: false, notice: None, diagnostic: None, focus: cx.focus_handle(), repo, entries: vec![], selected: None, contents: None, rows: vec![], selected_file: None,
+        let mut s = Self { recovery: None, recovery_error: None, write_busy: false, notice: None, diagnostic: None, focus: cx.focus_handle(), files_scroll: UniformListScrollHandle::new(), repo, entries: vec![], selected: None, contents: None, rows: vec![], selected_file: None,
             pending_selection: None, preview_chains: Vec::new(), busy: false, more: false, error: None, token: Cancel::default(), generation: 0, task: Task::ready(()) };
         s.refresh(cx); s
     }
@@ -152,6 +152,18 @@ impl StashView {
             Ok(OpenDiff(target, chain, origin))
         }))
     }
+    pub fn select_target(&mut self, target: &Target, cx: &mut Context<Self>) {
+        if target.identity().repository != self.repo.path || self.busy { return; }
+        let Some(contents) = &self.contents else { return; };
+        let row = self.rows.iter().position(|row| {
+            let Row::File {group, index} = row else { return false; };
+            let (commit, details) = if *group == 0 { (&contents.commit, &contents.working) }
+                else { let Some(pair) = contents.parents.get(*group - 1) else { return false; }; (&pair.0, &pair.1) };
+            details.files.get(*index).and_then(|change| Target::new(self.repo.clone(), Some(commit.clone()), change.clone()).ok())
+                .is_some_and(|candidate| candidate.identity() == target.identity())
+        });
+        if let Some(row) = row { self.selected_file = Some(row); self.files_scroll.scroll_to_item(row, ScrollStrategy::Top); cx.notify(); }
+    }
     fn show_diff(&mut self, cx: &mut Context<Self>) {
         match self.preview_target() {
             Some(Ok(event)) => cx.emit(event),
@@ -205,7 +217,7 @@ impl Render for StashView {
                         }
                     }; content
                 }).collect()
-            })).flex_1())
+            })).track_scroll(&self.files_scroll).flex_1())
             .when_some(self.notice.clone(), |v, notice| v.child(div().px_3().py_2().child(notice)))
             .when_some(self.diagnostic.clone(), |v, diagnostic| v.child(h_flex().px_3().py_1().child(crate::error_ui::details_button("stash-operation", diagnostic))))
             .child(h_flex().gap_2().p_2().border_t_1().border_color(rgb(0x2b2d30))

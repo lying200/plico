@@ -36,7 +36,9 @@ impl Snapshot {
     pub fn load(repo: &Repository, token: &Cancel) -> Result<Self,String> {
         let head=crate::commit_operation::head(repo,token)?;
         let review_versions=repo.local_changes(token)?;
-        let net=repo.working_tree_changes(token)?;
+        let staged:HashSet<_>=review_versions.iter().filter(|c|c.area==Area::Staged && c.status=="M").map(|c|c.path.as_path()).collect();
+        let both_modified:Vec<_>=review_versions.iter().filter(|c|c.area==Area::Unstaged && c.status=="M" && staged.contains(c.path.as_path())).map(|c|c.path.clone()).collect();
+        let net=if both_modified.is_empty() {Vec::new()}else {repo.working_tree_changes_for(head.as_deref().ok_or("HEAD changed; refresh local changes")?,&both_modified,token)?};
         if crate::commit_operation::head(repo,token)? != head {return Err("HEAD changed; refresh local changes".into());}
         let files=collect(&review_versions,&net)?;
         Ok(Self{head,files,review_versions})

@@ -3,6 +3,30 @@
 use super::*;
 
 impl Review {
+    pub(super) fn subscribe_diff_navigation(&self, tab: &Entity<DiffTab>, cx: &mut Context<Self>) {
+        cx.subscribe(tab, |s, _, event: &crate::diff_tab::FileChanged, cx| {
+            let target = &event.0;
+            if let Some(view) = &s.local_view { view.update(cx, |v, cx| v.select_target(target, cx)); }
+            if let Some(view) = &s.stash_view { view.update(cx, |v, cx| v.select_target(target, cx)); }
+            let index = s.aggregate_chain.as_ref().and_then(|chain| chain.fork_for(target)).map(|chain| chain.index()).or_else(|| {
+                if s.aggregate_chain.is_some() || target.identity().combined.is_some() { return None; }
+                let commit = if s.local { None } else { s.selected.and_then(|i| s.commits.get(i)).cloned() };
+                s.files.iter().position(|change| diff_target::Target::new(s.repo.clone(), commit.clone(), change.clone())
+                    .is_ok_and(|candidate| candidate.identity() == target.identity()))
+            });
+            if let Some(index) = index {
+                s.selected_file = Some(index);
+                for parent in target.change().path.ancestors().skip(1) {
+                    s.collapsed_directories.remove(&(target.change().area, parent.to_path_buf()));
+                }
+                s.rebuild_files();
+                if let Some(row) = s.file_rows.iter().position(|r| matches!(r, FileRow::File(i, _) if *i == index)) {
+                    s.files_scroll.scroll_to_item(row, ScrollStrategy::Top);
+                }
+            }
+            cx.notify();
+        }).detach();
+    }
     pub(super) fn compare_versions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let ids = self.commit_ids();
         let selected = self.log_selection.ordered(&ids);
@@ -38,6 +62,7 @@ impl Review {
                         }
                     })
                     .detach();
+                    s.subscribe_diff_navigation(&tab, cx);
                     cx.observe(&tab, |_, _, cx| cx.notify()).detach();
                     s.insert_editor_tab(tab.entity_id());
                     s.tabs.push(tab);
@@ -139,7 +164,8 @@ impl Review {
                                 tab.documents = s.documents.clone();
                                 tab
                             });
-                            cx.observe(&tab, |_, _, cx| cx.notify()).detach();
+                            s.subscribe_diff_navigation(&tab, cx);
+                    cx.observe(&tab, |_, _, cx| cx.notify()).detach();
                             s.insert_editor_tab(tab.entity_id());
                             s.tabs.push(tab);
                             s.tabs.len() - 1
@@ -770,7 +796,8 @@ impl Review {
                                 tab.documents = s.documents.clone();
                                 tab
                             });
-                            cx.observe(&tab, |_, _, cx| cx.notify()).detach();
+                            s.subscribe_diff_navigation(&tab, cx);
+                    cx.observe(&tab, |_, _, cx| cx.notify()).detach();
                             s.insert_editor_tab(tab.entity_id());
                             s.tabs.push(tab);
                             s.tabs.len() - 1
@@ -856,6 +883,7 @@ impl Review {
                     tab.documents = self.documents.clone();
                     tab
                 });
+                self.subscribe_diff_navigation(&tab, cx);
                 cx.observe(&tab, |_, _, cx| cx.notify()).detach();
                 self.insert_editor_tab(tab.entity_id());
                 self.tabs.push(tab);
@@ -949,6 +977,31 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use gpui::component::Root;
+    #[gpui::test]
+    fn commit_event_starts_log_refresh_even_from_welcome_state(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let view = review.unwrap();
+        cx.update(|window, cx| {
+            view.update(cx, |s, cx| {
+                s.open_local(window, cx);
+                let local = s.local_view.clone().unwrap();
+                let generation = s.generation;
+                local.update(cx, |_, cx| cx.emit(crate::local_view::Changed { push: false }));
+                // Emission is dispatched after the entity update, below.
+                assert_eq!(s.generation, generation);
+            });
+        });
+        cx.update(|_, cx| view.update(cx, |s, _| {
+            assert!(s.history_loading);
+            assert!(s.generation > 0);
+        }));
+    }
     #[gpui::test]
     fn closing_inactive_tab_keeps_active_entity_and_pending_close_uses_identity(
         cx: &mut gpui::TestAppContext,

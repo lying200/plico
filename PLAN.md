@@ -4477,3 +4477,28 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - [ ] 用户手测：在工作区和历史双栏分别跨过新增／删除块，反向滚动、改变分栏宽度／折行、到达首尾，确认曲线端点与源码边界同步且没有来回抖动。不做滚动自动化。
 
 上面的“后续范围／仅分析”是实施前记录，以本节进展为准。源码映射、生命周期与保留差异见 REBASED-REFERENCE 对应条目。本轮不新增装饰动画，不宣称完整像素级一致或已完成滚动手感验收。
+
+## 本地刷新与 Diff 同步修复（2026-10-19）
+
+- [x] 上一轮曲线／滚动实现已单独提交 `ead1c05`，未推送。
+- [x] Commit 列表删除无条件整仓库净 diff，只有 MM 路径查询净变化；保留 HEAD 复验、冲突／重命名／删除语义及只读 index。
+- [x] 同一 LocalView 的刷新请求合并，不反复取消正在执行的扫描；排队请求在完成后执行一次，保持保存后的数据新鲜度。
+- [x] F7 边界提示交互清除／5 秒自动消失；Diff 跨文件导航同步本地、stash、Log 文件选择，按准确版本匹配；展开本地祖先并定位可见行。
+- [x] 已有提交完成 → Log 刷新事件补回归验证；Windows fixture 实际提交后看到新提交与 HEAD 更新，保留用户选中历史提交。
+- [x] 大仓库测试发现只读 Git 取消只杀 launcher、后代继续扫描并占住管道；复用既有进程树管理，取消／超时真正关闭自己的子进程与读线程。回归修前 3.01 秒、修后约 0.03 秒。
+
+测量工具 `examples/refresh_profile.rs` 直接执行真实 `Snapshot::load`，每组 3 次；耗时包含 Git 子进程，不包含 UI／GPU，未测内存。旧版 `ead1c05` 与改后均为 Windows debug profiling exe；Windows 本地 Spring 11,459 tracked files，WSL Spring 为独立完整副本；Rebased 虽有 280,686 index entries，但稀疏检出实际只有 620 tracked files，不能当作 28 万文件完整扫描。全程 `GIT_OPTIONAL_LOCKS=0`，只在进程环境为准确测试路径设置 safe.directory，没有修改全局信任。
+
+| 场景 | 修改前热缓存三次（秒） | 仅减少扫描后（秒） | 加进程树管理后的复测（秒） |
+| --- | --- | --- | --- |
+| Windows 本地 Spring | 0.830 / 0.777 / 0.796 | 0.353 / 0.356 / 0.367 | 0.508 / 0.472 / 0.447 |
+| Windows → WSL Spring | 3.547 / 3.469 / 3.456 | 1.728 / 1.721 / 1.743 | 2.096 / 2.232 / 2.112 |
+| Windows → WSL Rebased（稀疏） | 3.415 / 3.397 / 3.425 | 1.696 / 1.666 / 1.666 | 2.042 / 1.901 / 1.863 |
+
+两份 WSL 仓库 Windows Git 返回 4 条变化，Linux Git 返回干净；没有修改源仓库来强行消除跨平台状态差异。Spring 单独命令：rev-parse 0.092 秒，status 1.404 秒，旧整仓库 diff 1.362 秒。首次 WSL Spring 查询曾超时，不混入热缓存平均值。进程树与并行压力测试可能影响最后一组，数字是本机样本而非用户另一台电脑的保证。
+
+- [ ] 30,000 tracked files 的独立 WSL fixture 仍触发 status 30 秒限制：普通扫描优化不消除跨系统文件扫描的成本。修前还发生 timeout 后后台后代不退出；最终 Windows profiling exe 在 30.244 秒返回超时，Win32_Process 查询确认该 fixture 残留 benchmark／Git 进程数为 0。完整 WSL Git 执行层是独立后续优化，未在本轮仓促替换写操作执行环境。
+- [x] 当前自动验证：202 library tests、33 commit-index integration tests、112 repository integration tests、27 desktop tests 通过；desktop 仍排除既有 `releasing_diff_clears_padding_from_retained_source` 基线失败，不能称全量无失败。
+- [x] Windows 原生静态验收：`artifacts/diff-fonts-20261019/refresh-nav-{a,b}.png` 显示 Diff 从 a 到 b、左侧选择同步；`refresh-log-after-commit.png` 显示实际提交后 Log 新提交及 HEAD，无手动刷新。没有验证滚动手感。
+
+最终 Windows release 构建通过，重启自己创建的测试进程后正常加载 fixture 的最新 Log 与文件列表；截图 `artifacts/diff-fonts-20261019/curves-start.png`。本轮修复随 v0.1.0-preview.4 发布。基线 profiling 临时 worktree 已移除；独立大仓库 fixture 保留于 `/tmp/plico-perf-{spring,many-files}` 便于复测。

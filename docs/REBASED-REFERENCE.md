@@ -1950,3 +1950,16 @@ Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移
 验证：24 项相关桌面／纯函数测试通过（仍跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败）。新增映射用例覆盖新增／删除两方向、非等长替换、折行边界的行映射及文档首尾；只读快照用例验证无保存文档、F7 源位置和还原入口无效。没有滚动自动化；原生静态呈现与构建记录见 PLAN，滚动手感待用户手测。
 
 补充：`DiffFile::editor_coordinates` 沿用既有差异配对，仅转换 CRLF 源字节范围到编辑器 LF 坐标，保留换行差异；新增回归测试覆盖范围合法及差异不丢失。工作区共享编辑器在退出 Diff 时恢复进入前的折行／行号设置，有生命周期回归验证。
+
+### 2026-10-19 本地刷新、查询取消与 Diff 导航同步
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与源码快照不保证一致。本轮实际读取：
+
+- `plugins/git4idea/backend/src/status/GitChangesCollector.java::collectChanges/collectStagedUnstagedModifications`：用 status 收集各版本，只为同时暂存／未暂存修改（MM）的路径计算工作树相对 HEAD 的净变化。`src/commit_changes.rs::Snapshot::load` 与 `src/git.rs::working_tree_changes_for` 改为此规则，保留首尾 HEAD 复验；没有 MM 时不再执行整仓库 diff，也不写 index。
+- `platform/diff-impl/src/com/intellij/diff/impl/DiffRequestProcessor.java::DiffNavigator`：第一次越界提示，第二次沿同方向跨文件；编辑器 hint 使用 HIDE_BY_ANY_KEY／TEXT_CHANGE／SCROLLING，timeout=0。`src/diff_tab.rs` 增加交互清除和退出取消，另加 5 秒自动消失，这是应用户要求的保留差异，不宣称是上游超时时间；提示失效同时解除跨文件确认状态。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ChangeViewDiffRequestProcessor.java::MyGoToChangePopupController/selection strategy`：改变文件时调用 selectChange，同步来源列表。`src/ui/editor_tabs.rs::subscribe_diff_navigation` 接收普通／嵌入 Diff 的 FileChanged，以 repository、revision、area、path／old_path 匹配来源；本地树展开祖先并定位，stash／Log 对应列表跟随。不能仅凭相同文件名改变另一个提交的选择，不重新打开 Diff，避免事件反馈。
+- `plugins/git4idea/backend/src/log/GitLogProvider.kt::subscribeToRootRefreshEvents`、`checkin/GitCheckinEnvironment.kt`：提交后 repository.update，Log 订阅仓库更新。Plico 已有 LocalView::Changed → Review::refresh_impl；本轮补事件回归并在 Windows 测试仓库实际提交，确认 Log 已自动新增提交、HEAD 标记移动。保留当前选中历史提交，不强制抢选新提交。LocalView 正在刷新时将重复请求合并为一次后续查询，避免持续取消重启；完成后再处理排队请求，避免漏掉查询过程中发生的保存。
+- `plugins/git4idea/backend/src/config/GitExecutable.kt::Wsl/Eel`：上游支持在 WSL／远程执行 Git，转换参数路径与返回路径；Plico 仍在 Windows 启动 Git 访问 UNC，完整 WSL 执行层本轮未替换（涉及写操作、路径、认证和取消的一致性），不能声称与 Rebased 的 WSL 性能等价。
+- `platform/platform-util-io/src/com/intellij/execution/process/OSProcessHandler.java::doDestroyProcess/killProcessTree`：递归销毁进程树。压力测试发现只读 read_stream 原来只终止 git 启动进程，后代继续持有输出管道导致 join 等待。现在复用 `process_tree::ProcessTree`（Windows Job／Unix process group），在取消／超时以及 leader 退出后清理自己的后代再收回读线程。回归测试修前 3.01 秒失败，修后约 0.03 秒通过；不是放宽 30 秒限制。
+
+性能测量、原生截图与限制见 PLAN 同日条目。测试只在独立 fixture 写入，已有 Spring／Rebased 仓库只读。没有运行滚动自动化，没有完成全部像素级验收。

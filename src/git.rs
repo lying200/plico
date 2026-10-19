@@ -557,16 +557,12 @@ impl Repository {
         if token.cancelled() {
             return Err("Cancelled".into());
         }
-        let mut child = self
-            .command()
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut command = self.command();
+        let mut tree = crate::process_tree::ProcessTree::spawn(command.args(args)
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()))
             .map_err(|e| format!("Cannot start Git: {e}"))?;
-        let out = child.stdout.take().unwrap();
-        let err = child.stderr.take().unwrap();
+        let out = tree.child.stdout.take().unwrap();
+        let err = tree.child.stderr.take().unwrap();
         let overflow = Arc::new(AtomicBool::new(false));
         let flag = overflow.clone();
         let stdout = thread::spawn(move || {
@@ -591,19 +587,22 @@ impl Repository {
                 } else {
                     "Git timed out after 30 seconds"
                 });
-                let _ = child.kill();
-                break child.wait();
+                let _ = tree.terminate();
+                break tree.child.wait();
             }
-            match child.try_wait() {
+            match tree.child.try_wait() {
                 Ok(Some(s)) => break Ok(s),
                 Ok(None) => thread::sleep(Duration::from_millis(5)),
                 Err(e) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    let _ = tree.terminate();
+                    let _ = tree.child.wait();
                     break Err(e);
                 }
             }
         };
+        // Git launchers/helpers can inherit the pipes; reap the entire owned tree
+        // before joining readers, including when the launcher has already exited.
+        let _ = tree.terminate();
         // Join both readers even if one fails; no detached pipe reader survives
         // completion or cancellation of the owning request.
         let output = stdout.join();
@@ -1339,6 +1338,21 @@ impl Repository {
         if self.working_tree_base(token)? != base { return Err("HEAD changed; refresh local changes".into()); }
         Ok(parse_names(&bytes)?.into_iter().map(|c|WorkingTreeChange{path:c.path,old_path:c.old_path,status:c.status}).collect())
     }
+    /// Status collector only needs a net comparison for paths modified in both
+    /// index and worktree. Caller owns the before/after HEAD consistency check.
+    pub(crate) fn working_tree_changes_for(&self,base:&str,paths:&[PathBuf],token:&Cancel)->Result<Vec<WorkingTreeChange>> {
+        if paths.is_empty() {return Ok(Vec::new());}
+        let mut changes=Vec::new();
+        // Keep Windows command lines bounded; each literal path is queried once.
+        for batch in paths.chunks(32) {
+            let mut args=vec![OsStr::new("diff"),OsStr::new("--name-status"),OsStr::new("-z"),
+                OsStr::new("--no-ext-diff"),OsStr::new("--no-textconv"),OsStr::new("--no-renames"),
+                OsStr::new("--ignore-submodules=none"),OsStr::new(base),OsStr::new("--")];
+            args.extend(batch.iter().map(|p|p.as_os_str()));
+            changes.extend(parse_names(&self.read(&args,token)?)?.into_iter().map(|c|WorkingTreeChange{path:c.path,old_path:c.old_path,status:c.status}));
+        }
+        Ok(changes)
+    }
     pub fn working_tree_patch(&self, change: &WorkingTreeChange, full: bool, token: &Cancel) -> Result<String> {
         if change.status.starts_with('U') { return Err("Resolve conflicts before reviewing this change".into()); }
         let c=Change{path:change.path.clone(),old_path:change.old_path.clone(),status:change.status.clone(),area:Area::Unstaged};
@@ -1676,5 +1690,34 @@ mod output_tests {
     fn excessive_stdout_still_fails() {
         let repo = Repository::new(std::env::temp_dir());
         assert!(repo.text(&["-c", "alias.plico-output-test=!head -c 9000000 /dev/zero", "plico-output-test"], &Cancel::default()).is_err());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod query_cancellation_tests {
+    use super::*;
+    #[test]
+    fn cancelled_query_closes_descendant_pipes_promptly() {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+        let dir = Fixture(std::env::temp_dir().join(format!("plico-query-cancel-{}", std::process::id())));
+        std::fs::create_dir_all(&dir.0).unwrap();
+        assert!(Command::new("git").args(["init", "-q"]).arg(&dir.0).status().unwrap().success());
+        let repo = Repository::new(&dir.0);
+        let token = Cancel::default();
+        let worker_token = token.clone();
+        let marker = dir.0.join("ready");
+        let cancel = thread::spawn(move || {
+            let start = Instant::now();
+            while !marker.exists() && start.elapsed() < Duration::from_secs(2) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            worker_token.cancel();
+        });
+        let start = Instant::now();
+        let result = repo.text(&["-c", "alias.slow=!echo ready > ready; sleep 3", "slow"], &token);
+        cancel.join().unwrap();
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        assert!(start.elapsed() < Duration::from_secs(2), "descendant kept query pipes open: {:?}", start.elapsed());
     }
 }

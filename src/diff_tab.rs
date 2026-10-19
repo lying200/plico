@@ -24,6 +24,7 @@ pub struct DiffTab {
     split_ratio: f32,
     split_dragging: std::rc::Rc<std::cell::Cell<bool>>,
     navigation_boundary: Option<bool>,
+    navigation_hint_task: Task<()>,
     pending_navigation: Option<bool>,
     source_available: bool,
     last_source_position: Option<(bool,usize)>,
@@ -46,7 +47,7 @@ pub struct DiffTab {
 impl Drop for DiffTab { fn drop(&mut self) { self.token.cancel(); } }
 impl DiffTab {
     pub fn new(target: Target, chain: Chain) -> Self {
-        Self { navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
+        Self { navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
     }
     fn set_split_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
         if self.split_ratio == ratio { return; }
@@ -88,7 +89,7 @@ impl DiffTab {
             }
         }
         self.pending_editable = None;
-        self.navigation_boundary = None;
+        self.clear_navigation_hint(cx);
         self.pending_navigation = None;
         self.token.cancel(); self.generation += 1; self.task = Task::ready(());
         self.picker = None; self.viewer = None; self.last_source_position=None; self.loading = false; cx.notify();
@@ -259,6 +260,17 @@ impl DiffTab {
             ).or(self.last_source_position).unwrap_or((self.target.change().status.starts_with('D'),0));
         Some((self.target.clone(),original,line))
     }
+    fn clear_navigation_hint(&mut self,cx:&mut Context<Self>) {
+        self.navigation_hint_task=Task::ready(());
+        if self.navigation_boundary.take().is_some() {cx.notify();}
+    }
+    fn show_navigation_hint(&mut self,next:bool,cx:&mut Context<Self>) {
+        self.navigation_boundary=Some(next);
+        self.navigation_hint_task=cx.spawn(async move |this,cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(5)).await;
+            let _=this.update(cx,|s,cx| {s.navigation_boundary=None;cx.notify();});
+        });
+    }
     pub fn navigate(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.loading || self.error.is_some() || self.unavailable.is_some() { return; }
         let moved = if let Some(editable)=&self.editable {
@@ -272,7 +284,7 @@ impl DiffTab {
         if self.navigation_boundary==Some(next) {
             self.move_file(next,window,cx);
             self.pending_navigation=Some(next);
-        } else { self.navigation_boundary=Some(next); }
+        } else { self.show_navigation_hint(next,cx); }
         cx.notify();
     }
 
@@ -378,6 +390,9 @@ impl Render for DiffTab {
             else { Diff::new(viewer).split_ratio(self.split_ratio).size_full().soft_wrap(self.appearance.soft_wrap).line_number(self.appearance.line_numbers).change_indicator(DiffChangeIndicator::None).header_visible(false).hunk_separator(DiffHunkSeparator::LineInfo).into_any_element() }
         } else { div().into_any_element() };
         v_flex().relative().size_full().min_h_0().bg(rgb(0x191a1c))
+            .on_mouse_down(MouseButton::Left,cx.listener(|s,_,_,cx|s.clear_navigation_hint(cx)))
+            .on_scroll_wheel(cx.listener(|s,_,_,cx|s.clear_navigation_hint(cx)))
+            .on_key_down(cx.listener(|s,event:&KeyDownEvent,_,cx|if event.keystroke.key!="f7" {s.clear_navigation_hint(cx);} ))
             .on_action(cx.listener(|s,_:&crate::ui_actions::JumpToSource,window,cx|{cx.stop_propagation();s.open_source(window,cx);} ))
             .child(h_flex().h(px(40.)).mx(px(6.)).mt(px(2.)).rounded(px(6.)).border_1().border_color(rgb(0x26282c)).flex_shrink_0().gap_2().px_2().bg(rgb(0x212326))
                 .child(Button::new("previous-diff").ghost().small().icon(Icon::default().path("jb/up_dark.svg").size(px(16.))).tooltip(t("Previous difference · Shift+F7")).disabled(self.loading || self.error.is_some() || self.unavailable.is_some()).on_click(cx.listener(|s, _, w, cx| s.navigate(false, w, cx))))
@@ -499,6 +514,24 @@ mod editable_navigation_tests {
             assert!(s.try_move_change(false,cx));
             assert!(!s.try_move_change(false,cx));
         });
+    }
+    #[gpui::test]
+    fn f7_boundary_hint_expires_without_another_key(cx:&mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut tab=None;
+        let (_,cx)=cx.add_window_view(|window,cx| {
+            let change=|name:&str|plico::git::Change {area:Area::Unstaged,path:name.into(),old_path:None,status:"M".into()};
+            let target=Target::new(plico::git::Repository::new("missing-fixture"),None,change("a.txt")).unwrap();
+            let chain=Chain::new(&target,&[change("a.txt"),change("b.txt")]).unwrap();
+            let view=cx.new(|_|DiffTab::new(target,chain));
+            view.update(cx,|s,cx|s.navigate(true,window,cx));
+            tab=Some(view);
+            let empty=cx.new(|_|Empty);gpui::component::Root::new(empty,window,cx)
+        });
+        cx.run_until_parked();
+        cx.executor().advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        tab.unwrap().read_with(cx,|s,_|assert_eq!(s.navigation_boundary,None));
     }
     #[gpui::test]
     fn f7_boundary_requires_second_press_and_does_not_wrap(cx: &mut gpui::TestAppContext) {

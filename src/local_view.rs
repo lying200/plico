@@ -14,7 +14,7 @@ pub struct LocalView {
     selection: Selection, draft: Draft, input: Entity<TextareaState>, head: Option<String>, recovery: bool,
     preparing: bool,
     write_token: Option<Cancel>, write_task: Task<()>, amend_token: Cancel, amend_task: Task<()>, notice: Option<String>, write_error: Option<WriteFailure>,
-    token: Cancel, generation: u64, task: Task<()>, busy: bool, error: Option<String>,
+    token: Cancel, generation: u64, task: Task<()>, busy: bool, refresh_pending: bool, error: Option<String>,
 }
 impl EventEmitter<OpenDiff> for LocalView {}
 impl EventEmitter<Hide> for LocalView {}
@@ -35,7 +35,7 @@ impl LocalView {
         }).detach();
         let mut view = Self { ui_chinese: plico::i18n::is_chinese(), selection: Selection::default(), draft: Draft::default(), input, head: None, recovery: false,
             preparing: false, write_token: None, write_task: Task::ready(()), amend_token: Cancel::default(), amend_task: Task::ready(()), notice: None, write_error: None, repo, model: Model::default(), focus: cx.focus_handle(), scroll: UniformListScrollHandle::new(),
-            token: Cancel::default(), generation: 0, task: Task::ready(()), busy: false, error: None };
+            token: Cancel::default(), generation: 0, task: Task::ready(()), busy: false, refresh_pending: false, error: None };
         view.refresh(cx); view
     }
     pub fn focus_message(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -43,6 +43,8 @@ impl LocalView {
     }
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.write_token.is_some() { return; }
+        if self.busy { self.refresh_pending = true; return; }
+        self.refresh_pending = false;
         self.token.cancel(); self.generation+=1; self.token=Cancel::default(); self.busy=true; self.error=None;
         let repo=self.repo.clone(); let token=self.token.clone(); let generation=self.generation;
         self.task=cx.spawn(async move |this,cx| {
@@ -55,6 +57,7 @@ impl LocalView {
                 if generation!=s.generation {return;}
                 s.busy=false;
                 match result { Ok((snapshot,recovery))=>{s.selection.replace(&snapshot);s.model.replace(snapshot.files.iter().map(CommitFile::change).collect());s.head=snapshot.head;s.recovery=recovery;}, Err(e)=>s.error=Some(e) }
+                if std::mem::take(&mut s.refresh_pending) { s.refresh(cx); }
                 cx.notify();
             });
         }); cx.notify();
@@ -170,6 +173,13 @@ impl LocalView {
         let chain = Chain::new(&target, self.model.files()).ok()?;
         Some((target, chain))
     }
+    pub fn select_target(&mut self, target: &Target, cx: &mut Context<Self>) {
+        if target.identity().repository != self.repo.path || target.identity().revision.is_some() { return; }
+        if let Some(row) = self.model.reveal(target.change()) {
+            self.scroll.scroll_to_item(row, ScrollStrategy::Top);
+            cx.notify();
+        }
+    }
     fn show_diff(&mut self,cx:&mut Context<Self>) {
         if self.busy || self.error.is_some() {return;}
         let Some(change)=self.model.selected().and_then(|i|self.model.files().get(i)).cloned() else {return;};
@@ -284,5 +294,32 @@ impl Render for LocalView {
                         .disabled(self.busy || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
                         .on_click(cx.listener(|s,_,w,cx|s.submit(true,false,w,cx))))
                     .when(self.write_token.is_some(),|v|v.child(Button::new("commit-cancel").label(t("Cancel")).on_click(cx.listener(|s,_,_,cx|{if let Some(t)=&s.write_token{t.cancel();}cx.notify();}))))))
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod refresh_tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+    #[gpui::test]
+    fn repeated_refresh_does_not_cancel_inflight_query(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut local = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| LocalView::new(Repository::new("missing-fixture"), window, cx));
+            local = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        cx.update(|_, cx| local.as_ref().unwrap().update(cx, |s, cx| {
+            s.task = Task::ready(());
+            s.busy = true;
+            let generation = s.generation;
+            let token = s.token.clone();
+            for _ in 0..10 { s.refresh(cx); }
+            assert_eq!(s.generation, generation);
+            assert!(!token.cancelled());
+            assert!(s.refresh_pending);
+        }));
     }
 }

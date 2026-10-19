@@ -54,6 +54,17 @@ impl Model {
     pub fn select(&mut self, index: usize) {
         if let Some(file) = self.files.get(index) { self.selected = Some(Identity::from(file)); }
     }
+    /// Diff navigation reveals an exact version without changing commit inclusion.
+    pub fn reveal(&mut self, change: &Change) -> Option<usize> {
+        let index = self.files.iter().position(|f| Identity::from(f) == Identity::from(change))?;
+        self.select(index);
+        self.collapsed_groups.remove(&change.area);
+        for parent in change.path.ancestors().skip(1) {
+            self.collapsed_directories.remove(&(change.area, parent.to_path_buf()));
+        }
+        self.rebuild();
+        self.rows.iter().position(|r| matches!(r, Row::Entry {row: file_tree::Row::File {index: i,..},..} if *i == index))
+    }
     pub fn toggle(&mut self, row: usize) {
         match self.rows.get(row).cloned() {
             Some(Row::Group { area, .. }) => {
@@ -111,6 +122,18 @@ impl Model {
 mod tests {
     use super::*;
     fn file(path: &str, area: Area) -> Change { Change { path: path.into(), old_path: None, status: "M".into(), area } }
+    #[test]
+    fn diff_navigation_reveals_collapsed_exact_version() {
+        let mut m = Model::default();
+        let target = file("src/nested/b.rs", Area::WorkingTree);
+        m.replace(vec![file("src/a.rs", Area::WorkingTree), target.clone(), file("src/nested/b.rs", Area::Staged)]);
+        m.collapse_all();
+        let row = m.reveal(&target).unwrap();
+        assert_eq!(m.selected(), Some(1));
+        assert!(matches!(m.rows()[row], Row::Entry {row: file_tree::Row::File {index: 1,..},..}));
+        assert!(m.reveal(&file("missing", Area::WorkingTree)).is_none());
+        assert_eq!(m.selected(), Some(1));
+    }
     #[test]
     fn group_scope_includes_collapsed_descendants_but_not_other_areas_or_prefix_siblings() {
         let mut m=Model::default();

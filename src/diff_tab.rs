@@ -21,6 +21,8 @@ pub struct DiffTab {
     pending_editable: Option<plico::working_copy::Contents>,
     pub source_callback: Option<SourceCallback>,
     embedded: bool,
+    split_ratio: f32,
+    split_dragging: std::rc::Rc<std::cell::Cell<bool>>,
     navigation_boundary: Option<bool>,
     pending_navigation: Option<bool>,
     source_available: bool,
@@ -44,7 +46,15 @@ pub struct DiffTab {
 impl Drop for DiffTab { fn drop(&mut self) { self.token.cancel(); } }
 impl DiffTab {
     pub fn new(target: Target, chain: Chain) -> Self {
-        Self { navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
+        Self { navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
+    }
+    fn set_split_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
+        if self.split_ratio == ratio { return; }
+        self.split_ratio = ratio;
+        if let Some(editable) = &self.editable {
+            editable.update(cx, |view, cx| { view.split_ratio = ratio; cx.notify(); });
+        }
+        cx.notify();
     }
     pub fn preview(target: Target, chain: Chain) -> Self {
         let mut tab = Self::new(target, chain); tab.embedded = true; tab
@@ -68,6 +78,7 @@ impl DiffTab {
         self.chain.fork_for(target)
     }
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.split_dragging.set(false);
         if let Some(view) = self.editable.take() {
             view.update(cx, |v,cx|v.deactivate(cx));
             let document = view.read(cx).working.clone();
@@ -189,6 +200,7 @@ impl DiffTab {
         if self.target.change().area == Area::Commit { DiffPlace::Log } else { DiffPlace::Changes }
     }
     fn set_view_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
+        self.split_dragging.set(false);
         if let Err(error) = layout_preferences::save_diff_unified(self.place(), mode == DiffMode::Unified) {
             self.preference_error = Some(format!("Cannot save Diff view: {error}"));
             cx.notify();
@@ -312,8 +324,8 @@ impl Render for DiffTab {
             .map(|h| h.as_ref()).collect::<Vec<&str>>().join(" · ")).unwrap_or_default();
         // UnifiedDiffViewer stacks both non-empty revision titles vertically.
         let unified = self.preferred_mode == DiffMode::Unified;
-        let title_cell = |revision: String, path: Option<String>, locked: bool| h_flex()
-            .when(!unified, |cell| cell.flex_1()).when(unified, |cell| cell.w_full())
+        let title_cell = |revision: String, path: Option<String>, locked: bool, fraction: f32| h_flex()
+            .when(!unified, |cell| cell.w(relative(fraction)).flex_shrink_0()).when(unified, |cell| cell.w_full())
             .min_w_0().overflow_hidden().px_1().pt(px(2.)).pb(px(2.))
             .when(locked,|cell|cell.child(Icon::default().path("jb/locked_dark.svg").size(px(16.)).text_color(rgb(0xced0d6))))
             .child(div().flex_shrink_0().ml_1().text_color(rgb(0xbcbec4)).child(revision))
@@ -326,8 +338,8 @@ impl Render for DiffTab {
             .then(|| id.path.display().to_string());
         let titles = div().flex().when(unified, |row| row.flex_col())
             .w_full().flex_shrink_0().border_b_1().border_color(rgb(0x26282c))
-            .when(status != Some(DiffFileStatus::Added), |row| row.child(title_cell(before, Some(old_path.display().to_string()), true)))
-            .when(status != Some(DiffFileStatus::Deleted), |row| row.child(title_cell(after, after_path, self.editable.is_none())));
+            .when(status != Some(DiffFileStatus::Added), |row| row.child(title_cell(before, Some(old_path.display().to_string()), true, if status == Some(DiffFileStatus::Deleted) { 1. } else { self.split_ratio })))
+            .when(status != Some(DiffFileStatus::Deleted), |row| row.child(title_cell(after, after_path, self.editable.is_none(), if status == Some(DiffFileStatus::Added) { 1. } else { 1. - self.split_ratio })));
         let content = if let Some(message) = self.unavailable { div().p_4().child(t(message)).into_any_element() }
         else if self.loading { div().p_4().child(t("Reading Git data…")).into_any_element() }
         else if let Some(error) = self.error.clone() {
@@ -341,14 +353,15 @@ impl Render for DiffTab {
                 .into_any_element()
         }
         else if let Some(editable) = self.editable.as_ref() {
+            editable.update(cx, |view, _| view.split_ratio = self.split_ratio);
             editable.clone().into_any_element()
         }
         else if let Some(viewer) = &self.viewer {
             if viewer.read(cx).files().is_empty() { div().p_4().child(t("No textual differences")).into_any_element() }
-            else { Diff::new(viewer).size_full().soft_wrap(self.appearance.soft_wrap).line_number(self.appearance.line_numbers).change_indicator(DiffChangeIndicator::None).header_visible(false).hunk_separator(DiffHunkSeparator::LineInfo).into_any_element() }
+            else { Diff::new(viewer).split_ratio(self.split_ratio).size_full().soft_wrap(self.appearance.soft_wrap).line_number(self.appearance.line_numbers).change_indicator(DiffChangeIndicator::None).header_visible(false).hunk_separator(DiffHunkSeparator::LineInfo).into_any_element() }
         } else { div().into_any_element() };
         v_flex().relative().size_full().min_h_0().bg(rgb(0x191a1c))
-            .on_action(cx.listener(|s,_:&crate::ui::JumpToSource,window,cx|{cx.stop_propagation();s.open_source(window,cx);} ))
+            .on_action(cx.listener(|s,_:&crate::ui_actions::JumpToSource,window,cx|{cx.stop_propagation();s.open_source(window,cx);} ))
             .child(h_flex().h(px(40.)).mx(px(6.)).mt(px(2.)).rounded(px(6.)).border_1().border_color(rgb(0x26282c)).flex_shrink_0().gap_2().px_2().bg(rgb(0x212326))
                 .child(Button::new("previous-diff").ghost().small().icon(Icon::default().path("jb/up_dark.svg").size(px(16.))).tooltip(t("Previous difference · Shift+F7")).disabled(self.loading || self.error.is_some() || self.unavailable.is_some()).on_click(cx.listener(|s, _, w, cx| s.navigate(false, w, cx))))
                 .child(Button::new("next-diff").ghost().small().icon(Icon::default().path("jb/down_dark.svg").size(px(16.))).tooltip(t("Next difference · F7")).disabled(self.loading || self.error.is_some() || self.unavailable.is_some()).on_click(cx.listener(|s, _, w, cx| s.navigate(true, w, cx))))
@@ -382,9 +395,17 @@ impl Render for DiffTab {
                 .child(div().text_color(rgb(0xf2a6a6)).child(t("Could not save Diff preferences. Try the setting again.")))
                 .child(Button::new("copy-diff-preference-error").link().small().label(t("Copy error details"))
                     .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(error.clone()))))))
-            .when(self.unavailable.is_none() && self.error.is_none(), |view| view.child(titles))
-            .when(self.unavailable.is_none() && !metadata.is_empty(), |view| view.child(div().px_3().py_1().text_sm().child(metadata)))
-            .child(div().flex_1().min_h_0().child(content))
+            .child(v_flex().relative().flex_1().min_h_0().w_full()
+                .when(self.unavailable.is_none() && self.error.is_none(), |view| view.child(titles))
+                .when(self.unavailable.is_none() && !metadata.is_empty(), |view| view.child(div().px_3().py_1().text_sm().child(metadata)))
+                .child(div().flex_1().min_h_0().child(content))
+                .when(!unified && !self.loading && self.error.is_none() && self.unavailable.is_none()
+                    && (self.editable.is_some() || self.viewer.as_ref().is_some_and(|v| !v.read(cx).is_three_way() && v.read(cx).files().iter().any(|f| !matches!(f.status(), DiffFileStatus::Added | DiffFileStatus::Deleted)))), |view| {
+                    let owner = cx.entity().downgrade();
+                    view.child(crate::diff_splitter::handle(self.split_ratio, self.split_dragging.clone(), std::rc::Rc::new(move |ratio, cx| {
+                        let _ = owner.update(cx, |s, cx| s.set_split_ratio(ratio, cx));
+                    })))
+                }))
             .when_some(self.navigation_boundary, |view,next|view.child(div().absolute().bottom(px(12.)).left(px(24.)).px_3().py_1().rounded(px(4.)).bg(rgb(0x34373c)).text_size(px(12.)).child(t(if next {"Press F7 again to go to the next file"} else {"Press Shift+F7 again to go to the previous file"}))))
     }
 }
@@ -419,7 +440,7 @@ mod editable_navigation_tests {
                     gpui::component::v_flex().size_full().min_h_0()
                         .child(gpui::div().h(gpui::px(64.)).flex_shrink_0())
                         .child(gpui::div().flex_1().min_h_0().child(
-                            gpui::component::diff::Diff::new(&self.0).size_full()
+                            gpui::component::diff::Diff::new(&self.0).split_ratio(0.3).size_full()
                                 .soft_wrap(false).header_visible(false)))
                 }
             }

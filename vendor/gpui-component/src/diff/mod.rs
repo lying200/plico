@@ -217,6 +217,7 @@ pub struct Diff {
     change_indicator: DiffChangeIndicator,
     change_background: bool,
     soft_wrap: bool,
+    split_ratio: f32,
     header: HeaderSlots,
     annotations: Rc<Annotations>,
     annotation_content: Option<AnnotationRenderer>,
@@ -234,6 +235,12 @@ where
 }
 
 impl Diff {
+    /// Fraction of the two-column viewport occupied by the original side.
+    pub fn split_ratio(mut self, ratio: f32) -> Self {
+        self.split_ratio = if ratio.is_finite() { ratio.clamp(0.1, 0.9) } else { 0.5 };
+        self
+    }
+
     pub fn new(state: &Entity<DiffState>) -> Self {
         Self {
             state: state.clone(),
@@ -246,6 +253,7 @@ impl Diff {
             change_indicator: DiffChangeIndicator::default(),
             change_background: true,
             soft_wrap: false,
+            split_ratio: 0.5,
             header: HeaderSlots::default(),
             annotations: Rc::default(),
             annotation_content: None,
@@ -459,7 +467,7 @@ fn render_diff(
     state.set_window(window.window_handle().window_id());
     state.ensure_presentation(cx);
     let rem = window.rem_size();
-    let font_size = rem * (f32::from(cx.theme().mono_font_size) / 16.);
+    let font_size = cx.theme().mono_font_size;
     let font_family = cx.theme().mono_font_family.clone();
     let row_height = font_size * 1.6;
     let digits = state
@@ -488,7 +496,7 @@ fn render_diff(
         mode,
         props.line_number,
         soft_wrap,
-    );
+    ).with_split_ratio(props.split_ratio);
     if state.update_layout(layout, row_height) {
         // Wrapped rows take the viewport width instead of their longest line.
         let width = if soft_wrap {
@@ -515,7 +523,7 @@ fn render_diff(
         content_width
     };
     let horizontal = state.horizontal_scroll().clone();
-    horizontal.configure(content_width, columns, soft_wrap);
+    horizontal.configure(content_width, columns, soft_wrap, props.split_ratio);
     let code = Rc::new(CodePresentation {
         files: state.files().to_vec(),
         columns,
@@ -525,6 +533,7 @@ fn render_diff(
         mode,
         content_width,
         column_width,
+        split_ratio: props.split_ratio,
         horizontal: horizontal.clone(),
         font_size,
         row_height,
@@ -608,9 +617,9 @@ fn render_diff(
                                 .child(Scrollbar::horizontal(&horizontal).id(("three-horizontal", col as usize)).viewport_from_layout()))))
                     } else if mode == DiffMode::Split {
                         this.child(h_flex().absolute().size_full()
-                            .child(div().relative().w_1_2().h_full()
+                            .child(div().relative().w(relative(props.split_ratio)).h_full()
                                 .child(Scrollbar::horizontal(&horizontal).id("old-horizontal").viewport_from_layout()))
-                            .child(div().relative().w_1_2().h_full()
+                            .child(div().relative().w(relative(1. - props.split_ratio)).h_full()
                                 .child(Scrollbar::horizontal(&horizontal).id("new-horizontal").viewport_from_layout())))
                     } else {
                         this.child(Scrollbar::horizontal(&horizontal))
@@ -781,6 +790,7 @@ struct CodePresentation {
     mode: DiffMode,
     content_width: Pixels,
     column_width: Pixels,
+    split_ratio: f32,
     horizontal: HorizontalScroll,
     font_size: Pixels,
     row_height: Pixels,
@@ -933,6 +943,8 @@ fn render_row(
                         window,
                         cx,
                     ))
+                    .child(div().w(px(48.)).flex_shrink_0().self_stretch()
+                        .when(*changed && code.change_background, |v| v.bg(gpui::rgb(if original.is_some() && modified.is_some() {0x385570} else if original.is_some() {0x484a4a} else {0x294436}))))
                     .child(render_cell(
                         *file,
                         DiffSide::Modified,
@@ -1404,10 +1416,13 @@ fn render_cell(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    let column_width = if code.columns == 2 {
+        (code.column_width * 2. * if side == DiffSide::Original { code.split_ratio } else { 1. - code.split_ratio } - px(24.)).max(px(1.))
+    } else { code.column_width };
     let cell = v_flex()
         .id((if code.columns == 3 { "three-column" } else if side == DiffSide::Original { "old-column" } else { "new-column" }, file))
         .overflow_hidden()
-        .w(code.column_width)
+        .w(column_width)
         .min_w_0()
         .flex_shrink_0()
         .when(side == DiffSide::Original || (code.columns == 3 && file < 2), |this| {
@@ -1421,7 +1436,7 @@ fn render_cell(
         return cell.into_any_element();
     };
     let content = v_flex()
-    .w(if code.soft_wrap { code.column_width } else { code.content_width / code.columns as f32 })
+    .w(if code.soft_wrap { column_width } else { (code.content_width / code.columns as f32).max(column_width) })
     .id((
         if side == DiffSide::Original {
             "old"
@@ -1540,7 +1555,7 @@ fn line_highlights(
             (
                 range,
                 HighlightStyle {
-                    background_color: Some(status.opacity(0.3)),
+                    background_color: Some(status),
                     ..Default::default()
                 },
             )
@@ -1549,7 +1564,7 @@ fn line_highlights(
     if changed && code.columns == 3 && let Some(inner) = &code.three_inner
         && let Some(ranges) = inner[file].get(&ix) {
         highlights.extend(ranges.iter().map(|range| (line.display_range(range.clone()), HighlightStyle {
-            background_color: Some(status.opacity(0.3)), ..Default::default()
+            background_color: Some(status), ..Default::default()
         })));
     }
     if selected {
@@ -1644,10 +1659,12 @@ fn code_line(
             DiffTint::Modified => cx.theme().info, DiffTint::Conflict => cx.theme().warning }
     } else if conflict_part.is_some() {
         conflict_tint(conflict_part, cx)
+    } else if line.counterpart().is_some() && changed {
+        gpui::rgb(0x385570).into()
     } else if side == DiffSide::Original {
-        cx.theme().danger
+        gpui::rgb(0x484a4a).into()
     } else {
-        cx.theme().success
+        gpui::rgb(0x294436).into()
     };
     let selected = code.is_selected(file, side, ix)
         || (code.mode == DiffMode::Unified
@@ -1760,7 +1777,9 @@ fn code_line(
         .text_size(code.font_size)
         .line_height(code.row_height)
         .when(changed && code.change_background, |this| {
-            this.bg(status.opacity(0.12))
+            let has_inner = code.presentations.get(file).and_then(Option::as_ref)
+                .is_some_and(|p| p.inline_changes(line, side, ix).next().is_some());
+            this.bg(if has_inner { status.opacity(0.4) } else { status })
         })
         .when(selected, |this| this.bg(cx.theme().selection))
         .when(hover_line && !selected, |this| {

@@ -38,8 +38,8 @@ impl ListDelegate for FilePicker {
                 let change = &self.chain.changes()[*index];
                 let label = change.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
                 (h_flex().gap_2().pl(px(16.))
-                    .child(img(crate::ui::file_icon(&change.path)).size(px(16.)))
-                    .child(div().text_color(rgb(crate::ui::change_color(change))).child(label)), *depth)
+                    .child(img(crate::ui_style::file_icon(&change.path)).size(px(16.)))
+                    .child(div().text_color(rgb(crate::ui_style::change_color(change))).child(label)), *depth)
             }
             Row::Folder { path, depth, expanded, count } => {
                 let path = path.clone();

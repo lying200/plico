@@ -4393,3 +4393,55 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - [x] 双栏首次打开、改变宽度、切换单栏的滚动范围测试通过；连同既有 F7/源码跳转回归共 4 项通过。源码依据与本地差异见 REBASED-REFERENCE。
 - [x] Windows release 构建及原生新 Tab 首次打开核对，截图 `artifacts/diff-extent-20261019/{before,after}.png`。
 - [ ] 实际鼠标滚动由用户手测；默认滚动条为空闲自动隐藏，静态截图不作为滚动范围已修复的证据，范围由上述渲染测试验证。本次尚未发布新包。
+
+## 双栏 Diff 中线调整（2026-10-19）
+
+- [x] 对照 Rebased DiffSplitter/Splitter，实现中线拖拽及双击恢复等宽；历史只读 Diff 与本地变更可编辑 Diff 共用比例，标题/正文/横向滚动条同步。
+- [x] 比例限制 10%–90%，当前页面保留；释放/丢失左键/退出页面清理拖动，单栏不显示拖动区域。三栏合并分隔和跨启动持久化不在本轮范围。
+- [x] 2 项鼠标交互/比例测试、4 项 Diff 导航/滚动范围测试通过，Windows release 构建与历史/本地 Diff 原生拖拽、双击及对齐截图核对通过。详见 REBASED-REFERENCE；未发布新包。
+
+### 2026-10-19 Diff 观感与字体设置
+
+- 按 Rebased 源码调整新增／删除／修改颜色与行内强调，修复可编辑双栏 Diff 只给文字着色的问题；统一只读 Diff 与编辑器字号计算。
+- 设置新增独立“外观”“编辑器字体”：字体、字号、预览、恢复默认；Apply/OK 持久化，Cancel 丢弃。
+- 源码依据、现场截图和保留差异见 `docs/REBASED-REFERENCE.md` 同日条目；本轮不扩展为全部 Diff 像素级重写。
+
+- Diff 中栏贯穿着色与工作区块级还原：已翻译 Rebased 可编辑判断／有效性校验／单次撤销规则；双栏箭头接入自动保存，纯历史对比保持只读。块边界及过期状态测试、Windows 原生替换和撤销验证已通过。源码、截图与保留差异见 REBASED-REFERENCE 的 2026-10-19 记录；不扩展追加模式等额外操作。
+
+## 文件操作候选增量（2026-10-19，暂缓实施）
+
+用户要求仅记录计划，当前不实施；待后续明确启动，不作为本轮交付或封版阻断项。
+
+- [ ] 项目浏览：文件／目录的复制、剪切／粘贴、移动／重命名、删除。
+- [ ] 本地变更区：删除文件、回滚变更、复制路径、定位到项目树；磁盘文件移动复用项目浏览的操作。删除磁盘文件与回滚 Git 变更使用独立入口，不混淆语义；纯历史记录不提供磁盘删除。
+- [ ] 两处共享文件操作逻辑，处理目标同名冲突、Windows／WSL 路径、打开的文件 Tab 和 Git 状态刷新。重点协调待保存内容与文件生命周期，避免删除／移动后旧自动保存任务重新创建原路径；批量操作部分失败或取消时明确报告实际结果。
+- [ ] 删除按平台能力考虑回收站；不可回收时明确确认。回滚的 staged／unstaged／untracked 范围需在实施前继续核对上游，不能把删除或回滚默认解释为清空暂存区。
+- [ ] 验证使用临时仓库，覆盖文件／目录、同名冲突、打开且待保存的文件、失败／取消及 Windows／WSL；实施后做 Windows 原生菜单和弹窗验收。
+
+已核对 Rebased commit `4aec35256d765c217aa0d662b82ac4e860c396fd`（安装版 1.1.20 与该快照不保证一致）：
+
+- `platform/vcs-impl/resources/META-INF/VcsActions.xml::ChangesViewPopupMenu`：删除、回滚和复制引用分开；`ChangesView.Move` 对应 `MoveChangesToAnotherListAction`，含义是移入另一个 Changelist，不能照名称实现成磁盘路径移动。
+- `platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/ChangesListView.java`：所选文件通过 `VirtualFileDeleteProvider` 提供删除能力。已读 `platform/platform-impl/src/com/intellij/openapi/fileChooser/actions/VirtualFileDeleteProvider.java`：回收站行为取决于平台支持与设置，无法全部回收时确认删除，并汇总失败结果。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/actions/RollbackAction.java`：保存文档后按所选变更／缺失文件进入对应回滚处理。具体 Git 回滚实现与测试尚未核对，启动时补读。
+
+范围保持基础文件管理，不引入 IDE 的引用重构、安全删除分析或 Changelist 管理。当前没有本地功能实现；入口、控件及操作生命周期在启动实施时继续按 Rebased 对照。
+
+## 代码质量：主窗口职责拆分（2026-10-19）
+
+- [x] `src/ui.rs` 从 5,877 行拆至格式化后的 1,022 行，只保留窗口状态、构造、快捷键绑定和顶层组合；设置、Tab、仓库、远端操作、checkout、历史写操作、Log 及预览按职责放入 `src/ui/` 私有模块。
+- [x] 提取 `ui_actions.rs`、`ui_style.rs`、`ui_graph.rs`；其他视图直接依赖共享动作／样式／绘制，不再反向依赖主窗口。Graph 绘制通过回调交还导航，不拥有查询任务。设置页数字编号改为私有枚举，草稿字段封装在设置模块。
+- [x] 搬移前后方法核对无缺失，除设置页枚举替换外保留原方法行为；cargo check、194 项库测试、15 项桌面测试及 Windows release 构建通过。已知基线失败 `releasing_diff_clears_padding_from_retained_source` 明确跳过，未宣称全套通过。
+- [x] Windows 原生独立测试仓库核对提交侧栏、Diff Tab、设置字体页和返回 Log；截图 `artifacts/diff-fonts-20261019/quality-{diff,settings,log}.png`。本轮没有重测全部 Git 写操作或进行滚动自动化。
+
+边界：这是第一轮职责整理。`src/ui/` 私有实现仍共享 `Review` 的状态与异步生命周期，尚未成为各自独立的组件；后续质量工作优先收拢状态所有权与取消／刷新接口，不按文件行数继续机械拆分。本轮不扩展新功能、不实施上面的文件操作候选。源码映射与保留差异见 REBASED-REFERENCE 同日记录。
+
+
+## 代码质量：操作生命周期与 Tab 状态收拢（2026-10-19）
+
+- [x] `src/active_operation.rs` 统一操作身份、阶段、取消与完成；取消请求不提前释放占用，过期完成不能解锁后续操作。保留 Reset 准备可取消、执行不可取消的既有策略。
+- [x] `src/ui/operation.rs` 集中保存前置流程与文档锁同步；开始、结束和本地提交状态变化时更新锁，不再依赖 render。保存失败保留草稿并阻止后续 Git 操作。
+- [x] `src/editor_tabs_state.rs` 成为编辑器 Tab 顺序和活动身份的唯一来源。Diff／文件实体列表仅存放各自视图；菜单、点击和延迟关闭以实体 ID 定位，不保存易失效的数组下标。
+- [x] 200 项库测试、18 项桌面测试、46 项 Git 集成测试通过；桌面套件仍明确排除既有基线失败 `releasing_diff_clears_padding_from_retained_source`。cargo check 与 Windows release 构建通过。
+- [x] Windows 原生独立实例核对混合 Tab、关闭前面的非活动 Tab、重新打开、右键关闭全部，以及编辑后立即关闭的保存结果。截图 `artifacts/diff-fonts-20261019/architecture-{close-inactive,tab-menu,close-all,saved-close}.png`；临时仓库同 HEAD Mixed Reset 成功。取消策略由自动化测试覆盖，本轮未原生验证进度取消。
+
+本轮到此结束：不继续重写 Log 状态，不扩展文件管理。各 Git 操作的结果解释、刷新及恢复流程仍留在对应功能模块；公共生命周期不把取消请求解释成回滚成功。未进行全量内存基准或所有操作的原生回归，不宣称像素级验收。源码规则及保留差异见 REBASED-REFERENCE 对应记录。

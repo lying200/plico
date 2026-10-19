@@ -124,7 +124,7 @@ impl Render for CompareView {
                             file_tree::Row::File { index, depth } => (*depth, s.chain.as_ref().unwrap().changes()[*index].path.file_name().unwrap_or_default().to_string_lossy().into_owned(), "file-text_dark_4x.svg", s.selected == Some(*index)),
                         };
                         h_flex().id(("compare-file", row)).w_full().h(px(28.)).pl(px(10. + depth as f32 * 16.)).gap_2().min_w_0()
-                            .when(selected, |v| v.bg(rgb(0x2e4773))).child(match &entry { file_tree::Row::File { index, .. } => img(crate::ui::file_icon(&s.chain.as_ref().unwrap().changes()[*index].path)).size(px(16.)).flex_shrink_0().into_any_element(), _ => icon(image).into_any_element() }).child(div().min_w_0().truncate().child(name))
+                            .when(selected, |v| v.bg(rgb(0x2e4773))).child(match &entry { file_tree::Row::File { index, .. } => img(crate::ui_style::file_icon(&s.chain.as_ref().unwrap().changes()[*index].path)).size(px(16.)).flex_shrink_0().into_any_element(), _ => icon(image).into_any_element() }).child(div().min_w_0().truncate().child(name))
                             .on_mouse_down(MouseButton::Left, cx.listener(move |s, event: &MouseDownEvent, window, cx| {
                                 s.focus.focus(window, cx);
                                 match &entry {

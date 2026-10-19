@@ -104,9 +104,15 @@ pub(crate) struct LayoutKey {
     mode: DiffMode,
     line_number: bool,
     soft_wrap: bool,
+    split_ratio: f32,
 }
 
 impl LayoutKey {
+    pub(crate) fn with_split_ratio(mut self, ratio: f32) -> Self {
+        if self.soft_wrap { self.split_ratio = ratio; }
+        self
+    }
+
     pub(crate) fn new(
         rem: Pixels,
         font_size: Pixels,
@@ -122,6 +128,7 @@ impl LayoutKey {
             mode,
             line_number,
             soft_wrap,
+            split_ratio: 0.5,
         }
     }
 }

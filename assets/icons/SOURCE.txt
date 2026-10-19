@@ -98,3 +98,9 @@ Copyright JetBrains s.r.o. and contributors, Apache-2.0.
 warning_dark.svg: unmodified platform/icons/src/expui/status/warning_dark.svg
 from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd;
 Copyright JetBrains s.r.o. and contributors, Apache-2.0 (LICENSE.txt).
+
+diff-apply-right_dark.svg: unmodified platform/icons/src/expui/diff/arrowRight@14x14_dark.svg
+from detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd.
+DiffUtil.getArrowIcon(LEFT) selects AllIcons.Diff.ArrowRight;
+PlatformIconMappings.json maps diff/arrowRight.svg to expui/diff/arrowRight@14x14.svg.
+Copyright JetBrains s.r.o. and contributors, Apache-2.0 (LICENSE.txt).

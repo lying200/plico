@@ -11313,6 +11313,20 @@ impl InputBaseState<crate::input::EditorMode> {
         self.silent_replace_text = silent;
     }
 
+    /// Window-space extent of source lines, including wrapping but excluding
+    /// alignment padding after the final line. Used by Diff divider connectors.
+    pub fn source_line_extent(&self, range: Range<usize>) -> Option<(Pixels, Pixels)> {
+        let bounds = self.last_bounds?;
+        let height = self.line_height()?;
+        let count = self.display_map.buffer_line_count();
+        let start = if range.start >= count { self.display_map.display_row_count() }
+            else { self.display_map.buffer_line_to_display_row_range(range.start)?.start };
+        let end = if range.is_empty() { start } else {
+            self.display_map.buffer_line_to_display_row_range(range.end.saturating_sub(1).min(count.saturating_sub(1)))?.end
+        };
+        Some((bounds.top() + height * start as f32, bounds.top() + height * end as f32))
+    }
+
     /// Visual row at a logical boundary, excluding display-only padding.
     pub fn unpadded_line_boundary(&self, line: usize) -> usize {
         self.display_map.unpadded_line_boundary(line)

@@ -150,3 +150,6 @@ pub mod commit_date;
 
 pub mod working_copy;
 pub mod reset_operation;
+
+pub mod active_operation;
+pub mod editor_tabs_state;

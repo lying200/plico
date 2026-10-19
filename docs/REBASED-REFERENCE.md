@@ -1857,3 +1857,64 @@ Windows 原生复现：拖动窗口最右边缘，释放后仅移动鼠标到提
 本地 `vendor/gpui-component/src/diff/state.rs::record_paint` 在列表完成 prepaint 后检测其实际宽度变化，恢复未测行高度估算并安排下一帧。每次宽度变化处理一次，不在普通绘制帧重建估算。`src/diff_tab.rs::readonly_tab_has_full_scroll_extent_without_f7` 使用与 Tab 正文相同布局，验证 500 行双栏首次显示、缩窄及切单栏都有完整滚动范围；连同 F7 边界和源码跳转测试共 4 项通过。测试不合成鼠标滚动；真实滚动体验仍由用户手测。完整 Tab 的 debug 测试会触发现有 ModeSelector 重复 hover 样式断言，因此渲染回归测试仅包裹真实 Diff 正文，工具栏另以 Windows release 原生验证。
 
 Windows release 构建通过；自建 500 行 TSX 临时仓库在独立 Diff Tab 的修复前后截图为 `artifacts/diff-extent-20261019/before.png`、`after.png`。原生核对首次挂载、布局及内容显示，没有执行滚轮/拖动滚动自动化。默认滚动条为空闲自动隐藏，静态截图不证明完整滚动范围；该断言由上面的实际 GPUI 布局回归测试验证，用户真实仓库的鼠标滚动仍待手测。本次不宣称像素级验收或发布新包。
+
+### 双栏 Diff 中线拖拽（2026-10-19）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与快照可能不同。已读 `platform/diff-impl/src/com/intellij/diff/tools/util/DiffSplitter.java::createDivider`，以及 `platform/util/ui/src/com/intellij/openapi/ui/Splitter.java::DividerImpl.processMouseMotionEvent/processMouseEvent/getMinProportion`：分隔线使用左右调整光标，只在鼠标拖动时按相对位置更新左右比例，比例有边界；双击恢复 0.5。
+
+本地 `src/diff_splitter.rs` 提供 8px 命中区，覆盖现有细线，捕获拖动并在释放/无左键时结束；`src/diff_tab.rs` 持有当前页面比例，标题与正文共用，退出页面或切模式清理拖拽状态。只读双栏通过 `vendor/gpui-component/src/diff/mod.rs` 的 split_ratio 联动列宽、裁切和底部横向滚动条；软换行将比例纳入 LayoutKey，重新测量行高。本地可编辑 Diff 的两个 Editor 容器在 `src/editable_diff.rs` 同步使用该比例。
+
+保留差异：比例范围为 10%–90%，避免一侧消失；比例只保留于当前 DiffTab，不新增跨启动持久化。只读双栏保留既有共享横向偏移，以较窄一侧确定最大行程，不引入独立两侧横向状态。单栏/只读新增删除单列没有中线；三栏合并视图本轮不增加拖拽。功能阶段核对通过，不宣称像素级还原。
+
+验证：分隔线比例边界与真实 GPUI 鼠标按下/移出中线/释放/双击测试 2 项通过；30:70 双栏完整滚动范围、窗口变窄、单栏切换以及 F7/源码跳转 4 项通过。Windows release 构建通过；自建 500 行 TSX 仓库原生历史 Diff 拖动与双击恢复等宽、本地变更可编辑 Diff 拖动已截图核对，标题与正文对齐、释放后无继续拖动/文本选区，证据 `artifacts/diff-splitter-20261019/dragged.png`、`centered.png`、`editable-dragged.png`。没有执行滚动自动化。较宽的 diff_ 测试筛选仍包含已记录的基线失败 `releasing_diff_clears_padding_from_retained_source`（实际 0，期望 2）；本轮未处理该独立生命周期测试，不宣称全套通过。
+
+### 2026-10-19 Diff 高亮层次与独立字体设置
+
+- 参考源码：`4aec35256d765c217aa0d662b82ac4e860c396fd`；现场 Rebased 1.1.20，截图 `artifacts/diff-fonts-20261019/rebased-before.png`。对照其已打开的 `force-push-native-en-keyboard/arrow-boundary-fixture/review.txt`（`rewritten version` → `rewritten versions`），不修改该仓库。
+- 已读取：`SimpleDiffChange.java`、`SimpleDiffChangeUi.java`、`DiffUtil.java#getLineDiffType/getDiffType`、`TextDiffTypeFactory.java#getIgnoredColor`，以及 `DefaultColorSchemesManager.xml` 的 Darcula DIFF_* 和 `themes/islands/IslandSchemeDark.xml`。规则：删除灰 #484A4A、新增绿 #294436、替换蓝 #385570；行内变化用完整颜色，存在行内变化的行背景混入 60% 编辑器底色；背景覆盖整行。原实现只读视图使用主题 success/danger 的 12% 透明色，可编辑视图仅着色文字范围，明显弱于上游。
+- 本地映射：`vendor/gpui-component/src/diff/{mod,document}.rs` 改用上述颜色和行内强调；`src/editable_diff.rs` 在后台比较时生成整行／行内装饰；`vendor/gpui-base/src/input/{editor/decorations,base/element}.rs` 分开绘制整行背景与字形背景。虚拟列表只绘制可见行，未引入完整文档 UI 节点。
+- 字体源码：`AppearanceConfigurable.kt`（系统／自定义 UI 字体、字号、apply/reset）、`AppFontOptionsPanel.kt`（字体、字号、预览）、`AppEditorFontOptions.java`（独立持久化编辑器字体）及 `UISettingsState.kt`。本地 `src/ui_font.rs` 持久化 UI 与编辑器两套字体，设置草稿在 Apply/OK 才应用，Cancel 丢弃。`src/ui.rs` 外观／编辑器字体页提供已安装字体、字号、预览与恢复默认。项目编辑器、可编辑 Diff、只读 Diff 使用同一编辑器设置，去除只读 Diff 二次 rem 缩放。
+- 保留差异：未复制 Java/Swing 框架；暂不提供字重、连字、备用字体与独立行距。UI 字号 9–32、编辑器 9–40；选择器使用本项目菜单。中央连接与块级还原见下条；内侧行号布局、曲线圆滑程度和部分菜单仍有差异，不宣称像素级还原。行内比较继续复用现有有长度限制的轻量比较器，不引入语义分析。
+
+### 2026-10-19 Diff 中栏高亮与块级还原
+
+- 同一参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，已读 `SimpleDiffChangeUi#createAcceptOperation/createApplyRenderer`、`SimpleDiffViewer#replaceChange`、`TextDiffViewerUtil#applyModification`、`DiffUtil#applyModification/deleteLines/insertLines/replaceLines`、`DiffDividerDrawUtil.DividerPolygon#paint`。只有目标侧可编辑才显示应用操作；左侧到本地工作区为 Revert；应用前验证变更有效性，使用一次可撤销的文档写命令。中栏根据两边真实显示位置连接变更范围，空区间以细边连接。
+- 本地：`src/editable_diff.rs` 在双栏中预留 48px 中栏，按包装／折叠／对齐后的坐标绘制连接，箭头避开中央拖拽命中区；点击复验 generation、工作区内容和文档锁，再通过编辑器一次替换进入原有撤销及自动保存。`src/diff_revert.rs` 使用 UTF-8 字节范围和完整行分隔符，适配本地 DiffFile 不包含尾部空行的模型。`vendor/gpui-base/src/input/base/{state,element}.rs` 提供显示范围，整行背景延伸到行号区与编辑器边缘。只读双栏也加入中栏着色，不提供写入箭头。
+- 保留差异：本地可编辑连接使用直线多边形；只读虚拟行使用对齐色带；暂未实现上游 Ctrl+应用的追加模式、应用快捷键与统一视图的块操作按钮。范围仅为右侧可编辑的工作区；不会修改历史 blob 或暂存区。
+- 验证：块替换测试涵盖新增、删除、替换、中文及 EOF 分隔符；GPUI 测试确认单次撤销和拒绝过期比较。原有只读 F7 边界、完整文件滚动范围两项回归通过。Windows 独立 `Plico-validation/diff-fonts-20261019/revert-fixture` 实测箭头替换、Ctrl+Z、自动保存后磁盘内容；截图 `revert-diff.png`、`revert-applied.png`、`revert-undo.png`。未操作用户仓库的写入或用户的 Rebased 进程，滚动手感仍由用户手测。
+- 字体原生验证：`editor-font.png`、`sizes.png`、`families.png`、`diff18.png`、`ui-applied.png`；编辑器 18px 与 UI 13px 独立，取消字体预览后持久化值仍为原值。设置 Apply 后保存 UI Arial / 编辑器 JetBrains Mono，重启独立测试程序仍保持。
+
+- 最终原生截图 `artifacts/diff-fonts-20261019/final-connectors.png` 确认整行背景覆盖右侧内部留白，与中栏无断缝；同一测试仓库另实测恢复删除行、移除新增行，磁盘结果均只改变目标块。最终 Windows release 构建成功；本轮未创建 Git 提交或推送。
+
+### 2026-10-19 还原箭头资源纠正
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20。已读 `DiffUtil#getArrowIcon`：LEFT 来源使用 `AllIcons.Diff.ArrowRight`；`platform/icons/src/PlatformIconMappings.json` 将旧 `diff/arrowRight.svg` 映射到现代 `expui/diff/arrowRight@14x14.svg`，暗色资源为双尖括号，14×14、#CED0D6。之前手绘单箭头不符，现原样引入 `assets/icons/diff-apply-right_dark.svg`，通过 `src/assets.rs` 注册，`src/editable_diff.rs` 按 14×14 居中绘制，保留原命中范围及还原行为。来源与 Apache-2.0 声明见 `assets/icons/SOURCE.txt`。
+
+验证：引入 SVG 与上游逐字节一致；cargo check、Windows release 构建通过。Windows 原生截图 `artifacts/diff-fonts-20261019/rebased-apply-icon.png` 确认双尖括号正确显示。未改还原动作逻辑。
+
+### 2026-10-19 主窗口职责拆分（保持现有交互）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与该快照不保证一致。本轮对照 `platform/vcs-log/impl/src/com/intellij/vcs/log/paint/SimpleGraphCellPainter.kt` 的绘制／命中部分：非选中、选中外轮廓、选中本色按层绘制，节点命中优先于边；`platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ChangesViewPanel.kt` 的面板与工具栏组合入口。字体及设置行为沿用前述已记录规则；本轮未重新验证所有上游 Git 写操作实现。
+
+本地映射：原 `src/ui.rs` 的共享 graph 绘制与命中转入 `src/ui_graph.rs`，调用者仍控制选择和查询；颜色、文件／引用图标、项目头像及 Tab 外观转入 `src/ui_style.rs`；快捷键动作声明转入 `src/ui_actions.rs`，动作命名空间保持不变。窗口内部按仓库生命周期、Log、设置、Tab、远端和历史操作等职责分入 `src/ui/`，原设置 UI 位置现为 `src/ui/settings.rs`，原 Log 行位置现为 `src/ui/log_history.rs`。设置草稿封装、页标识改用枚举，保留控件 ID、应用／取消顺序和持久化语义。
+
+保留差异及理由：不翻译 Swing 组件层次；轻量 GPUI 绘制／异步任务设计不变。私有功能文件仍是同一 `Review` 的实现，共享状态尚未隔离；本次先移除其他视图依赖主窗口工具函数的结构问题，避免同时重写 Git 状态机。没有以拆分文件作为像素级还原或完整架构重构的证明。
+
+验证：135 个搬移方法无缺失，规范化比较仅设置页枚举相关 5 个方法变化。194 项库测试、15 项桌面测试通过，已知基线失败 `releasing_diff_clears_padding_from_retained_source` 排除；cargo check 与 Windows release 构建成功。独立测试实例原生点击提交文件打开 Diff、打开设置字体页、取消并返回 Log，截图 `artifacts/diff-fonts-20261019/quality-{diff,settings,log}.png`。保留用户 Rebased／IDE 进程，未执行用户仓库写操作。
+
+
+### 2026-10-19 操作生命周期与编辑器 Tab 状态
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与该快照不保证一致。本轮已读：
+
+- `plugins/git4idea/backend/src/fetch/GitRemoteOperationQueueImpl.kt`：按仓库／远端组织操作占用，等待允许取消，完成时通过 finally 释放占用。提取规则是占用随任务实际退出释放，取消请求不等于完成。
+- `plugins/git4idea/backend/src/reset/GitResetOperation.java`：先保存文档，在工作树活动范围内执行 Reset，随后刷新并报告结果。
+- `platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/EditorWindow.kt::addComposite/closeFile/computeIndexToSelect`：按稳定的 composite 身份关闭；非活动页关闭保留当前选中；新页可插入活动页后，预览替换保留位置；关闭活动页支持 MRU／右邻等配置，默认回到前邻。
+
+本地映射：`src/active_operation.rs` 封装唯一运行操作、阶段、取消令牌和保存门禁；`src/ui/operation.rs` 将任务进入／退出与文档锁联动，保存失败不进入后续操作。所有相关调用方传递本次操作 ID，旧任务不能释放新任务占用。文档锁不再由绘制过程推导更新；本地提交状态也参与锁定。具体结果、工作树刷新、冲突和恢复流程仍由原功能模块负责。
+
+`src/editor_tabs_state.rs` 封装有序 ID 与唯一活动 ID；`src/ui/editor_tabs.rs` 根据身份解析具体视图。`src/ui/chrome.rs` 点击／关闭事件在执行时解析身份；关闭其他／右侧页先取得身份快照。文件页与 Diff 页的类型化实体数组保留为视图存储，不再同时维护可变活动下标。预览替换先停用旧视图，再替换模型身份。
+
+保留差异及理由：Plico 每个窗口只允许一个此类 UI 操作，不复制上游多仓库／多远端队列；Reset 执行阶段不可取消是既有本地安全策略，并非从上述 Java 类推导出的规则。Log 作为固定回退页；不新增 MRU 或关闭后选择方向设置。没有引入通用工作流框架，也没有把所有 Git 操作合并为一种结果处理。
+
+验证：200 项库测试、18 项桌面测试和 46 项临时仓库 Git 集成测试通过；新增测试覆盖取消仍持锁、过期完成、Reset 阶段、保存失败保留草稿且阻止动作、不经过 render 的文档锁更新及混合 Tab 稳定身份。已知桌面基线失败 `releasing_diff_clears_padding_from_retained_source` 明确排除。cargo check、Windows release 构建通过。Windows 原生独立测试实例确认关闭前面的非活动 Diff 后源码页仍被选中、重新打开、菜单关闭全部、修改源码后立即关闭完成落盘；截图 `artifacts/diff-fonts-20261019/architecture-{close-inactive,tab-menu,close-all,saved-close}.png`。同 HEAD Mixed Reset 在临时仓库成功，未将原生测试记为取消验证；取消的边界由自动化测试覆盖。原生保存测试结束后已恢复临时文件内容；未改用户仓库或关闭用户 Rebased／IDE。

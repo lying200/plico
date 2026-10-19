@@ -124,6 +124,14 @@ impl UnifiedEditProjection {
         }).collect()
     }
 
+    /// Display fragments belonging to the original (deleted) source.
+    pub fn original_display_ranges(&self, range: Range<usize>) -> Vec<Range<usize>> {
+        self.deleted.iter().zip(&self.deleted_source).filter_map(|(shown,source)| {
+            let start=range.start.max(source.start); let end=range.end.min(source.end);
+            (start<end).then(|| shown.start+start-source.start..shown.start+end-source.start)
+        }).collect()
+    }
+
     /// Historical source position for a caret inside a deleted display row.
     pub fn original_offset(&self, display: usize) -> Option<usize> {
         if !self.text.is_char_boundary(display) { return None; }

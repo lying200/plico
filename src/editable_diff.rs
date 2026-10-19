@@ -20,6 +20,7 @@ pub struct EditableDiff {
     working_marks: TextDecorationCollection,
     documents: Documents,
     generation: u64,
+    pub split_ratio: f32,
     original_active: bool,
     active: bool,
     alignment_initialized: bool,
@@ -61,6 +62,7 @@ impl EditableDiff {
                             if previous.y != offset.y { target.y=offset.y; }
                             e.set_peer_scroll_offset(target,cx);
                         });
+                        cx.notify();
                     }
                     _ => {}
                 }
@@ -75,7 +77,7 @@ impl EditableDiff {
         cx.on_release(|s,cx| s.clear_view(cx)).detach();
         cx.subscribe(&working,|s,_,_:&crate::editing::Reloaded,cx|s.recompare(cx)).detach();
         cx.observe(&working,|_,_,cx|cx.notify()).detach();
-        let mut view=Self { working,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,original_active:false,active:true,alignment_initialized:false,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),task:Task::ready(()) };
+        let mut view=Self { working,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,split_ratio:0.5,original_active:false,active:true,alignment_initialized:false,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),task:Task::ready(()) };
         view.recompare(cx); view
     }
     fn update_unified(&mut self,window:&mut Window,cx:&mut Context<Self>) {
@@ -177,6 +179,74 @@ impl EditableDiff {
             }
         });
     }
+    fn revert_change(&mut self, index: usize, generation: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.active || self.documents.locked() || generation != self.generation { return; }
+        let Some(file) = &self.last_file else { return; };
+        let editor = self.working.read(cx).editor.clone();
+        let current = editor.read(cx).text().to_string();
+        if current != file.source(DiffSide::Modified) { return; }
+        let Some((a,b)) = self.line_ranges.get(index) else { return; };
+        let Some((range,text)) = crate::diff_revert::replacement(&self.baseline, &current, a.clone(), b.clone()) else { return; };
+        editor.update(cx, |e,cx| {
+            e.set_selected_range(range,cx);
+            e.replace(text,window,cx);
+            e.focus_handle(cx).focus(window,cx);
+        });
+        self.original_active = false;
+    }
+
+    fn divider(&self, cx: &Context<Self>) -> impl IntoElement {
+        let original = self.original.clone();
+        let working = self.working.read(cx).editor.clone();
+        let ranges = self.line_ranges.clone();
+        let ratio = self.split_ratio;
+        let generation = self.generation;
+        let editable = !self.documents.locked();
+        let owner = cx.entity().downgrade();
+        canvas(move |bounds, window, cx| {
+            let x = bounds.left() + bounds.size.width * ratio;
+            let mut blocks = Vec::new();
+            for (i,(a,b)) in ranges.iter().enumerate() {
+                let Some((top_a,bottom_a)) = original.read(cx).source_line_extent(a.clone()) else {continue;};
+                let Some((top_b,bottom_b)) = working.read(cx).source_line_extent(b.clone()) else {continue;};
+                if bottom_a.max(bottom_b) < bounds.top() || top_a.min(top_b) > bounds.bottom() {continue;}
+                let color = if a.is_empty() {0x294436} else if b.is_empty() {0x484a4a} else {0x385570};
+                let arrow = Bounds::new(point(x-px(21.),top_a.max(bounds.top())),size(px(16.),px(18.)));
+                let hitbox = editable.then(||window.insert_hitbox(arrow, HitboxBehavior::Normal));
+                blocks.push((i,top_a,bottom_a,top_b,bottom_b,color,arrow,hitbox));
+            }
+            (bounds,x,blocks)
+        }, move |_,(bounds,x,blocks),window,cx| {
+            window.with_content_mask(Some(ContentMask {bounds}), |window| {
+                window.paint_quad(fill(Bounds::new(point(x-px(24.),bounds.top()),size(px(48.),bounds.size.height)),rgb(0x181a1b)));
+                for (_,a,z,b,y,color,arrow,hitbox) in &blocks {
+                    let mut path = PathBuilder::fill();
+                    path.move_to(point(x-px(24.),*a));
+                    path.line_to(point(x+px(24.),*b));
+                    path.line_to(point(x+px(24.),(*y).max(*b+px(1.))));
+                    path.line_to(point(x-px(24.),(*z).max(*a+px(1.)))); path.close();
+                    if let Ok(path)=path.build() { window.paint_path(path,rgb(*color)); }
+                    if let Some(hitbox) = hitbox {
+                        window.set_cursor_style(CursorStyle::PointingHand,hitbox);
+                        let icon = Bounds::new(arrow.origin + point(px(1.), px(2.)), size(px(14.), px(14.)));
+                        let _ = window.paint_svg(icon, "jb/diff-apply-right_dark.svg".into(), None,
+                            TransformationMatrix::unit(), rgb(0xced0d6).into(), cx);
+                    }
+                }
+            });
+            let owner=owner.clone();
+            window.on_mouse_event(move |event:&MouseDownEvent,phase,window,cx| {
+                if !phase.bubble() || event.button != MouseButton::Left {return;}
+                for (index,_,_,_,_,_,_,hitbox) in &blocks {
+                    if hitbox.as_ref().is_some_and(|h|h.is_hovered(window)) {
+                        let _=owner.update(cx,|s,cx|s.revert_change(*index,generation,window,cx));
+                        cx.stop_propagation(); break;
+                    }
+                }
+            });
+        }).absolute().size_full()
+    }
+
     fn recompare(&mut self,cx:&mut Context<Self>) {
         if !self.active {return;}
         if let Some(view)=&self.unified {view.invalidate_if_changed(cx);}
@@ -188,20 +258,21 @@ impl EditableDiff {
             let result=cx.background_spawn(async move {
                 let file=DiffFile::from_editor_sources(Some((&path,&original)),Some((&path,&modified)))?;
                 let eol_only=original.as_ref()!=modified && file.source(DiffSide::Original)==file.source(DiffSide::Modified);
-                Ok::<_, &'static str>((file,eol_only))
+                let marks=[file.editor_change_highlights(DiffSide::Original),file.editor_change_highlights(DiffSide::Modified)];
+                Ok::<_, &'static str>((file,eol_only,marks))
             }).await;
             let _=this.update(cx,|s,cx| {
                 if s.generation!=generation {return;}
-                if let Ok((file,eol_only))=result {
+                if let Ok((file,eol_only,marks))=result {
                     if s.working.read(cx).editor.read(cx).text().to_string()!=file.source(DiffSide::Modified) {return;}
                     s.eol_only=eol_only;
                     s.changes=file.change_starts();
                     s.line_ranges=file.change_line_ranges();
                     s.realign(cx);
                     s.alignment_initialized=true;
-                    let marks=|side,color|file.changed_ranges(side).into_iter().map(|range|TextDecoration::new(range,HighlightStyle {background_color:Some(rgb(color).into()),..Default::default()})).collect();
-                    s.original_marks.set(marks(DiffSide::Original,0x472b2d),cx);
-                    s.working_marks.set(marks(DiffSide::Modified,0x294436),cx);
+                    let [old,new]=marks;
+                    s.original_marks.set(old.into_iter().map(|(r,s,whole)| { let d=TextDecoration::new(r,s); if whole {d.whole_line()}else{d} }).collect(),cx);
+                    s.working_marks.set(new.into_iter().map(|(r,s,whole)| { let d=TextDecoration::new(r,s); if whole {d.whole_line()}else{d} }).collect(),cx);
                     cx.emit(Compared(file));
                 }
                 cx.notify();
@@ -216,18 +287,19 @@ impl Render for EditableDiff {
                 v_flex().size_full().min_h_0()
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
                     .when_some(self.working.read(cx).error.clone(),|v,error|v.child(div().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
-                    .child(Editor::new(&view.editor).readonly(self.documents.locked() || !view.ready()).appearance(false).bordered(false).h_full().font_family("JetBrains Mono").text_size(px(13.))).into_any_element()
+                    .child(Editor::new(&view.editor).readonly(self.documents.locked() || !view.ready()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))).into_any_element()
             } else {div().p_4().child(plico::i18n::t("Reading Git data…")).into_any_element()};
         }
         let editor=self.working.read(cx).editor.clone();
         v_flex().size_full().min_h_0()
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
             .when_some(self.working.read(cx).error.clone(),|v,error|v.child(div().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
-            .child(h_flex().flex_1().min_h_0().w_full().items_stretch()
-                .child(div().flex_1().min_w_0().h_full().border_r_1().border_color(rgb(0x26282c))
-                    .child(Editor::new(&self.original).readonly(true).appearance(false).bordered(false).h_full().font_family("JetBrains Mono").text_size(px(13.))))
-                .child(div().flex_1().min_w_0().h_full()
-                    .child(Editor::new(&editor).readonly(self.documents.locked()).appearance(false).bordered(false).h_full().font_family("JetBrains Mono").text_size(px(13.))))).into_any_element()
+            .child(h_flex().relative().flex_1().min_h_0().w_full().items_stretch().overflow_hidden()
+                .child(div().w(relative(self.split_ratio)).flex_shrink_0().min_w_0().h_full().pr(px(24.))
+                    .child(Editor::new(&self.original).readonly(true).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))))
+                .child(div().w(relative(1. - self.split_ratio)).flex_shrink_0().min_w_0().h_full().pl(px(24.))
+                    .child(Editor::new(&editor).readonly(self.documents.locked()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))))
+                .child(self.divider(cx))).into_any_element()
     }
 }
 
@@ -243,6 +315,31 @@ mod lifecycle_tests {
             div().size_full().child(Editor::new(&self.0).appearance(false).bordered(false).h_full().line_height(px(20.)))
         }
     }
+    #[gpui::test]
+    fn block_revert_is_undoable_and_rejects_stale_comparison(cx:&mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut diff=None;
+        let (_,cx)=cx.add_window_view(|window,cx| {
+            let target=Target::new(plico::git::Repository::new("fixture"),None,
+                plico::git::Change {area:plico::git::Area::Unstaged,path:"a.txt".into(),old_path:None,status:"M".into()}).unwrap();
+            let contents=Contents {original:"old\nkeep\nleft\n".into(),working:plico::file_document::Document::new(b"new\nkeep\nright\n".to_vec()).unwrap()};
+            let view=cx.new(|cx|EditableDiff::new(&target,contents,Documents::default(),window,cx));
+            diff=Some(view.clone()); Root::new(view,window,cx)
+        });
+        let diff=diff.unwrap();
+        cx.update(|window,cx|diff.update(cx,|s,cx| {
+            let file=gpui::component::diff::DiffFile::from_editor_sources(Some(("a.txt","old\nkeep\nleft\n")),Some(("a.txt","new\nkeep\nright\n"))).unwrap();
+            s.line_ranges=file.change_line_ranges(); s.last_file=Some(file);
+            s.revert_change(0,s.generation,window,cx);
+            assert_eq!(s.working.read(cx).editor.read(cx).text().to_string(),"old\nkeep\nright\n");
+            // The cached comparison is stale until the next background result.
+            s.revert_change(1,s.generation,window,cx);
+            assert_eq!(s.working.read(cx).editor.read(cx).text().to_string(),"old\nkeep\nright\n");
+            s.working.read(cx).editor.clone().update(cx,|e,cx|e.step_history(true,window,cx));
+            assert_eq!(s.working.read(cx).editor.read(cx).text().to_string(),"new\nkeep\nright\n");
+        }));
+    }
+
     #[gpui::test]
     fn releasing_diff_clears_padding_from_retained_source(cx:&mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

@@ -112,7 +112,7 @@ impl HistoryView {
         cx.bind_keys([
             KeyBinding::new(
                 "f4",
-                crate::ui::JumpToSource,
+                crate::ui_actions::JumpToSource,
                 Some("SelectionHistoryWindow"),
             ),
             KeyBinding::new("escape", CloseHistory, Some("SelectionHistoryWindow")),
@@ -437,7 +437,7 @@ impl HistoryView {
                             .text_size(px(13.)).style(gpui_kit::base::TextViewStyle::default()
                                 .with_foreground(rgb(0xd1d3d9).into()).with_link(rgb(0x71a1fe).into())
                                 .with_selection(rgb(0x2e436e).into())).selectable(true))
-                        .child(crate::ui::commit_refs(refs)).child(branches.clone())
+                        .child(crate::ui_style::commit_refs(refs)).child(branches.clone())
                         .context_menu(move |menu, _, _| {
                             let hash = hash.clone();
                             menu.item(PopupMenuItem::new(t("Copy Revision Number"))
@@ -721,12 +721,12 @@ impl HistoryView {
                                         let hovered = graph_hover.filter(|(i, _)| *i == row).map(|(_, index)| index);
                                         let tooltip = hovered.map(|index| {
                                             r.arrow_target(index).and_then(|target| cells.get(target)).map(|(id,date,author,subject)| {
-                                                crate::ui::graph_arrow_tooltip(id, subject, author, date)
+                                                crate::ui_graph::graph_arrow_tooltip(id, subject, author, date)
                                             }).unwrap_or_else(|| t("Commit is outside the loaded history window").into())
                                         });
                                         let hover_owner = owner.clone(); let click_owner = owner.clone();
                                         let hover_graph = graph.clone(); let click_graph = graph.clone();
-                                        commit = commit.child(crate::ui::graph_arrow_cell(r, width, row, crate::ui::GraphNodeStyle { head: head_rows[row], background: if selected[row] { 0x2e4676 } else { 0x18191a } }, hovered, tooltip, move |segment,cx| {
+                                        commit = commit.child(crate::ui_graph::graph_arrow_cell(r, width, row, crate::ui_graph::GraphNodeStyle { head: head_rows[row], background: if selected[row] { 0x2e4676 } else { 0x18191a } }, hovered, tooltip, move |segment,cx| {
                                             let _ = hover_owner.update(cx, |s,cx| {
                                                 if s.loading || !std::sync::Arc::ptr_eq(&hover_graph,&s.graph) { return; }
                                                 if segment.is_none() && s.graph_hover.is_some_and(|(i,_)| i != row) { return; }
@@ -999,7 +999,7 @@ impl HistoryView {
                             .tooltip(t("Jump to Source · F4"))
                             .disabled(self.source_request(cx).is_none())
                             .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(crate::ui::JumpToSource), cx)
+                                window.dispatch_action(Box::new(crate::ui_actions::JumpToSource), cx)
                             }),
                     )
                     .child(div().flex_1().truncate().child(title))
@@ -1060,8 +1060,8 @@ impl Render for HistoryView {
         let selection = self.selection.is_some();
         v_flex()
             .size_full()
-            .on_action(cx.listener(|s, _: &crate::ui::NextChange, _, cx| { if let Some(v) = &s.viewer { v.update(cx, |v, cx| v.next_change(cx)); } }))
-            .on_action(cx.listener(|s, _: &crate::ui::PreviousChange, _, cx| { if let Some(v) = &s.viewer { v.update(cx, |v, cx| v.previous_change(cx)); } }))
+            .on_action(cx.listener(|s, _: &crate::ui_actions::NextChange, _, cx| { if let Some(v) = &s.viewer { v.update(cx, |v, cx| v.next_change(cx)); } }))
+            .on_action(cx.listener(|s, _: &crate::ui_actions::PreviousChange, _, cx| { if let Some(v) = &s.viewer { v.update(cx, |v, cx| v.previous_change(cx)); } }))
             .bg(rgb(0x18191a))
             .text_size(px(13.))
             .child(
@@ -1193,7 +1193,7 @@ impl Render for HistoryWindow {
         v_flex()
             .key_context("SelectionHistoryWindow")
             .on_action(cx.listener(|_, _: &CloseHistory, w, _| w.remove_window()))
-            .on_action(cx.listener(|s, _: &crate::ui::JumpToSource, _, cx| {
+            .on_action(cx.listener(|s, _: &crate::ui_actions::JumpToSource, _, cx| {
                 if let Some(request) = s.history.read(cx).source_request(cx) {
                     (s.source_callback)(request, cx);
                 }

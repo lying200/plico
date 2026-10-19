@@ -199,8 +199,8 @@ impl Render for StashView {
                             let file = &details.files[index];
                             div().id(("stash-file", row)).h(px(28.)).w_full().px_4().flex().items_center().gap_2().rounded(px(4.))
                                 .when(s.selected_file == Some(row), |v| v.bg(rgb(0x2e436e)))
-                                .child(img(crate::ui::file_icon(&file.path)).size(px(16.)).flex_shrink_0())
-                                .child(div().truncate().text_color(rgb(crate::ui::change_color(file))).child(file.label()))
+                                .child(img(crate::ui_style::file_icon(&file.path)).size(px(16.)).flex_shrink_0())
+                                .child(div().truncate().text_color(rgb(crate::ui_style::change_color(file))).child(file.label()))
                                 .on_click(cx.listener(move |s, event: &ClickEvent, w, cx| { s.focus.focus(w, cx); s.selected_file = Some(row); if event.click_count() == 2 { s.show_diff(cx); } cx.notify(); })).into_any_element()
                         }
                     }; content

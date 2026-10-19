@@ -329,6 +329,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Don't show again" => "不再显示",
         "Show Update Project options" => "显示更新项目选项",
         "Main menu" => "主菜单",
+        "Editor Font" => "编辑器字体", "Font:" => "字体：", "Size:" => "字号：", "Preview" => "预览", "Restore Defaults" => "恢复默认值",
         "Settings" => "设置", "Close" => "关闭", "Language" => "语言",
         "Follow system" => "跟随系统", "Version Control · Diff" => "版本控制 · 差异",
         "Open file differences in" => "文件差异打开方式",

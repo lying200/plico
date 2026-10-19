@@ -226,7 +226,7 @@ impl Render for ProjectView {
                         .child(div().id(("project-expand", i)).w(px(16.)).when(!more && entry.kind == Kind::Directory, |d| d
                             .child(Icon::default().path(if expanded {"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"}).size(px(16.)))
                             .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.select(i); s.open(cx); }))))
-                        .when(!more, |row| row.child(img(if entry.kind == Kind::Directory {"jb/folder_dark_4x.svg"}else{crate::ui::file_icon(&entry.path)}).size(px(16.)).flex_shrink_0()))
+                        .when(!more, |row| row.child(img(if entry.kind == Kind::Directory {"jb/folder_dark_4x.svg"}else{crate::ui_style::file_icon(&entry.path)}).size(px(16.)).flex_shrink_0()))
                         .child(div().truncate().child(name))
                 }).collect::<Vec<_>>()
             })).track_scroll(&self.scroll).flex_1().min_h_0())
@@ -425,7 +425,7 @@ impl Render for FileTab {
             .when_some(self.viewer.clone(), |v, viewer| v.child(
                 div().id("source-file-editor").w_full().flex_1().min_h_0()
                     .child(Editor::new(&viewer).context_menu(|_,_,_|gpui_kit::component::native_menu::NativeMenu::new())
-                        .readonly(self.documents.locked()).appearance(false).bordered(false).h_full().font_family("JetBrains Mono").text_size(px(13.)))
+                        .readonly(self.documents.locked()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx)))
                     .context_menu(|menu,_,_|menu
                         .menu(t("Cut"),Box::new(gpui_kit::base::input::Cut))
                         .menu(t("Copy"),Box::new(gpui_kit::base::input::Copy))

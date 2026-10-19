@@ -105,6 +105,7 @@ fn compose_decoration_collections<'a>(
             styles,
             decorations
                 .iter()
+                .filter(|decoration| !decoration.whole_line)
                 .map(|decoration| (decoration.range.clone(), decoration.style)),
             visible_byte_range.clone(),
         )
@@ -3077,6 +3078,27 @@ impl<M: InputModeKind> Element for TextElement<M> {
             px(0.)
         };
 
+        // Full-row change backgrounds are separate from inline glyph decorations.
+        // Match source offsets so wrapping, folding and display-only alignment
+        // padding never alter which source lines receive the background.
+        let row_backgrounds = {
+            let state = self.state.read(cx);
+            let mut rows = Vec::new();
+            for (vi, (&buffer_line, line)) in prepaint.last_layout.visible_buffer_lines.iter().zip(prepaint.last_layout.lines.iter()).enumerate() {
+                let start = prepaint.last_layout.visible_line_byte_offsets[vi];
+                let end = (start + state.text.slice_line(buffer_line).len()).max(start + 1);
+                let color = state.extras.decoration_layers().into_iter().flat_map(|layer|layer.iter())
+                    .find(|d| d.whole_line && d.range.start < end && d.range.end > start)
+                    .and_then(|d| d.style.background_color);
+                if let Some(color) = color {
+                    let y = origin.y + prepaint.last_layout.buffer_line_top(buffer_line);
+                    rows.push((Bounds::new(point(input_bounds.origin.x, y), size(input_bounds.size.width + editor_paddings.right, line.size(line_height).height)), color));
+                }
+            }
+            rows
+        };
+        for (bounds, color) in &row_backgrounds { window.paint_quad(fill(*bounds, *color)); }
+
         // Paint glyph backgrounds
         //
         // gpui's `paint` only draws glyphs, underlines, and strikethroughs, so decoration
@@ -3276,6 +3298,11 @@ impl<M: InputModeKind> Element for TextElement<M> {
                     }
                 }
 
+                for (row, color) in &row_backgrounds {
+                    if row.top() == p.y {
+                        window.paint_quad(fill(Bounds::new(point(gutter_bounds.left(), row.top()), size(gutter_bounds.size.width, row.size.height)), *color));
+                    }
+                }
                 for line in lines {
                     let p = point(p.x, origin.y + offset_y);
                     _ = line.paint(p, line_height, TextAlign::Left, None, window, cx);

@@ -233,7 +233,7 @@ impl Render for LocalView {
                         Row::Entry{row:file_tree::Row::Folder{path,depth,expanded,..},..}=>(path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+1,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
                         Row::Entry{row:file_tree::Row::File{index,depth},..}=>{
                             let f=&s.model.files()[index];
-                            (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui::file_icon(&f.path),s.model.selected()==Some(index),crate::ui::change_color(f))
+                            (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui_style::file_icon(&f.path),s.model.selected()==Some(index),crate::ui_style::change_color(f))
                         }
                     };
                     h_flex().id(("local-row",row)).w_full().h(px(28.)).pl(px(8.+depth as f32*14.)).pr_2().gap_2()

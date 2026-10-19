@@ -694,6 +694,30 @@ impl DiffFile {
         ranges
     }
 
+    /// Source-byte decorations shared by editable viewers. Run off the UI thread.
+    /// Rebased: grey deletion, green insertion, blue replacement; inner changes
+    /// use the full colour while their surrounding line uses a 60% background mix.
+    pub fn editor_change_highlights(&self, side: DiffSide) -> Vec<(Range<usize>, gpui::HighlightStyle, bool)> {
+        use super::presentation::{changed_runs, DiffInlineUnit};
+        let mut result = Vec::new();
+        for pair in self.pairs().iter().filter(|p|p.is_changed()) {
+            let (index, other) = match side { DiffSide::Original => (pair.original(),pair.modified()), DiffSide::Modified => (pair.modified(),pair.original()) };
+            let Some(index)=index else {continue;};
+            let line=&self.lines(side)[index];
+            let mut inner=Vec::new();
+            if let Some(other)=other {
+                let other=&self.lines(side.other())[other];
+                if line.text().len()<=16384 && other.text().len()<=16384 {
+                    inner=changed_runs(line.text(),other.text(),DiffInlineUnit::Word).0;
+                }
+            }
+            let color: gpui::Hsla = gpui::rgb(if other.is_some() {0x385570} else if side==DiffSide::Original {0x484a4a}else{0x294436}).into();
+            result.push((line.source(),gpui::HighlightStyle { background_color:Some(if inner.is_empty(){color}else{color.opacity(0.4)}),..Default::default() }, true));
+            for range in inner { result.push((line.source().start+range.start as usize..line.source().start+range.end as usize,gpui::HighlightStyle {background_color:Some(color),..Default::default()},false)); }
+        }
+        result
+    }
+
     /// Source text retained for this side; parsed patches may contain only fragments.
     pub fn source(&self, side: DiffSide) -> &str {
         &self.side(side).source

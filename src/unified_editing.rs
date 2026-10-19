@@ -72,10 +72,14 @@ impl UnifiedEditing {
         let projection=UnifiedEditProjection::new(file);
         let selection=projection.display_offset(source_selection.start).zip(projection.display_offset(source_selection.end));
         let offset=self.editor.read(cx).scroll_offset();
-        let mut marks=projection.deleted_ranges().iter().cloned().map(|r|TextDecoration::new(r,HighlightStyle {background_color:Some(rgb(0x472b2d).into()),..Default::default()})).collect::<Vec<_>>();
-        for r in file.changed_ranges(DiffSide::Modified) {
-            for shown in projection.display_ranges(r) {
-                marks.push(TextDecoration::new(shown,HighlightStyle {background_color:Some(rgb(0x294436).into()),..Default::default()}));
+        let mut marks=Vec::new();
+        for side in [DiffSide::Original,DiffSide::Modified] {
+            for (range,style,whole) in file.editor_change_highlights(side) {
+                let ranges=if side==DiffSide::Original {projection.original_display_ranges(range)}else{projection.display_ranges(range)};
+                for shown in ranges {
+                    let decoration=TextDecoration::new(shown,style);
+                    marks.push(if whole {decoration.whole_line()}else{decoration});
+                }
             }
         }
         self.editor.update(cx,|e,cx| {

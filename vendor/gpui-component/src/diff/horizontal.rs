@@ -15,15 +15,17 @@ struct Metrics {
     content_width: Pixels,
     columns: usize,
     wrapped: bool,
+    split_ratio: f32,
     x: Pixels,
 }
 
 impl HorizontalScroll {
-    pub fn configure(&self, content_width: Pixels, columns: usize, wrapped: bool) {
+    pub fn configure(&self, content_width: Pixels, columns: usize, wrapped: bool, split_ratio: f32) {
         let mut metrics = self.0.borrow_mut();
         metrics.content_width = content_width;
         metrics.columns = columns.max(1);
         metrics.wrapped = wrapped;
+        metrics.split_ratio = split_ratio;
     }
 
     pub fn set_viewport(&self, bounds: Bounds<Pixels>) {
@@ -37,7 +39,10 @@ impl ScrollbarHandle for HorizontalScroll {
     fn viewport_bounds(&self) -> Bounds<Pixels> {
         let metrics = self.0.borrow();
         let mut bounds = metrics.viewport;
-        bounds.size.width /= metrics.columns.max(1) as f32;
+        bounds.size.width *= if metrics.columns == 2 {
+            metrics.split_ratio.min(1. - metrics.split_ratio)
+        } else { 1. / metrics.columns.max(1) as f32 };
+        if metrics.columns == 2 { bounds.size.width = (bounds.size.width - px(24.)).max(px(1.)); }
         bounds
     }
 

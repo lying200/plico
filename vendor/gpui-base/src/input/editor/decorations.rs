@@ -70,6 +70,7 @@ impl RangeDecoration {
 /// [`IModelDeltaDecoration`](https://microsoft.github.io/monaco-editor/typedoc/interfaces/editor_editor_api.editor.IModelDeltaDecoration.html).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextDecoration {
+    pub whole_line: bool,
     pub range: Range<usize>,
     pub style: HighlightStyle,
 }
@@ -77,8 +78,10 @@ pub struct TextDecoration {
 impl TextDecoration {
     /// Create a text decoration from a UTF-8 byte range and a GPUI style.
     pub fn new(range: Range<usize>, style: HighlightStyle) -> Self {
-        Self { range, style }
+        Self { range, style, whole_line: false }
     }
+    /// Paint the background across each intersecting editor row, independent of text length.
+    pub fn whole_line(mut self) -> Self { self.whole_line = true; self }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -139,7 +139,7 @@ impl Render for PathChooser {
                         .child(Checkbox::new(("path-check", i)).checked(state != State::Clear)
                             .disabled(matches!(state, State::CoveredByAncestor | State::ContainsSelected))
                             .on_click(cx.listener(move |s, _, _, cx| s.toggle(&checkbox_path, cx))))
-                        .child(img(if node.directory { "jb/folder_dark_4x.svg" } else { crate::ui::file_icon(std::path::Path::new(&node.path)) }).size(px(16.)))
+                        .child(img(if node.directory { "jb/folder_dark_4x.svg" } else { crate::ui_style::file_icon(std::path::Path::new(&node.path)) }).size(px(16.)))
                         .child(div().overflow_hidden().child(name))
                 }).collect::<Vec<_>>()
             })).flex_1().min_h_0().track_scroll(&self.scroll))

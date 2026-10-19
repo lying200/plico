@@ -1,0 +1,27 @@
+//! Shared window/editor commands. Key bindings are installed by ui::init.
+use gpui_kit::actions;
+
+actions!(
+    review,
+    [
+        Refresh,
+        Open,
+        OpenSettings,
+        Older,
+        Newer,
+        ExtendOlder,
+        ExtendNewer,
+        GoParent,
+        GoChild,
+        NextFile,
+        PreviousFile,
+        Expand,
+        Back,
+        CloseFile,
+        NextChange,
+        PreviousChange,
+        JumpToSource,
+        CopyHash,
+        Find
+    ]
+);

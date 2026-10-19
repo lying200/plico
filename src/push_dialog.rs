@@ -251,7 +251,7 @@ impl Render for PushDialog {
                             let color=if file.before.is_none(){0x6aab73}else if file.after.is_none(){0xcf8e6d}else{0x6897bb};
                             h_flex().id(("push-file",i)).h(px(24.)).items_center().gap_1().pl(px(22.+depth as f32*16.)).pr_2()
                                 .when(self.selected_file==Some(i),|v|v.bg(rgb(0x33353b)))
-                                .child(gpui_kit::component::Icon::default().path(crate::ui::file_icon(path)).size(px(16.)))
+                                .child(gpui_kit::component::Icon::default().path(crate::ui_style::file_icon(path)).size(px(16.)))
                                 .child(div().truncate().text_color(rgb(color)).child(path.file_name().unwrap_or_default().to_string_lossy().to_string()))
                                 .on_mouse_down(MouseButton::Left,cx.listener(move|s,event:&MouseDownEvent,w,cx|{s.selected_file=Some(i);s.file_focus.focus(w,cx);if event.click_count==2{s.show_file_diff(w,cx);}cx.notify();})).into_any_element()
                         }

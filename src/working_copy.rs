@@ -46,7 +46,8 @@ pub fn read(target: &Target, cancel: &Cancel) -> Result<Contents, String> {
         if !crate::git::is_oid(oid) { return Err("Invalid base object ID".into()); }
         let oid = OsString::from(oid);
         let bytes = repo.read(&[OsStr::new("cat-file"), OsStr::new("blob"), &oid], cancel)?;
-        Document::new(bytes).map_err(|e| format!("Unsupported diff base: {e:?}"))?.text().to_owned()
+        let document=Document::new(bytes).map_err(|e| format!("Unsupported diff base: {e:?}"))?;
+        document.comparison_text(document.text())
     };
     if cancel.cancelled() { return Err("Cancelled".into()); }
     Ok(Contents { original, working })

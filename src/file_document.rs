@@ -64,6 +64,14 @@ impl Document {
 
     pub fn text(&self) -> &str { &self.text }
 
+    /// Compare physical text without BOM. Keep exact mixed separators for an
+    /// untouched document; edited text uses the same separator as saving.
+    pub fn comparison_text(&self, editor_text: &str) -> String {
+        if editor_text == self.text && !self.dirty() {
+            decode(&self.disk).expect("validated disk baseline").0.to_owned()
+        } else { editor_text.replace('\n', self.separator) }
+    }
+
     pub fn edit(&mut self, text: String) -> Result<(), Error> {
         if text.len() > FILE_LIMIT { return Err(Error::TooLarge); }
         if text.contains('\0') { return Err(Error::Binary); }

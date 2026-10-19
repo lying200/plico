@@ -184,6 +184,7 @@ pub struct Review {
     startup_report: Option<Arc<crate::startup_report::Probe>>,
     fetch_token: Option<Cancel>,
     fetch_task: Task<()>,
+    reset_running: bool,
     fetch_status: Option<String>,
     rebase_diagnostic: Option<String>,
     squash_undo: Option<Arc<plico::squash_undo::Undo>>,
@@ -355,6 +356,15 @@ fn observe_review_width(owner: WeakEntity<Review>, navigation: bool)
 }
 // Interactive title-bar controls must hide the native caption hitbox beneath them.
 // Otherwise Windows consumes physical left clicks as window dragging.
+// Popover owns the bubbling mouse-down handler and stops propagation itself.
+// Stopping at its child button prevents menus from ever seeing the click.
+fn titlebar_menu_button(id: &'static str) -> Button { Button::new(id) }
+fn titlebar_menu(menu: impl IntoElement) -> impl IntoElement {
+    // Shield the native caption behind the whole popup trigger, not its child
+    // button: occluding that child also hides the popup's mouse hitbox.
+    div().occlude().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).child(menu)
+}
+
 fn titlebar_button(id: &'static str) -> Button {
     Button::new(id).occlude().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
@@ -453,7 +463,7 @@ impl Review {
             busy: false,
             history_loading: false,
             loading_patch: false,
-            fetch_token: None, fetch_task: Task::ready(()), fetch_status: None, rebase_diagnostic: None, squash_undo: None, operation_state: None,
+            fetch_token: None, fetch_task: Task::ready(()), reset_running: false, fetch_status: None, rebase_diagnostic: None, squash_undo: None, operation_state: None,
             limit,
             history_offset: 0,
             window_start: graph::Layout::default(),
@@ -2609,7 +2619,7 @@ impl Review {
         gpui_kit::component::popover::Popover::new("repository-branch-popup").appearance(false)
             .overlay_closable(false)
             .open(self.repository_menu_open)
-            .trigger(titlebar_button("repository-branch-menu").ghost()
+            .trigger(titlebar_menu_button("repository-branch-menu").ghost()
                 .disabled(self.fetch_token.is_some() || self.settings_open || head.is_none())
                 .child(h_flex().items_center().gap_1().child(jb_icon(if self.operation_state.as_ref().is_some_and(|state| state.in_progress()) {
                     "warning_dark.svg"
@@ -2633,6 +2643,7 @@ impl Review {
                 cx.notify();
             }))
             .content(move |_, _, cx| owner.update(cx, |s,cx| s.repository_menu_body(cx)).unwrap_or_else(|_| div().into_any_element()))
+            .map(titlebar_menu)
     }
     fn repository_pointer_selection(&mut self, event: &MouseMoveEvent, selection: plico::branch_search::Selection, window: &mut Window, cx: &mut Context<Self>) {
         let previous=self.repository_pointer.replace(event.position);
@@ -3218,7 +3229,8 @@ impl Review {
         self.fetch_task=cx.spawn_in(window,async move|this,wx| {
             let result=wx.background_spawn(async move {plico::reset_operation::Prepared::prepare(&repo,target,&token)}).await;
             let _=wx.update(|w,cx| {let _=this.update(cx,|s,cx| {
-                s.fetch_token.take();s.fetch_status=None;
+                let cancelled=s.fetch_token.take().is_some_and(|t|t.cancelled());s.fetch_status=None;
+                if cancelled { cx.notify(); return; }
                 match result {
                     Err(e)=>{s.rebase_diagnostic=Some(e);s.fetch_status=Some(t("Reset failed").into());},
                     Ok(prepared)=>{
@@ -3237,11 +3249,12 @@ impl Review {
         if self.documents.pending(cx) {self.with_saved_documents(window,cx,move|s,w,cx|s.start_reset(prepared,mode,w,cx));return;}
         if self.fetch_token.is_some() || self.welcome {return;}
         let repo=self.repo.clone();let token=Cancel::default();self.fetch_token=Some(token.clone());
-        self.fetch_status=Some(t("Resetting…").into());self.rebase_diagnostic=None;
+        self.reset_running=true;
+        self.fetch_status=Some(t("Resetting… This operation cannot be cancelled once started.").into());self.rebase_diagnostic=None;
         self.fetch_task=cx.spawn_in(window,async move|this,wx| {
             let result=wx.background_spawn(async move {prepared.execute(&repo,mode,&token,&Default::default())}).await;
             let _=wx.update(|w,cx| {let _=this.update(cx,|s,cx| {
-                s.fetch_token.take();
+                s.fetch_token.take();s.reset_running=false;
                 let success=result.as_ref().is_ok_and(|r|r.command.as_ref().is_ok_and(|o|o.status.success() && o.stopped.is_none()) && r.recovery_error.is_none() && r.state.is_ok());
                 s.rebase_diagnostic=plico::rebase_operation::diagnostic(&result);
                 s.fetch_status=Some(t(if success {"Reset successful"} else {"Reset failed"}).into());
@@ -3463,7 +3476,7 @@ impl Review {
     fn main_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let disabled = self.fetch_token.is_some() || self.settings_open;
-        titlebar_button("main-menu").ghost()
+        titlebar_menu_button("main-menu").ghost()
             .icon(jb_icon("windowsMenu@20x20_dark.svg")).icon_size(px(16.))
             .tooltip(t("Main menu")).accessibility_label(t("Main menu"))
             .dropdown_menu(move |menu, window, cx| {
@@ -3488,11 +3501,12 @@ impl Review {
                     menu
                 })
             })
+            .map(titlebar_menu)
     }
     fn project_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let name = self.repo.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        titlebar_button("project-menu").ghost().min_w_0().flex_shrink_1().max_w(px(340.))
+        titlebar_menu_button("project-menu").ghost().min_w_0().flex_shrink_1().max_w(px(340.))
             .disabled(self.fetch_token.is_some() || self.settings_open)
             .tooltip(self.repo.path.to_string_lossy().trim_start_matches("\\\\?\\").to_owned())
             .accessibility_label(format!("{}: {}", t("Project"), name))
@@ -3537,6 +3551,7 @@ impl Review {
                 }
                 menu
             })
+            .map(titlebar_menu)
     }
     fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
@@ -5818,7 +5833,7 @@ impl Render for Review {
                 }))))
             .when(self.saved_changes_available, |v| v.child(Button::new("view-saved-changes").ghost().xsmall().label(t("Show saved changes"))
                 .on_click(cx.listener(|s, _, w, cx| s.open_stashes(w, cx)))))
-            .when(self.fetch_token.is_some(), |v| v.child(Button::new("cancel-fetch").ghost().xsmall().label(t("Cancel"))
+            .when(self.fetch_token.is_some() && !self.reset_running, |v| v.child(Button::new("cancel-fetch").ghost().xsmall().label(t("Cancel"))
                 .on_click(cx.listener(|s, _, _, _| { if let Some(token) = &s.fetch_token { token.cancel(); } })))),
             )
             .when_some(self.adjacent_menu.clone(), |v, menu| v.child(deferred(anchored()

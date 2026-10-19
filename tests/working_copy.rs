@@ -94,3 +94,67 @@ fn immutable_binary_and_missing_endpoints_are_rejected() {
     assert!(working_copy::read(&target(&f,Area::Unstaged,"M","file.txt",None),&Cancel::default()).is_err());
     assert!(working_copy::read(&target(&f,Area::Untracked,"?","missing.txt",None),&Cancel::default()).is_err());
 }
+
+#[cfg(feature="desktop")]
+#[test]
+fn eol_only_working_diff_has_highlight_ranges() {
+    use gpui_kit::component::diff::{DiffFile,DiffSide};
+    let f=Fixture::new(); f.git(&["config","core.autocrlf","false"]);
+    f.write("file.txt","one\ntwo\n"); f.commit("LF base");
+    f.write("file.txt","one\r\ntwo\r\n");
+    let contents=working_copy::read(&target(&f,Area::WorkingTree,"M","file.txt",None),&Cancel::default()).unwrap();
+    let file=DiffFile::from_editor_sources(Some(("file.txt",&contents.original)),Some(("file.txt",&contents.working.comparison_text(contents.working.text())))).unwrap();
+    assert!(file.has_changes(),"CRLF-only change disappeared before diff construction");
+    assert!(!file.changed_ranges(DiffSide::Modified).is_empty(),"No highlight for changed line endings");
+}
+
+#[cfg(feature="desktop")]
+#[test]
+fn editor_eol_comparison_uses_normalized_offsets_and_preserves_saves() {
+    use gpui_kit::component::diff::{DiffFile,DiffSide,UnifiedEditProjection};
+    use plico::file_document::Document;
+    for (old,new,changed) in [
+        ("中文\nlast\n","中文\r\nlast\r\n",true),
+        ("中文\r\nlast\r\n","中文\nlast\n",true),
+        ("中文\r\nlast\n","中文\nlast\n",true),
+        ("中文\rlast\r","中文\nlast\n",true),
+        ("中文\r\nlast","中文\r\nlast",false),
+        ("中文\nlast\n","中文\nlast",true),
+    ] {
+        let mut document=Document::new(new.as_bytes().to_vec()).unwrap();
+        let raw=document.comparison_text(document.text());
+        assert_eq!(raw,new);
+        let file=DiffFile::from_editor_sources(Some(("a",old)),Some(("a",&raw))).unwrap();
+        assert_eq!(file.has_changes(),changed,"{old:?} -> {new:?}");
+        assert_eq!(file.source(DiffSide::Modified),document.text());
+        for side in [DiffSide::Original,DiffSide::Modified] {
+            for range in file.changed_ranges(side) { assert!(file.source(side).get(range).is_some()); }
+        }
+        let projection=UnifiedEditProjection::new(&file);
+        assert!(!projection.text().contains('\r'));
+        assert!(document.begin_save().unwrap().is_none(),"Viewing EOL diff must not rewrite disk bytes");
+        document.edit(format!("{}edited\n",document.text())).unwrap();
+        let comparison=document.comparison_text(document.text());
+        let save=document.begin_save().unwrap().unwrap();
+        assert_eq!(comparison.as_bytes(),save.bytes.as_ref());
+    }
+}
+
+#[cfg(feature="desktop")]
+#[test]
+fn large_history_preview_keeps_complete_sources_and_changed_ranges() {
+    use gpui_kit::component::diff::{DiffFile, DiffSide};
+    let f=Fixture::new();
+    let before=(0..30_000).map(|n|format!("let value_{n} = {n};\n")).collect::<String>();
+    f.write("large.rs",&before);f.commit("base");
+    let after=before.replace("let value_15000 = 15000;","let value_15000 = 42;");
+    f.write("large.rs",&after);f.commit("middle change");
+    let repo=Repository::new(&f.0);let cancel=Cancel::default();
+    let commit=repo.snapshot(None,1,None,&cancel).unwrap().commits.remove(0);
+    let change=repo.details(&commit,&cancel).unwrap().files.remove(0);
+    let target=Target::new(repo,Some(commit),change).unwrap();
+    let file=DiffFile::parse(&target.read(&cancel).unwrap()).unwrap().remove(0);
+    assert_eq!(file.source(DiffSide::Original),before);
+    assert_eq!(file.source(DiffSide::Modified),after);
+    assert!(!file.change_line_ranges().is_empty());
+}

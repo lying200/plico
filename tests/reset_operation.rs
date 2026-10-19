@@ -95,3 +95,31 @@ fn lock_failure_and_in_progress_operation_do_not_reset() {
     fs::write(f.0.join(".git/MERGE_HEAD"),format!("{base}\n")).unwrap();
     assert!(Prepared::prepare(&repo,base,&Cancel::default()).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn cancellation_during_hard_reset_leaves_a_complete_repository() {
+    use std::{thread,time::{Duration,Instant}};
+    let f=Fixture::new();
+    for (value,message) in [("base\n","base"),("second\n","second")] {
+        f.write("a.txt",value);f.write("z.txt",value);f.git(&["add","."]);f.git(&["commit","-m",message]);
+    }
+    let base=String::from_utf8(f.git(&["rev-parse","HEAD~"])).unwrap().trim().to_owned();
+    f.write(".gitattributes","z.txt filter=delay\n");
+    let marker=f.0.join("started");
+    f.git(&["config","filter.delay.smudge",&format!("touch '{}'; sleep 1; cat",marker.display())]);
+    let repo=Repository::new(&f.0);let token=Cancel::default();
+    let prepared=Prepared::prepare(&repo,base.clone(),&token).unwrap();
+    let worker_token=token.clone();
+    let worker=thread::spawn(move||prepared.execute(&repo,Mode::Hard,&worker_token,&Default::default()));
+    let deadline=Instant::now()+Duration::from_secs(5);
+    while !marker.exists() && Instant::now()<deadline {thread::sleep(Duration::from_millis(5));}
+    assert!(marker.exists(),"smudge fixture did not start");
+    token.cancel();let _=worker.join().unwrap();
+    // Once the non-transactional checkout has begun, finishing is safe;
+    // killing it can leave HEAD/index/files describing different revisions.
+    assert_eq!(String::from_utf8(f.git(&["rev-parse","HEAD"])).unwrap().trim(),base,"Reset was killed midway");
+    assert_eq!(fs::read(f.0.join("a.txt")).unwrap(),b"base\n");
+    assert_eq!(fs::read(f.0.join("z.txt")).unwrap(),b"base\n");
+    assert!(!f.0.join(".git/index.lock").exists(),"Abandoned Git lock");
+}

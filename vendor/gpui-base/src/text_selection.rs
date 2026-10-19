@@ -3008,6 +3008,13 @@ fn paint_text_selection(state: &Entity<WindowSelectionState>, window: &mut Windo
                 if state.touch.drag.is_some() {
                     return;
                 }
+                // Native window resizing can consume the matching mouse-up.
+                // A hover must end that stale gesture, never extend selection.
+                if event.pressed_button != Some(MouseButton::Left) {
+                    state.mouse_down_prepared = false;
+                    state.end(cx);
+                    return;
+                }
                 state.update_in_window(event.position, window, cx)
             });
             WindowSelectionState::resolve_content_keys(&state, cx);

@@ -1045,7 +1045,7 @@ fn captured_diff_target_keeps_revision_after_head_moves() {
 }
 
 #[test]
-fn full_diff_target_includes_context_from_first_to_last_line() {
+fn diff_target_includes_complete_file_in_preview_and_tab() {
     use plico::diff_target::Target;
     let f = Fixture::new(); let repo = f.repo(); let t = Cancel::default();
     let before = (0..300).map(|i| format!("line-{i:03}\n")).collect::<String>();
@@ -1054,12 +1054,14 @@ fn full_diff_target_includes_context_from_first_to_last_line() {
     let commit = repo.snapshot(None, 1, None, &t).unwrap().commits.remove(0);
     let change = repo.details(&commit, &t).unwrap().files.remove(0);
     let target = Target::new(repo, Some(commit), change).unwrap();
-    let compact = target.read(&t).unwrap();
-    assert!(!compact.contains("line-000")); assert!(!compact.contains("line-299"));
+    let preview = target.read(&t).unwrap();
+    assert!(preview.contains(" line-000"), "embedded preview dropped the beginning of the file");
+    assert!(preview.contains(" line-299"), "embedded preview dropped the end of the file");
     let full = target.read_full(&t).unwrap();
     assert!(full.contains(" line-000")); assert!(full.contains(" line-299"));
     assert!(full.contains("-line-150")); assert!(full.contains("+changed-150"));
     assert!(full.contains("@@ -1,300 +1,300 @@"));
+    assert_eq!(preview, full);
 }
 
 #[test]

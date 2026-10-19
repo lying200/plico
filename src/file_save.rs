@@ -75,6 +75,9 @@ fn replace(source: &Path, destination: &Path) -> io::Result<()> {
 #[cfg(windows)]
 fn replace(source: &Path, destination: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
+    let path = destination.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
+    let unc = path.strip_prefix("\\\\?\\unc\\").or_else(|| path.strip_prefix("\\\\"));
+    let is_wsl = unc.is_some_and(|p| p.starts_with("wsl.localhost\\") || p.starts_with("wsl$\\"));
     let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
     let destination: Vec<u16> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
     // Preserve destination security attributes through the Windows replacement
@@ -85,7 +88,22 @@ fn replace(source: &Path, destination: &Path) -> io::Result<()> {
             std::ptr::null(), std::ptr::null(),
         )
     };
-    if ok == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+    if ok != 0 { return Ok(()); }
+    let error = io::Error::last_os_error();
+    // The WSL redirector rejects ReplaceFileW (ERROR_NOT_SUPPORTED). Rename
+    // the fully written sibling instead; never delete/truncate the destination.
+    // Do not hide sharing, permission, or ordinary Windows filesystem failures.
+    if is_wsl && error.raw_os_error() == Some(50) {
+        let moved = unsafe {
+            windows_sys::Win32::Storage::FileSystem::MoveFileExW(
+                source.as_ptr(), destination.as_ptr(),
+                windows_sys::Win32::Storage::FileSystem::MOVEFILE_REPLACE_EXISTING,
+            )
+        };
+        if moved != 0 { return Ok(()); }
+        return Err(io::Error::last_os_error());
+    }
+    Err(error)
 }
 
 #[cfg(test)]
@@ -171,9 +189,13 @@ mod tests {
         let mut readonly = original.clone();
         readonly.set_readonly(true);
         fs::set_permissions(&path, readonly).unwrap();
+        let supports_readonly = fs::metadata(&path).unwrap().permissions().readonly();
         let result = save(&f.project, Path::new("file.txt"), &request, &Cancel::default());
         fs::set_permissions(&path, original).unwrap();
-        assert!(matches!(result, Err(Error::ReadOnly)));
+        // WSL's Windows redirector may accept set_readonly without exposing it
+        // in subsequent attributes. Exercise refusal where the flag is supported.
+        if supports_readonly { assert!(matches!(result, Err(Error::ReadOnly))); }
+        else { assert!(result.is_ok()); }
         fs::create_dir(f.path.join(".git")).unwrap();
         fs::write(f.path.join(".git/config"), &request.expected).unwrap();
         assert!(save(&f.project, Path::new(".git/config"), &request, &Cancel::default()).is_err());

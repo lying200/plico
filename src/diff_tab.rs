@@ -99,7 +99,6 @@ impl DiffTab {
             }
         }).detach();
         self.viewer = Some(viewer);
-        let embedded = self.embedded;
         let editable = self.stash_origin.is_none() && self.target.working_tree_document().is_some();
         let target = self.target.clone(); let token = self.token.clone(); let generation = self.generation;
         self.task = cx.spawn(async move |this, cx| {
@@ -107,7 +106,7 @@ impl DiffTab {
                 if editable {
                     let contents = plico::working_copy::read(&target,&token)?;
                     let path = target.identity().path.to_string_lossy();
-                    let file = DiffFile::from_sources(Some((&path,&contents.original)),Some((&path,contents.working.text())))
+                    let file = DiffFile::from_editor_sources(Some((&path,&contents.original)),Some((&path,&contents.working.comparison_text(contents.working.text()))))
                         .map_err(str::to_owned)?;
                     return Ok((vec![file],true,Some(contents)));
                 }
@@ -122,7 +121,7 @@ impl DiffTab {
                     if token.cancelled() { return Err("Cancelled".to_owned()); }
                     return Ok((vec![file],source_available,None));
                 }
-                let text = if embedded { target.read(&token)? } else { target.read_full(&token)? };
+                let text = target.read(&token)?;
                 if token.cancelled() { return Err("Cancelled".to_owned()); }
                 let files=if target.change().area == Area::Untracked { vec![DiffFile::added(target.change().label(), &text)] }
                 else { DiffFile::parse(&text).map_err(|e| e.to_string())? };

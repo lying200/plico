@@ -178,6 +178,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Undo Squash" => "撤销压缩", "Undoing Squash…" => "正在撤销压缩…",
         "Squash undone" => "已撤销压缩", "Could not undo Squash" => "无法撤销压缩",
         "Reset Current Branch to Here…" => "将当前分支重置到此处…",
+        "Resetting… This operation cannot be cancelled once started." => "正在重置…实际写入开始后不可取消。",
+        "Only line separators differ" => "仅换行符不同",
         "Git Reset" => "Git 重置", "Reset" => "重置",
         "Resetting…" => "正在重置…", "Reset successful" => "重置成功", "Reset failed" => "重置失败",
         "Reset the current branch to the selected commit:" => "将当前分支重置到选中的提交：",

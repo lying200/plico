@@ -13,6 +13,8 @@ pub struct EditableDiff {
     pub working: Entity<Editing>,
     original: Entity<EditorState>,
     baseline: Arc<str>,
+    comparison_baseline: Arc<str>,
+    eol_only: bool,
     path: String,
     original_marks: TextDecorationCollection,
     working_marks: TextDecorationCollection,
@@ -32,7 +34,8 @@ impl EditableDiff {
     pub fn new(target: &Target, contents: Contents, documents: Documents, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let id = target.identity();
         let language = crate::project_view::file_language(&id.path);
-        let baseline: Arc<str> = contents.original.into();
+        let comparison_baseline: Arc<str> = contents.original.into();
+        let baseline: Arc<str> = if comparison_baseline.contains('\r') {comparison_baseline.replace("\r\n","\n").replace('\r',"\n").into()}else{comparison_baseline.clone()};
         let original = cx.new(|cx| {
             let mut editor = EditorState::new(window,cx).tab_size(gpui_kit::component::input::TabSize { tab_size: 4, hard_tabs: false }).default_value(baseline.to_string()).line_number(true).language(language);
             editor.set_readonly(true,cx); editor
@@ -72,7 +75,7 @@ impl EditableDiff {
         cx.on_release(|s,cx| s.clear_view(cx)).detach();
         cx.subscribe(&working,|s,_,_:&crate::editing::Reloaded,cx|s.recompare(cx)).detach();
         cx.observe(&working,|_,_,cx|cx.notify()).detach();
-        let mut view=Self { working,original,baseline,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,original_active:false,active:true,alignment_initialized:false,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),task:Task::ready(()) };
+        let mut view=Self { working,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,original_active:false,active:true,alignment_initialized:false,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),task:Task::ready(()) };
         view.recompare(cx); view
     }
     fn update_unified(&mut self,window:&mut Window,cx:&mut Context<Self>) {
@@ -178,15 +181,20 @@ impl EditableDiff {
         if !self.active {return;}
         if let Some(view)=&self.unified {view.invalidate_if_changed(cx);}
         self.generation+=1; let generation=self.generation;
-        let original=self.baseline.clone(); let path=self.path.clone();
-        let modified=self.working.read(cx).editor.read(cx).text().to_string();
+        let original=self.comparison_baseline.clone(); let path=self.path.clone();
+        let modified=self.working.read(cx).comparison_text(cx);
         self.task=cx.spawn(async move|this,cx| {
             cx.background_executor().timer(Duration::from_millis(100)).await;
-            let result=cx.background_spawn(async move { DiffFile::from_sources(Some((&path,&original)),Some((&path,&modified))) }).await;
+            let result=cx.background_spawn(async move {
+                let file=DiffFile::from_editor_sources(Some((&path,&original)),Some((&path,&modified)))?;
+                let eol_only=original.as_ref()!=modified && file.source(DiffSide::Original)==file.source(DiffSide::Modified);
+                Ok::<_, &'static str>((file,eol_only))
+            }).await;
             let _=this.update(cx,|s,cx| {
                 if s.generation!=generation {return;}
-                if let Ok(file)=result {
+                if let Ok((file,eol_only))=result {
                     if s.working.read(cx).editor.read(cx).text().to_string()!=file.source(DiffSide::Modified) {return;}
+                    s.eol_only=eol_only;
                     s.changes=file.change_starts();
                     s.line_ranges=file.change_line_ranges();
                     s.realign(cx);
@@ -206,12 +214,14 @@ impl Render for EditableDiff {
         if self.unified_mode {
             return if let Some(view)=&self.unified {
                 v_flex().size_full().min_h_0()
+                    .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
                     .when_some(self.working.read(cx).error.clone(),|v,error|v.child(div().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
                     .child(Editor::new(&view.editor).readonly(self.documents.locked() || !view.ready()).appearance(false).bordered(false).h_full().font_family("JetBrains Mono").text_size(px(13.))).into_any_element()
             } else {div().p_4().child(plico::i18n::t("Reading Git data…")).into_any_element()};
         }
         let editor=self.working.read(cx).editor.clone();
         v_flex().size_full().min_h_0()
+                    .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
             .when_some(self.working.read(cx).error.clone(),|v,error|v.child(div().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
             .child(h_flex().flex_1().min_h_0().w_full().items_stretch()
                 .child(div().flex_1().min_w_0().h_full().border_r_1().border_color(rgb(0x26282c))

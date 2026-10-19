@@ -86,6 +86,10 @@ pub struct Editing {
 impl EventEmitter<Saved> for Editing {}
 impl EventEmitter<Reloaded> for Editing {}
 impl Editing {
+    pub fn comparison_text(&self,cx:&App)->String {
+        self.document.comparison_text(&self.editor.read(cx).text().to_string())
+    }
+
     pub fn new(root: PathBuf, path: PathBuf, document: Document, editor: Entity<EditorState>, cx: &mut Context<Self>) -> Self {
         cx.subscribe(&editor, |s, editor, event: &InputEvent, cx| {
             if !matches!(event, InputEvent::Change) { return; }

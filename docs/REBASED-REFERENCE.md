@@ -1807,3 +1807,43 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 本地映射：`src/reset_operation.rs`（Prepared 绑定工作树/HEAD/分支，在写锁下重验、限制输出、查询执行后状态）；`src/reset_dialog.rs`（四模式、说明、确认）；`src/layout_preferences.rs`（仅确认时记录模式）；`src/ui.rs`（单选右键入口、保存编辑器、异步执行、刷新文档/Log/本地变更与已有错误详情）；`tests/reset_operation.rs`（实际临时 Git 仓库）。
 
 保留差异：单仓库；阻止已有 merge/rebase/conflict/index recovery 时执行 Reset，避免破坏现有恢复流程；采用上游 FAIL 策略，Keep 拒绝覆盖本地更改时显示失败，不实现 PROPOSE 的 Smart/Force/Cancel 暂存恢复选择器，不自动降级 Hard。自有锁防止应用内部并发，外部 Git 仍可能竞争。弹窗使用已有 GPUI 模态容器而非 Swing 独立窗口；未声称像素级一致。
+
+## 换行符差异与 Reset 中途取消修复（2026-10-19）
+
+仍对照 `4aec35256d765c217aa0d662b82ac4e860c396fd`（不等同安装版 Rebased 1.1.20）。本轮读取 `platform/diff-impl/src/com/intellij/diff/tools/util/DiffNotifications.kt::createEqualContents`、`tools/util/base/TextDiffViewerUtil.java::createEqualContentsNotification/areEqualLineSeparators`：JetBrains 分别保留 Document 文本与换行符属性，文本相同但 separator 不同时提供信息提示。Plico 的 working_copy 曾将两侧通过 Document::text 转成 LF，比较时丢失格式差异。现在 Document::comparison_text 保留未编辑的精确换行（含混合格式）；编辑后的比较使用与保存相同的格式。DiffFile::from_editor_sources 比较原始行，再生成 LF 编辑器坐标，避免 CRLF 字节偏移污染装饰和单栏映射。EditableDiff 增加“仅换行符不同”提示；按用户要求仍高亮实际格式变化的行，这是相比上游仅提示的有意差异。普通 LF baseline 共享 Arc，不新增全文件持久副本。
+
+本轮重读 `plugins/git4idea/backend/src/reset/GitResetAction.java`、`reset/GitResetOperation.java`，并读取 `commands/GitTextHandler.java::waitForProcess/tryKillProcess/waitAndHardKillProcess`：上游任务可取消，取消时先 destroyProcess 后必要时 hard kill；Reset 操作未实现工作树/index/HEAD 的事务回滚。不能把上游取消等同于可恢复到原状。
+
+Plico 原实现通过共享 Cancel 杀掉 Git 进程。可控 smudge filter 回归测试在 reset --hard 正在 checkout 时发出取消，旧实现 HEAD 未更新，留下中途状态。修复差异：准备/确认阶段仍可取消；真正执行 Reset 时隐藏底部取消并明确提示不可取消；执行器最后检查取消后使用独立 token 完成 Git 命令，再刷新结果，不做无法保证保留本地改动的反向 Reset。准备阶段完成与取消竞争时不再弹出迟到的确认框。此改动不宣称断电/外部强杀也有事务保障，也不会自动处理用户已有的中途状态。
+
+回归：`tests/working_copy.rs` 的 EOL-only 高亮及 CRLF/LF/CR/混合换行/Unicode/末尾换行/保存字节测试；`tests/reset_operation.rs` 的慢 smudge 中途取消测试及既有准备前取消测试。复现失败日志 `/tmp/plico-eol-red.log`、`/tmp/plico-reset-cancel-fast.log`；修复后测试各 6 项通过。
+
+### WSL 保存与 Git 输出误报（2026-10-19）
+
+参考仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`（与安装版 Rebased 1.1.20 不保证一致）。已读 `platform/util/src/com/intellij/util/io/SafeFileOutputStream.java`：备份、同步写入、失败恢复；`PreemptiveSafeFileOutputStream.java`：完整临时文件、原子移动与失败恢复，不能直接截断原文件后忽略错误。本地 `src/file_save.rs` 保留完整临时文件、外部修改复验、保存前取消检查；Windows 的 WSL UNC 路径在 ReplaceFileW 返回 ERROR_NOT_SUPPORTED (50) 时改用同目录 MoveFileExW(REPLACE_EXISTING)，其他路径与错误不降级，不先删除目标。Windows 实际测试在 `\\wsl.localhost\legion-wsl\tmp\plico-wsl-save-test` 复现 code 50，定位为 replace 阶段，权限设置、write、sync 均成功。修复后原生 WSL 保存的 5 项测试通过（含外部修改、取消、文件删除、BOM/CRLF）；WSL redirector 可能接受但不回报 DOS readonly 属性，测试仅在属性受支持时断言 ReadOnly。当前权限复制仍限于 Windows 暴露的属性，尚未验证 POSIX executable/ACL 元数据保留。
+
+已读 `plugins/git4idea/backend/src/repo/GitUntrackedFilesHolder.kt`：按 dirty scope 查询状态，未追踪项单独维护并保留目录语义；未追踪文件确实参与状态查询，但不能据此认定用户的真实仓库输出超限。本地 `local_changes` 使用 `status --porcelain=v1 -z --untracked-files=all`。已复现独立缺陷：标准错误仅 70,000 字节、标准输出仅 `ok`，也报 8 MiB 超限。`src/git.rs` 将诊断流与数据流限额分离，诊断持续排空但最多保留 64 KiB 前缀和截断标记；失败命令保留实际诊断，成功命令不因大量警告失败，数据仍限制 8 MiB。新增回归覆盖以上三种情况；Linux backend 194 项测试通过。用户确认仓库不在本机，真实输出大小无法在本环境测量，未擅自扩大限额或遗漏未追踪文件。
+
+### 完整 Diff 预览与标题栏菜单命中（2026-10-19）
+
+参考 commit 仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，与安装版 1.1.20 不保证一致。已读 `platform/diff-impl/src/com/intellij/diff/tools/simple/SimpleDiffViewer.java` 的 full immutable document text 比较流程、`tools/util/text/SimpleTextDiffProvider.java` 和 `comparison/ComparisonManagerImpl.java`：文件文本是完整输入；行内比较过大时保留外层行差异。Plico 的嵌入预览此前走 20 行上下文 patch，独立 Tab 才走完整 patch；现在 `src/diff_target.rs::read` 与 `src/diff_tab.rs` 统一完整文件加载，保留按文件加载与现有字节限额。300 行复现测试先失败后通过；8 项 repository diff 测试及 30,000 行真实 Git 文件的完整内容/高亮范围回归通过。未提高 5 MiB 编辑文件、8 MiB Git 输出限制，也未改变超长单行语法高亮策略；大文件原生 UI 尚待验收，不能据此宣称所有大文件场景已解决。
+
+标题栏已读 `platform/platform-impl/src/com/intellij/openapi/wm/impl/headertoolbar/ProjectToolbarWidgetAction.kt::createPopup`、`plugins/git4idea/frontend/src/com/intellij/vcs/git/frontend/widget/GitToolbarWidgetAction.kt::createPopup`、`platform/platform-impl/src/com/intellij/openapi/wm/impl/ExpandableComboAction.kt::createCustomComponent` 和 `customFrameDecorations/header/toolbar/MainMenuButton.kt::ShowMenuAction`：正常按钮 action 打开对应 popup，不要求右键。Plico 根因为 `src/ui.rs::titlebar_button` 在子按钮上遮挡命中并停止冒泡，而 GPUI BasePopover 的开关监听在外层。只去掉停止冒泡仍失败；最终 `titlebar_menu` 在完整 popup trigger 外层隔离标题栏拖动，子按钮不再遮挡 popup 事件。设置/更新/推送仍保留直接按钮的命中处理。无意改变菜单布局和内容。
+
+Windows release 构建通过；真实左键点击三个入口均正常打开，相互切换关闭前一个 popup。截图 `artifacts/eol-reset-20261019/main-menu-fixed.png`、`project-menu-fixed.png`、`branch-menu-fixed.png` 已查看。第一轮 `*-after.png` 为失败尝试，不作为通过证据。未进行像素级验收。
+
+### 窗口缩放后提交详情继续选择（2026-10-19）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`（与安装版 Rebased 1.1.20 不保证一致）。已读 `platform/util/ui/src/com/intellij/openapi/ui/Splitter.java::DividerImpl.processMouseMotionEvent`：只在 MOUSE_DRAGGED 更新分隔比例；普通移动与拖拽有独立语义。已读 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/details/commit/CommitDetailsPanel.kt` 的详情布局及 ContainingBranchesPanel：只读文本组件保留文字操作，不以禁用文字选择规避问题。
+
+Windows 原生复现：拖动窗口最右边缘，释放后仅移动鼠标到提交详情，文字仍被连续选中；内部面板分隔线的首次测试未复现。底层 `vendor/gpui-base/src/text_selection.rs` 的 mouse-move handler 仅检查 is_selecting，原生尺寸调整消费释放事件后状态可残留。现对非触摸文字选择核对 event.pressed_button：左键未按下时清理准备标记并结束手势，不更新选区；保留既有选区及主动拖选，触摸 handle 走原独立流程。此为 GPUI 事件生命周期修复，不复制 Swing 实现。
+
+同一原生动作脚本 `artifacts/eol-reset-20261019/window-resize.ps1` 与 `check-selection.ps1`：修复前详情区域采样 4746 个蓝色像素并失败，修复后 478（链接文字等）并通过，截图也已人工核对没有选区。Windows release 构建通过；`window-resize-hover.png` 为修复后截图，`text-selection-preserved.png` 验证主动拖选标题后释放、移动到其他详情内容，选区仍只保留标题。没有禁用详情复制，没有新增滚动自动化。此原生回放覆盖实际窗口消息路径，尚未添加模拟该原生消息丢失的 headless 单元测试；不宣称所有平台事件路径均已验证。
+
+### 文件编辑器获得焦点后光标不闪烁（2026-10-19）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与快照可能不同。已读 `platform/platform-impl/src/com/intellij/openapi/editor/impl/EditorImpl.java::focusGained/updateCaretCursor/CaretCursor.setVisible/isCaretShown`：获得焦点显式显示光标、重置闪烁计时；绘制受编辑器输入焦点控制。Plico `src/project_view.rs::FileTab` 原来直接操作 FocusHandle，文件页挂载/激活路径出现 focus=true、show_cursor=false，连续帧不闪烁；临时绘制记录确认颜色为不透明近白色、光标几何数为 1，排除配色和缺失几何。
+
+本地改为调用 EditorState::focus，使焦点与 BlinkCursor 启动同步；移除文件加载后及下次 render 的重复聚焦，保留异步加载完成再聚焦与预览不抢焦点的原规则。未改变文字内容、光标颜色或闪烁周期。没有把只读文本的 I 形鼠标指针与编辑插入光标混为一谈。
+
+原生 Windows release 构建通过。`artifacts/eol-reset-20261019/caret-frames.ps1` 每 150 ms 捕获一次正文区域，共 12 帧；`check-caret.ps1` 比较帧像素。修复前 `caret-before.png` 变化为 0，断言失败；修复后 `caret-fixed.png` 与 Log 切换返回后的 `caret-tab-return.png` 均为 546 个变化像素，断言通过。已查看修复后帧序列，变化确为行尾插入光标亮灭。临时 DEBUG-caret/PLICO_CARET_DEBUG 代码已移除；原生脚本保留在忽略的 artifacts 内，不作为跨平台全覆盖声明。

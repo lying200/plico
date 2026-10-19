@@ -4369,3 +4369,20 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - [x] Rebased 源码与保留差异已记录在 `docs/REBASED-REFERENCE.md`。Keep 拒绝覆盖时采用 FAIL 策略，无自动 Hard / Smart Reset。
 - [x] 5 个临时仓库集成测试通过，覆盖四模式、staged/unstaged/untracked、Keep 拒绝覆盖、游离/同 HEAD、状态变更、取消、锁失败及已有 merge；桌面 cargo check 通过。
 - [x] Windows 原生功能阶段 UI 验收：菜单、四模式/默认 Mixed、取消、Hard 选择与执行通过；临时 repo 的 HEAD 从 `828b1031` 回到 `6a79084f`，原有 sample.txt Tab 从 Second content 自动刷新为 Base content，底部提示重置成功，工作区干净且模式保存为 Hard。截图 `artifacts/reset-20261019/menu.png`、`hard-selected.png`、`source-before.png`、`source-after.png`；执行证据 `result.json`。Windows release 构建通过。未完成像素级验收。
+
+## Preview.2 使用反馈修复（2026-10-19）
+
+- [x] 修复可编辑 Diff 在比较前规范化换行导致 CRLF/LF 差异消失；原始格式比较、LF 编辑坐标映射、单/双栏差异高亮及“仅换行符不同”提示。查看不改写文件。
+- [x] 修复 Reset 底部取消直接杀 Git 导致半完成状态：准备阶段可取消；执行阶段不可取消并明确提示，完成后刷新。无需也不进行不可靠的自动反向 Reset；已有损坏状态不自动修改。
+- [x] 两个缺陷均先复现失败测试；工作区/Diff 6 项和 Reset 6 项回归通过；源码依据和保留差异见 REBASED-REFERENCE。
+- [x] Windows 原生截图确认纯换行差异单/双栏，以及 Reset 执行阶段无取消按钮：`artifacts/eol-reset-20261019/eol-open.png`、`eol-split.png`、`reset-running.png`、`reset-complete.png`。Hard Reset 完成后 HEAD/文件内容一致且无 index.lock；功能验证通过，未做像素级验收。
+- [x] WSL UNC 保存 code 50：原生临时目录复现并修复不支持的 ReplaceFileW，保存/冲突/取消等 5 项 Windows WSL 测试通过。
+- [x] Git 标准错误超过 64 KiB 误报数据超过 8 MiB：分离限额并持续排空诊断；194 项 backend 测试通过。
+- [ ] SecideaAiSourceSecurity 真实仓库的状态输出统计：用户确认仓库不在本机，当前无法测量，也不能认定其真的超过 8 MiB。
+
+- [x] 嵌入 Diff 预览统一完整文件上下文；300 行失败复现修复、8 项 Diff 查询测试和 30,000 行完整内容/差异范围测试通过。字节上限与超长单行策略未修改，大文件原生 UI 待验收。
+- [x] 修正标题栏主菜单、项目及分支下拉的事件遮挡；Windows release 构建通过，三个入口真实左键打开截图均已核对（`artifacts/eol-reset-20261019/*-menu-fixed.png`）。源码规则及事件映射见 REBASED-REFERENCE 同日记录。
+
+- [x] 窗口右边缘缩放后详情自动选中文字：原生复现后修复底层文本选择残留状态，无左键移动结束手势。Windows release 及原生重放通过；主动拖选和释放后选区稳定也已确认。证据见 REBASED-REFERENCE 同日记录。
+
+- [x] 文件浏览编辑光标偶发消失：文件页改走编辑器聚焦生命周期，取消重复聚焦；Windows 构建与首次打开/切换 Log 后返回的 12 帧闪烁验证通过，证据 `artifacts/eol-reset-20261019/caret-{before,fixed,tab-return}.png`。

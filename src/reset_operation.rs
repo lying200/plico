@@ -39,7 +39,12 @@ impl Prepared {
     pub fn execute(&self,repo:&Repository,mode:Mode,token:&Cancel,progress:&Progress)->Result<ResultState,String> {
         let _guard=repo.operation_guard(token)?;
         self.check(repo,token)?;
-        let command=operation_process::run(repo.operation_command().args(["reset",mode.argument(),&self.target]),token,progress,None).map_err(|e|e.to_string());
+        if token.cancelled() { return Err("Reset cancelled before execution".into()); }
+        // Git reset is not a transaction across worktree/index/HEAD. Never kill
+        // it after checkout starts: even an attempted rollback could destroy
+        // pre-existing unstaged/untracked content. Cancellation ends here.
+        let execution=Cancel::default();
+        let command=operation_process::run(repo.operation_command().args(["reset",mode.argument(),&self.target]),&execution,progress,None).map_err(|e|e.to_string());
         let fresh=Cancel::default();
         let recovery_error=match crate::commit_operation::head(repo,&fresh) {
             Ok(Some(head)) if head==self.target=>None,

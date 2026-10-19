@@ -574,8 +574,9 @@ impl Repository {
             if result.is_err() { flag.store(true, Ordering::Relaxed); }
             result
         });
-        let flag = overflow.clone();
-        let stderr = thread::spawn(move || drain(err, 64 * 1024, flag));
+        // Diagnostic chatter is not query data. Drain it to avoid blocking Git,
+        // but retain only a bounded prefix; warnings must not trip stdout's cap.
+        let stderr = thread::spawn(move || drain_diagnostics(err, 64 * 1024));
         let start = Instant::now();
         let mut aborted = None;
         let status = loop {
@@ -614,7 +615,7 @@ impl Repository {
             return Err(message.into());
         }
         if overflow.load(Ordering::Relaxed) {
-            return Err("Git output limit exceeded".into());
+            return Err("Git output exceeds the 8 MiB limit; choose a smaller scope".into());
         }
         if !status.map_err(|e| e.to_string())?.success() {
             return Err(String::from_utf8_lossy(&error).trim().to_owned());
@@ -1615,6 +1616,21 @@ fn parse_status(bytes: &[u8]) -> Result<Vec<Change>> {
     Ok(result)
 }
 
+fn drain_diagnostics(mut pipe: impl Read, limit: usize) -> std::io::Result<Vec<u8>> {
+    let mut result = Vec::new();
+    let mut truncated = false;
+    let mut buffer = [0; 8192];
+    loop {
+        let n = pipe.read(&mut buffer)?;
+        if n == 0 { break; }
+        let keep = n.min(limit.saturating_sub(result.len()));
+        result.extend_from_slice(&buffer[..keep]);
+        truncated |= keep < n;
+    }
+    if truncated { result.extend_from_slice(b"\n[Git diagnostics truncated]\n"); }
+    Ok(result)
+}
+
 fn drain(
     mut pipe: impl Read,
     limit: usize,
@@ -1634,4 +1650,31 @@ fn drain(
         result.extend_from_slice(&buf[..n]);
     }
     Ok(result)
+}
+
+#[cfg(all(test, unix))]
+mod output_tests {
+    use super::*;
+
+    #[test]
+    fn verbose_stderr_does_not_claim_eight_mib_stdout_overflow() {
+        let repo = Repository::new(std::env::temp_dir());
+        let output = repo.text(&["-c", "alias.plico-output-test=!head -c 70000 /dev/zero >&2; printf ok", "plico-output-test"], &Cancel::default());
+        assert_eq!(output.unwrap(), "ok");
+    }
+
+    #[test]
+    fn failed_command_keeps_bounded_diagnostics() {
+        let repo = Repository::new(std::env::temp_dir());
+        let error = repo.text(&["-c", "alias.plico-output-test=!printf actual-error >&2; head -c 70000 /dev/zero >&2; exit 1", "plico-output-test"], &Cancel::default()).unwrap_err();
+        assert!(error.starts_with("actual-error"));
+        assert!(error.contains("diagnostics truncated"));
+        assert!(error.len() < 66000);
+    }
+
+    #[test]
+    fn excessive_stdout_still_fails() {
+        let repo = Repository::new(std::env::temp_dir());
+        assert!(repo.text(&["-c", "alias.plico-output-test=!head -c 9000000 /dev/zero", "plico-output-test"], &Cancel::default()).is_err());
+    }
 }

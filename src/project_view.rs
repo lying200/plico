@@ -346,8 +346,8 @@ impl FileTab {
     }
     pub fn activate(&mut self, cx: &mut Context<Self>) { self.activate_with_focus(true, cx); }
     pub fn focus_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.request_focus = true;
-        if let Some(viewer) = &self.viewer { viewer.read(cx).focus_handle(cx).focus(window, cx); }
+        self.request_focus = self.viewer.is_none();
+        if let Some(viewer) = &self.viewer { viewer.update(cx, |state, cx| state.focus(window, cx)); }
     }
     pub fn activate_with_focus(&mut self, request_focus: bool, cx: &mut Context<Self>) {
         self.request_focus = request_focus;
@@ -396,7 +396,7 @@ impl Render for FileTab {
             }), cx);
             let viewer = editing.read(cx).editor.clone();
             self.attach_document(editing, cx);
-            if self.request_focus { viewer.read(cx).focus_handle(cx).focus(window, cx); } self.viewer = Some(viewer);
+            self.viewer = Some(viewer);
             }
             }
         }
@@ -409,7 +409,7 @@ impl Render for FileTab {
         }
         // Keep the requested line until asynchronous file loading creates the editor.
         if let Some(viewer) = self.viewer.as_ref() {
-            if self.request_focus { viewer.read(cx).focus_handle(cx).focus(window, cx); self.request_focus = false; }
+            if self.request_focus { viewer.update(cx, |state, cx| state.focus(window, cx)); self.request_focus = false; }
             if let Some(line) = self.jump_line.take() {
                 viewer.update(cx, |s, cx| s.set_cursor_position(Position::new(line as u32, 0), window, cx));
             }

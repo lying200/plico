@@ -81,9 +81,10 @@ impl Target {
         if self.identity.combined.is_some() { return Err("Use revision contents for a combined target".into()); }
         self.repository.full_patch(self.commit.as_ref(), &self.change, cancel)
     }
+    /// Both embedded previews and editor tabs retain complete source context.
     pub fn read(&self, cancel: &Cancel) -> Result<String> {
         if self.identity.combined.is_some() { return Err("Use revision contents for a combined target".into()); }
-        self.repository.patch(self.commit.as_ref(), &self.change, cancel)
+        self.repository.full_patch(self.commit.as_ref(), &self.change, cancel)
     }
 }
 

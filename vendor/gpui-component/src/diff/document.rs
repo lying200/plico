@@ -394,10 +394,35 @@ impl DiffFile {
     /// Compare complete revision contents without a temporary unified patch.
     /// Call off the UI thread. Missing sides differ from existing empty files.
     pub fn from_sources(original: Option<(&str, &str)>, modified: Option<(&str, &str)>) -> Result<Self, &'static str> {
+        Self::compare_sources(original, modified, false)
+    }
+
+    /// Compare physical line endings, but return LF source coordinates for
+    /// editable surfaces. Normalizing before comparison loses EOL-only changes;
+    /// decorating raw CRLF offsets in an LF editor shifts every subsequent line.
+    pub fn from_editor_sources(original: Option<(&str, &str)>, modified: Option<(&str, &str)>) -> Result<Self, &'static str> {
+        Self::compare_sources(original, modified, true)
+    }
+
+    fn compare_sources(original: Option<(&str, &str)>, modified: Option<(&str, &str)>, editor: bool) -> Result<Self, &'static str> {
         if original.is_none() && modified.is_none() { return Err("Diff has no file versions"); }
         let old = original.map_or("", |(_, text)| text);
         let new = modified.map_or("", |(_, text)| text);
-        let diff = similar::TextDiff::configure().timeout(std::time::Duration::from_millis(500)).diff_lines(old, new);
+        fn physical_lines(text: &str) -> Vec<&str> {
+            let bytes=text.as_bytes();let mut lines=Vec::new();let(mut start,mut i)=(0,0);
+            while i<bytes.len() {
+                if bytes[i]==b'\r' || bytes[i]==b'\n' {
+                    if bytes[i]==b'\r' && bytes.get(i+1)==Some(&b'\n') {i+=1;}
+                    lines.push(&text[start..i+1]);start=i+1;
+                }
+                i+=1;
+            }
+            if start<text.len(){lines.push(&text[start..]);}lines
+        }
+        let old_lines=if editor {physical_lines(old)}else{Vec::new()};
+        let new_lines=if editor {physical_lines(new)}else{Vec::new()};
+        let mut config=similar::TextDiff::configure();config.timeout(std::time::Duration::from_millis(500));
+        let diff=if editor {config.diff_slices(&old_lines,&new_lines)}else{config.diff_lines(old,new)};
         let mut pairs = Vec::new();
         for op in diff.ops() {
             let a = op.old_range(); let b = op.new_range();
@@ -406,15 +431,16 @@ impl DiffFile {
                     (i < b.len()).then_some(b.start + i), op.tag() != similar::DiffTag::Equal));
             }
         }
-        fn side(value: Option<(&str, &str)>) -> FileSide {
-            let text = value.map_or("", |(_, text)| text);
+        fn side(value: Option<(&str, &str)>, editor: bool) -> FileSide {
+            let raw = value.map_or("", |(_, text)| text);
+            let text=if editor {raw.replace("\r\n","\n").replace('\r',"\n")}else{raw.to_owned()};
             let mut offset = 0;
             let lines: Vec<_> = text.split_inclusive('\n').enumerate().map(|(i, line)| {
                 let start = offset; offset += line.len(); (i + 1, start..offset)
             }).collect();
             FileSide::new(value.map(|(path, _)| path.to_owned().into()), text.to_owned(), lines)
         }
-        let original_side = side(original); let modified_side = side(modified);
+        let original_side = side(original,editor); let modified_side = side(modified,editor);
         let old_count = original_side.lines.len(); let new_count = modified_side.lines.len();
         let hunks = if pairs.is_empty() { Vec::new() } else { vec![Hunk::new(0..pairs.len(),
             0..old_count, 0..new_count, format!("@@ -{},{} +{},{} @@", usize::from(old_count > 0),

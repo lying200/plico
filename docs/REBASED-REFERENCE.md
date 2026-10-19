@@ -1993,3 +1993,15 @@ Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移
 保留差异：没有复制 IDE VFS，使用有界引用轮询以兼容 Windows→WSL UNC，不启动高频递归工作树扫描；不是整个文件系统的自动重载。只检查当前分支远端，采用 LS_REMOTE 而非上述快照的默认 FETCH，周期 5 分钟而非 20 分钟；本轮不新增策略设置。尚未获取的远端提交需显式 fetch 后才会出现在 Log。未进行真实跨机 WSL 性能测量，不宣称与上游事件驱动延迟／开销相同。
 
 验证：3 项临时仓库集成测试覆盖外部提交、分叉双向计数、未获取远端更新、检查不修改 refs、fetch 后计数、游离 HEAD、无提交／无 upstream、tag 变化、取消及三角工作流的独立 push target；30 项现有桌面测试通过（仍排除已知 releasing_diff_clears_padding_from_retained_source 基线失败）。Windows release 构建通过。独立 auto-refresh-fixture + 本地 bare remote 原生截图 `artifacts/diff-fonts-20261019/auto-refresh-start.png` 展示双箭头；外部 fetch＋commit 后 `auto-refresh-external.png` 展示新提交、远端标记更新，原选中 Local change 保留。无用户仓库写入、无真实网络 push。最终现代图标截图记录见 PLAN。
+
+### 2026-10-19 Reset 布局与编辑提交信息
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与该快照不保证一致。本轮实际读取：
+
+- `plugins/git4idea/backend/src/reset/GitNewResetDialog.kt`：单仓库目标行包含来源分支、短 hash、截断至 40 字符的 subject 与作者；接着说明 HEAD／工作树／index 的关系；Soft／Mixed／Hard／Keep 各自带缩进说明。`src/reset_operation.rs` 分别读取 subject/author 并缩短；`src/reset_dialog.rs` 使用一行摘要、四组 radio 与说明、右下 Reset/Cancel，Hard 的丢失本地更改提示单独换行；沿用既有模式记忆与执行阶段不可取消的规则。
+- `backend/src/rebase/GitRewordAction.kt`、`GitSingleCommitEditingAction.kt`、`rebase/log/GitCommitEditingActionBase.kt`：仅单选；提交必须包含在 HEAD 历史中且没有发布到受保护远端分支；非 HEAD 的 merge 禁用，HEAD merge 可编辑；正常／detached 允许，其他操作进行中禁止，rebase 中的 HEAD 是例外；root 不禁用，先确认。`src/reword.rs::Prepared` 复验这些规则，额外阻止未解决冲突与应用恢复记录。`src/ui/reword.rs::Gate` 为当前选择异步读取资格，切换选择释放任务并取消；右键菜单禁用已知不符合资格的项目，F2 使用同一门禁；包含关系尚未返回时按上游保持可点击，点击后先异步完成检查再打开编辑器，避免第一次右键必须关闭重开。确认时及写入前再次复验 HEAD、分支、目录、包含关系和保护规则，旧弹窗不是持久写授权。
+- `backend/src/rebase/log/GitNewCommitMessageActionDialog.kt`：预填完整消息、焦点/光标位于开头、空白消息禁用 OK，确认时检查仓库是否变化。`src/reword_dialog.rs` 对应标题、hash/作者标签、多行输入、OK/Cancel；异步复验期间禁用编辑，关闭时取消复验，不进入写操作。
+- `backend/src/rebase/GitRewordOperation.kt`：旧流程对 HEAD 使用 `commit --amend --only --no-verify`，其他提交使用 reword rebase，不能带入暂存文件。`GitRewordService.kt` 当前快照优先 `GitInMemoryRewordOperation`，失败时才进入原生 Git fallback。本轮采用已读的 `backend/src/inMemory/rebase/log/reword/GitInMemoryRewordOperation.kt`、`GitInMemoryCommitEditingOperation.kt`、`inMemory/GitObjectRepository.kt::commitTree/commitTreeWithOverrides`：生成保留 tree/author/parents 的提交对象，更新引用，不更新工作区；保留配置的签名、复制 notes、执行 post-rewrite。`src/reword.rs` 顺序创建对象，每个对象输出有界；最后用带旧 OID 的 update-ref 发布，发布前允许取消，发布本身不中断。没有 reset/stash，没有临时工作区或中间 rebase 状态；取消时至多留下不可达对象，可由 Git 正常 GC。后续 notes/hook 失败明确报告“提交信息已修改，但后续处理失败”，不重复改写。
+- 已读 `plugins/git4idea/tests/git4idea/rebase/GitRewordTest.kt` 与 `tests/git4idea/inMemory/rebase/log/reword/GitInMemoryRewordOperationTest.kt`：HEAD/旧提交/root、保留暂存内容、特殊字符、author/parent、notes/post-rewrite 映射等用例转成 `tests/reword.rs` 的独立 Git fixture 测试。
+
+保留差异：只实现单仓库 UI，无 AI／消息历史工具栏及 IDE 帮助入口，没有 Reword 专属 Undo 按钮（Git reflog 保留）。对象重写不启动原生交互式 rebase fallback；对目标以上的 merge 使用拓扑排序映射父边，保留原 tree 和合并结构，避免原生 fallback 拉平历史；最多 10000 个改写提交，拒绝浅历史边界及非 UTF-8 提交编码配置。不同于上游仅依赖 IDE 状态，未解决冲突和本应用未完成的恢复记录也阻止执行。post-rewrite 通过 Git hook runner `--to-stdin` 传递映射，旧 Git 不支持时作为已完成后的警告。采用应用内弹窗和现有字体/主题，不宣称独立原生窗口或像素完全一致。原生验收与截图见 PLAN 同日记录。

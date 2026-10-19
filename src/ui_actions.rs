@@ -22,6 +22,7 @@ actions!(
         PreviousChange,
         JumpToSource,
         CopyHash,
+        EditCommitMessage,
         Find
     ]
 );

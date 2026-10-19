@@ -316,6 +316,8 @@ impl Review {
                                                 let s = s.read(cx); let ids = s.commit_ids();
                                                 let mut hashes = s.log_selection.ordered(&ids); hashes.reverse(); hashes.join(" ")
                                             }).unwrap_or_default();
+                                            let reword_owner = checkout_owner.clone();
+                                            let reword_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).can_reword(&target, cx));
                                             let reset_owner=checkout_owner.clone(); let reset_target=target.clone(); let reset_path=path.clone();
                                             let reset_enabled=checkout_owner.upgrade().is_some_and(|e|{let s=e.read(cx);!s.operation.busy() && !s.operation.saving_documents() && s.log_selection.ordered(&s.commit_ids()).len()==1});
                                             let parent_owner = checkout_owner.clone(); let child_owner = checkout_owner.clone();
@@ -367,6 +369,9 @@ impl Review {
                                                 .item(PopupMenuItem::new(t("Reset Current Branch to Here…")).disabled(!reset_enabled).on_click(move|_,w,cx| {
                                                     let _=reset_owner.update(cx,|s,cx|{if s.repo.path==reset_path{s.prepare_reset(reset_target.clone(),w,cx);}});
                                                 })).separator()
+                                                .item(PopupMenuItem::new(t("Edit Commit Message…")).action(Box::new(EditCommitMessage)).disabled(!reword_enabled).on_click(move |_, w, cx| {
+                                                    let _ = reword_owner.update(cx, |s, cx| s.edit_commit_message(w, cx));
+                                                }))
                                                 .item(PopupMenuItem::new(t("Go to Child Commit")).disabled(!adjacent_enabled).on_click(move |_, w, cx| {
                                                     let _ = child_owner.update(cx, |s, cx| s.navigate_adjacent(false, false, w, cx));
                                                 }))

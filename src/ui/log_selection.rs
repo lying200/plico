@@ -44,6 +44,7 @@ impl Review {
         cx.notify();
     }
     pub(super) fn load_log_selection(&mut self, cx: &mut Context<Self>) {
+        self.reword_gate = None;
         let rows = self.commit_ids();
         let ids = self
             .log_selection
@@ -166,6 +167,7 @@ impl Review {
         let Some(commit) = self.commits.get(index).cloned() else {
             return;
         };
+        self.reword_gate = Some(cx.new(|cx| super::reword::Gate::new(self.repo.clone(), commit.id.clone(), cx)));
         let (generation, token) = self.reset_job(cx);
         self.aggregate_chain = None;
         self.selection_details.clear();

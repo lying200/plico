@@ -4514,3 +4514,11 @@ GPUI真实Editor回归2项通过：预编辑未触发普通Change时已被pendin
 - 按 Rebased repository→Log 和 incoming/outgoing 分工，新增独立引用观察模块。5 秒检查本地 refs/HEAD，只在变化时保留选择刷新 Log；写操作／查询中推迟，多事件合并，切仓和关闭取消。
 - 当前分支蓝色 incoming／绿色 outgoing 可共存，使用 Rebased 现代 12px 图标；悬停显示上下行数量及未获取／未知状态。远端 5 分钟只读 ls-remote，超时取消和后台无交互，不自动 fetch/pull；具体差异与上游默认 FETCH／20 分钟的区别见 docs/REBASED-REFERENCE.md。
 - 3 项实际 Git 临时仓库测试和 30 项桌面相关测试通过（保留已知基线排除），Windows release 构建通过。原生独立 fixture 验证外部提交／fetch 自动更新 Log 和分支标记、保留原选中提交；截图 artifacts/diff-fonts-20261019/auto-refresh-*.png。真实跨机 WSL 开销及全部像素细节尚未验收。本轮未提交、推送或发布。
+
+### 2026-10-19 Reset 弹窗与编辑提交信息
+
+已对照 Rebased `4aec352` 的 Reset、Reword action/dialog、对象重写流程和两套 Reword 测试，详细规则与差异见 `docs/REBASED-REFERENCE.md` 同日条目。Reset 改为目标单行摘要、模式下方缩进说明、Hard 警告换行。Log 新增“编辑提交信息…”／F2；异步资格门禁、初始提交确认、完整消息编辑、空白禁用和确认前复验；改写对象后原子更新引用，保留工作区/暂存区，完成后刷新 Log 并保留改写目标的选择。
+
+验证：7 项 Reword Git 集成测试、6 项 Reset 集成测试通过；30 项桌面测试通过，仍明确跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过。原生测试只操作 `Plico-validation/diff-fonts-20261019/auto-refresh-fixture`，不改用户仓库；F2 弹窗截图 `artifacts/diff-fonts-20261019/reword-dialog.png`。实际确认将旧提交 Local change 改为 Reworded local message，后续 HEAD 提交说明保持不变。首次截图全黑被脚本拒绝，未计为验收；输入使用保留/恢复剪贴板的方式，避免输入法候选影响验证。最终菜单/Reset 截图与结果补充于下文。本轮尚未提交、推送或发布。
+
+原生验收补充：`reword-menu.png` 显示可编辑提交的菜单及 F2 提示，改写后的目标仍被选中且详情已更新；`reword-protected-menu.png` 显示已包含于 origin/main 的提交对应菜单置灰；`reset-layout.png` 显示目标单行摘要、四组选项及 Hard/Keep 分行说明。宿主机 Git 复核 `HEAD@{1}` 与 HEAD 的文件树无差异，工作区干净。最终构建补上光标从开头开始和未知资格时先检查的路径；最后一轮 Windows release 构建通过，原生保护分支置灰再次验证。仍保留文档所列 UI 差异，不宣称像素级完全一致。

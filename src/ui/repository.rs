@@ -328,6 +328,7 @@ impl Review {
         self.message.clear();
         self.commit_metadata = Default::default();
         self.containing_branches = None;
+        self.reword_gate = None;
         self.base = None;
         let repo = self.repo.clone();
         let branch = self.branch.clone();

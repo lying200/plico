@@ -12,6 +12,7 @@ mod preview;
 mod remote;
 mod repository;
 mod auto_refresh;
+mod reword;
 mod repository_popup;
 mod saved_changes;
 mod settings;
@@ -47,6 +48,7 @@ use settings::SettingsDraft;
 use std::{collections::HashSet, path::PathBuf, sync::Arc};
 pub fn init(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("f2", EditCommitMessage, Some("History")),
         KeyBinding::new("ctrl-o", Open, Some("Review")),
         KeyBinding::new("ctrl-alt-s", OpenSettings, Some("Review")),
         KeyBinding::new("ctrl-f5", Refresh, Some("Review")),
@@ -83,6 +85,7 @@ struct NavigationNotice {
 }
 
 pub struct Review {
+    reword_gate: Option<Entity<reword::Gate>>,
     updates: auto_refresh::AutoRefresh,
     startup_report: Option<Arc<crate::startup_report::Probe>>,
     operation: plico::active_operation::Lifecycle,
@@ -417,6 +420,7 @@ impl Review {
             message: String::new(),
             commit_metadata: Default::default(),
             containing_branches: None,
+            reword_gate: None,
             base: None,
             error: None,
             preview_error: None,
@@ -841,6 +845,7 @@ impl Render for Review {
                 s.filter_search.read(cx).focus_handle(cx).focus(w, cx);
                 cx.notify();
             }))
+            .on_action(cx.listener(|s, _: &EditCommitMessage, w, cx| s.edit_commit_message(w, cx)))
             .on_action(cx.listener(|s, _: &CopyHash, _, cx| {
                 let ids = s.commit_ids();
                 let mut selected = s.log_selection.ordered(&ids);

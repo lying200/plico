@@ -6,6 +6,7 @@ mod ui_font;
 mod auth_dialog;
 mod editor_dialog;
 mod squash_dialog;
+mod reword_dialog;
 mod compare_view;
 mod dialog_style;
 mod revision_input;

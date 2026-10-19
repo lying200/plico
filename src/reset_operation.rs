@@ -11,19 +11,21 @@ impl Mode {
     pub fn description(self) -> &'static str { match self {
         Self::Soft=>"Files won't change, differences will be staged for commit.",
         Self::Mixed=>"Files won't change, differences won't be staged.",
-        Self::Hard=>"Files will be reverted to the selected commit. Warning: local changes will be lost.",
-        Self::Keep=>"Files will be reverted to the selected commit, keeping local changes intact.",
+        Self::Hard=>"Files will be reverted to the state of the selected commit.\nWarning: any local changes will be lost.",
+        Self::Keep=>"Files will be reverted to the state of the selected commit,\nbut local changes will be kept intact.",
     } }
 }
-pub struct Prepared { directory: PathBuf, head: String, branch: Option<String>, pub target: String, pub summary: String }
+pub struct Prepared { directory: PathBuf, head: String, branch: Option<String>, pub target: String, pub summary: String, pub author: String }
 impl Prepared {
     pub fn prepare(repo: &Repository, target: String, token: &Cancel) -> Result<Self,String> {
         if !is_oid(&target) { return Err("Invalid reset commit".into()); }
         repo.text(&["cat-file","-e", &format!("{target}^{{commit}}")],token)?;
         let head=crate::commit_operation::head(repo,token)?.ok_or("No HEAD to reset")?;
         let branch=crate::squash_check::symbolic_head(repo,token)?;
-        let summary=repo.text(&["show","-s","--format=%s — %an", &target,"--"],token)?;
-        let prepared=Self {directory:repo.editor_directory(token)?,head,branch,target,summary:summary.trim().chars().take(160).collect()};
+        let summary=repo.text(&["show","-s","--format=%s%x00%an", &target,"--"],token)?;
+        let (subject, author) = summary.trim_end().split_once('\0').ok_or("Invalid reset metadata")?;
+        let shorten = |v: &str| if v.chars().count() > 40 { format!("{}…", v.chars().take(39).collect::<String>()) } else { v.to_owned() };
+        let prepared=Self {directory:repo.editor_directory(token)?,head,branch,target,summary:shorten(subject),author:shorten(author)};
         prepared.check(repo,token)?;
         Ok(prepared)
     }

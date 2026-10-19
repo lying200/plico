@@ -10,6 +10,7 @@ pub enum Kind {
     Update,
     Checkout,
     Reset,
+    Reword,
     Squash,
     UndoSquash,
     Rebase,

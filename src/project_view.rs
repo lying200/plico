@@ -262,6 +262,7 @@ pub struct FileTab {
     pub documents: crate::editing::Documents,
     editing: Option<Entity<crate::editing::Editing>>,
     editing_subscriptions: Vec<Subscription>,
+    changes: Option<Entity<crate::source_changes::SourceChanges>>,
     status: Notice,
     token: Cancel,
     generation: u64,
@@ -271,7 +272,7 @@ impl EventEmitter<HistoryRequested> for FileTab {}
 impl EventEmitter<FileSaved> for FileTab {}
 impl Drop for FileTab { fn drop(&mut self) { self.token.cancel(); } }
 impl FileTab {
-    pub fn new(root: PathBuf, path: PathBuf) -> Self { Self { root, path, history: false, history_view: None, history_position: None, jump_line: None, preview: false, request_focus: true, viewer: None, reading_position: None, pending: None, documents: Default::default(), editing: None, editing_subscriptions: Vec::new(), status: Notice::Label(""), token: Cancel::default(), generation: 0, task: Task::ready(()) } }
+    pub fn new(root: PathBuf, path: PathBuf) -> Self { Self { root, path, history: false, history_view: None, history_position: None, jump_line: None, preview: false, request_focus: true, viewer: None, reading_position: None, pending: None, documents: Default::default(), editing: None, editing_subscriptions: Vec::new(), changes: None, status: Notice::Label(""), token: Cancel::default(), generation: 0, task: Task::ready(()) } }
     fn attach_document(&mut self, editing: Entity<crate::editing::Editing>, cx: &mut Context<Self>) {
         self.editing_subscriptions.clear();
         self.viewer = Some(editing.read(cx).editor.clone());
@@ -281,6 +282,7 @@ impl FileTab {
             cx.notify();
         }));
         self.editing_subscriptions.push(cx.subscribe(&editing, |_, _, _: &crate::editing::Saved, cx| cx.emit(FileSaved)));
+        self.changes = Some(cx.new(|cx| crate::source_changes::SourceChanges::new(self.root.clone(), self.path.clone(), &editing, self.documents.clone(), file_language(&self.path).to_string(), cx)));
         self.editing = Some(editing);
     }
     pub fn dirty(&self, cx: &App) -> bool { self.editing.as_ref().is_some_and(|d| d.read(cx).pending(cx)) }
@@ -319,6 +321,7 @@ impl FileTab {
         });
     }
     pub fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.changes.as_ref().is_some_and(|changes|changes.update(cx,|s,cx|s.dismiss(cx))) {return;}
         if let Some(viewer) = &self.viewer {
             if viewer.read(cx).focus_handle(cx).is_focused(window) {
                 viewer.update(cx, |state, cx| state.unselect(window, cx));
@@ -326,6 +329,7 @@ impl FileTab {
         }
     }
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.changes = None;
         if let Some(view)=&self.history_view {self.history_position=Some(view.read(cx).reading_state());}
         if let Some(viewer) = &self.viewer {
             let state = viewer.read(cx);
@@ -423,9 +427,10 @@ impl Render for FileTab {
                     .on_click(cx.listener(|s, _, w, cx| s.reload(w,cx)))))
             .when_some(self.editing.as_ref().and_then(|d|d.read(cx).error.clone()), |v, error| v.child(div().flex_shrink_0().px_3().py_2().text_color(rgb(0xf2a6a6)).child(error)))
             .when_some(self.viewer.clone(), |v, viewer| v.child(
-                div().id("source-file-editor").w_full().flex_1().min_h_0()
+                div().id("source-file-editor").relative().w_full().flex_1().min_h_0()
                     .child(Editor::new(&viewer).context_menu(|_,_,_|gpui_kit::component::native_menu::NativeMenu::new())
                         .readonly(self.documents.locked()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx)))
+                    .children(self.changes.clone())
                     .context_menu(|menu,_,_|menu
                         .menu(t("Cut"),Box::new(gpui_kit::base::input::Cut))
                         .menu(t("Copy"),Box::new(gpui_kit::base::input::Copy))

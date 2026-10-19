@@ -46,6 +46,11 @@ pub fn t(english: &'static str) -> &'static str {
 fn translate(english: &'static str, chinese: bool) -> &'static str {
     if !chinese { return english; }
     match english {
+        "Previous change" => "上一处更改",
+        "Next change" => "下一处更改",
+        "Rollback this change" => "撤回此处更改",
+        "Copy original lines" => "复制原内容",
+        "Git baseline changed. Reopen the change marker." => "Git 基线已变化，请重新打开变更标记。",
         "Open Project" => "打开项目",
         "Where would you like to open the project?" => "您希望在哪里打开此项目？",
         "This Window" => "当前窗口",

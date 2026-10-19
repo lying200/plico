@@ -157,3 +157,5 @@ pub mod editor_tabs_state;
 pub mod branch_updates;
 
 pub mod reword;
+
+pub mod line_changes;

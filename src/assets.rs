@@ -40,6 +40,8 @@ impl AssetSource for Assets {
             "jb/expandAll_dark.svg" => Some(include_bytes!("../assets/icons/expandAll_dark.svg")),
             "jb/collapseAll_dark.svg" => Some(include_bytes!("../assets/icons/collapseAll_dark.svg")),
             "jb/diff_dark.svg" => Some(include_bytes!("../assets/icons/diff_dark.svg")),
+            "jb/rollback_dark.svg" => Some(include_bytes!("../assets/icons/rollback_dark.svg")),
+            "jb/copy_dark.svg" => Some(include_bytes!("../assets/icons/copy_dark.svg")),
             "jb/closeSmall.svg" => Some(include_bytes!("../assets/icons/closeSmall.svg")),
             "ui/corner-bl.svg" => Some(include_bytes!("../assets/ui/corner-bl.svg")),
             "ui/corner-br.svg" => Some(include_bytes!("../assets/ui/corner-br.svg")),

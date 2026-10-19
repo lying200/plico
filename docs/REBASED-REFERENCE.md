@@ -2005,3 +2005,25 @@ Plico 现状：`src/editable_diff.rs` 的 ScrollChanged 直接将变化轴偏移
 - 已读 `plugins/git4idea/tests/git4idea/rebase/GitRewordTest.kt` 与 `tests/git4idea/inMemory/rebase/log/reword/GitInMemoryRewordOperationTest.kt`：HEAD/旧提交/root、保留暂存内容、特殊字符、author/parent、notes/post-rewrite 映射等用例转成 `tests/reword.rs` 的独立 Git fixture 测试。
 
 保留差异：只实现单仓库 UI，无 AI／消息历史工具栏及 IDE 帮助入口，没有 Reword 专属 Undo 按钮（Git reflog 保留）。对象重写不启动原生交互式 rebase fallback；对目标以上的 merge 使用拓扑排序映射父边，保留原 tree 和合并结构，避免原生 fallback 拉平历史；最多 10000 个改写提交，拒绝浅历史边界及非 UTF-8 提交编码配置。不同于上游仅依赖 IDE 状态，未解决冲突和本应用未完成的恢复记录也阻止执行。post-rewrite 通过 Git hook runner `--to-stdin` 传递映射，旧 Git 不支持时作为已完成后的警告。采用应用内弹窗和现有字体/主题，不宣称独立原生窗口或像素完全一致。原生验收与截图见 PLAN 同日记录。
+
+## 2026-10-19 源码编辑器 Git 行变更标记
+
+参考 commit：`4aec35256d765c217aa0d662b82ac4e860c396fd`；宿主已安装 Rebased 1.1.20，版本不保证相同。本轮对照用户提供的三张源码编辑器／标记弹层截图，不把源码快照当作已安装版的逐像素证据。
+
+实际读取：
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/impl/LineStatusTrackerBaseContentUtil.java`：基线来自 VCS before revision，保存文件不把 Git 标记清零；ADDED／UNKNOWN／IGNORED 不提供普通已跟踪文件基线。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/ex/SimpleLocalLineStatusTracker.kt`、`LineStatusTracker.kt::LocalLineStatusMarkerRenderer`：源码编辑器标记排除 Diff；工具栏依次为上一个、下一个、回滚、Diff、复制原内容。
+- `platform/diff-impl/src/com/intellij/openapi/vcs/ex/LineStatusTrackerMarkerRenderer.kt`：仅有原始行时创建带语法高亮的原文预览；纯新增只有工具栏。
+- 同目录 `LineStatusMarkerRendererWithPopup.kt`、`LineStatusMarkerPopupActions.kt`：点击 gutter 打开锚定弹层，动作执行前重新找到 range，前后导航不循环，复制仅对原始行有效；滚动／失效后关闭提示。
+- `platform/diff-impl/src/com/intellij/openapi/diff/LineStatusMarkerDrawUtil.java`：新增／修改绘制条形标记，零高度删除区间绘制边界标记；继续实读 `paintTriangle` 确认现代 New UI 实际绘制圆角胶囊而非旧版三角，按此实现；命中区比细线宽。
+- `platform/vcs-tests/testSrc/com/intellij/openapi/vcs/LineStatusTrackerRollbackTest.kt`：首尾插入、删除、空行及原文恢复场景。
+
+本地映射：`src/line_changes.rs` 提供固定 blob 基线、类型与行区间；`src/source_changes.rs` 负责活动源码 Tab 的后台计算、gutter、原文弹层及撤回；`src/project_view.rs` 接入并在离开 Tab 时释放。沿用共享 `Editing`、`diff_revert::replacement`、编辑器撤销栈和自动保存。撤回前重新检查基线 blob、文档内容及 Git 写操作锁，不修改 index。基线／当前内容只在活动源码视图持有；编辑事件 80ms 合并，差异计算在后台并限制算法时间；每 5 秒复验基线，blob 不变不重复读取全文。
+
+保留差异：普通源码标记以当前路径的 HEAD blob 为基线，index 仅用于确认已跟踪且无冲突；回滚已暂存内容不会同步撤销 index。尚未追溯 staged rename 的旧路径；没有 HEAD 基线的新文件、冲突文件及不支持编码不提供标记，不把读取失败视为空原文。删除采用现代 UI 圆角边界标记。弹层提供前后导航、撤回和复制，暂不复制独立范围 Diff、词级强调开关；“提交此变更”依赖部分提交机制，依用户许可留待按块提交统一实现。宽度与预览高度有上限，超出原文可滚动；未宣称像素级还原。
+
+验证：2 项行区间单元测试、3 项真实 Git 基线测试及 1 项编辑器撤回测试通过，覆盖修改／新增／删除／EOF、Unicode、保存与暂存不改变 HEAD 基线、提交后基线变化、冲突禁用、取消／非法路径，以及撤回保留其他块、Undo、锁定与过期草稿保护。Windows 原生结果另附于本节后续记录。
+
+Windows 原生验证使用独立 `Plico-validation/diff-fonts-20261019/markers-fixture`：初次截图发现 gutter 横坐标重复加了左内边距，已修正；最终 `markers-final-source.png` 显示标记位于行号与正文之间且不压字，`markers-final-deleted.png` 显示现代删除短标记及删除原文预览，`markers-final-added.png` 显示纯新增只有工具栏、最后一块下一项禁用。`markers-popup.png`／`markers-reverted.png`／`markers-undo.png` 验证修改原文预览、单块撤回、Ctrl+Z；宿主 Git 与文件读取核对自动保存结果，其他新增／删除保留，index 未改变。前后导航另修正为下一帧按目标块的实际坐标重新锚定弹层，不沿用上一个块的弹层位置。持续滚动手感仍由用户手测，未投入滚动自动化。未提交、推送或发布。
+
+最终构建补验：`markers-final-added.png` 确认导航弹层已跟随新增块位置；`markers-deleted-restored.png` 与 `markers-restore-deleted.ps1` 实际恢复删除的函数，磁盘断言同时确认原修改块和新增块仍保留、暂存区没有变化。最终 Windows release 构建通过；仅测试自建 fixture，未修改用户仓库或关闭用户 Rebased／IDE。

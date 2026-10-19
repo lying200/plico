@@ -108,3 +108,5 @@ fn open_project_window_at(path: std::path::PathBuf, limit: usize, report: Option
     cx.activate(true);
     Ok(())
 }
+
+mod source_changes;

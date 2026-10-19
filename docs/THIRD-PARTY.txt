@@ -323,3 +323,14 @@ Source and local mapping: docs/REBASED-REFERENCE.md. Existing Apache-2.0 text
 is distributed with the JetBrains icon/theme attribution.
 
 Checkbox focus rendering reference: platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaCheckBoxUI.java (same Rebased commit and Apache-2.0 license).
+
+Source editor Git change markers
+
+src/line_changes.rs and src/source_changes.rs adapt LineStatusTracker and
+LineStatusMarkerRendererWithPopup behavior from platform/vcs-impl and
+platform/diff-impl in Rebased, commit 4aec35256d765c217aa0d662b82ac4e860c396fd.
+Copyright JetBrains s.r.o. and contributors. Licensed under Apache-2.0.
+assets/icons/rollback_dark.svg comes from platform/icons/src/expui/vcs/revert_dark.svg;
+assets/icons/copy_dark.svg comes from platform/icons/src/expui/general/copy_dark.svg
+at the same commit. Original SVG copyright notices are preserved.
+The license text is included at licenses/assets/icons/LICENSE.txt.

@@ -11323,6 +11323,11 @@ impl InputBaseState<crate::input::EditorMode> {
         self.silent_replace_text = silent;
     }
 
+    /// Fixed gutter boundary, independent of horizontal scrolling.
+    pub fn source_gutter_right(&self) -> Option<Pixels> {
+        Some(self.input_bounds.left() + self.last_layout.as_ref()?.line_number_width)
+    }
+
     /// Window-space extent of source lines, including wrapping but excluding
     /// alignment padding after the final line. Used by Diff divider connectors.
     pub fn source_line_extent(&self, range: Range<usize>) -> Option<(Pixels, Pixels)> {

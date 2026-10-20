@@ -2161,3 +2161,13 @@ Windows 原生验证使用独立两提交 fixture、独立 bottom-preview profil
 验证：`equal_line_changes_scroll_together_on_first_frame` 通过真实 EditableDiff 与每帧 prepaint probe 捕获所有中间帧，修前失败，修后左右作为主侧均通过；45 项桌面测试通过，继续明确跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。未合成鼠标滚轮事件做界面自动化；动态手感由用户手测。本次用户附件为 Commit 菜单，未将其作为 Diff 现象截图证据。
 
 补充验收：独立 gpui-base 单元测试 `wheel_publishes_viewport_before_paint_and_supersedes_pending_peer` 通过，验证无编辑器绘制时也已发布事件、清除旧 peer 请求、随后 paint 发布不重复事件。Windows release 构建通过；独立 200 行仓库新开 Diff Tab 的原生截图 `artifacts/scroll-sync-20261020/tab.png` 确认第 9 行两侧及中栏连续对齐。静态截图不代表持续滚动已验收。测试进程关闭，未操作用户 Rebased／IDE。
+
+### 2026-10-20 分支弹窗 Fetch 入口及加载状态
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与此快照不保证相同。实读 `plugins/git4idea/backend/src/ui/branch/GitBranchPopupFetchAction.kt`：只在主分支弹窗显示，空闲使用 `AllIcons.Vcs.Fetch`；busy 时换 `AnimatedIcon.Default`、文案 fetching，保持动画工作但 actionPerformed 拒绝重复启动。`backend/src/actions/GitFetch.java` 后台 fetchAllRemotes，结束更新 action 并显示结果通知。`backend/src/fetch/GitFetchSupportImpl.kt` 用运行计数在 try/finally 发布开始／结束事件，逐仓库枚举全部 remotes；`GitFetchResult.kt` 定义成功／失败结果通知接口。`tests/git4idea/fetch/GitFetchTest.kt` 验证默认、指定、全部远端的引用更新。
+
+本地：`src/ui/repository_popup.rs` 在搜索框右侧添加既有 Fetch SVG 按钮，调用 `start_fetch`，不关闭分支弹窗；复用 `Button::loading` 动画和禁止重复激活的实现。`src/active_operation.rs::Lifecycle::is_running` 从真实操作所有权读取状态，取消请求后仍显示加载，直到 worker 退出。允许 Fetch 期间重开弹窗观察状态，其他互斥操作期间仍禁用入口。执行复用现有认证、取消、全部远端查询和结果后的分支／Log 刷新，不新增 Git 执行链路。
+
+保留差异：单窗口单仓库模型；沿用 Plico 既有“未配置远端”的执行后提示，没有为此按钮额外发起配置查询来提前禁用；加载动画使用 GPUI Spinner，未复制 Swing 动画资源。未添加尚无对应功能的设置齿轮。结构对齐截图中的搜索框右侧入口，未宣称像素级一致。
+
+验证：45 项桌面测试通过（仍跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败），4 项 operation 生命周期测试通过，含新增取消期间保持 Fetch 状态／禁止重复启动／完成恢复测试。Windows release 构建成功；仅在独立 fixture 与本地 bare remote 上用延迟 upload-pack 实测按钮，`artifacts/popup-fetch-20261020/{idle,loading,completed}.png` 分别记录空闲、加载及成功恢复，弹窗全程保留，状态栏显示 Fetch completed。认证及 Git 执行代码未改动。新入口及加载状态已原生核对，未宣称完整弹窗像素级还原。

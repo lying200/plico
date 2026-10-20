@@ -38,6 +38,9 @@ pub struct Lifecycle {
     saving_documents: bool,
 }
 impl Lifecycle {
+    pub fn is_running(&self, kind: Kind) -> bool {
+        self.running.as_ref().is_some_and(|running| running.kind == kind)
+    }
     pub fn busy(&self) -> bool {
         self.running.is_some()
     }
@@ -103,6 +106,7 @@ mod tests {
     fn cancellation_keeps_ownership_and_stale_completion_cannot_unlock_new_work() {
         let mut state = Lifecycle::default();
         let (first, token) = state.begin(Kind::Push, Phase::Executing).unwrap();
+        assert!(!state.is_running(Kind::Fetch));
         state.request_cancel();
         assert!(token.cancelled());
         assert!(state.documents_locked(false));
@@ -113,6 +117,17 @@ mod tests {
         assert!(state.busy());
         assert_eq!(state.finish(second), Some(false));
         assert!(!state.documents_locked(false));
+    }
+    #[test]
+    fn fetch_indicator_survives_cancel_request_until_worker_finishes() {
+        let mut state = Lifecycle::default();
+        let (id, _) = state.begin(Kind::Fetch, Phase::Executing).unwrap();
+        assert!(state.is_running(Kind::Fetch));
+        state.request_cancel();
+        assert!(state.is_running(Kind::Fetch));
+        assert!(state.begin(Kind::Fetch, Phase::Executing).is_none());
+        assert_eq!(state.finish(id), Some(true));
+        assert!(!state.is_running(Kind::Fetch));
     }
     #[test]
     fn reset_preparation_is_cancellable_execution_is_not() {

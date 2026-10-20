@@ -232,7 +232,7 @@ impl Review {
                 titlebar_menu_button("repository-branch-menu")
                     .tooltip(self.branch_update_tooltip())
                     .ghost()
-                    .disabled(self.operation.busy() || self.settings_open || head.is_none())
+                    .disabled((self.operation.busy() && !self.operation.is_running(plico::active_operation::Kind::Fetch)) || self.settings_open || head.is_none())
                     .child(
                         h_flex()
                             .items_center()
@@ -601,9 +601,16 @@ impl Review {
                     .is_some_and(|menu|menu.read(cx).contains_position(&event.position));
                 if !in_child { s.dismiss_repository_menu(cx); cx.notify(); }
             }))
-            .child(div().on_mouse_down(MouseButton::Left, cx.listener(|s, _, _, cx| {
-                s.repository_search_editing = true; cx.notify();
-            })).child(Input::new(&self.repository_search_input).prefix(jb_icon("search_dark.svg"))))
+            .child(h_flex().items_center().gap_1()
+                .child(div().flex_1().min_w_0().on_mouse_down(MouseButton::Left, cx.listener(|s, _, _, cx| {
+                    s.repository_search_editing = true; cx.notify();
+                })).child(Input::new(&self.repository_search_input).prefix(jb_icon("search_dark.svg"))))
+                .child(Button::new("repository-fetch").ghost().small().w(px(28.)).h(px(28.))
+                    .icon(jb_icon("fetch_dark.svg"))
+                    .loading(self.operation.is_running(plico::active_operation::Kind::Fetch))
+                    .disabled(self.operation.busy() && !self.operation.is_running(plico::active_operation::Kind::Fetch))
+                    .tooltip(t(if self.operation.is_running(plico::active_operation::Kind::Fetch) { "Fetching…" } else { "Fetch" }))
+                    .on_click(cx.listener(|s, _, window, cx| s.start_fetch(window, cx)))))
             .children(self.repository_actions.iter().map(|id| {
                 let action = id.clone();
                 let hovered_action = id.clone();

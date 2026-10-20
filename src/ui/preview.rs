@@ -3,6 +3,16 @@
 use super::*;
 
 impl Review {
+    pub(super) fn uses_local_changes_preview(&self) -> bool {
+        self.local_visible && self.local_preview_requested
+    }
+    pub(super) fn activate_log_preview(&mut self) {
+        if self.local_preview_requested {
+            self.local_preview_requested = false;
+            self.local_preview = None;
+        }
+    }
+
     pub(super) fn show_error_details(&self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(error) = self.error.clone() else {
             return;
@@ -297,5 +307,46 @@ impl Review {
             })
             .child(div().flex_1().w_full().min_h_0().min_w_0().child(content))
             .relative().children(island_corners(!self.expanded))
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod ownership_tests {
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use gpui::component::Root;
+    #[gpui::test]
+    fn clicking_same_log_commit_reclaims_preview_without_closing_commit_sidebar(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone()); Root::new(view, window, cx)
+        });
+        let view = review.unwrap();
+        cx.update(|window, cx| view.update(cx, |s, cx| {
+            s.commits = Arc::new(vec![git::Commit { id: "a".into(), parents: vec![], shallow_boundary: false,
+                author: String::new(), date: String::new(), subject: "commit".into(), refs: vec![] }]);
+            s.log_selection.select(&s.commit_ids(), 0, false, false);
+            s.history_loading = false;
+            s.open_local(window, cx);
+            assert!(s.uses_local_changes_preview());
+            s.select_log_row(0, false, false, false, cx);
+            assert!(s.local_visible, "switching preview must not collapse Commit");
+            assert!(!s.uses_local_changes_preview(), "Log must own the preview even if selection did not change");
+        }));
+        cx.update(|_, cx| view.update(cx, |s, cx| {
+            s.local_view.as_ref().unwrap().update(cx, |_, cx| cx.notify());
+        }));
+        cx.update(|_, cx| view.update(cx, |s, cx| {
+            assert!(!s.uses_local_changes_preview(), "ordinary sidebar notifications must not reclaim preview");
+            s.local_view.as_ref().unwrap().update(cx, |_, cx| cx.emit(crate::local_view::PreviewSelected));
+        }));
+        cx.update(|_, cx| view.update(cx, |s, cx| {
+            assert!(s.uses_local_changes_preview(), "explicit local selection must reclaim preview");
+            s.select_log_row(0, true, false, false, cx);
+            assert!(!s.uses_local_changes_preview(), "empty Log selection must not reveal local diff");
+        }));
     }
 }

@@ -149,6 +149,7 @@ pub struct Review {
     expanded: bool,
     tabs: Vec<Entity<DiffTab>>,
     local_preview: Option<Entity<DiffTab>>,
+    local_preview_requested: bool,
     local_visible: bool,
     local_view: Option<Entity<crate::local_view::LocalView>>,
     project_visible: bool,
@@ -401,6 +402,7 @@ impl Review {
             expanded: false,
             tabs: Vec::new(),
             local_preview: None,
+            local_preview_requested: false,
             local_visible: false,
             local_view: None,
             project_visible: false,
@@ -599,7 +601,7 @@ impl Render for Review {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_language(_window, cx);
         let show_local_preview = self.bottom_preview
-            && (self.local_visible || self.stash_open || self.aggregate_chain.is_some())
+            && (self.uses_local_changes_preview() || self.stash_open || self.aggregate_chain.is_some())
             && self.active_diff_index().is_none()
             && self.active_file_index().is_none();
         if !show_local_preview {
@@ -635,7 +637,7 @@ impl Render for Review {
                     }
                 }
             }
-        } else if !self.local_visible && self.aggregate_chain.is_some() {
+        } else if !self.uses_local_changes_preview() && self.aggregate_chain.is_some() {
             let pair = self.aggregate_chain.clone().and_then(|mut chain| {
                 chain
                     .select(self.selected_file?)
@@ -967,7 +969,7 @@ impl Render for Review {
                                             .relative().size_full()
                                             .rounded(px(10.))
                                             .overflow_hidden()
-                                            .child(if self.local_visible || self.stash_open || self.aggregate_chain.is_some() {
+                                            .child(if self.uses_local_changes_preview() || self.stash_open || self.aggregate_chain.is_some() {
                                                 div().size_full().children(self.local_preview.clone())
                                                     .when(self.local_preview.is_none(), |v| v.child(div().p_3().child(t("Select a file to view its diff")))).into_any_element()
                                             } else { self.diff_panel(cx).into_any_element() })

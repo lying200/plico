@@ -107,6 +107,7 @@ impl Review {
         if self.local || self.history_loading || self.commits.is_empty() {
             return;
         }
+        self.activate_log_preview();
         let ids = self.commit_ids();
         self.log_selection.step(&ids, delta, false);
         let lead = self.log_selection.lead(&ids);
@@ -119,6 +120,7 @@ impl Review {
         if self.local || self.history_loading {
             return;
         }
+        self.activate_log_preview();
         let ids = self.commit_ids();
         self.log_selection.step(&ids, delta, true);
         let lead = self.log_selection.lead(&ids);
@@ -205,6 +207,7 @@ impl Review {
             .map(|p| (p as isize + delta).clamp(0, visible.len() as isize - 1) as usize)
             .unwrap_or(if delta < 0 { visible.len() - 1 } else { 0 });
         let (row, index) = visible[next];
+        self.activate_log_preview();
         self.load_file(index, cx);
         self.files_scroll.scroll_to_item(row, ScrollStrategy::Top);
     }
@@ -514,6 +517,7 @@ impl Review {
                                         )
                                         .on_click(move |event, window, cx| {
                                             let _ = owner.update(cx, |s, cx| {
+                                                s.activate_log_preview();
                                                 s.load_file(i, cx);
                                                 if event.click_count() == 2 {
                                                     s.open_diff_tab(window, cx);

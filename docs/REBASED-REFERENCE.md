@@ -2139,3 +2139,13 @@ Windows 原生验收使用独立 `Plico-validation/rollback-20261020/fixture` �
 验证：先提取既有位置恢复逻辑运行 `cargo test --locked --features desktop-tests --bin plico ui::log_viewport::tests`，顶部新增提交用例失败（实际第 1 行，预期第 0 行），另两项旧历史／后续分页用例通过。修复后加上行内像素偏移、仅引用刷新用例，共 5 项通过；桌面测试合计 43 项通过，仍排除已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过。滚动手感与滚动期间刷新按项目约定留给用户手测，不做滚轮自动化。
 
 Windows 原生验收：独立 80 条提交 fixture 与本地 bare remote，启动截图 `artifacts/log-viewport-20261020/window.png` 首行 History 79；向 bare remote 新增提交并执行 fetch，不发送任何滚动事件，自动刷新完成截图 `after-fetch-settled.png` 首行变为 Remote update visible at top，History 79 仍被选中，详情保留；`update.json` 记录新旧 hash。`after-fetch.png` 是查询中的旧快照，不作为完成证据。仅关闭自建 Plico 测试进程，未操作用户项目或 Rebased/IDE。
+
+## 底部预览在本地变更与 Log 间切换（2026-10-20）
+
+参考 `4aec35256d765c217aa0d662b82ac4e860c396fd`，不等同安装版 1.1.20。实读 `MainFrame.java` 的 selection listener／FrameDiffPreview 创建，`VcsLogTableCommitSelectionListener.kt`、`VcsLogCommitSelectionListenerForDiff.kt`、`VcsLogChangeProcessor.kt` 全文，以及 `VcsLogChangesBrowser.kt::createChangeProcessor`：Log 的预览 processor 属于 Log changes browser；提交选择更新详情及树模型，空选择清理；树模型变化触发 ON_MODEL_CHANGE，预览从该树的选中文件生成，不由 Commit 工具窗展开状态决定。
+
+本地单个共享底部槽仍不同于上游各工具窗独立 preview，但来源不再由 `local_visible` 单独决定。`ui/preview.rs` 的来源判定／切换、`ui.rs` 的 viewer 创建与显示统一使用 `local_preview_requested`；显式打开 Commit 或 `LocalView::PreviewSelected`（点击文件、键盘导航、Diff 文件导航）请求本地来源。Log 行选择（包括同一行、右键、键盘和清空选择）、Log 文件选择切回 Log；保留 Commit 侧栏及其文件选择。后台列表刷新、输入草稿、提交勾选仍只发普通通知，不抢回来源。异步 Log 结果只更新数据，不改变来源意图。本轮不改变 Stash 独立面板行为，也不关闭已有 Diff 编辑器 Tab。
+
+回归：抽取实际渲染使用的来源判定，旧行为在 `clicking_same_log_commit_reclaims_preview_without_closing_commit_sidebar` 失败；修复后同一测试经过真实 Review／LocalView 事件订阅，验证同一 Log 行切回、侧栏仍展开、普通通知不抢来源、再次显式本地选择切回、清空 Log 选择不暴露本地 Diff。桌面测试 44 项通过，仍排除已记录 Diff 生命周期基线失败。Windows release 构建通过。
+
+Windows 原生验证使用独立两提交 fixture、独立 bottom-preview profile；`artifacts/preview-owner-20261020/log-same.png` 显示点击原来同一条 Log 提交后 BASE → COMMITTED，`local-again.png` 显示重新选择本地文件后 COMMITTED → LOCAL UNCOMMITTED，`log-other-settled.png` 显示选择另一条提交后 Empty tree → BASE。Commit 侧栏始终展开且本地选择保留。原生键盘与多选组合仍待手测；没有触发用户仓库写操作，关闭的仅自建测试进程。

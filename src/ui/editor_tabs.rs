@@ -150,6 +150,13 @@ impl Review {
         if self.local_view.is_none() {
             let repo = self.repo.clone();
             let view = cx.new(|cx| crate::local_view::LocalView::new(repo, window, cx));
+            cx.subscribe(&view, |s, _, _: &crate::local_view::PreviewSelected, cx| {
+                if !s.local_preview_requested {
+                    s.local_preview = None;
+                    s.local_preview_requested = true;
+                }
+                cx.notify();
+            }).detach();
             cx.subscribe_in(
                 &view,
                 window,
@@ -223,6 +230,7 @@ impl Review {
         }
         self.comparison_visible = false;
         self.local_visible = true;
+        self.local_preview_requested = true;
         self.project_visible = false;
         self.stash_open = false;
         cx.notify();

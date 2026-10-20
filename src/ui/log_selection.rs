@@ -7,6 +7,7 @@ impl Review {
         if self.history_loading {
             return;
         }
+        self.activate_log_preview();
         let ids = self.commit_ids();
         self.log_selection.select(&ids, index, false, false);
         self.load_log_selection(cx);
@@ -25,6 +26,7 @@ impl Review {
         if self.history_loading {
             return;
         }
+        self.activate_log_preview();
         let ids = self.commit_ids();
         let before = self
             .log_selection

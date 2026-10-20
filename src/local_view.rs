@@ -9,6 +9,8 @@ pub use rollback::{RequestRollback, ExecuteRollback};
 actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh, Rollback, ToggleDirectory]);
 pub struct OpenDiff(pub Target, pub Chain);
 pub struct Hide;
+/// Explicit tree navigation, separate from refresh/draft notifications.
+pub struct PreviewSelected;
 pub struct Submit(pub bool, pub bool);
 pub struct Changed { pub push: bool }
 pub struct LocalView {
@@ -22,6 +24,7 @@ pub struct LocalView {
 }
 impl EventEmitter<OpenDiff> for LocalView {}
 impl EventEmitter<Hide> for LocalView {}
+impl EventEmitter<PreviewSelected> for LocalView {}
 impl EventEmitter<Submit> for LocalView {}
 impl EventEmitter<Changed> for LocalView {}
 impl Drop for LocalView { fn drop(&mut self) { self.amend_token.cancel(); if let Some(t) = &self.write_token { t.cancel(); } } }
@@ -160,6 +163,7 @@ impl LocalView {
         self.rollback_scope=Some((target.change().area,std::iter::once(target.change().path.clone()).collect()));
         if let Some(row) = self.model.reveal(target.change()) {
             self.scroll.scroll_to_item(row, ScrollStrategy::Top);
+            cx.emit(PreviewSelected);
             cx.notify();
         }
     }
@@ -172,6 +176,7 @@ impl LocalView {
     }
     fn step(&mut self,forward:bool,cx:&mut Context<Self>) {
         self.model.step(forward);
+        cx.emit(PreviewSelected);
         if let Some(index)=self.model.selected() {
             let change=&self.model.files()[index];self.rollback_scope=Some((change.area,std::iter::once(change.path.clone()).collect()));
             if let Some(row)=self.model.rows().iter().position(|r|matches!(r,Row::Entry{row:file_tree::Row::File{index:i,..},..} if *i==index)) {
@@ -256,7 +261,7 @@ impl Render for LocalView {
                         .on_click(cx.listener(move |s,e:&ClickEvent,w,cx|{s.focus.focus(w,cx);
                             s.rollback_scope=s.model.rows().get(row).map(|r|(match r{Row::Group{area,..}|Row::Entry{area,..}=>*area},s.model.inclusion_paths(row)));
                             match s.model.rows().get(row).cloned() {
-                                Some(Row::Entry{row:file_tree::Row::File{index,..},..})=>{s.model.select(index);if e.click_count()==2{s.show_diff(cx);}},
+                                Some(Row::Entry{row:file_tree::Row::File{index,..},..})=>{s.model.select(index);cx.emit(PreviewSelected);if e.click_count()==2{s.show_diff(cx);}},
                                 _=>s.model.toggle(row),
                             } cx.notify();
                         }))

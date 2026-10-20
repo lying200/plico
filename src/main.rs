@@ -36,6 +36,7 @@ mod unified_editing;
 mod history_view;
 mod error_ui;
 mod local_view;
+mod changes_refresh;
 mod user_menu;
 mod paths_menu;
 mod path_chooser;

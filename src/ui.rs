@@ -666,9 +666,9 @@ impl Render for Review {
             let view = view.read(cx);
             // Keep the viewer while a listing refresh is in flight. Ordinary
             // sidebar notifications (draft edits/inclusion) do not invalidate it.
-            if !view.preview_loading() {
-                let revision = view.preview_revision();
-                match view.preview_change() {
+            if !view.preview_loading(cx) {
+                let revision = view.preview_revision(cx);
+                match view.preview_change(cx) {
                     Some(change) => {
                         let unchanged = self.local_preview.as_ref().is_some_and(|p| {
                             let p = p.read(cx);
@@ -679,7 +679,7 @@ impl Render for Review {
                                 && p.target.change().status == change.status
                         });
                         if let Some((target, chain)) =
-                            (!unchanged).then(|| view.preview_target()).flatten()
+                            (!unchanged).then(|| view.preview_target(cx)).flatten()
                         {
                             let callback = self.diff_source_callback(cx);
                             let reusable = self

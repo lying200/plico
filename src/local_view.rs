@@ -1,5 +1,5 @@
 //! Independent workspace tool window; opening a comparison does not select a Log row.
-use plico::{git::{Cancel, Repository}, local_changes::{Model, Row}, file_tree, diff_target::{Target, Chain}, i18n::t, commit_inclusion::{Inclusion as Selection, Identity as InclusionIdentity}, commit_changes::{Snapshot, File as CommitFile}, commit_draft::{Draft, Amend}, commit_operation, commit_recovery};
+use plico::{git::{Cancel, Repository}, local_changes::{Model, Row}, file_tree, diff_target::{Target, Chain}, i18n::t, commit_inclusion::{Inclusion as Selection, Identity as InclusionIdentity}, commit_changes::File as CommitFile, commit_draft::{Draft, Amend}, commit_operation, commit_recovery};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use gpui_kit::component::{button::{Button, ButtonVariants as _}, checkbox::Checkbox, input::{Textarea, TextareaState, InputEvent}, Disableable as _, Sizable as _, Icon, h_flex, v_flex};
 actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh]);
@@ -14,15 +14,19 @@ pub struct LocalView {
     selection: Selection, draft: Draft, input: Entity<TextareaState>, head: Option<String>, recovery: bool,
     preparing: bool,
     write_token: Option<Cancel>, write_task: Task<()>, amend_token: Cancel, amend_task: Task<()>, notice: Option<String>, write_error: Option<WriteFailure>,
-    token: Cancel, generation: u64, task: Task<()>, feedback_task: Task<()>, show_refresh_feedback: bool, loaded: bool, busy: bool, refresh_pending: bool, error: Option<String>,
+    refresh: Entity<crate::changes_refresh::ChangesRefresh>, error: Option<String>,
 }
 impl EventEmitter<OpenDiff> for LocalView {}
 impl EventEmitter<Hide> for LocalView {}
 impl EventEmitter<Submit> for LocalView {}
 impl EventEmitter<Changed> for LocalView {}
-impl Drop for LocalView { fn drop(&mut self) { self.token.cancel(); self.amend_token.cancel(); if let Some(t) = &self.write_token { t.cancel(); } } }
+impl Drop for LocalView { fn drop(&mut self) { self.amend_token.cancel(); if let Some(t) = &self.write_token { t.cancel(); } } }
 impl LocalView {
     pub fn new(repo: Repository, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let refresh = cx.new(|_| crate::changes_refresh::ChangesRefresh::new(repo.clone()));
+        Self::with_refresh(repo, refresh, window, cx)
+    }
+    fn with_refresh(repo: Repository, refresh: Entity<crate::changes_refresh::ChangesRefresh>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.bind_keys([KeyBinding::new("enter",ShowDiff,Some("LocalChanges")), KeyBinding::new("ctrl-d",ShowDiff,Some("LocalChanges")),
             KeyBinding::new("down",NextFile,Some("LocalChanges")),KeyBinding::new("up",PreviousFile,Some("LocalChanges")),
             KeyBinding::new("ctrl-f5",Refresh,Some("LocalChanges"))]);
@@ -33,50 +37,33 @@ impl LocalView {
                 cx.notify();
             }
         }).detach();
+        cx.observe(&refresh, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(&refresh, |s, _, event, cx| {
+            use crate::changes_refresh::Update;
+            match event {
+                Update::Started => s.error = None,
+                Update::Loaded(snapshot, recovery) => {
+                    s.selection.replace(snapshot);
+                    s.model.replace(snapshot.files.iter().map(CommitFile::change).collect());
+                    s.head = snapshot.head.clone();
+                    s.recovery = *recovery;
+                }
+                Update::Failed(error) => s.error = Some(error.clone()),
+            }
+            cx.notify();
+        }).detach();
         let mut view = Self { ui_chinese: plico::i18n::is_chinese(), selection: Selection::default(), draft: Draft::default(), input, head: None, recovery: false,
             preparing: false, write_token: None, write_task: Task::ready(()), amend_token: Cancel::default(), amend_task: Task::ready(()), notice: None, write_error: None, repo, model: Model::default(), focus: cx.focus_handle(), scroll: UniformListScrollHandle::new(),
-            token: Cancel::default(), generation: 0, task: Task::ready(()), feedback_task: Task::ready(()), show_refresh_feedback: false, loaded: false, busy: false, refresh_pending: false, error: None };
+            refresh, error: None };
         view.refresh(cx); view
     }
     pub fn focus_message(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |input,cx| input.focus(window,cx));
     }
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        if self.write_token.is_some() { return; }
-        if self.busy { self.refresh_pending = true; return; }
-        self.refresh_pending = false;
-        self.token.cancel(); self.generation+=1; self.token=Cancel::default(); self.busy=true; self.error=None;
-        self.start_refresh_feedback(cx);
-        let repo=self.repo.clone(); let token=self.token.clone(); let generation=self.generation;
-        self.task=cx.spawn(async move |this,cx| {
-            let result=cx.background_spawn(async move {
-                let snapshot=Snapshot::load(&repo,&token)?;
-                let recovery=commit_recovery::pending(&repo.editor_directory(&token)?)?.is_some();
-                Ok::<_,String>((snapshot,recovery))
-            }).await;
-            let _=this.update(cx,|s,cx| {
-                if generation!=s.generation {return;}
-                s.busy=false;
-                s.feedback_task = Task::ready(()); s.show_refresh_feedback = false;
-                match result { Ok((snapshot,recovery))=>{s.loaded=true;s.selection.replace(&snapshot);s.model.replace(snapshot.files.iter().map(CommitFile::change).collect());s.head=snapshot.head;s.recovery=recovery;}, Err(e)=>s.error=Some(e) }
-                if std::mem::take(&mut s.refresh_pending) { s.refresh(cx); }
-                cx.notify();
-            });
-        }); cx.notify();
-    }
-    fn start_refresh_feedback(&mut self, cx: &mut Context<Self>) {
-        self.show_refresh_feedback = false;
-        let generation = self.generation;
-        self.feedback_task = cx.spawn(async move |this, cx| {
-            // Short status reads are silent. Long reads annotate the existing
-            // group rows, never insert a banner above the retained tree.
-            cx.background_executor().timer(std::time::Duration::from_millis(300)).await;
-            let _ = this.update(cx, |s, cx| {
-                if s.busy && s.generation == generation {
-                    s.show_refresh_feedback = true; cx.notify();
-                }
-            });
-        });
+        if self.write_token.is_none() {
+            self.refresh.update(cx, |query, cx| query.request(cx));
+        }
     }
     fn sync_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text=self.draft.message().to_owned(); self.input.update(cx,|s,cx|s.set_value(text,window,cx));
@@ -112,7 +99,7 @@ impl LocalView {
         cx.spawn_in(window, async move |this, wx| {
             loop {
                 let done=this.update_in(wx,|s,w,cx| {
-                    if s.busy {return false;}
+                    if s.refresh.read(cx).busy() {return false;}
                     s.preparing = false;
                     s.execute_submit(push,recover,w,cx); cx.notify(); true
                 }).unwrap_or(true);
@@ -122,7 +109,7 @@ impl LocalView {
         }).detach();
     }
     fn execute_submit(&mut self, push: bool, recover: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy || self.write_token.is_some() || self.error.is_some() {return;}
+        if self.refresh.read(cx).busy() || self.write_token.is_some() || self.error.is_some() {return;}
         if self.recovery != recover {return;}
         let request=if recover {None} else {
             if let Err(error)=self.draft.edit(self.input.read(cx).value().to_string()){self.notice=Some(error);cx.notify();return;}
@@ -177,14 +164,14 @@ impl LocalView {
             });});
         });cx.notify();
     }
-    pub fn preview_loading(&self) -> bool { self.busy }
-    pub fn preview_revision(&self) -> u64 { self.generation }
-    pub fn preview_change(&self) -> Option<&plico::git::Change> {
-        if self.busy || self.error.is_some() { return None; }
+    pub fn preview_loading(&self, cx: &App) -> bool { self.refresh.read(cx).busy() }
+    pub fn preview_revision(&self, cx: &App) -> u64 { self.refresh.read(cx).revision() }
+    pub fn preview_change(&self, cx: &App) -> Option<&plico::git::Change> {
+        if self.refresh.read(cx).busy() || self.error.is_some() { return None; }
         self.model.files().get(self.model.selected().unwrap_or(0))
     }
-    pub fn preview_target(&self) -> Option<(Target, Chain)> {
-        let change = self.preview_change()?.clone();
+    pub fn preview_target(&self, cx: &App) -> Option<(Target, Chain)> {
+        let change = self.preview_change(cx)?.clone();
         let target = Target::new(self.repo.clone(), None, change).ok()?;
         let chain = Chain::new(&target, self.model.files()).ok()?;
         Some((target, chain))
@@ -197,7 +184,7 @@ impl LocalView {
         }
     }
     fn show_diff(&mut self,cx:&mut Context<Self>) {
-        if self.busy || self.error.is_some() {return;}
+        if self.refresh.read(cx).busy() || self.error.is_some() {return;}
         let Some(change)=self.model.selected().and_then(|i|self.model.files().get(i)).cloned() else {return;};
         match Target::new(self.repo.clone(),None,change).and_then(|target| Chain::new(&target,self.model.files()).map(|chain|OpenDiff(target,chain))) {
             Ok(event)=>cx.emit(event), Err(e)=>{self.error=Some(e);cx.notify();}
@@ -233,22 +220,22 @@ impl Render for LocalView {
                 .child(Button::new("local-refresh").ghost().small().icon(icon("jb/refresh_dark.svg")).tooltip(t("Refresh"))
                     .disabled(self.write_token.is_some()).on_click(cx.listener(|s,_,_,cx|s.refresh(cx))))
                 .child(Button::new("local-diff").ghost().small().icon(icon("jb/diff_dark.svg")).tooltip(t("Show Diff · Ctrl+D"))
-                    .disabled(self.busy || self.error.is_some() || self.model.selected().is_none()).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
+                    .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.model.selected().is_none()).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
                 .child(div().flex_1())
                 .child(Button::new("local-expand").ghost().small().icon(icon("jb/expandAll_dark.svg")).tooltip(t("Expand All"))
                     .on_click(cx.listener(|s,_,_,cx|{s.model.expand_all();cx.notify();})))
                 .child(Button::new("local-collapse").ghost().small().icon(icon("jb/collapseAll_dark.svg")).tooltip(t("Collapse All"))
                     .on_click(cx.listener(|s,_,_,cx|{s.model.collapse_all();cx.notify();})))
-                .when(self.show_refresh_feedback && self.model.files().is_empty(), |v| v.child(
+                .when(self.refresh.read(cx).feedback() && self.model.files().is_empty(), |v| v.child(
                     div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("Loading local changes…")))))
             .when_some(self.error.clone(),|v,e|v.child({
                 let owner=cx.entity().downgrade();
-                crate::error_ui::notice("commit-read-error","Could not load local changes",e,self.busy,move|_,_,cx|{let _=owner.update(cx,|s,cx|s.refresh(cx));})
+                crate::error_ui::notice("commit-read-error","Could not load local changes",e,self.refresh.read(cx).busy(),move|_,_,cx|{let _=owner.update(cx,|s,cx|s.refresh(cx));})
             }))
             .child(div().relative().flex_1().min_h_0().child(uniform_list("local-tree",self.model.rows().len(),cx.processor(|s,range:std::ops::Range<usize>,_,cx| {
                 range.map(|row| {
                     let item=s.model.rows()[row].clone();
-                    let updating = s.show_refresh_feedback && matches!(item, Row::Group { .. });
+                    let updating = s.refresh.read(cx).feedback() && matches!(item, Row::Group { .. });
                     let paths=s.model.inclusion_paths(row);
                     let area=match &item {Row::Group{area,..}|Row::Entry{area,..}=>*area};
                     let ids=s.model.files().iter().filter(|f|f.area==area && paths.contains(&f.path))
@@ -270,7 +257,7 @@ impl Render for LocalView {
                             .indeterminate(included>0 && included<total)
                             .accessibility_label(label.clone())
                             .tooltip(t("Commit entire file, including unstaged changes"))
-                            .disabled(s.busy || s.error.is_some() || s.write_token.is_some() || total==0)
+                            .disabled(s.refresh.read(cx).busy() || s.error.is_some() || s.write_token.is_some() || total==0)
                             .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.selection.set_scope(&ids,*checked);cx.stop_propagation();cx.notify();})))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
                         .child(div().truncate().text_color(rgb(color)).child(label))
@@ -286,11 +273,11 @@ impl Render for LocalView {
                 #[cfg(all(test, feature = "desktop-tests"))]
                 let tree = tree.debug_selector(|| "local-tree".into());
                 tree
-            })).when(self.loaded && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
+            })).when(self.refresh.read(cx).loaded() && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
                 div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
                 .child(Checkbox::new("commit-amend").label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
-                    .disabled(self.write_token.is_some() || self.busy || self.head.is_none() || self.recovery)
+                    .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
                     .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx))))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))
                 .when_some(match self.draft.amend(){Amend::Failed(e)=>Some(e.clone()),_=>None},|v,e|v.child(v_flex().gap_1()
@@ -307,14 +294,14 @@ impl Render for LocalView {
                         .child(crate::error_ui::details_button("commit-write-error",format!("{}\n{}",t(e.summary),e.details)))
                         .child(Button::new("commit-error-dismiss").link().small().label(t("Dismiss"))
                             .on_click(cx.listener(|s,_,_,cx|{s.write_error=None;cx.notify();}))))))
-                .when(self.recovery,|v|v.child(Button::new("commit-recover").label(t("Restore staged changes")).disabled(self.write_token.is_some() || self.busy)
+                .when(self.recovery,|v|v.child(Button::new("commit-recover").label(t("Restore staged changes")).disabled(self.write_token.is_some() || self.refresh.read(cx).busy())
                     .on_click(cx.listener(|s,_,w,cx|s.submit(false,true,w,cx)))))
                 .child(h_flex().flex_wrap().gap_2()
                     .child(Button::new("commit-submit").primary().label(t(if !matches!(self.draft.amend(),Amend::Off){"Amend Commit"}else{"Commit"}))
-                        .disabled(self.busy || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
+                        .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
                         .on_click(cx.listener(|s,_,w,cx|s.submit(false,false,w,cx))))
                     .child(Button::new("commit-push").label(t(if !matches!(self.draft.amend(),Amend::Off){"Amend Commit and Push…"}else{"Commit and Push…"}))
-                        .disabled(self.busy || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
+                        .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
                         .on_click(cx.listener(|s,_,w,cx|s.submit(true,false,w,cx))))
                     .when(self.write_token.is_some(),|v|v.child(Button::new("commit-cancel").label(t("Cancel")).on_click(cx.listener(|s,_,_,cx|{if let Some(t)=&s.write_token{t.cancel();}cx.notify();}))))))
     }
@@ -326,74 +313,46 @@ mod refresh_tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
-    fn refreshing_retains_tree_geometry(cx: &mut gpui::TestAppContext) {
+    fn refreshing_retains_tree_geometry_and_delivers_results(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut local = None;
         let (_, cx) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| LocalView::new(Repository::new("missing-fixture"), window, cx));
-            view.update(cx, |s, _| {
-                s.task = Task::ready(());
-                s.busy = false;
-                s.model.replace(vec![plico::git::Change { path: "review.txt".into(), old_path: None,
-                    status: "?".into(), area: plico::git::Area::Untracked }]);
-            });
-            local = Some(view.clone());
-            gpui::component::Root::new(view, window, cx)
-        });
-        cx.update(|w, cx| w.draw(cx).clear(cx));
-        let before = cx.debug_bounds("local-tree").unwrap();
-        cx.update(|w, cx| {
-            local.as_ref().unwrap().update(cx, |s, cx| { s.busy = true; s.show_refresh_feedback = true; cx.notify(); });
-            w.draw(cx).clear(cx);
-        });
-        assert_eq!(cx.debug_bounds("local-tree").unwrap(), before,
-            "refreshing must not move or resize the retained changes tree");
-    }
-    #[gpui::test]
-    fn short_refreshes_stay_silent_and_slow_feedback_is_cancelled(cx: &mut gpui::TestAppContext) {
-        cx.update(gpui::component::init);
-        let mut local = None;
-        let (_, cx) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| LocalView::new(Repository::new("missing-fixture"), window, cx));
-            view.update(cx, |s, cx| { s.task = Task::ready(()); s.start_refresh_feedback(cx); });
+            let count = std::rc::Rc::new(std::cell::Cell::new(0));
+            let query = cx.new(|_| crate::changes_refresh::ChangesRefresh::with_loader(
+                Repository::new("unused"), std::rc::Rc::new(move |_, _, cx| {
+                    let n = count.get() + 1; count.set(n);
+                    let timer = cx.background_executor().timer(std::time::Duration::from_millis(if n == 1 { 100 } else { 1000 }));
+                    cx.background_spawn(async move {
+                        timer.await;
+                        Ok((plico::commit_changes::Snapshot {
+                            head: Some(format!("head-{n}")),
+                            files: vec![CommitFile::Unversioned(plico::git::Change {
+                                path: format!("review-{n}.txt").into(), old_path: None,
+                                status: "?".into(), area: plico::git::Area::Untracked,
+                            })], review_versions: vec![],
+                        }, false))
+                    })
+                })));
+            let view = cx.new(|cx| LocalView::with_refresh(Repository::new("unused"), query, window, cx));
             local = Some(view.clone());
             gpui::component::Root::new(view, window, cx)
         });
         let local = local.unwrap();
         cx.run_until_parked();
-        cx.executor().advance_clock(std::time::Duration::from_millis(100));
+        cx.executor().advance_clock(std::time::Duration::from_millis(100)); cx.run_until_parked();
+        cx.update(|w, cx| w.draw(cx).clear(cx));
+        let before = cx.debug_bounds("local-tree").unwrap();
+        assert_eq!(local.read_with(cx, |s, _| s.head.clone()).as_deref(), Some("head-1"));
+        cx.update(|_, cx| local.update(cx, |s, cx| s.refresh(cx)));
         cx.run_until_parked();
-        assert!(!cx.read(|cx| local.read(cx).show_refresh_feedback));
-        cx.executor().advance_clock(std::time::Duration::from_millis(250));
-        cx.run_until_parked();
-        assert!(cx.read(|cx| local.read(cx).show_refresh_feedback));
-        cx.update(|_, cx| local.update(cx, |s, cx| {
-            s.start_refresh_feedback(cx);
-            s.busy = false;
-            s.feedback_task = Task::ready(());
-        }));
-        cx.executor().advance_clock(std::time::Duration::from_secs(1));
-        cx.run_until_parked();
-        assert!(!cx.read(|cx| local.read(cx).show_refresh_feedback));
-    }
-    #[gpui::test]
-    fn repeated_refresh_does_not_cancel_inflight_query(cx: &mut gpui::TestAppContext) {
-        cx.update(gpui::component::init);
-        let mut local = None;
-        let (_, cx) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|cx| LocalView::new(Repository::new("missing-fixture"), window, cx));
-            local = Some(view.clone());
-            gpui::component::Root::new(view, window, cx)
-        });
-        cx.update(|_, cx| local.as_ref().unwrap().update(cx, |s, cx| {
-            s.task = Task::ready(());
-            s.busy = true;
-            let generation = s.generation;
-            let token = s.token.clone();
-            for _ in 0..10 { s.refresh(cx); }
-            assert_eq!(s.generation, generation);
-            assert!(!token.cancelled());
-            assert!(s.refresh_pending);
-        }));
+        cx.executor().advance_clock(std::time::Duration::from_millis(350)); cx.run_until_parked();
+        cx.update(|w, cx| w.draw(cx).clear(cx));
+        assert_eq!(cx.debug_bounds("local-tree").unwrap(), before);
+        assert!(local.read_with(cx, |s, cx| s.refresh.read(cx).feedback()));
+        assert_eq!(local.read_with(cx, |s, _| s.head.clone()).as_deref(), Some("head-1"));
+        cx.executor().advance_clock(std::time::Duration::from_millis(650)); cx.run_until_parked();
+        assert_eq!(local.read_with(cx, |s, _| s.head.clone()).as_deref(), Some("head-2"));
+        assert_eq!(local.read_with(cx, |s, _| s.model.files()[0].path.clone()), std::path::PathBuf::from("review-2.txt"));
+        assert!(!local.read_with(cx, |s, cx| s.refresh.read(cx).feedback()));
     }
 }

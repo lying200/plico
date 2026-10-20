@@ -19,6 +19,30 @@ impl Batch {
         if self.paths.len() > 512 { self.paths.clear(); self.all = true; }
     }
 }
+/// Independent deadlines for open-document polling and repository fallback.
+/// File events never postpone either deadline. Advance only when writes are idle.
+pub struct Schedule {
+    next_documents: Instant,
+    next_repository: Instant,
+    fallback: bool,
+    initial: bool,
+}
+impl Schedule {
+    pub fn new(now: Instant, fallback: bool) -> Self {
+        Self { next_documents: now, next_repository: now, fallback, initial: true }
+    }
+    pub fn advance(&mut self, batch: &mut Batch, now: Instant) -> bool {
+        if std::mem::take(&mut self.initial) || (self.fallback && now >= self.next_repository) {
+            batch.all = true;
+            batch.index = true;
+            self.next_repository = now + Duration::from_secs(30);
+        }
+        let poll = now >= self.next_documents;
+        if poll { self.next_documents = now + Duration::from_secs(2); }
+        poll
+    }
+}
+
 #[derive(Default)]
 struct Pending { batch: Batch, first: Option<Instant>, last: Option<Instant> }
 impl Pending {
@@ -83,6 +107,29 @@ impl Stamp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn events_do_not_accelerate_or_starve_document_polling() {
+        let now = Instant::now();
+        let mut schedule = Schedule::new(now, false);
+        let mut initial = Batch::default();
+        assert!(schedule.advance(&mut initial, now));
+        assert!(initial.all);
+        let mut polls = 0;
+        for tick in 1..=10 {
+            let mut batch = Batch::default();
+            batch.paths.insert("unrelated.txt".into());
+            polls += usize::from(schedule.advance(&mut batch, now + Duration::from_millis(tick * 400)));
+            assert!(!batch.all);
+        }
+        assert_eq!(polls, 2);
+        let mut fallback = Schedule::new(now, true);
+        fallback.advance(&mut Batch::default(), now);
+        let mut batch = Batch::default();
+        fallback.advance(&mut batch, now + Duration::from_secs(29));
+        assert!(!batch.changed());
+        fallback.advance(&mut batch, now + Duration::from_secs(30));
+        assert!(batch.all && batch.index);
+    }
     #[test]
     fn coalesces_filters_and_bounds_events() {
         let root = Path::new("repo"); let mut p = Pending::default();

@@ -2084,3 +2084,15 @@ Windows release 构建通过。独立 markers-fixture 原生截图位于 `artifa
 回归：`refreshing_retains_tree_geometry` 在旧实现真实布局中失败（树顶 68px → 94px、高度减少 26px），修复后通过；慢刷新提示的延迟／结束取消、右键点击非选中目录后树重排仍复制原路径、已有刷新请求合并用例通过。完整桌面单元测试 38/39 通过；唯一失败 `editable_diff::lifecycle_tests::releasing_diff_clears_padding_from_retained_source` 在未修改的 HEAD 独立源码快照中也同样失败，未修改这一无关 Diff 行为。原生截图、操作结果与最终构建记录见 `artifacts/project-menu-refresh-20261020`。精确像素还原不作为本轮结论。
 
 Windows 原生验收：独立本地 fixture 中，右键未选中目录后的剪贴板完整路径与 Explorer 选中路径均符合预期（clipboard.json、explorer.json）；受控 Git status 延迟 1200ms 时，changes-before/during/after.png 显示更新文字留在既有分组行，树顶和文件行位置保持不变；空闲 8 秒 status 次数 2→2，文件事件后 2→3（refresh.json）。测试进程与打包 EXE SHA-256 均为 `61a06f5511c208bac67fb5fd2154a848a9ba468c6f07ffacd5ef2af13a716986`。Windows 预览包为 `dist/Plico-windows-x64-preview-20261020-project-menu-refresh.zip`。
+
+## 新增功能复审与刷新状态封装（2026-10-20）
+
+复审范围 `dad3cb7...2a3371a`，参考仍为 Rebased `4aec35256d765c217aa0d662b82ac4e860c396fd`，已安装 1.1.20 不视为相同源码版本。本轮重新读取 `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/UpdateRequestsQueue.java` 的 schedule／RefreshRunnable，以及同目录 `VcsDirtyScopeVfsListener.kt` 的受影响路径收集；另读取 `platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/FileDocumentManagerImpl.java` 的 afterVfsChange／contentsChanged：按变更文件查找缓存文档，保护未保存文档。提取规则是合并重复查询、按受影响文档分发变化，而非每个事件扫描全部打开文档。
+
+发现并修复事件即时分发后的 IO 回归：`Documents::observe_disk` 原先即使路径不相关也会启动 stamp 读取，文件事件还会重置两秒检查计时。本地 `src/editing/external.rs` 改为命中事件路径或周期到期才检查；`src/worktree_events.rs::Schedule` 分别管理两秒文档检查与三十秒仓库兜底，普通文件事件不修改期限；`src/ui/worktree_sync.rs` 负责将两者接入同一事件循环。仍保留 GPUI／notify 轻量实现，不移植 IDE VFS；未测量异机 Windows→WSL 性能，不将该回归修复等同于全仓 Git status 提速。
+
+`src/changes_refresh.rs::ChangesRefresh` 持有具体本地更改查询、取消令牌、合并请求和 300ms 延迟提示，向 LocalView 提供只读状态与结果事件。`src/local_view.rs` 保留树模型、提交范围、草稿、写操作及结果应用；控制器销毁取消查询，查询失败保留已加载列表。不把此模块推广成全局任务框架，300ms 可见反馈依然是本地抑制闪烁的选择。领域术语和架构评估分别记录于 CONTEXT.md、docs/ARCHITECTURE.md。
+
+自动验证：新回归 `unrelated_events_do_not_schedule_open_document_io` 在修前失败、修后通过；独立时钟覆盖连续事件不推迟／加速兜底。控制器测试覆盖十次请求合并、300ms 延迟、失败保留加载状态、结束不残留提示和销毁取消；LocalView 测试通过生产订阅接线验证真实结果交付、旧列表保留与树区域尺寸不变。206 项库测试、2 项真实文件监听集成测试、38 项桌面测试通过；桌面测试仍排除上一轮已经在原始 HEAD 复现的 `releasing_diff_clears_padding_from_retained_source`，不宣称完整桌面测试全绿。
+
+Windows release 在独立构建缓存中通过（旧缓存出现依赖 crate metadata 缺失，未改依赖规避）。原生独立 fixture 验证位于 `artifacts/refresh-architecture-20261020/`：`changes-during.png`／`changes-after.png` 确认 1200ms status 延迟时更新文字位于既有分组行，完成后消失，文件行位置不变。`refresh.json` 记录空闲八秒 Git status 次数 2→2，修改文件后 2→3。未操作用户仓库、未关闭用户窗口，未做滚动自动化；本轮未提交或推送。

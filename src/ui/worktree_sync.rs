@@ -17,23 +17,18 @@ impl Review {
             // UNC notifications may be absent even when watch registration succeeds.
             // Deliver debounced filesystem events promptly. The two-second
             // timer is only a stamp check for open documents, not a Git refresh.
-            let mut last_check = Instant::now() - Duration::from_secs(2);
-            let mut last_fallback = Instant::now();
-            let mut initial = true;
+            let mut schedule = plico::worktree_events::Schedule::new(Instant::now(), fallback);
             loop {
                 if token.cancelled() { break; }
                 let ready = this.read_with(wx, |s, _| !s.welcome && !s.operation.busy() && !s.documents.locked()
                     && s.repo.path == root).unwrap_or(false);
                 if ready {
                     let mut batch = events.as_ref().map(Events::take).unwrap_or_default();
-                    if std::mem::take(&mut initial) || (fallback && last_fallback.elapsed() >= Duration::from_secs(30)) {
-                        batch.all = true; batch.index = true; last_fallback = Instant::now();
-                    }
-                    if batch.changed() || last_check.elapsed() >= Duration::from_secs(2) {
-                        last_check = Instant::now();
+                    let poll_open_documents = schedule.advance(&mut batch, Instant::now());
+                    if batch.changed() || poll_open_documents {
                         if this.update_in(wx, |s, window, cx| {
                             if token.cancelled() || s.documents.locked() || s.operation.busy() { return; }
-                            s.sync_worktree(batch, window, cx);
+                            s.sync_worktree(batch, poll_open_documents, window, cx);
                         }).is_err() { break; }
                     }
                 }
@@ -41,8 +36,8 @@ impl Review {
             }
         });
     }
-    fn sync_worktree(&mut self, batch: Batch, window: &mut Window, cx: &mut Context<Self>) {
-        self.documents.observe_disk(&batch, window, cx);
+    fn sync_worktree(&mut self, batch: Batch, poll_open_documents: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.documents.observe_disk(&batch, poll_open_documents, window, cx);
         if !batch.changed() { return; }
         if let Some(view) = &self.local_view { view.update(cx, |v, cx| v.refresh(cx)); }
         if let Some(view) = &self.project_view { view.update(cx, |v, cx| v.refresh_external(cx)); }

@@ -16,11 +16,14 @@ impl Default for Observation {
 }
 impl Drop for Observation { fn drop(&mut self) { self.token.cancel(); } }
 impl Documents {
-    pub fn observe_disk(&self, changes: &Batch, window: &mut Window, cx: &mut App) {
+    pub fn observe_disk(&self, changes: &Batch, poll_open_documents: bool, window: &mut Window, cx: &mut App) {
         if self.locked() { return; }
         for document in self.all() {
             document.update(cx, |d, cx| {
-                d.observe_disk(changes.affects(&d.path), self.clone(), window, cx);
+                let affected = changes.affects(&d.path);
+                if affected || poll_open_documents {
+                    d.observe_disk(affected, self.clone(), window, cx);
+                }
             });
         }
     }
@@ -139,6 +142,28 @@ mod tests {
     struct Empty;
     impl Render for Empty {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement { gpui::div() }
+    }
+    #[gpui::test]
+    fn unrelated_events_do_not_schedule_open_document_io(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let documents = Documents::default();
+        let mut document = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            document = Some(documents.get_or_create("fixture".into(), "a.txt".into(),
+                Document::new(b"old".to_vec()).unwrap(),
+                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())), cx));
+            let empty = cx.new(|_| Empty); Root::new(empty, window, cx)
+        });
+        let document = document.unwrap();
+        cx.update(|window, cx| {
+            let mut batch = plico::worktree_events::Batch::default();
+            batch.paths.insert("unrelated.txt".into());
+            documents.observe_disk(&batch, false, window, cx);
+            assert!(!document.read(cx).external.checking,
+                "an unrelated file event must not start disk IO for every open document");
+            documents.observe_disk(&batch, true, window, cx);
+            assert!(document.read(cx).external.checking, "periodic fallback must still check open documents");
+        });
     }
     #[gpui::test]
     fn external_reload_keeps_identity_position_and_physical_format(cx: &mut gpui::TestAppContext) {

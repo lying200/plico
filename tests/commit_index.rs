@@ -186,6 +186,7 @@ fn executor_commits_selected_worktree_and_amends_without_unselected_index_leak()
         let r = request(&f, amend);
         let report = execute(&f, &r);
         assert!(report.succeeded(), "{:?}", report.restore);
+        assert!(plico::commit_feedback::from_report(&report).is_ok());
         assert_eq!(f.git(&["show", "HEAD:selected"]), b"chosen\n");
         assert_eq!(f.git(&["show", "HEAD:excluded"]), b"base\n");
         assert_eq!(f.git(&["show", ":excluded"]), b"excluded staged\n");
@@ -243,10 +244,15 @@ fn executor_preflight_and_prepare_failures_do_not_commit() {
 fn executor_reports_restore_failure_even_when_commit_itself_succeeded() {
     let f = Fixture::new(); f.base();
     f.write("excluded", "staged\n"); f.git(&["add", "excluded"]); f.write("selected", "chosen\n");
-    hook(&f, "post-commit", "echo test-owned-lock > .git/index.lock");
+    hook(&f, "post-commit", &format!("echo test-owned-lock > .git/index.lock\nprintf '%s\\n' '{}' >&2", "x".repeat(70_000)));
     let r = request(&f, false); let report = execute(&f, &r);
     assert!(!report.succeeded()); assert!(report.restore.is_err());
     assert!(report.steps.last().unwrap().result.as_ref().unwrap().status.success());
+    let feedback = plico::commit_feedback::from_report(&report).unwrap_err();
+    assert_eq!(feedback.summary, "Commit index recovery is required");
+    assert!(feedback.details.starts_with(report.restore.as_ref().unwrap_err()));
+    assert!(feedback.details.ends_with("[Diagnostic truncated]"));
+    assert!(feedback.details.chars().count() <= 32_000);
     assert_ne!(report.head.unwrap(), r.expected_head);
     fs::remove_file(f.0.join(".git/index.lock")).unwrap();
     f.apply(report.recovery_input.unwrap());
@@ -328,6 +334,9 @@ fn executor_classifies_empty_and_signing_failure_without_retrying_unsigned() {
         }
         let r = request(&f, false); let report = execute(&f, &r);
         assert_eq!(report.status(), if signing { Status::SigningFailed } else { Status::Empty });
+        let feedback = plico::commit_feedback::from_report(&report).unwrap_err();
+        assert_eq!(feedback.summary, if signing { "Commit signing failed" } else { "Nothing to commit" });
+        assert!(!feedback.details.is_empty());
         assert!(!report.succeeded()); assert_eq!(report.head.unwrap(), r.expected_head);
         assert_eq!(f.git(&["show", ":excluded"]), b"excluded staged\n");
         assert_no_message_file(&f);

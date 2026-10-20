@@ -107,6 +107,7 @@ pub mod project_files;
 pub mod local_changes;
 pub mod commit_index;
 pub mod commit_operation;
+pub mod commit_feedback;
 pub mod commit_result;
 pub mod commit_recovery;
 pub mod commit_draft;

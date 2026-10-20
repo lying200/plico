@@ -1,5 +1,6 @@
 //! Independent workspace tool window; opening a comparison does not select a Log row.
 use plico::{git::{Cancel, Repository}, local_changes::{Model, Row}, file_tree, diff_target::{Target, Chain}, i18n::t, commit_inclusion::{Inclusion as Selection, Identity as InclusionIdentity}, commit_changes::File as CommitFile, commit_draft::{Draft, Amend}, commit_operation, commit_recovery};
+use plico::commit_feedback::{self, Failure as WriteFailure};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use gpui_kit::component::{button::{Button, ButtonVariants as _}, checkbox::Checkbox, input::{Textarea, TextareaState, InputEvent}, Disableable as _, Sizable as _, Icon, h_flex, v_flex};
 actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh]);
@@ -7,7 +8,6 @@ pub struct OpenDiff(pub Target, pub Chain);
 pub struct Hide;
 pub struct Submit(pub bool, pub bool);
 pub struct Changed { pub push: bool }
-struct WriteFailure { summary: &'static str, details: String }
 pub struct LocalView {
     ui_chinese: bool,
     repo: Repository, model: Model, focus: FocusHandle, scroll: UniformListScrollHandle,
@@ -126,36 +126,9 @@ impl LocalView {
         self.write_task=cx.spawn_in(window,async move|this,wx|{
             let result=wx.background_spawn(async move{
                 let progress=plico::operation_process::Progress::default();
-                if recover {return commit_recovery::restore(&repo,&token,&progress).map_err(|details|WriteFailure{summary:"Could not restore staged changes",details});}
-                let report=commit_operation::execute(&repo,&request.unwrap(),&token,&progress).map_err(|details|WriteFailure{summary:"Commit failed",details})?;
-                if report.succeeded(){return Ok(());}
-                let label=match report.status(){
-                    commit_operation::Status::RestoreFailed=>"Commit index recovery is required",
-                    commit_operation::Status::RecoveryRecordFailed=>"Could not remove commit recovery record",
-                    commit_operation::Status::Cancelled=>"Commit cancelled",
-                    commit_operation::Status::TimedOut=>"Commit timed out",
-                    commit_operation::Status::SigningFailed=>"Commit signing failed",
-                    commit_operation::Status::Empty=>"Nothing to commit",
-                    _=>"Commit failed",
-                };
-                let mut details=String::new();
-                if let Some(step)=report.steps.last() {
-                    match &step.result {
-                        Err(e)=>details.push_str(e),
-                        Ok(out)=>{
-                            details.push_str(&String::from_utf8_lossy(&out.stderr.bytes()));
-                            details.push_str(&String::from_utf8_lossy(&out.stdout.bytes()));
-                            if let Some(e)=&out.input_error{details.push_str(&e.to_string());}
-                        }
-                    }
-                }
-                for e in [report.restore.as_ref().err(),report.recovery_record_error.as_ref(),report.head.as_ref().err(),report.state.as_ref().err()].into_iter().flatten(){
-                    if !details.is_empty(){details.push('\n');}details.push_str(e);
-                }
-                // Both process streams are already bounded tails. Keep a bounded
-                // presentation copy as well, with an explicit truncation marker.
-                if details.chars().count()>32000{details=details.chars().take(32000).collect();details.push_str("\n[Diagnostic truncated]");}
-                Err(WriteFailure{summary:label,details})
+                if recover {return commit_recovery::restore(&repo,&token,&progress).map_err(WriteFailure::restore);}
+                let report=commit_operation::execute(&repo,&request.unwrap(),&token,&progress).map_err(WriteFailure::commit)?;
+                commit_feedback::from_report(&report)
             }).await;
             let _=wx.update(|window,cx|{let _=this.update(cx,|s,cx|{
                 s.write_token=None;let success=result.is_ok();

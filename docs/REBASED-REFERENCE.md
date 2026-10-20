@@ -2096,3 +2096,13 @@ Windows 原生验收：独立本地 fixture 中，右键未选中目录后的剪
 自动验证：新回归 `unrelated_events_do_not_schedule_open_document_io` 在修前失败、修后通过；独立时钟覆盖连续事件不推迟／加速兜底。控制器测试覆盖十次请求合并、300ms 延迟、失败保留加载状态、结束不残留提示和销毁取消；LocalView 测试通过生产订阅接线验证真实结果交付、旧列表保留与树区域尺寸不变。206 项库测试、2 项真实文件监听集成测试、38 项桌面测试通过；桌面测试仍排除上一轮已经在原始 HEAD 复现的 `releasing_diff_clears_padding_from_retained_source`，不宣称完整桌面测试全绿。
 
 Windows release 在独立构建缓存中通过（旧缓存出现依赖 crate metadata 缺失，未改依赖规避）。原生独立 fixture 验证位于 `artifacts/refresh-architecture-20261020/`：`changes-during.png`／`changes-after.png` 确认 1200ms status 延迟时更新文字位于既有分组行，完成后消失，文件行位置不变。`refresh.json` 记录空闲八秒 Git status 次数 2→2，修改文件后 2→3。未操作用户仓库、未关闭用户窗口，未做滚动自动化；本轮未提交或推送。
+
+## 提交反馈解释封装（2026-10-20）
+
+参考 Rebased `4aec35256d765c217aa0d662b82ac4e860c396fd`，不等同于已安装 1.1.20。本轮实际重新读取 `plugins/git4idea/backend/src/checkin/GitRepositoryCommitter.kt` 全文，以及 `GitIndexInfoStagingAreaStateManager.kt::prepareStagingArea/restore`：提交失败才解释 GPG／空提交信号，不自动关闭签名重试；未选中暂存内容由 state manager 恢复，恢复异常上游记录 warn。本地仍沿用既有更严格的持久恢复记录与恢复失败状态，未修改 Git 命令、执行顺序或状态分类。
+
+本地映射：`src/commit_feedback.rs` 将 `commit_operation::Report` 转成 UI 已有的标题键和详情，`src/local_view.rs` 只消费结果。修正旧先拼日志再截断导致恢复错误丢失的问题：恢复／记录／状态错误优先，进程输出随后；最多 32000 个 Unicode 字符（含截断标记），输入错误与两条输出流分别分隔，传输层 tail 已截断时也明确标记。执行前和显式恢复错误同样有界。不改提示入口、弹窗结构与翻译键，不复制上游通知／GPG 配置动作。
+
+验证：3 项反馈单测覆盖 Unicode 截断、恢复优先级、记录清理与取消；33 项真实 Git 暂存／提交集成测试通过，其中成功、签名失败、空提交验证新的反馈 Interface，恢复失败用 70000 字符 post-commit 输出确认关键原因仍保留。38 项桌面测试通过，仍排除已记录的 Diff 生命周期基线失败。
+
+Windows release 构建通过，原生启动截图在 `artifacts/commit-feedback-20261020/window.png`。本次自动化无法可靠获得前台焦点，键盘输入被保护检查拒绝，定向消息输入也未形成提交说明；未实际触发提交，故失败弹窗的原生交互验收仍待手工完成，不能把 `failed.png` 文件名当作通过证据。未改用户仓库或操作其窗口。长日志恢复原因保留已由上述真实 Git fixture 断言验证。

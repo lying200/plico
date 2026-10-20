@@ -700,9 +700,11 @@ impl Render for Review {
                                 });
                                 preview
                             } else {
+                                let scope=view.scope.clone();
                                 let preview = cx.new(|_| {
                                     let mut p = DiffTab::preview(target, chain);
                                     p.documents = self.documents.clone();
+                                    p.commit_scope=Some(scope);
                                     p.snapshot_revision = revision;
                                     p
                                 });

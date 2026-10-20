@@ -2211,3 +2211,37 @@ Windows release 构建通过；独立 Windows fixture 与本地 bare remote 原�
 验证：新增 3 项临时仓库 Drop 测试通过，覆盖只删除确认记录、HEAD／index／工作区不变、序号漂移拒绝、取消与非法身份无写入；既有 Apply／Pop 的多场景集成回归通过。47 项桌面测试通过（仍单独排除已记录的 Diff 生命周期基线失败），其中新增真实 Review 页签测试验证实体复用、隐藏后恢复 Stash、Project 切换后恢复页签。Windows release 构建通过。原生验证中确认草稿跨 Commit／Stash 切换保留，并发现首次右键切换记录时 loading 提示挤动列表导致菜单丢失；已将 loading 放入固定高度工具栏，避免鼠标按下与抬起之间改变行位置。
 
 原生验收：独立 `Plico-validation/stash-tabs-20261020/fixture`，`artifacts/stash-tabs-20261020/{stash,draft-retained}.png` 确认页签结构、底部预览及草稿保留；最终构建 `final/context.png` 确认首次右键选中另一个 stash，内容加载中菜单仍出现且记录位置稳定；`final/confirm.png` 显示正确的 `stash@{1}` 和消息。`finish.ps1` 断言取消后完整 stack 不变，确认后只移除旧记录，HEAD／index／工作区不变；`final/dropped.png`、`final/reopened.png` 确认刷新后回退到剩余记录及隐藏重开仍为 Stash。结果见 `native-results.txt`。仅关闭自建测试进程；未操作用户仓库或 Rebased/IDE。键盘菜单、中文长文案和恢复冲突下页签交互仍待原生专项验收；未重新发布安装包。
+
+## 2026-10-20 编辑器变更标记的单块提交
+
+参考 Rebased `4aec35256d765c217aa0d662b82ac4e860c396fd`；宿主机 1.1.20 不保证与该源码快照一致。本轮重新实际读取：
+
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/ex/commit/CommitChunkComponent.kt` 的 Panel、Workflow、Handler、Component、Spec 和 ChunkCommitMessagePolicy：标记弹层内输入提交信息，空消息禁止执行、Ctrl+Enter 提交；只包含当前 range；执行时关闭弹层，成功清理消息，关闭弹层保留临时消息。上游还支持 inline Amend 和自适应输入高度。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/ex/PartialLocalLineStatusTracker.kt::handlePartialCommit/applyPartialCommitChanges`：从基线合成选中范围内容，成功后更新 tracker 的 VCS 基线，不把未选工作区改动撤掉。
+- `plugins/git4idea/backend/src/checkin/GitCheckinEnvironment.kt::commitRepository/addPartialChangesToIndex/stageAndCommit/convertDocumentContentToBytesWithBOM`：先把部分文件内容写入 index，普通 add 跳过已经处理的路径；处理换行与 BOM、保留 executable 模式；未选文件的 index 另行保护。选中的同一文件原 index 不属于 excluded-index 恢复范围，提交失败可保留已准备的选中块 index。
+- `plugins/git4idea/backend/src/index/GitIndexUtil.java::hashObject/updateIndex`：`hash-object -w --stdin --path` 应用 Git filter，再写指定 mode/OID/path 到 index。
+- `plugins/git4idea/tests/git4idea/tests/GitPartialCommitTest.kt` 全文：指定 changelist／排除 range、多列表组合、保留未选文件、autocrlf 开／关。命名列表本轮不实现，相关组合测试不宣称已覆盖。
+
+本地映射：`partial_commit::Chunk` 保存路径、基线 blob、当前文档快照、range 和消息；`prepare` 在现有提交 operation guard 内验证基线、保存后的正文、精确 range，合成目标 blob（保留当前文件换行/BOM），执行 clean filter 后再次验证磁盘内容。`commit_operation` 重用原有 prepare／commit／restore 与持久恢复记录，跳过选中文件的普通 add，不写工作区。没有临时 checkout/reset，不调用外部 diff 或 textconv；新 blob 在失败时可能不可达，由 Git GC 管理。失败后的选中文件 index 语义与上游一致，不声称恢复该文件原暂存版本。
+
+`source_changes` 标记弹层加入输入和上游 CommitInline 图标、Ctrl+Enter；消息保留至成功。`project_view` 只转发显式事件，`ui/operation` 通过既有保存门禁和文档锁运行，成功／失败均同步变更、文档与 Log。只提交此块，不使用 Commit 面板勾选范围或清理其独立草稿。
+
+阶段边界：首个入口是已跟踪普通文本文件的单块提交；尚未提供 Diff 多块勾选／块内选行、inline Amend、命名列表归属、未跟踪文件及 rename 旧路径基线。未引入 Shelf。临时消息仅当前源文件视图内保留，尚无跨重启消息历史；输入栏固定单行高度，与上游自适应布局保留差异，未宣称像素一致。沿用源码编辑器 5 MiB 正文预算，不进行全仓正文预加载。
+
+验证：6 项真实 Git 集成测试通过，覆盖分离改动、其他文件 staged/unstaged 保留、同文件已有 staged 内容、增删／EOF、Unicode 与 literal 路径、BOM／CRLF／autocrlf、clean filter／executable、正文／基线／范围过期、预取消和提交拒绝。33 项现有提交／index 集成测试通过。3 项 source_changes 桌面测试通过，验证空消息／锁定禁止触发、所选范围准确、提交事件不修改文档或清理失败前草稿，以及真实编辑器标记点击和输入框聚焦后的 Ctrl+Enter。Windows release 构建通过；原生交互验收见后续记录。
+
+Windows 原生验收：独立 `Plico-validation/chunk-commit-20261020/fixture` 中，通过鼠标提交修改块、Ctrl+Enter 提交删除块；宿主机 Git 断言每次只提交所选块，首块修改保持未提交，另一文件原 staged／unstaged 内容均保留。验收发现 textarea 的 Enter 处理吞掉 Ctrl+Enter，已用弹层 capture_action 处理 secondary Enter，并以失败后通过的焦点输入回归测试验证。成功后消息清空、只剩未提交标记、Log 自动出现两个新提交；截图 `artifacts/chunk-commit-20261020/{final-draft-cleared,final-log}.png`，断言 `native-results.txt`。Windows release 构建通过，测试进程已关闭；未操作用户仓库。新增块由 Git 集成测试覆盖，中文长消息、自适应输入和 inline Amend 尚未原生验收／实现；不宣称完整部分提交或像素级对齐。
+
+## 2026-10-20 Commit Diff 多块／部分行选择
+
+参考仍为 Rebased `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 1.1.20 与此快照分别记录。本轮重新实读 `SimpleLocalChangeListDiffViewer.kt` 全文、`LocalTrackerDiffUtil.kt` 的 `toggleBlockExclusion`／`toggleLinePartialExclusion`／`PartiallyExcludeSelectedLinesFromCommitAction`／`ExcludeAllCheckboxPanel`，`PartialLocalLineStatusTracker.kt` 的 `setPartiallyExcludedFromCommit`／`handlePartialCommit`，以及 `DocumentTracker.kt::getContentWithPartiallyAppliedBlocks`、`RangeExclusionState.Partial` 和 `DiffUtil.java::applyModification`。提交端重新读取 `GitCheckinEnvironment.kt::commitRepository/addPartialChangesToIndex/stageAndCommit`。测试参考实读 `PartiallyExcludedChangesTest.kt` 的 inclusion 缓存、无 tracker／全选／部分选择场景，`PartialLineStatusTrackerTest.kt::testPartialCommit1/2/3`（多块排除、提交后工作文档不变和基线更新）。未将未读测试视为已验证。
+
+规则：普通块在新侧有整体 checkbox；拆分后旧侧删除行和新侧新增行各有独立 mask。部分行操作将整块拆分时，对侧初始排除；不能按左右行号配对提交。选择覆盖完整块时使用整块包含／排除，只有覆盖部分块才进入逐行操作。原内容保留未选删除行，再在块尾插入所选新增行，段之间补必要换行。文件／组使用三态并与 tracker 同步；浏览选中与提交 inclusion 分开。部分路径先写合成 blob，普通 add 必须跳过这些路径，但仍处理同次选择的其他整文件。
+
+本地：`partial_selection.rs` 实现整块／独立增删行状态和内容合成；`commit_scope.rs` 是 Commit 树与 Diff 共享的 GPUI entity；`editable_diff/partial.rs` 提供并排模式中栏 checkbox、文件总 checkbox 与两侧“包含／排除所选行”菜单；拆分后逐行 checkbox 可直接切换。`local_view` 的整文件／目录勾选会清除该路径 partial 状态；`diff_tab` 仅对 Commit 的 HEAD—Working tree 普通修改路径启用，不对历史、Stash、index 比较启用。独立 Tab、底部预览和文件导航共享 scope。`commit_operation::execute_partial` 复用现有 operation guard、保存门禁和 index 恢复，支持多个部分文件与整文件混合。选择计算随比较任务生成，不在每帧重新执行行 diff。
+
+边界与保留差异：基线或正文改变时不猜测重定位旧 mask；活动视图清除该路径部分选择并排除整文件，关闭视图中保留的快照在提交前复验失败，不静默扩大为整文件。上游 tracker 有更细的编辑映射，本地采用保守失效。当前新增细粒度入口为并排模式；Unified 保留共享选择及文件总开关，尚无逐块／逐行控件。rename、全文件新增／删除继续走整文件提交，不伪装为行选择。当前未复制鼠标悬停才显示的临时单行 checkbox、排除区域的 gutter 淡化／部分块拆色、菜单动态文案与快捷键；整文件开关位于正文上方工具行，尚未并入版本标题。精确 checkbox 样式和位置待视觉细化，不宣称完整 Rebased 像素还原。命名列表与跨启动选择持久化不在此增量。
+
+验证：部分提交 Git 集成测试扩至 8 项，通过多块＋部分行＋整文件混合、未选 index／工作区保留、过期正文和非法路径拒绝；既有 33 项提交 index 测试通过。2 项选择模型测试覆盖拆分初始化、增删、空内容和无末尾换行；1 项 GPUI scope 测试覆盖共享三态和过期选择不扩大范围。Windows release 构建通过。独立 `Plico-validation/multi-commit-20261020/fixture` 原生验证两个整块与两侧部分行同时勾选、三态联动、右键菜单、逐行切换和真实提交；宿主机 Git 断言只提交所选内容、工作区不变、其他文件 staged/unstaged 均保留。截图与断言见 `artifacts/multi-commit-20261020/{blocks-selected,line-menu,line-included,selected-lines-and-blocks,committed}.png` 和 `native-results.txt`。不操作用户仓库；未发布新包。
+
+收尾回归：50 项桌面测试通过，仍只排除已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败。补充 scope 测试验证最后一行取消后，文件不进入提交但逐行控件状态保留。最终 Windows 构建再次打开独立 fixture，`final/arrows.png` 确认普通块回退箭头与提交 checkbox 共存，只有部分行块隐藏整块回退箭头；已关闭自建进程。原生完整提交流程已在此前同一增量构建验证，收尾改动是上述控件／空选择状态，不把截图当作滚动交互验证。

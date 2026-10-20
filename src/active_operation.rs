@@ -4,6 +4,7 @@ use crate::git::Cancel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    Commit,
     Fetch,
     Push,
     Pull,

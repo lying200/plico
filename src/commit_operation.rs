@@ -72,6 +72,17 @@ pub fn head(repo: &Repository, token: &Cancel) -> Result<Option<String>, String>
 /// Worker-only; caller must refresh UI even on failed/cancelled reports.
 /// The queue protects other operations in this app, not other Git clients.
 pub fn execute(repo: &Repository, request: &Request, token: &Cancel, progress: &Progress) -> Result<Report, String> {
+    execute_impl(repo, request, None, &[], token, progress)
+}
+pub(crate) fn execute_chunk(repo: &Repository, request: &Request, chunk: &crate::partial_commit::Chunk,
+    token: &Cancel, progress: &Progress) -> Result<Report, String> {
+    execute_impl(repo, request, Some(chunk), &[], token, progress)
+}
+pub fn execute_partial(repo: &Repository, request: &Request, files: &[crate::partial_selection::File], token: &Cancel, progress: &Progress) -> Result<Report,String> {
+    execute_impl(repo,request,None,files,token,progress)
+}
+fn execute_impl(repo: &Repository, request: &Request, chunk: Option<&crate::partial_commit::Chunk>, files: &[crate::partial_selection::File],
+    token: &Cancel, progress: &Progress) -> Result<Report, String> {
     if request.message.trim().is_empty() || request.message.contains('\0') || request.message.len() > 1024 * 1024 {
         return Err("Commit message must be nonempty and at most 1 MiB".into());
     }
@@ -100,6 +111,16 @@ pub fn execute(repo: &Repository, request: &Request, token: &Cancel, progress: &
     }
     let status = repo.read(&["status", "--porcelain=2", "-z", "--no-renames", "--untracked-files=no", "--ignored=no"].map(OsStr::new), token)?;
     let excluded = ExcludedIndex::capture(&status, &selected)?;
+    let mut paths=HashSet::new();
+    for file in files {
+        if !request.add.contains(&file.path) || !paths.insert(file.path.clone()) {return Err("Invalid partial commit path".into());}
+    }
+    let mut partial_input = chunk.map(|chunk| crate::partial_commit::prepare(repo, chunk, token, progress)).transpose()?;
+    for file in files {
+        partial_input.get_or_insert_with(Vec::new).extend(crate::partial_commit::prepare_file(repo,file,token,progress)?);
+    }
+    let adds = path_input(&request.add.iter().filter(|p| !paths.contains(*p) && chunk.is_none_or(|c| c.path!=**p)).cloned().collect::<Vec<_>>())?;
+    if head(repo, token)? != before { return Err("HEAD changed; refresh before committing".into()); }
     let message = MessageFile::new(&git_directory, request.message.as_bytes())?;
     let restore_input = excluded.restore_input();
     let prepared_input = excluded.prepare_input();
@@ -111,6 +132,11 @@ pub fn execute(repo: &Repository, request: &Request, token: &Cancel, progress: &
     // start, lock errors, staging errors, hook rejection, and cancellation).
     if !excluded.is_empty() {
         steps.push(Step { phase: Phase::Prepare, result: index(repo, &prepared_input, token, progress) });
+    }
+    if let Some(input) = &partial_input {
+        if steps.last().is_none_or(|s| good(&s.result)) {
+            steps.push(Step { phase: Phase::Add, result: index(repo, input, token, progress) });
+        }
     }
     for (phase, input) in [(Phase::Remove, &removes), (Phase::Add, &adds)] {
         if steps.last().is_some_and(|s| !good(&s.result)) { break; }
@@ -157,7 +183,7 @@ fn index(repo: &Repository, input: &[u8], token: &Cancel, progress: &Progress) -
     operation_process::run_with_input(repo.operation_command().args(["update-index", "-z", "--index-info"]),
         token, progress, Some(Duration::from_secs(30)), input).map_err(|e| e.to_string())
 }
-fn path_input(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
+pub(crate) fn path_input(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     for path in paths {
         if path.as_os_str().is_empty() || path.components().any(|c| !matches!(c, Component::Normal(_)))

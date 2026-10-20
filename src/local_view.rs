@@ -1,5 +1,5 @@
 //! Independent workspace tool window; opening a comparison does not select a Log row.
-use plico::{git::{Cancel, Repository}, local_changes::{Model, Row}, file_tree, diff_target::{Target, Chain}, i18n::t, commit_inclusion::{Inclusion as Selection, Identity as InclusionIdentity}, commit_changes::File as CommitFile, commit_draft::{Draft, Amend}, commit_operation, commit_recovery};
+use plico::{git::{Cancel, Repository}, local_changes::{Model, Row}, file_tree, diff_target::{Target, Chain}, i18n::t, commit_inclusion::{Identity as InclusionIdentity}, commit_changes::File as CommitFile, commit_draft::{Draft, Amend}, commit_operation, commit_recovery};
 use plico::commit_feedback::{self, Failure as WriteFailure};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use gpui_kit::component::{button::{Button, ButtonVariants as _}, checkbox::Checkbox, input::{Textarea, TextareaState, InputEvent}, Disableable as _, Sizable as _, menu::{ContextMenuExt as _, PopupMenuItem}, Icon, h_flex, v_flex};
@@ -15,7 +15,7 @@ pub struct Changed { pub push: bool }
 pub struct LocalView {
     ui_chinese: bool,
     repo: Repository, model: Model, focus: FocusHandle, scroll: UniformListScrollHandle,
-    selection: Selection, draft: Draft, input: Entity<TextareaState>, head: Option<String>, recovery: bool,
+    pub scope: Entity<crate::commit_scope::Scope>, draft: Draft, input: Entity<TextareaState>, head: Option<String>, recovery: bool,
     show_ignored: bool,
     preparing: bool, rolling_back: bool, rollback_scope: Option<(plico::git::Area, std::collections::HashSet<std::path::PathBuf>)>,
     write_token: Option<Cancel>, write_task: Task<()>, amend_token: Cancel, amend_task: Task<()>, notice: Option<String>, write_error: Option<WriteFailure>,
@@ -48,7 +48,7 @@ impl LocalView {
             match event {
                 Update::Started => s.error = None,
                 Update::Loaded(snapshot, recovery, ignored) => {
-                    s.selection.replace(snapshot);
+                    s.scope.update(cx,|scope,cx|scope.replace(snapshot,cx));
                     s.model.replace(snapshot.files.iter().map(CommitFile::change).chain(ignored.iter().filter(|_|s.show_ignored).cloned()).collect());
                     s.head = snapshot.head.clone();
                     s.recovery = *recovery;
@@ -57,7 +57,9 @@ impl LocalView {
             }
             cx.notify();
         }).detach();
-        let mut view = Self { ui_chinese: plico::i18n::is_chinese(), selection: Selection::default(), draft: Draft::default(), input, head: None, recovery: false,
+        let scope=cx.new(|_|crate::commit_scope::Scope::default());
+        cx.observe(&scope,|_,_,cx|cx.notify()).detach();
+        let mut view = Self { ui_chinese: plico::i18n::is_chinese(), scope, draft: Draft::default(), input, head: None, recovery: false,
             show_ignored: false, preparing: false, rolling_back: false, rollback_scope: None, write_token: None, write_task: Task::ready(()), amend_token: Cancel::default(), amend_task: Task::ready(()), notice: None, write_error: None, repo, model: Model::default(), focus: cx.focus_handle(), scroll: UniformListScrollHandle::new(),
             refresh, error: None };
         view.model.set_grouped(plico::layout_preferences::load_changes_option(&view.repo.path,plico::layout_preferences::ChangesOption::Directory));
@@ -120,13 +122,14 @@ impl LocalView {
         if self.recovery != recover {return;}
         let request=if recover {None} else {
             if let Err(error)=self.draft.edit(self.input.read(cx).value().to_string()){self.notice=Some(error);cx.notify();return;}
-            if !self.draft.can_submit(self.selection.count()){return;}
+            if !self.draft.can_submit(self.scope.read(cx).inclusion.count()){return;}
             let amend=matches!(self.draft.amend(),Amend::Ready(_));
             if let Amend::Ready(oid)=self.draft.amend() {if self.head.as_ref()!=Some(oid){self.notice=Some(t("HEAD changed; reload Amend").into());cx.notify();return;}}
-            match self.selection.request(self.draft.message().to_owned(),amend) {
+            match self.scope.read(cx).inclusion.request(self.draft.message().to_owned(),amend) {
                 Ok(r)=>Some(r),Err(e)=>{self.notice=Some(e);cx.notify();return;}
             }
         };
+        let partial=self.scope.read(cx).partial.values().filter(|f|f.selection.counts().0>0).cloned().collect::<Vec<_>>();
         let repo=self.repo.clone();let token=Cancel::default();self.write_token=Some(token.clone());
         self.write_error=None;
         self.notice=Some(t(if recover{"Restoring staged changes…"}else{"Committing…"}).into());
@@ -134,12 +137,12 @@ impl LocalView {
             let result=wx.background_spawn(async move{
                 let progress=plico::operation_process::Progress::default();
                 if recover {return commit_recovery::restore(&repo,&token,&progress).map_err(WriteFailure::restore);}
-                let report=commit_operation::execute(&repo,&request.unwrap(),&token,&progress).map_err(WriteFailure::commit)?;
+                let report=commit_operation::execute_partial(&repo,&request.unwrap(),&partial,&token,&progress).map_err(WriteFailure::commit)?;
                 commit_feedback::from_report(&report)
             }).await;
             let _=wx.update(|window,cx|{let _=this.update(cx,|s,cx|{
                 s.write_token=None;let success=result.is_ok();
-                match result {Ok(())=>{s.notice=Some(t(if recover{"Staged changes restored"}else{"Committed"}).into());if !recover{s.draft.committed();s.selection.clear();s.sync_input(window,cx);}},Err(e)=>{s.notice=None;s.write_error=Some(e);}}
+                match result {Ok(())=>{s.notice=Some(t(if recover{"Staged changes restored"}else{"Committed"}).into());if !recover{s.draft.committed();s.scope.update(cx,|q,cx|{q.inclusion.clear();q.partial.clear();cx.notify();});s.sync_input(window,cx);}},Err(e)=>{s.notice=None;s.write_error=Some(e);}}
                 cx.emit(Changed{push:success && push && !recover});cx.notify();
             });});
         });cx.notify();
@@ -227,7 +230,7 @@ impl Render for LocalView {
                     let area=match &item {Row::Group{area,..}|Row::Entry{area,..}=>*area};
                     let ids=s.model.files().iter().filter(|f|f.area==area && paths.contains(&f.path))
                         .filter_map(CommitFile::from_change).map(|f|InclusionIdentity::of(&f)).collect();
-                    let (included,total)=s.selection.scope_counts(&ids);
+                    let (included,total)=s.scope.read(cx).counts(&ids);
                     let branch=!matches!(&item, Row::Entry{row:file_tree::Row::File{..},..});
                     let (label,depth,asset,selected,color)=match item {
                         Row::Group{area,count,expanded}=>(format!("{}  {count}",t(if area==plico::git::Area::Untracked {"Unversioned Files"} else {area.label()})),0,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
@@ -247,7 +250,7 @@ impl Render for LocalView {
                             .accessibility_label(label.clone())
                             .tooltip(t("Commit entire file, including unstaged changes"))
                             .disabled(s.refresh.read(cx).busy() || s.error.is_some() || s.write_token.is_some() || total==0)
-                            .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.selection.set_scope(&ids,*checked);cx.stop_propagation();cx.notify();}))))
+                            .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.scope.update(cx,|q,cx|q.set_scope(&ids,*checked,cx));cx.stop_propagation();cx.notify();}))))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
                         .child(div().truncate().text_color(rgb(color)).when(branch && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(label))
                         .when_some(parent_label,|v,label|v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(label)))
@@ -271,7 +274,7 @@ impl Render for LocalView {
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
                 .child(h_flex().gap_2().child(Checkbox::new("commit-amend").label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
-                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(div().flex_1()).child(div().text_size(px(12.)).text_color(rgb(0x589df6)).child(format!("{} {}",self.selection.count(),t("selected")))))
+                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(div().flex_1()).child(div().text_size(px(12.)).text_color(rgb(0x589df6)).child(format!("{} {}",self.scope.read(cx).inclusion.count(),t("selected")))))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))
                 .when_some(match self.draft.amend(){Amend::Failed(e)=>Some(e.clone()),_=>None},|v,e|v.child(v_flex().gap_1()
                     .child(div().text_size(px(13.)).child(t("Could not load commit message")))
@@ -291,10 +294,10 @@ impl Render for LocalView {
                     .on_click(cx.listener(|s,_,w,cx|s.submit(false,true,w,cx)))))
                 .child(h_flex().flex_wrap().gap_2()
                     .child(Button::new("commit-submit").primary().label(t(if !matches!(self.draft.amend(),Amend::Off){"Amend Commit"}else{"Commit"}))
-                        .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
+                        .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.scope.read(cx).inclusion.count()))
                         .on_click(cx.listener(|s,_,w,cx|s.submit(false,false,w,cx))))
                     .child(Button::new("commit-push").label(t(if !matches!(self.draft.amend(),Amend::Off){"Amend Commit and Push…"}else{"Commit and Push…"}))
-                        .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
+                        .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.scope.read(cx).inclusion.count()))
                         .on_click(cx.listener(|s,_,w,cx|s.submit(true,false,w,cx))))
                     .when(self.write_token.is_some() && !self.rolling_back,|v|v.child(Button::new("commit-cancel").label(t("Cancel")).on_click(cx.listener(|s,_,_,cx|{if let Some(t)=&s.write_token{t.cancel();}cx.notify();}))))))
     }

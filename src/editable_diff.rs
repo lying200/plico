@@ -7,9 +7,12 @@ use crate::editing::{Documents, Editing};
 use plico::{working_copy::Contents, diff_target::Target};
 use std::{sync::Arc, time::Duration};
 
+mod partial;
 pub struct Compared(pub DiffFile);
 impl EventEmitter<Compared> for EditableDiff {}
 pub struct EditableDiff {
+    partial_template: Option<plico::partial_selection::Selection>,
+    commit_scope: Option<(Entity<crate::commit_scope::Scope>,plico::commit_inclusion::Identity)>,
     pub working: Option<Entity<Editing>>,
     modified: Entity<EditorState>,
     source_layout: Option<(bool,bool)>,
@@ -94,7 +97,7 @@ impl EditableDiff {
         cx.subscribe(&working,|s,_,_:&crate::editing::Reloaded,cx|s.recompare(cx)).detach();
         cx.observe(&working,|_,_,cx|cx.notify()).detach();
         let source_layout=Some(editor.read(cx).source_layout());
-        let mut view=Self { working:Some(working),source_layout,modified:editor,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,split_ratio:0.5,original_active:false,pending_reveal:None,active:true,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),appearance:None,task:Task::ready(()) };
+        let mut view=Self { commit_scope:None,partial_template:None, working:Some(working),source_layout,modified:editor,original,baseline,comparison_baseline,eol_only:false,path:id.path.to_string_lossy().into_owned(),original_marks,working_marks,documents,generation:0,split_ratio:0.5,original_active:false,pending_reveal:None,active:true,unified_mode:false,unified:None,last_file:None,changes:Vec::new(),line_ranges:Vec::new(),appearance:None,task:Task::ready(()) };
         view.recompare(cx); view
     }
     fn bind_scroll(editor:&Entity<EditorState>, original:&Entity<EditorState>, cx:&mut Context<Self>) {
@@ -145,7 +148,7 @@ impl EditableDiff {
         for (is_original,editor) in [(true,&original),(false,&modified)] {
             cx.subscribe(editor,move |s,_,event:&InputEvent,_|if matches!(event,InputEvent::Focus) {s.original_active=is_original;}).detach();
         }
-        Self {working:None,source_layout:None,modified,original,comparison_baseline:baseline.clone(),baseline,eol_only:false,
+        Self {commit_scope:None,partial_template:None,working:None,source_layout:None,modified,original,comparison_baseline:baseline.clone(),baseline,eol_only:false,
             path:path.to_string_lossy().into_owned(),original_marks,working_marks,documents:Documents::default(),
             generation:0,split_ratio:0.5,original_active:false,pending_reveal:None,active:true,unified_mode:false,unified:None,
             last_file:Some(file.clone()),changes:file.change_starts(),line_ranges:file.change_line_ranges(),appearance:None,task:Task::ready(())}
@@ -319,6 +322,7 @@ impl EditableDiff {
         let ranges = self.line_ranges.clone();
         let ratio = self.split_ratio;
         let generation = self.generation;
+        let partially_split = self.partial_selection(cx).map(|s|s.blocks.into_iter().zip(s.included).filter_map(|(b,i)|matches!(i,plico::partial_selection::Included::Lines{..}).then_some(b)).collect::<Vec<_>>()).unwrap_or_default();
         let editable = self.working.is_some() && !self.documents.locked();
         let owner = cx.entity().downgrade();
         canvas(move |bounds, window, cx| {
@@ -330,7 +334,7 @@ impl EditableDiff {
                 if bottom_a.max(bottom_b) < bounds.top() || top_a.min(top_b) > bounds.bottom() {continue;}
                 let color = if a.is_empty() {0x294436} else if b.is_empty() {0x484a4a} else {0x385570};
                 let arrow = Bounds::new(point(x-px(21.),top_a.max(bounds.top())),size(px(16.),px(18.)));
-                let hitbox = editable.then(||window.insert_hitbox(arrow, HitboxBehavior::Normal));
+                let hitbox = (editable && !partially_split.iter().any(|p|p.original==*a && p.current==*b)).then(||window.insert_hitbox(arrow, HitboxBehavior::Normal));
                 blocks.push((i,top_a,bottom_a,top_b,bottom_b,color,arrow,hitbox));
             }
             (bounds,x,blocks)
@@ -379,24 +383,30 @@ impl EditableDiff {
     }
 
     fn recompare(&mut self,cx:&mut Context<Self>) {
+        if let Some((scope,id))=&self.commit_scope {let current=self.modified.read(cx).text().to_string();scope.update(cx,|s,cx|s.invalidate(&id.path,&self.baseline,&current,cx));}
+
         if !self.active || self.working.is_none() {return;}
         if let Some(view)=&self.unified {view.invalidate_if_changed(cx);}
+        self.partial_template=None;
         self.generation+=1; let generation=self.generation;
         let original=self.comparison_baseline.clone(); let path=self.path.clone();
         let modified=self.working.as_ref().unwrap().read(cx).comparison_text(cx);
         let unit=crate::diff_settings::inline_unit(self.appearance.unwrap_or_default().emphasis);
+        let partial=self.commit_scope.is_some();
         self.task=cx.spawn(async move|this,cx| {
             cx.background_executor().timer(Duration::from_millis(100)).await;
             let result=cx.background_spawn(async move {
                 let file=DiffFile::from_editor_sources(Some((&path,&original)),Some((&path,&modified)))?;
                 let eol_only=original.as_ref()!=modified && file.source(DiffSide::Original)==file.source(DiffSide::Modified);
                 let marks=[file.editor_change_highlights_with_unit(DiffSide::Original,unit),file.editor_change_highlights_with_unit(DiffSide::Modified,unit)];
-                Ok::<_, &'static str>((file,eol_only,marks))
+                let selection=partial.then(||plico::partial_selection::Selection::new(file.source(DiffSide::Original).into(),file.source(DiffSide::Modified).into(),false));
+                Ok::<_, &'static str>((file,eol_only,marks,selection))
             }).await;
             let _=this.update(cx,|s,cx| {
                 if s.generation!=generation {return;}
-                if let Ok((file,eol_only,marks))=result {
+                if let Ok((file,eol_only,marks,selection))=result {
                     if s.modified.read(cx).text().to_string()!=file.source(DiffSide::Modified) {return;}
+                    s.partial_template=selection;
                     s.eol_only=eol_only;
                     s.changes=file.change_starts();
                     s.line_ranges=file.change_line_ranges();
@@ -417,6 +427,7 @@ impl Render for EditableDiff {
         if self.unified_mode {
             return if let Some(view)=&self.unified {
                 v_flex().size_full().min_h_0()
+            .child(self.partial_header(cx))
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
                     .children(self.working.as_ref().and_then(|d|Editing::error_banner(d, &self.documents, cx)))
                     .child(Editor::new(&view.editor).readonly(self.documents.locked() || !view.ready()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))).into_any_element()
@@ -424,15 +435,16 @@ impl Render for EditableDiff {
         }
         let editor=self.modified.clone();
         v_flex().size_full().min_h_0()
+            .child(self.partial_header(cx))
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
             .children(self.working.as_ref().and_then(|d|Editing::error_banner(d, &self.documents, cx)))
             .child(h_flex().relative().flex_1().min_h_0().w_full().items_stretch().overflow_hidden()
                 .child(h_flex().w(relative(self.split_ratio)).flex_shrink_0().min_w_0().h_full().pr(px(24.))
-                    .child(div().flex_1().min_w_0().h_full().child(Editor::new(&self.original).readonly(true).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))))
+                    .child(div().flex_1().min_w_0().h_full().child(self.selection_menu(Editor::new(&self.original).readonly(true).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx)),true,cx)))
                     .when(self.appearance.is_none_or(|p|p.line_numbers),|v|v.child(self.original_gutter(cx))))
                 .child(div().w(relative(1. - self.split_ratio)).flex_shrink_0().min_w_0().h_full().pl(px(24.))
-                    .child(Editor::new(&editor).readonly(self.working.is_none() || self.documents.locked()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))))
-                .child(self.divider(cx))).into_any_element()
+                    .child(self.selection_menu(Editor::new(&editor).readonly(self.working.is_none() || self.documents.locked()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx)),false,cx)))
+                .child(self.divider(cx)).child(self.partial_gutter(cx))).into_any_element()
     }
 }
 

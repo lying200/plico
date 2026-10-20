@@ -160,9 +160,12 @@ pub mod branch_updates;
 pub mod reword;
 
 pub mod line_changes;
+pub mod partial_commit;
 
 pub mod worktree_events;
 
 pub mod rollback_operation;
 
 pub mod reference_checkout;
+
+pub mod partial_selection;

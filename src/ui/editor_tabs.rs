@@ -160,15 +160,17 @@ impl Review {
             cx.subscribe_in(
                 &view,
                 window,
-                |s, _, event: &crate::local_view::OpenDiff, w, cx| {
+                |s, local, event: &crate::local_view::OpenDiff, w, cx| {
                     let index = s
                         .tabs
                         .iter()
                         .position(|t| t.read(cx).target.identity() == event.0.identity())
                         .unwrap_or_else(|| {
+                            let scope=local.read(cx).scope.clone();
                             let tab = cx.new(|_| {
                                 let mut tab = DiffTab::new(event.0.clone(), event.1.clone());
                                 tab.documents = s.documents.clone();
+                                tab.commit_scope=Some(scope);
                                 tab
                             });
                             s.subscribe_diff_navigation(&tab, cx);
@@ -511,6 +513,10 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        cx.subscribe_in(tab, window, |s,_,event:&crate::source_changes::CommitChunk,w,cx| {
+            let event = event.clone();
+            s.with_saved_documents(w,cx,move|s,w,cx|s.commit_chunk(event,w,cx));
+        }).detach();
         cx.subscribe_in(
             tab,
             window,

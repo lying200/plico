@@ -345,3 +345,18 @@ Source paths, retained differences and validation: docs/REBASED-REFERENCE.md.
 License text: licenses/assets/icons/LICENSE.txt.
 Filesystem notifications use the notify 8.2.0 crate (already present transitively,
 now a direct dependency); its upstream license is CC0-1.0.
+
+Gutter chunk commit
+
+src/partial_commit.rs and src/commit_operation.rs adapt the selected-range blob
+composition and index staging flow from Rebased / IntelliJ IDEA:
+platform/vcs-impl/src/com/intellij/openapi/vcs/ex/commit/CommitChunkComponent.kt
+platform/vcs-impl/src/com/intellij/openapi/vcs/ex/PartialLocalLineStatusTracker.kt
+plugins/git4idea/backend/src/checkin/GitCheckinEnvironment.kt
+plugins/git4idea/backend/src/index/GitIndexUtil.java
+assets/icons/CommitInline_dark.svg is copied from
+platform/vcs-impl/resources/icons/CommitInline_dark.svg.
+Copyright JetBrains s.r.o. and contributors. Apache License 2.0.
+Reference snapshot: 4aec35256d765c217aa0d662b82ac4e860c396fd.
+The Rust adaptation validates saved content and range identity before staging,
+reuses the existing commit executor and does not rewrite the worktree.

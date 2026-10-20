@@ -2,6 +2,32 @@
 use super::*;
 use plico::active_operation::{Id, Kind, Phase};
 impl Review {
+    pub(super) fn commit_chunk(&mut self, event: crate::source_changes::CommitChunk, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((id, token)) = self.begin_operation(Kind::Commit, Phase::Executing, cx) else { return; };
+        let repo = self.repo.clone();
+        self.status_message = Some(t("Committing…").into());
+        self.operation_task = cx.spawn_in(window, async move |this, wx| {
+            let result = wx.background_spawn(async move {
+                plico::partial_commit::execute(&repo, &event.chunk, &token, &Default::default())
+                    .map_err(plico::commit_feedback::Failure::commit)
+                    .and_then(|r|plico::commit_feedback::from_report(&r))
+            }).await;
+            let _ = this.update_in(wx, |s,w,cx| {
+                if s.finish_operation(id,cx).is_none() { return; }
+                match result {
+                    Ok(()) => {
+                        s.status_message = Some(t("Committed").into());
+                        let _ = event.source.update(cx, |source,cx|source.committed(w,cx));
+                    },
+                    Err(error) => {s.status_message=Some(t(error.summary).into());s.error=Some(error.details);}
+                }
+                s.sync_worktree(plico::worktree_events::Batch{all:true,index:true,..Default::default()},true,w,cx);
+                s.refresh_impl(false,true,None,cx);
+                cx.notify();
+            });
+        });
+    }
+
     pub(super) fn begin_operation(
         &mut self,
         kind: Kind,

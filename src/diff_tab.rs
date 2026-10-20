@@ -15,6 +15,7 @@ pub struct FileChanged(pub Target);
 impl EventEmitter<FileChanged> for DiffTab {}
 pub type SourceCallback = std::rc::Rc<dyn Fn((Target,bool,usize), &mut Window, &mut App)>;
 pub struct DiffTab {
+    pub commit_scope: Option<Entity<crate::commit_scope::Scope>>,
     pub documents: crate::editing::Documents,
     editable: Option<Entity<crate::editable_diff::EditableDiff>>,
     retained_document: Option<Entity<crate::editing::Editing>>,
@@ -97,7 +98,7 @@ impl DiffTab {
         });
     }
     pub fn new(target: Target, chain: Chain) -> Self {
-        Self { disk_task: Task::ready(()), disk_generation: 0, disk_refreshing: false, disk_pending: false, disk_error: None, navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
+        Self { commit_scope:None, disk_task: Task::ready(()), disk_generation: 0, disk_refreshing: false, disk_pending: false, disk_error: None, navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
     }
     fn set_split_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
         if self.split_ratio == ratio { return; }
@@ -345,6 +346,12 @@ impl Render for DiffTab {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(contents) = self.pending_editable.take() {
             let editable = cx.new(|cx|crate::editable_diff::EditableDiff::new(&self.target,contents,self.documents.clone(),window,cx));
+            if self.target.identity().area==Area::WorkingTree && self.target.identity().old_path.is_none() && self.target.change().status.starts_with('M') {
+                if let Some(scope)=&self.commit_scope {
+                    let id=plico::commit_inclusion::Identity::of(&plico::commit_changes::File::from_change(self.target.change()).expect("working tree change"));
+                    editable.update(cx,|e,cx|e.set_commit_scope(scope.clone(),id,cx));
+                }
+            }
             cx.subscribe(&editable,|s,_,event:&crate::editable_diff::Compared,cx| {
                 if let Some(viewer)=&s.viewer {viewer.update(cx,|v,cx|v.set_files(vec![event.0.clone()],cx));}
                 cx.notify();

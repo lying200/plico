@@ -43,6 +43,7 @@ impl AssetSource for Assets {
             "jb/hideToolWindow_dark.svg" => Some(include_bytes!("../assets/icons/hideToolWindow_dark.svg")),
             "jb/locate_dark.svg" => Some(include_bytes!("../assets/icons/locate_dark.svg")),
             "jb/rollback_dark.svg" => Some(include_bytes!("../assets/icons/rollback_dark.svg")),
+            "jb/CommitInline_dark.svg" => Some(include_bytes!("../assets/icons/CommitInline_dark.svg")),
             "jb/copy_dark.svg" => Some(include_bytes!("../assets/icons/copy_dark.svg")),
             "jb/closeSmall.svg" => Some(include_bytes!("../assets/icons/closeSmall.svg")),
             "ui/corner-bl.svg" => Some(include_bytes!("../assets/ui/corner-bl.svg")),

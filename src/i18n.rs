@@ -68,6 +68,10 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
 
         "Previous change" => "上一处更改",
         "Next change" => "下一处更改",
+        "Include in commit" => "包含到提交",
+        "Include selected lines in commit" => "将所选行包含到提交",
+        "Exclude selected lines from commit" => "从提交中排除所选行",
+        "Commit this change" => "提交此处更改",
         "Rollback this change" => "撤回此处更改",
         "Copy original lines" => "复制原内容",
         "Git baseline changed. Reopen the change marker." => "Git 基线已变化，请重新打开变更标记。",

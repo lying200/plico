@@ -300,6 +300,7 @@ pub struct FileTab {
 }
 impl EventEmitter<HistoryRequested> for FileTab {}
 impl EventEmitter<FileSaved> for FileTab {}
+impl EventEmitter<crate::source_changes::CommitChunk> for FileTab {}
 impl Drop for FileTab { fn drop(&mut self) { self.token.cancel(); } }
 impl FileTab {
     pub fn new(root: PathBuf, path: PathBuf) -> Self { Self { root, path, history: false, history_view: None, history_position: None, jump_line: None, preview: false, request_focus: true, viewer: None, reading_position: None, pending: None, documents: Default::default(), editing: None, editing_subscriptions: Vec::new(), changes: None, status: Notice::Label(""), token: Cancel::default(), generation: 0, task: Task::ready(()) } }
@@ -313,6 +314,9 @@ impl FileTab {
         }));
         self.editing_subscriptions.push(cx.subscribe(&editing, |_, _, _: &crate::editing::Saved, cx| cx.emit(FileSaved)));
         self.changes = Some(cx.new(|cx| crate::source_changes::SourceChanges::new(self.root.clone(), self.path.clone(), &editing, self.documents.clone(), file_language(&self.path).to_string(), cx)));
+        if let Some(changes) = &self.changes {
+            self.editing_subscriptions.push(cx.subscribe(changes, |_,_,event:&crate::source_changes::CommitChunk,cx|cx.emit(event.clone())));
+        }
         self.editing = Some(editing);
     }
     pub fn dirty(&self, cx: &App) -> bool { self.editing.as_ref().is_some_and(|d| d.read(cx).pending(cx)) }

@@ -304,17 +304,6 @@ impl Review {
             .cloned()
             .or_else(|| self.pending_preview_file.clone());
         self.pending_preview_file = preferred.clone();
-        let top_index = {
-            let scroll = self.history_scroll.0.borrow();
-            scroll
-                .deferred_scroll_to_item
-                .as_ref()
-                .map(|item| item.item_index)
-                .unwrap_or_else(|| {
-                    ((-scroll.base_handle.offset().y / px(28.)).max(0.)).floor() as usize
-                })
-        };
-        let anchor = self.commits.get(top_index).map(|c| c.id.clone());
         let previous = self
             .selected
             .and_then(|i| self.commits.get(i))
@@ -450,14 +439,10 @@ impl Review {
                             if offset != this.history_offset {
                                 this.history_scroll.scroll_to_item(0, ScrollStrategy::Top);
                             }
-                            if preserve {
-                                if let Some(index) = anchor
-                                    .as_ref()
-                                    .and_then(|id| s.commits.iter().position(|c| &c.id == id))
-                                {
-                                    this.history_scroll
-                                        .scroll_to_item_strict(index, ScrollStrategy::Top);
-                                }
+                            if preserve && offset == this.history_offset {
+                                super::log_viewport::restore(
+                                    &this.history_scroll, &this.commits, &s.commits, offset,
+                                );
                             }
                             this.history_offset = offset;
                             this.window_start = start;

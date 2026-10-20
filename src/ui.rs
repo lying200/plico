@@ -6,6 +6,7 @@ mod files;
 mod history_operations;
 mod log_branches;
 mod log_history;
+mod log_viewport;
 mod log_selection;
 mod operation;
 mod preview;

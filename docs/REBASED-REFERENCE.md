@@ -2127,3 +2127,15 @@ Windows release 构建通过，原生启动截图在 `artifacts/commit-feedback-
 验证：210 项核心单测、33 项真实 Git 提交／index 集成测试、7 项新增 rollback 集成测试通过；覆盖混合暂存、未选文件保护、新增保留／显式删除、unborn、rename/literal 路径、取消准备、文件／index／HEAD 过期、index.lock、符号链接边界。38 项桌面测试通过，仍排除此前已确认的 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过。
 
 Windows 原生验收使用独立 `Plico-validation/rollback-20261020/fixture` 和独立 profile：确认平铺文件／父目录、工具栏／眼睛菜单结构、打开忽略项、全选／取消全选（空选择禁用 Rollback 和删除新增选项）、取消确认后 Git diff/status 不变；实际确认后 M/D/R 恢复，A 变为保留的 untracked，其他 untracked/ignored 保留，Changes 列表自动刷新。截图位于 `artifacts/rollback-20261020/{changes,menu,confirm-ready-final,none-final,cancel-final,rolled-back-final}.png`，原生文件断言见 `native-results.txt`。第一次执行脚本恰逢状态刷新，未打开确认框，断言正确失败；重开并确认后断言通过，未将首次脚本结果误记为通过。Directory 切换、快捷键、已打开编辑器内容同步与中英文布局的原生交互仍待验收；目录分组身份保持已由核心测试覆盖。未操作用户 Rebased/IDE 或用户项目；只关闭本轮自建测试进程。
+
+## Log 刷新时跟随顶部（2026-10-20）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 1.1.20 不视为同一源码。本轮实读 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/SelectionSnapshot.kt` 全文及 `VcsLogGraphTable.java::updateDataPack/getSelectionSnapshot`：更新模型前捕获位置和选择；`isOnTop && permanentGraphChanged` 时滚到第 0 行，其他情况按可见提交身份和 topGap 恢复；选择身份独立恢复，顶部跟随不意味着改选新提交。上游优先锚定可见选中提交，否则首个可见提交。
+
+本地 `src/ui/repository.rs::refresh_impl` 原本无条件将旧首个可见提交滚回顶部，导致处于顶部时新增提交被移到视口上方。现在由 `src/ui/log_viewport.rs::restore` 在结果发布、旧列表替换之前读取当前位置：仓库首屏顶部且可见提交序列变化时保持第 0 行；向下浏览时按原首个可见提交恢复并保留行内像素偏移；仅引用标签变化不改变位置。读取时机从查询开始移到完成，避免使用异步等待前的旧位置。沿用原选择身份与详情刷新，不增加 Git 请求或自动 fetch。
+
+保留差异：Plico 使用有界历史窗口；后续窗口的顶部不视为仓库顶部，锚点离开窗口时保持现有滚动句柄并由列表约束范围，不加载无限历史追踪。使用首个可见提交锚点，未照搬 Swing 的可见选中行优先；已有尚未布局的程序化行定位仍按行恢复。实际提交序列变化替代 IDE permanent graph 对象变化判断。没有把正在阅读旧历史的用户强制拉到顶部。
+
+验证：先提取既有位置恢复逻辑运行 `cargo test --locked --features desktop-tests --bin plico ui::log_viewport::tests`，顶部新增提交用例失败（实际第 1 行，预期第 0 行），另两项旧历史／后续分页用例通过。修复后加上行内像素偏移、仅引用刷新用例，共 5 项通过；桌面测试合计 43 项通过，仍排除已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过。滚动手感与滚动期间刷新按项目约定留给用户手测，不做滚轮自动化。
+
+Windows 原生验收：独立 80 条提交 fixture 与本地 bare remote，启动截图 `artifacts/log-viewport-20261020/window.png` 首行 History 79；向 bare remote 新增提交并执行 fetch，不发送任何滚动事件，自动刷新完成截图 `after-fetch-settled.png` 首行变为 Remote update visible at top，History 79 仍被选中，详情保留；`update.json` 记录新旧 hash。`after-fetch.png` 是查询中的旧快照，不作为完成证据。仅关闭自建 Plico 测试进程，未操作用户项目或 Rebased/IDE。

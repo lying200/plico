@@ -14,7 +14,7 @@ pub struct LocalView {
     selection: Selection, draft: Draft, input: Entity<TextareaState>, head: Option<String>, recovery: bool,
     preparing: bool,
     write_token: Option<Cancel>, write_task: Task<()>, amend_token: Cancel, amend_task: Task<()>, notice: Option<String>, write_error: Option<WriteFailure>,
-    token: Cancel, generation: u64, task: Task<()>, busy: bool, refresh_pending: bool, error: Option<String>,
+    token: Cancel, generation: u64, task: Task<()>, feedback_task: Task<()>, show_refresh_feedback: bool, loaded: bool, busy: bool, refresh_pending: bool, error: Option<String>,
 }
 impl EventEmitter<OpenDiff> for LocalView {}
 impl EventEmitter<Hide> for LocalView {}
@@ -35,7 +35,7 @@ impl LocalView {
         }).detach();
         let mut view = Self { ui_chinese: plico::i18n::is_chinese(), selection: Selection::default(), draft: Draft::default(), input, head: None, recovery: false,
             preparing: false, write_token: None, write_task: Task::ready(()), amend_token: Cancel::default(), amend_task: Task::ready(()), notice: None, write_error: None, repo, model: Model::default(), focus: cx.focus_handle(), scroll: UniformListScrollHandle::new(),
-            token: Cancel::default(), generation: 0, task: Task::ready(()), busy: false, refresh_pending: false, error: None };
+            token: Cancel::default(), generation: 0, task: Task::ready(()), feedback_task: Task::ready(()), show_refresh_feedback: false, loaded: false, busy: false, refresh_pending: false, error: None };
         view.refresh(cx); view
     }
     pub fn focus_message(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -46,6 +46,7 @@ impl LocalView {
         if self.busy { self.refresh_pending = true; return; }
         self.refresh_pending = false;
         self.token.cancel(); self.generation+=1; self.token=Cancel::default(); self.busy=true; self.error=None;
+        self.start_refresh_feedback(cx);
         let repo=self.repo.clone(); let token=self.token.clone(); let generation=self.generation;
         self.task=cx.spawn(async move |this,cx| {
             let result=cx.background_spawn(async move {
@@ -56,11 +57,26 @@ impl LocalView {
             let _=this.update(cx,|s,cx| {
                 if generation!=s.generation {return;}
                 s.busy=false;
-                match result { Ok((snapshot,recovery))=>{s.selection.replace(&snapshot);s.model.replace(snapshot.files.iter().map(CommitFile::change).collect());s.head=snapshot.head;s.recovery=recovery;}, Err(e)=>s.error=Some(e) }
+                s.feedback_task = Task::ready(()); s.show_refresh_feedback = false;
+                match result { Ok((snapshot,recovery))=>{s.loaded=true;s.selection.replace(&snapshot);s.model.replace(snapshot.files.iter().map(CommitFile::change).collect());s.head=snapshot.head;s.recovery=recovery;}, Err(e)=>s.error=Some(e) }
                 if std::mem::take(&mut s.refresh_pending) { s.refresh(cx); }
                 cx.notify();
             });
         }); cx.notify();
+    }
+    fn start_refresh_feedback(&mut self, cx: &mut Context<Self>) {
+        self.show_refresh_feedback = false;
+        let generation = self.generation;
+        self.feedback_task = cx.spawn(async move |this, cx| {
+            // Short status reads are silent. Long reads annotate the existing
+            // group rows, never insert a banner above the retained tree.
+            cx.background_executor().timer(std::time::Duration::from_millis(300)).await;
+            let _ = this.update(cx, |s, cx| {
+                if s.busy && s.generation == generation {
+                    s.show_refresh_feedback = true; cx.notify();
+                }
+            });
+        });
     }
     fn sync_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text=self.draft.message().to_owned(); self.input.update(cx,|s,cx|s.set_value(text,window,cx));
@@ -213,7 +229,7 @@ impl Render for LocalView {
             .child(h_flex().h(px(36.)).px_3().child(t("Commit")).child(div().flex_1())
                 .child(Button::new("local-hide").ghost().small().icon(icon("jb/closeSmall.svg")).tooltip(t("Hide"))
                     .on_click(cx.listener(|_,_,_,cx|cx.emit(Hide)))))
-            .child(h_flex().h(px(32.)).px_2().gap_1()
+            .child(h_flex().h(px(32.)).flex_shrink_0().px_2().gap_1()
                 .child(Button::new("local-refresh").ghost().small().icon(icon("jb/refresh_dark.svg")).tooltip(t("Refresh"))
                     .disabled(self.write_token.is_some()).on_click(cx.listener(|s,_,_,cx|s.refresh(cx))))
                 .child(Button::new("local-diff").ghost().small().icon(icon("jb/diff_dark.svg")).tooltip(t("Show Diff · Ctrl+D"))
@@ -222,16 +238,17 @@ impl Render for LocalView {
                 .child(Button::new("local-expand").ghost().small().icon(icon("jb/expandAll_dark.svg")).tooltip(t("Expand All"))
                     .on_click(cx.listener(|s,_,_,cx|{s.model.expand_all();cx.notify();})))
                 .child(Button::new("local-collapse").ghost().small().icon(icon("jb/collapseAll_dark.svg")).tooltip(t("Collapse All"))
-                    .on_click(cx.listener(|s,_,_,cx|{s.model.collapse_all();cx.notify();}))))
-            .when(self.busy,|v|v.child(div().px_3().child(t("Loading local changes…"))))
+                    .on_click(cx.listener(|s,_,_,cx|{s.model.collapse_all();cx.notify();})))
+                .when(self.show_refresh_feedback && self.model.files().is_empty(), |v| v.child(
+                    div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("Loading local changes…")))))
             .when_some(self.error.clone(),|v,e|v.child({
                 let owner=cx.entity().downgrade();
                 crate::error_ui::notice("commit-read-error","Could not load local changes",e,self.busy,move|_,_,cx|{let _=owner.update(cx,|s,cx|s.refresh(cx));})
             }))
-            .when(!self.busy && self.error.is_none() && self.model.files().is_empty(),|v|v.child(div().p_3().child(t("No changes to commit."))))
-            .child(uniform_list("local-tree",self.model.rows().len(),cx.processor(|s,range:std::ops::Range<usize>,_,cx| {
+            .child(div().relative().flex_1().min_h_0().child(uniform_list("local-tree",self.model.rows().len(),cx.processor(|s,range:std::ops::Range<usize>,_,cx| {
                 range.map(|row| {
                     let item=s.model.rows()[row].clone();
+                    let updating = s.show_refresh_feedback && matches!(item, Row::Group { .. });
                     let paths=s.model.inclusion_paths(row);
                     let area=match &item {Row::Group{area,..}|Row::Entry{area,..}=>*area};
                     let ids=s.model.files().iter().filter(|f|f.area==area && paths.contains(&f.path))
@@ -257,6 +274,7 @@ impl Render for LocalView {
                             .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.selection.set_scope(&ids,*checked);cx.stop_propagation();cx.notify();})))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
                         .child(div().truncate().text_color(rgb(color)).child(label))
+                        .when(updating, |v| v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("updating…"))))
                         .on_click(cx.listener(move |s,e:&ClickEvent,w,cx|{s.focus.focus(w,cx);
                             match s.model.rows().get(row).cloned() {
                                 Some(Row::Entry{row:file_tree::Row::File{index,..},..})=>{s.model.select(index);if e.click_count()==2{s.show_diff(cx);}},
@@ -264,7 +282,12 @@ impl Render for LocalView {
                             } cx.notify();
                         }))
                 }).collect::<Vec<_>>()
-            })).track_scroll(&self.scroll).flex_1().min_h_0())
+            })).track_scroll(&self.scroll).size_full().map(|tree| {
+                #[cfg(all(test, feature = "desktop-tests"))]
+                let tree = tree.debug_selector(|| "local-tree".into());
+                tree
+            })).when(self.loaded && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
+                div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
                 .child(Checkbox::new("commit-amend").label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.busy || self.head.is_none() || self.recovery)
@@ -302,6 +325,57 @@ mod refresh_tests {
     extern crate gpui_kit as gpui;
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn refreshing_retains_tree_geometry(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut local = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| LocalView::new(Repository::new("missing-fixture"), window, cx));
+            view.update(cx, |s, _| {
+                s.task = Task::ready(());
+                s.busy = false;
+                s.model.replace(vec![plico::git::Change { path: "review.txt".into(), old_path: None,
+                    status: "?".into(), area: plico::git::Area::Untracked }]);
+            });
+            local = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        cx.update(|w, cx| w.draw(cx).clear(cx));
+        let before = cx.debug_bounds("local-tree").unwrap();
+        cx.update(|w, cx| {
+            local.as_ref().unwrap().update(cx, |s, cx| { s.busy = true; s.show_refresh_feedback = true; cx.notify(); });
+            w.draw(cx).clear(cx);
+        });
+        assert_eq!(cx.debug_bounds("local-tree").unwrap(), before,
+            "refreshing must not move or resize the retained changes tree");
+    }
+    #[gpui::test]
+    fn short_refreshes_stay_silent_and_slow_feedback_is_cancelled(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut local = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| LocalView::new(Repository::new("missing-fixture"), window, cx));
+            view.update(cx, |s, cx| { s.task = Task::ready(()); s.start_refresh_feedback(cx); });
+            local = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        let local = local.unwrap();
+        cx.run_until_parked();
+        cx.executor().advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+        assert!(!cx.read(|cx| local.read(cx).show_refresh_feedback));
+        cx.executor().advance_clock(std::time::Duration::from_millis(250));
+        cx.run_until_parked();
+        assert!(cx.read(|cx| local.read(cx).show_refresh_feedback));
+        cx.update(|_, cx| local.update(cx, |s, cx| {
+            s.start_refresh_feedback(cx);
+            s.busy = false;
+            s.feedback_task = Task::ready(());
+        }));
+        cx.executor().advance_clock(std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+        assert!(!cx.read(|cx| local.read(cx).show_refresh_feedback));
+    }
     #[gpui::test]
     fn repeated_refresh_does_not_cancel_inflight_query(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

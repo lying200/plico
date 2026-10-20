@@ -2062,3 +2062,25 @@ Windows release 构建通过。独立 markers-fixture 原生截图位于 `artifa
 根因：本地 `SourceChanges` canvas 在 prepaint 生成绘制矩形及点击 hitbox，`source_gutter_right` 却读取到 paint 才更新的 input_bounds/last_layout，因此侧栏移动后横坐标落后一帧；没有后续重绘时会保持旧位置。这与 Git 查询或 80ms 文本变更合并无关。`vendor/gpui-base/src/input/base/{element,state}.rs` 将未水平滚动的 gutter 边界与已有 source_geometry 一起在编辑器 prepaint 发布；绘制与命中区域共用当前帧坐标，不增加定时器、额外重绘或 Git 查询。保留独立 GPUI canvas 的实现差异，不移植 Swing gutter 组件。
 
 回归 `source_gutter_moves_with_sidebar_in_same_frame` 在真实 GPUI 编辑器布局后、paint 前采样标记实际使用的接口：修前收起 300px 仍得到 354.4px 而非 54.4px；修后收起、展开及宽度调整第一帧全部通过。35 项桌面测试通过，仍排除已记录的既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过；独立原生 fixture 截图 `artifacts/gutter-layout-20261019/source.png`、`collapsed.png` 确认侧栏两种布局下标记贴合正文左边，`marker-hit.png` 确认收起后在新位置点击可打开原文弹层。截图仅验证静态结果，同帧时序由回归测试验证；未执行滚动自动化，未改用户仓库或关闭用户窗口。未提交／推送。
+
+## Project 右键与 Commit 刷新反馈（2026-10-20）
+
+参考源码 commit：`4aec35256d765c217aa0d662b82ac4e860c396fd`，缓存 `/tmp/gitui-rebased-reference`。既有宿主记录为 Rebased 1.1.20，与此源码快照不视为同版本；本轮入口和行内状态的视觉依据为用户提供的三张截图。
+
+本轮已读取：
+
+- `platform/lang-impl/src/com/intellij/ide/actions/CopyPathProvider.kt` 的 `CopyAbsolutePathProvider`：复制所选实体的 presentableUrl。
+- `platform/platform-impl/src/com/intellij/ide/actions/{CopyPathsAction,RevealFileAction,ShowFilePathAction}.java`：文件与目录均可定位；Explorer 打开父目录并选中目标，无父目录时打开根目录；Windows 优先使用 Shell API。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/{VcsDirtyScopeVfsListener.kt,UpdateRequestsQueue.java,ChangeListManagerRefreshHelper.kt}`：VFS 变更标记脏范围，合并更新请求，300ms 调度／去抖；同一时刻不启动重复更新。
+- `platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/CommitChangesViewWithToolbarPanel.kt`：SingleTaskRunner 合并 UI 更新，100ms 延迟，后台准备模型后在 UI 线程替换并恢复树状态。
+- 同目录 `ui/ChangesBrowserUnversionedFilesNode.kt`：更新状态追加在未版本化分组行内。`platform/platform-api/src/com/intellij/ui/treeStructure/Tree.java`：busy 图标不插入树上方布局行，普通树仅在有焦点时绘制。`ChangesViewManager.kt` 将刷新错误状态放在独立状态区。
+
+本地映射：`src/project_view.rs` 仅提供“复制路径”“在文件浏览器中打开”两项；右键更新选择并取消待执行预览，菜单捕获点击时的完整路径，刷新重排不改变操作对象；复用 `ui_style::project_path_text` 保留大小写并隐藏 Windows verbatim 前缀，使用 GPUI 原生 clipboard／reveal_path，目录和根条目同样可用，分页占位行没有菜单。
+
+`src/local_view.rs` 保留刷新前模型、选中和展开状态，删除树上方 loading 行；耗时超过 300ms 的刷新在既有分组行追加灰色 updating，首次空列表的提示使用固定高度工具栏，已加载的空态覆盖在固定树区域中。300ms 可见反馈延迟是本地抑制短查询闪烁的选择，不宣称是上游 Tree 的图标延迟常量。既有 single-flight／pending 刷新合并与写操作禁用继续保留。
+
+`src/ui/worktree_sync.rs` 及时分发已有 300ms 合并后的文件事件，移除额外两秒门槛；100ms 检查待处理事件不运行 Git。两秒仅检查打开文档的磁盘 stamp；UNC、linked worktree、watcher 初始化失败仍保留 30 秒全量兜底。本地仍按事件执行一次有界 Git status 快照，不实现 IntelliJ 全套增量 VFS／ChangeListManager 缓存；refs 每五秒和远端每五分钟的既有观察不在本次范围。
+
+回归：`refreshing_retains_tree_geometry` 在旧实现真实布局中失败（树顶 68px → 94px、高度减少 26px），修复后通过；慢刷新提示的延迟／结束取消、右键点击非选中目录后树重排仍复制原路径、已有刷新请求合并用例通过。完整桌面单元测试 38/39 通过；唯一失败 `editable_diff::lifecycle_tests::releasing_diff_clears_padding_from_retained_source` 在未修改的 HEAD 独立源码快照中也同样失败，未修改这一无关 Diff 行为。原生截图、操作结果与最终构建记录见 `artifacts/project-menu-refresh-20261020`。精确像素还原不作为本轮结论。
+
+Windows 原生验收：独立本地 fixture 中，右键未选中目录后的剪贴板完整路径与 Explorer 选中路径均符合预期（clipboard.json、explorer.json）；受控 Git status 延迟 1200ms 时，changes-before/during/after.png 显示更新文字留在既有分组行，树顶和文件行位置保持不变；空闲 8 秒 status 次数 2→2，文件事件后 2→3（refresh.json）。测试进程与打包 EXE SHA-256 均为 `61a06f5511c208bac67fb5fd2154a848a9ba468c6f07ffacd5ef2af13a716986`。Windows 预览包为 `dist/Plico-windows-x64-preview-20261020-project-menu-refresh.zip`。

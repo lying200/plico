@@ -15,6 +15,8 @@ impl Review {
                 (events, fallback)
             }).await;
             // UNC notifications may be absent even when watch registration succeeds.
+            // Deliver debounced filesystem events promptly. The two-second
+            // timer is only a stamp check for open documents, not a Git refresh.
             let mut last_check = Instant::now() - Duration::from_secs(2);
             let mut last_fallback = Instant::now();
             let mut initial = true;
@@ -22,7 +24,7 @@ impl Review {
                 if token.cancelled() { break; }
                 let ready = this.read_with(wx, |s, _| !s.welcome && !s.operation.busy() && !s.documents.locked()
                     && s.repo.path == root).unwrap_or(false);
-                if ready && last_check.elapsed() >= Duration::from_secs(2) {
+                if ready {
                     let mut batch = events.as_ref().map(Events::take).unwrap_or_default();
                     if std::mem::take(&mut initial) || (fallback && last_fallback.elapsed() >= Duration::from_secs(30)) {
                         batch.all = true; batch.index = true; last_fallback = Instant::now();
@@ -35,7 +37,7 @@ impl Review {
                         }).is_err() { break; }
                     }
                 }
-                wx.background_executor().timer(Duration::from_millis(500)).await;
+                wx.background_executor().timer(Duration::from_millis(100)).await;
             }
         });
     }

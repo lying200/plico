@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::{Path, PathBuf}};
 use plico::{git::Cancel, i18n::t, project_files::{self, Entry, Kind, Project}};
 use gpui_kit::{prelude::FluentBuilder as _, *};
-use gpui_kit::component::{button::{Button, ButtonVariants as _}, input::{Editor, EditorState, Position, RopeExt as _}, Icon, menu::ContextMenuExt as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{button::{Button, ButtonVariants as _}, input::{Editor, EditorState, Position, RopeExt as _}, Icon, menu::{ContextMenuExt as _, PopupMenuItem}, Sizable as _, WindowExt as _, h_flex, v_flex};
 
 actions!(project_browser, [Up, Down, First, Last, OpenFile, Expand, Collapse, ShowFileHistory, ShowSelectionHistory, SaveFile]);
 pub struct FileSaved;
@@ -31,6 +31,9 @@ impl EventEmitter<Open> for ProjectView {}
 impl Drop for ProjectView { fn drop(&mut self) { self.token.cancel(); } }
 impl ProjectView {
     pub fn new(root: PathBuf, cx: &mut Context<Self>) -> Self {
+        // CLI repositories may be relative. Resolve lexically without scanning
+        // the filesystem or dereferencing a network/symlink path on the UI thread.
+        let root = std::path::absolute(&root).unwrap_or(root);
         cx.bind_keys([
             KeyBinding::new("up", Up, Some("ProjectBrowser")), KeyBinding::new("down", Down, Some("ProjectBrowser")),
             KeyBinding::new("home", First, Some("ProjectBrowser")), KeyBinding::new("end", Last, Some("ProjectBrowser")),
@@ -225,6 +228,8 @@ impl Render for ProjectView {
                 range.map(|i| {
                     let (entry, depth, more) = s.rows[i].clone();
                     let expanded = s.directories.contains_key(&entry.path);
+                    let path = s.root.join(&entry.path);
+                    let copy_path = crate::ui_style::project_path_text(&path);
                     let name = if entry.path.as_os_str().is_empty() { s.root.file_name().unwrap_or_default() } else { entry.path.file_name().unwrap_or_default() }.to_string_lossy().into_owned();
                     let name = if more { t("Load more files…").to_owned() } else { name };
                     h_flex().id(("project-row", i)).w_full().h(px(26.)).pl(px(8. + depth as f32 * 14.)).gap_1().min_w_0()
@@ -236,6 +241,23 @@ impl Render for ProjectView {
                             .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.select(i); s.open(cx); }))))
                         .when(!more, |row| row.child(img(if entry.kind == Kind::Directory {"jb/folder_dark_4x.svg"}else{crate::ui_style::file_icon(&entry.path)}).size(px(16.)).flex_shrink_0()))
                         .child(div().truncate().child(name))
+                        .map(|row| {
+                            if more { return row.into_any_element(); }
+                            row.on_mouse_down(MouseButton::Right, cx.listener(move |s, _, w, cx| {
+                                s.cancel_preview(); s.select(i); s.focus.focus(w, cx); cx.notify();
+                            })).context_menu(move |menu, _, _| {
+                                // Capture the clicked path, not a row index: a filesystem
+                                // refresh may reorder the tree while this menu is open.
+                                let copy_path = copy_path.clone();
+                                let path = path.clone();
+                                menu.item(PopupMenuItem::new(t("Copy Path")).on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(copy_path.clone()));
+                                })).item(PopupMenuItem::new(t("Show in File Manager")).on_click(move |_, _, cx| {
+                                    if path.parent().is_some() { cx.reveal_path(&path); }
+                                    else { cx.open_with_system(&path); }
+                                }))
+                            }).into_any_element()
+                        })
                 }).collect::<Vec<_>>()
             })).track_scroll(&self.scroll).flex_1().min_h_0())
             .when(self.loading.is_some(), |v| v.child(div().px_3().child(t("Loading files…"))))
@@ -526,5 +548,49 @@ mod source_navigation_tests {
             assert!(tab.jump_line.is_none());
             assert_eq!(tab.viewer.as_ref().unwrap().read(cx).cursor(), 13);
         });
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod context_menu_tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn copy_uses_right_clicked_path_even_when_refresh_reorders_rows(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut project = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| ProjectView::new(PathBuf::from("/repo"), cx));
+            view.update(cx, |s, _| {
+                s.task = Task::ready(()); s.loading = None;
+                s.directories.insert(PathBuf::new(), vec![
+                    Entry {path: "first.txt".into(), kind: Kind::File},
+                    Entry {path: "中文 folder".into(), kind: Kind::Directory},
+                ]);
+                s.rebuild();
+            });
+            project = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        cx.update(|w, cx| w.draw(cx).clear(cx));
+        let press = point(px(100.), px(100.)); // header 36 + root 26 + file 26 + folder
+        cx.simulate_mouse_down(press, MouseButton::Right, Default::default());
+        cx.simulate_mouse_up(press, MouseButton::Right, Default::default());
+        cx.run_until_parked();
+        cx.update(|w, cx| {
+            project.as_ref().unwrap().update(cx, |s, cx| {
+                assert_eq!(s.rows[s.active].0.path, Path::new("中文 folder"));
+                s.rows.swap(1, 2); cx.notify();
+            });
+            w.draw(cx).clear(cx);
+        });
+        let item = point(press.x + px(30.), press.y + px(17.));
+        cx.simulate_mouse_move(item, None, Default::default());
+        cx.simulate_click(item, Default::default());
+        cx.run_until_parked();
+        cx.update(|_, cx| assert_eq!(cx.read_from_clipboard().unwrap().text().unwrap(),
+            crate::ui_style::project_path_text(&std::path::absolute("/repo").unwrap().join("中文 folder"))));
     }
 }

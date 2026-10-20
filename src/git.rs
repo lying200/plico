@@ -186,6 +186,7 @@ pub enum Area {
     Unstaged,
     Staged,
     Untracked,
+    Ignored,
     Conflict,
 }
 impl Area {
@@ -196,6 +197,7 @@ impl Area {
             Self::Unstaged => "Unstaged",
             Self::Staged => "Staged",
             Self::Untracked => "Untracked",
+            Self::Ignored => "Ignored Files",
             Self::Conflict => "Conflict",
         }
     }

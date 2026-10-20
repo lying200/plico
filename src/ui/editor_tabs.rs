@@ -187,10 +187,21 @@ impl Review {
                 },
             )
             .detach();
+            cx.subscribe_in(&view, window, |s, view, _: &crate::local_view::RequestRollback, w, cx| {
+                let view=view.clone();
+                s.with_saved_documents(w,cx,move|s,w,cx|{view.update(cx,|v,cx|v.prepare_rollback_saved(w,cx));s.sync_document_lock(cx);});
+            }).detach();
+            cx.subscribe_in(&view, window, |s, view, event: &crate::local_view::ExecuteRollback, w, cx| {
+                let view=view.clone();
+                let event=crate::local_view::ExecuteRollback{prepared:event.prepared.clone(),selected:event.selected.clone(),delete_added:event.delete_added};
+                s.with_saved_documents(w,cx,move|s,w,cx|{view.update(cx,|v,cx|v.rollback_saved(&event,w,cx));s.sync_document_lock(cx);});
+            }).detach();
             cx.subscribe_in(
                 &view,
                 window,
                 |s, _, event: &crate::local_view::Changed, w, cx| {
+                    s.sync_document_lock(cx);
+                    s.sync_worktree(plico::worktree_events::Batch { all:true, index:true, ..Default::default() },true,w,cx);
                     s.refresh_impl(false, true, None, cx);
                     if event.push {
                         s.open_push(w, cx);

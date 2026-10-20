@@ -362,3 +362,14 @@ pub fn save_reset_mode(mode: crate::reset_operation::Mode)->std::io::Result<()> 
     let path=settings_path().ok_or_else(||std::io::Error::other("Settings directory unavailable"))?.with_file_name("reset-mode");
     std::fs::create_dir_all(path.parent().unwrap())?; std::fs::write(path,mode.name())
 }
+
+#[derive(Clone, Copy)]
+pub enum ChangesOption { Directory, Ignored, DeleteAdded }
+fn changes_option_file(root:&Path,option:ChangesOption)->Option<(PathBuf,String)>{
+    let (path,key)=history_details_file(root)?;
+    let name=match option{ChangesOption::Directory=>"changes-directory",ChangesOption::Ignored=>"changes-ignored",ChangesOption::DeleteAdded=>"rollback-delete-added"};
+    let filename=path.file_name()?.to_str()?;
+    Some((path.with_file_name(format!("{name}-{filename}")),key))
+}
+pub fn load_changes_option(root:&Path,option:ChangesOption)->bool{changes_option_file(root,option).and_then(|(path,key)|read_history_details(&path,&key)).unwrap_or(false)}
+pub fn save_changes_option(root:&Path,option:ChangesOption,value:bool)->std::io::Result<()>{let Some((path,key))=changes_option_file(root,option)else{return Ok(());};save_project_boolean(&path,&key,value)}

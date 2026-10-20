@@ -36,7 +36,7 @@ impl Review {
             }
         });
     }
-    fn sync_worktree(&mut self, batch: Batch, poll_open_documents: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn sync_worktree(&mut self, batch: Batch, poll_open_documents: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.documents.observe_disk(&batch, poll_open_documents, window, cx);
         if !batch.changed() { return; }
         if let Some(view) = &self.local_view { view.update(cx, |v, cx| v.refresh(cx)); }

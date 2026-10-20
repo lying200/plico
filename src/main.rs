@@ -111,3 +111,5 @@ fn open_project_window_at(path: std::path::PathBuf, limit: usize, report: Option
 }
 
 mod source_changes;
+
+mod rollback_dialog;

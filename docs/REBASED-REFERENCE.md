@@ -2106,3 +2106,24 @@ Windows release 在独立构建缓存中通过（旧缓存出现依赖 crate met
 验证：3 项反馈单测覆盖 Unicode 截断、恢复优先级、记录清理与取消；33 项真实 Git 暂存／提交集成测试通过，其中成功、签名失败、空提交验证新的反馈 Interface，恢复失败用 70000 字符 post-commit 输出确认关键原因仍保留。38 项桌面测试通过，仍排除已记录的 Diff 生命周期基线失败。
 
 Windows release 构建通过，原生启动截图在 `artifacts/commit-feedback-20261020/window.png`。本次自动化无法可靠获得前台焦点，键盘输入被保护检查拒绝，定向消息输入也未形成提交说明；未实际触发提交，故失败弹窗的原生交互验收仍待手工完成，不能把 `failed.png` 文件名当作通过证据。未改用户仓库或操作其窗口。长日志恢复原因保留已由上述真实 Git fixture 断言验证。
+
+## Commit 面板 Rollback 与显示选项（2026-10-20）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；已安装 Rebased 1.1.20 仍不视为相同版本。视觉结构依据用户本轮两张 Commit 截图，实际读取：
+
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/actions/RollbackAction.java`、`RollbackFilesAction.kt`、`platform/util/resources/misc/registry.properties`：默认 `vcs.prefer.checkboxes.over.selection=false`，回滚初选来自树选择而非提交勾选；没有可用已跟踪选择则打开全部更改。动作先保存文档。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/RollbackChangesDialog.kt`：可勾选更改列表、数量信息、Delete locally added files，只有所选包含 NEW 才启用该选项；没有选中项时禁用确认。
+- 同目录 `RollbackWorker.java`：不可取消的执行；完成（含失败）后更新工作树／列表；仅 Git 回滚无异常才按选项删除新增文件。
+- `plugins/git4idea/backend/src/rollback/GitRollbackEnvironment.java`：NEW 执行 rm --cached -f，默认保留工作文件；MOVED 取消新路径跟踪、删除新路径并 checkout HEAD 恢复旧路径；MODIFICATION／DELETED checkout HEAD 同时恢复 index 与工作文件。
+- `platform/vcs-impl/resources/META-INF/VcsActions.xml`、`platform/vcs-impl/shared/resources/intellij.platform.vcs.impl.shared.xml`：刷新、Rollback、Diff、显示选项、定位、展开／折叠的工具栏顺序；显示选项包含 Group By / Directory 和 Show / Ignored Files。
+- `platform/vcs-impl/shared/src/com/intellij/platform/vcs/impl/shared/changes/{ChangesViewSettings.kt,ToggleShowIgnoredAction.kt}` 与 `platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/actions/ChangesGrouppingActions.kt`：默认仅仓库分组（单仓库对应平铺文件）、忽略文件默认隐藏；修改选项触发刷新并保存偏好。`ChangesGroupingSupport.kt`：Directory 开关独立于其他分组。
+
+本地：`rollback_operation` 封装只读准备和确认后的写操作，采用 literal pathspec 与 NUL stdin，不执行全仓 reset/clean；确认前后复验 HEAD、相关 index 和文件内容指纹，拒绝过期确认。文件内容以固定 64KiB 缓冲读取，不保留正文；index 查询分块避免 Windows 命令行长度限制。`local_view/rollback.rs` 与 `rollback_dialog.rs` 管理保存门禁、确认、文档锁、失败提示及生命周期；复用既有 Changed 刷新，并立即通知打开文档／Diff。准备可取消，确认后的 Git 序列无取消按钮，失败可能已部分执行并刷新实际状态。
+
+`local_view/options.rs`、`local_changes::Model`、`changes_refresh` 提供平铺／Directory 开关和可选 ignored 元数据查询；忽略目录用 ls-files --directory 表示，避免遍历产物，忽略条目不进入提交／Rollback／Diff。视图选项与删除新增文件偏好按项目记忆。工具栏动作靠左排列、增加 Rollback 与眼睛菜单，标题使用隐藏图标；平铺文件后显示父目录，提交勾选数放在 Amend 行，默认提交文本区高度按截图增加。图标 `hideToolWindow_dark.svg` 与 `locate_dark.svg` 来自上述 commit 的 `platform/icons/src/general/`，保留 Apache-2.0 来源。
+
+保留差异：单仓库；未提供变更列表／Shelf／IDE Local History，未放置无行为的 Shelf 按钮；Rollback 对话框使用虚拟化平铺勾选列表而非 IDE 的多 changelist 树。无 IDE Local History Undo，因此确认框明确告知丢弃行为；删除新增文件偏好按项目而非 IDE 全局保存。暂不回滚进行中的 merge/rebase、冲突、目录／submodule 或已被重新创建旧路径的 rename，避免扩大删除范围；Windows 大小写专用 rename 尚未支持。最多 4096 条准备项，内容指纹用本次进程内散列侦测普通编辑，不宣称抵抗外部进程恶意竞争或跨文件事务原子性。精确像素间距与独立原生对话框未宣称完全一致。
+
+验证：210 项核心单测、33 项真实 Git 提交／index 集成测试、7 项新增 rollback 集成测试通过；覆盖混合暂存、未选文件保护、新增保留／显式删除、unborn、rename/literal 路径、取消准备、文件／index／HEAD 过期、index.lock、符号链接边界。38 项桌面测试通过，仍排除此前已确认的 `releasing_diff_clears_padding_from_retained_source` 基线失败。Windows release 构建通过。
+
+Windows 原生验收使用独立 `Plico-validation/rollback-20261020/fixture` 和独立 profile：确认平铺文件／父目录、工具栏／眼睛菜单结构、打开忽略项、全选／取消全选（空选择禁用 Rollback 和删除新增选项）、取消确认后 Git diff/status 不变；实际确认后 M/D/R 恢复，A 变为保留的 untracked，其他 untracked/ignored 保留，Changes 列表自动刷新。截图位于 `artifacts/rollback-20261020/{changes,menu,confirm-ready-final,none-final,cancel-final,rolled-back-final}.png`，原生文件断言见 `native-results.txt`。第一次执行脚本恰逢状态刷新，未打开确认框，断言正确失败；重开并确认后断言通过，未将首次脚本结果误记为通过。Directory 切换、快捷键、已打开编辑器内容同步与中英文布局的原生交互仍待验收；目录分组身份保持已由核心测试覆盖。未操作用户 Rebased/IDE 或用户项目；只关闭本轮自建测试进程。

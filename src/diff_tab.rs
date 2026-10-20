@@ -392,7 +392,7 @@ impl Render for DiffTab {
             Area::WorkingTree => ("HEAD".into(), t("Working tree").into()),
             Area::Staged => ("HEAD".into(), t("Index").into()),
             Area::Unstaged => (t("Index").into(), t("Working tree").into()),
-            Area::Untracked => (t("Empty file").into(), t("Working tree").into()),
+            Area::Untracked | Area::Ignored => (t("Empty file").into(), t("Working tree").into()),
             Area::Conflict => (t("Unmerged").into(), t("Working tree").into()),
         } };
         let after = match &self.stash_origin {

@@ -2,8 +2,11 @@
 use plico::{git::{Cancel, Repository}, local_changes::{Model, Row}, file_tree, diff_target::{Target, Chain}, i18n::t, commit_inclusion::{Inclusion as Selection, Identity as InclusionIdentity}, commit_changes::File as CommitFile, commit_draft::{Draft, Amend}, commit_operation, commit_recovery};
 use plico::commit_feedback::{self, Failure as WriteFailure};
 use gpui_kit::{prelude::FluentBuilder as _, *};
-use gpui_kit::component::{button::{Button, ButtonVariants as _}, checkbox::Checkbox, input::{Textarea, TextareaState, InputEvent}, Disableable as _, Sizable as _, Icon, h_flex, v_flex};
-actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh]);
+use gpui_kit::component::{button::{Button, ButtonVariants as _}, checkbox::Checkbox, input::{Textarea, TextareaState, InputEvent}, Disableable as _, Sizable as _, menu::{ContextMenuExt as _, PopupMenuItem}, Icon, h_flex, v_flex};
+mod rollback;
+mod options;
+pub use rollback::{RequestRollback, ExecuteRollback};
+actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh, Rollback, ToggleDirectory]);
 pub struct OpenDiff(pub Target, pub Chain);
 pub struct Hide;
 pub struct Submit(pub bool, pub bool);
@@ -12,7 +15,8 @@ pub struct LocalView {
     ui_chinese: bool,
     repo: Repository, model: Model, focus: FocusHandle, scroll: UniformListScrollHandle,
     selection: Selection, draft: Draft, input: Entity<TextareaState>, head: Option<String>, recovery: bool,
-    preparing: bool,
+    show_ignored: bool,
+    preparing: bool, rolling_back: bool, rollback_scope: Option<(plico::git::Area, std::collections::HashSet<std::path::PathBuf>)>,
     write_token: Option<Cancel>, write_task: Task<()>, amend_token: Cancel, amend_task: Task<()>, notice: Option<String>, write_error: Option<WriteFailure>,
     refresh: Entity<crate::changes_refresh::ChangesRefresh>, error: Option<String>,
 }
@@ -29,7 +33,7 @@ impl LocalView {
     fn with_refresh(repo: Repository, refresh: Entity<crate::changes_refresh::ChangesRefresh>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.bind_keys([KeyBinding::new("enter",ShowDiff,Some("LocalChanges")), KeyBinding::new("ctrl-d",ShowDiff,Some("LocalChanges")),
             KeyBinding::new("down",NextFile,Some("LocalChanges")),KeyBinding::new("up",PreviousFile,Some("LocalChanges")),
-            KeyBinding::new("ctrl-f5",Refresh,Some("LocalChanges"))]);
+            KeyBinding::new("ctrl-f5",Refresh,Some("LocalChanges")),KeyBinding::new("ctrl-alt-z",Rollback,Some("LocalChanges")),KeyBinding::new("ctrl-alt-p",ToggleDirectory,Some("LocalChanges"))]);
         let input = cx.new(|cx| TextareaState::new(window, cx).placeholder(t("Commit message")));
         cx.subscribe_in(&input, window, |s, _, event, _, cx| {
             if matches!(event, InputEvent::Change) {
@@ -42,9 +46,9 @@ impl LocalView {
             use crate::changes_refresh::Update;
             match event {
                 Update::Started => s.error = None,
-                Update::Loaded(snapshot, recovery) => {
+                Update::Loaded(snapshot, recovery, ignored) => {
                     s.selection.replace(snapshot);
-                    s.model.replace(snapshot.files.iter().map(CommitFile::change).collect());
+                    s.model.replace(snapshot.files.iter().map(CommitFile::change).chain(ignored.iter().filter(|_|s.show_ignored).cloned()).collect());
                     s.head = snapshot.head.clone();
                     s.recovery = *recovery;
                 }
@@ -53,9 +57,11 @@ impl LocalView {
             cx.notify();
         }).detach();
         let mut view = Self { ui_chinese: plico::i18n::is_chinese(), selection: Selection::default(), draft: Draft::default(), input, head: None, recovery: false,
-            preparing: false, write_token: None, write_task: Task::ready(()), amend_token: Cancel::default(), amend_task: Task::ready(()), notice: None, write_error: None, repo, model: Model::default(), focus: cx.focus_handle(), scroll: UniformListScrollHandle::new(),
+            show_ignored: false, preparing: false, rolling_back: false, rollback_scope: None, write_token: None, write_task: Task::ready(()), amend_token: Cancel::default(), amend_task: Task::ready(()), notice: None, write_error: None, repo, model: Model::default(), focus: cx.focus_handle(), scroll: UniformListScrollHandle::new(),
             refresh, error: None };
-        view.refresh(cx); view
+        view.model.set_grouped(plico::layout_preferences::load_changes_option(&view.repo.path,plico::layout_preferences::ChangesOption::Directory));
+        view.show_ignored=plico::layout_preferences::load_changes_option(&view.repo.path,plico::layout_preferences::ChangesOption::Ignored);
+        let ignored=view.show_ignored;view.refresh.update(cx,|q,cx|q.set_show_ignored(ignored,cx)); view
     }
     pub fn focus_message(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |input,cx| input.focus(window,cx));
@@ -141,7 +147,7 @@ impl LocalView {
     pub fn preview_revision(&self, cx: &App) -> u64 { self.refresh.read(cx).revision() }
     pub fn preview_change(&self, cx: &App) -> Option<&plico::git::Change> {
         if self.refresh.read(cx).busy() || self.error.is_some() { return None; }
-        self.model.files().get(self.model.selected().unwrap_or(0))
+        self.model.files().get(self.model.selected().unwrap_or(0)).filter(|f|f.area!=plico::git::Area::Ignored)
     }
     pub fn preview_target(&self, cx: &App) -> Option<(Target, Chain)> {
         let change = self.preview_change(cx)?.clone();
@@ -151,6 +157,7 @@ impl LocalView {
     }
     pub fn select_target(&mut self, target: &Target, cx: &mut Context<Self>) {
         if target.identity().repository != self.repo.path || target.identity().revision.is_some() { return; }
+        self.rollback_scope=Some((target.change().area,std::iter::once(target.change().path.clone()).collect()));
         if let Some(row) = self.model.reveal(target.change()) {
             self.scroll.scroll_to_item(row, ScrollStrategy::Top);
             cx.notify();
@@ -158,7 +165,7 @@ impl LocalView {
     }
     fn show_diff(&mut self,cx:&mut Context<Self>) {
         if self.refresh.read(cx).busy() || self.error.is_some() {return;}
-        let Some(change)=self.model.selected().and_then(|i|self.model.files().get(i)).cloned() else {return;};
+        let Some(change)=self.model.selected().and_then(|i|self.model.files().get(i)).filter(|f|f.area!=plico::git::Area::Ignored).cloned() else {return;};
         match Target::new(self.repo.clone(),None,change).and_then(|target| Chain::new(&target,self.model.files()).map(|chain|OpenDiff(target,chain))) {
             Ok(event)=>cx.emit(event), Err(e)=>{self.error=Some(e);cx.notify();}
         }
@@ -166,6 +173,7 @@ impl LocalView {
     fn step(&mut self,forward:bool,cx:&mut Context<Self>) {
         self.model.step(forward);
         if let Some(index)=self.model.selected() {
+            let change=&self.model.files()[index];self.rollback_scope=Some((change.area,std::iter::once(change.path.clone()).collect()));
             if let Some(row)=self.model.rows().iter().position(|r|matches!(r,Row::Entry{row:file_tree::Row::File{index:i,..},..} if *i==index)) {
                 self.scroll.scroll_to_item(row,ScrollStrategy::Top);
             }
@@ -186,15 +194,21 @@ impl Render for LocalView {
             .on_action(cx.listener(|s,_:&NextFile,_,cx|s.step(true,cx)))
             .on_action(cx.listener(|s,_:&PreviousFile,_,cx|s.step(false,cx)))
             .on_action(cx.listener(|s,_:&Refresh,_,cx|s.refresh(cx)))
-            .child(h_flex().h(px(36.)).px_3().child(t("Commit")).child(div().flex_1())
-                .child(Button::new("local-hide").ghost().small().icon(icon("jb/closeSmall.svg")).tooltip(t("Hide"))
+            .on_action(cx.listener(|s,_:&Rollback,_,cx|s.request_rollback(cx)))
+            .on_action(cx.listener(|s,_:&ToggleDirectory,_,cx|s.toggle_directory(cx)))
+            .child(h_flex().h(px(36.)).px_3().border_b_1().border_color(rgb(0x2c2d30)).child(div().font_weight(FontWeight::SEMIBOLD).child(t("Commit"))).child(div().flex_1())
+                .child(Button::new("local-hide").ghost().small().icon(icon("jb/hideToolWindow_dark.svg")).tooltip(t("Hide"))
                     .on_click(cx.listener(|_,_,_,cx|cx.emit(Hide)))))
             .child(h_flex().h(px(32.)).flex_shrink_0().px_2().gap_1()
                 .child(Button::new("local-refresh").ghost().small().icon(icon("jb/refresh_dark.svg")).tooltip(t("Refresh"))
                     .disabled(self.write_token.is_some()).on_click(cx.listener(|s,_,_,cx|s.refresh(cx))))
+                .child(Button::new("local-rollback").ghost().small().icon(icon("jb/rollback_dark.svg")).tooltip(t("Rollback… · Ctrl+Alt+Z"))
+                    .disabled(!self.can_rollback(cx)).on_click(cx.listener(|s,_,_,cx|s.request_rollback(cx))))
                 .child(Button::new("local-diff").ghost().small().icon(icon("jb/diff_dark.svg")).tooltip(t("Show Diff · Ctrl+D"))
-                    .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.model.selected().is_none()).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
-                .child(div().flex_1())
+                    .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.model.selected().is_none() || self.model.selected().is_some_and(|i|self.model.files()[i].area==plico::git::Area::Ignored)).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
+                .child(self.view_options(cx))
+                .child(div().w(px(1.)).h(px(20.)).bg(rgb(0x393b40)))
+                .child(Button::new("local-locate").ghost().small().icon(icon("jb/locate_dark.svg")).tooltip(t("Show selected change")).disabled(self.model.selected().is_none()).on_click(cx.listener(|s,_,_,cx|{if let Some(c)=s.model.selected().and_then(|i|s.model.files().get(i)).cloned(){if let Some(row)=s.model.reveal(&c){s.scroll.scroll_to_item(row,ScrollStrategy::Top);cx.notify();}} })))
                 .child(Button::new("local-expand").ghost().small().icon(icon("jb/expandAll_dark.svg")).tooltip(t("Expand All"))
                     .on_click(cx.listener(|s,_,_,cx|{s.model.expand_all();cx.notify();})))
                 .child(Button::new("local-collapse").ghost().small().icon(icon("jb/collapseAll_dark.svg")).tooltip(t("Collapse All"))
@@ -220,27 +234,33 @@ impl Render for LocalView {
                         Row::Entry{row:file_tree::Row::Folder{path,depth,expanded,..},..}=>(path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+1,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
                         Row::Entry{row:file_tree::Row::File{index,depth},..}=>{
                             let f=&s.model.files()[index];
-                            (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui_style::file_icon(&f.path),s.model.selected()==Some(index),crate::ui_style::change_color(f))
+                            (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui_style::file_icon(&f.path),s.model.selected()==Some(index),if f.area==plico::git::Area::Ignored{0x72757a}else{crate::ui_style::change_color(f)})
                         }
                     };
+                    let rollback_paths=paths.clone();let context_owner=cx.entity().downgrade();let rollback_enabled=area==plico::git::Area::WorkingTree && s.can_rollback(cx);
+                    let parent_label=if !s.model.grouped(){match &s.model.rows()[row]{Row::Entry{row:file_tree::Row::File{index,..},..}=>{let p=s.model.files()[*index].path.parent().unwrap_or(std::path::Path::new(""));Some(if p.as_os_str().is_empty(){s.repo.path.file_name().unwrap_or_default().to_string_lossy().into_owned()}else{p.display().to_string()})},_=>None}}else{None};
                     h_flex().id(("local-row",row)).w_full().h(px(28.)).pl(px(8.+depth as f32*14.)).pr_2().gap_2()
                         .when(selected,|v|v.bg(rgb(0x2e436e)))
                         .when(branch, |v|v.child(icon(asset)))
-                        .child(Checkbox::new(("commit-file",row)).checked(total>0 && included==total)
+                        .when(area!=plico::git::Area::Ignored,|v|v.child(Checkbox::new(("commit-file",row)).checked(total>0 && included==total)
                             .indeterminate(included>0 && included<total)
                             .accessibility_label(label.clone())
                             .tooltip(t("Commit entire file, including unstaged changes"))
                             .disabled(s.refresh.read(cx).busy() || s.error.is_some() || s.write_token.is_some() || total==0)
-                            .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.selection.set_scope(&ids,*checked);cx.stop_propagation();cx.notify();})))
+                            .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.selection.set_scope(&ids,*checked);cx.stop_propagation();cx.notify();}))))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
-                        .child(div().truncate().text_color(rgb(color)).child(label))
+                        .child(div().truncate().text_color(rgb(color)).when(branch && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(label))
+                        .when_some(parent_label,|v,label|v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(label)))
                         .when(updating, |v| v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("updating…"))))
+                        .on_mouse_down(MouseButton::Right,cx.listener(move|s,_,w,cx|{s.rollback_scope=Some((area,rollback_paths.clone()));s.focus.focus(w,cx);cx.notify();}))
                         .on_click(cx.listener(move |s,e:&ClickEvent,w,cx|{s.focus.focus(w,cx);
+                            s.rollback_scope=s.model.rows().get(row).map(|r|(match r{Row::Group{area,..}|Row::Entry{area,..}=>*area},s.model.inclusion_paths(row)));
                             match s.model.rows().get(row).cloned() {
                                 Some(Row::Entry{row:file_tree::Row::File{index,..},..})=>{s.model.select(index);if e.click_count()==2{s.show_diff(cx);}},
                                 _=>s.model.toggle(row),
                             } cx.notify();
                         }))
+                        .context_menu(move|menu,_,_|{let owner=context_owner.clone();menu.item(PopupMenuItem::new(t("Rollback…")).disabled(!rollback_enabled).on_click(move|_,_,cx|{let _=owner.update(cx,|s,cx|s.request_rollback(cx));}))})
                 }).collect::<Vec<_>>()
             })).track_scroll(&self.scroll).size_full().map(|tree| {
                 #[cfg(all(test, feature = "desktop-tests"))]
@@ -249,9 +269,9 @@ impl Render for LocalView {
             })).when(self.refresh.read(cx).loaded() && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
                 div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
-                .child(Checkbox::new("commit-amend").label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
+                .child(h_flex().gap_2().child(Checkbox::new("commit-amend").label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
-                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx))))
+                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(div().flex_1()).child(div().text_size(px(12.)).text_color(rgb(0x589df6)).child(format!("{} {}",self.selection.count(),t("selected")))))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))
                 .when_some(match self.draft.amend(){Amend::Failed(e)=>Some(e.clone()),_=>None},|v,e|v.child(v_flex().gap_1()
                     .child(div().text_size(px(13.)).child(t("Could not load commit message")))
@@ -259,7 +279,7 @@ impl Render for LocalView {
                         .child(Button::new("amend-message-retry").link().small().label(t("Retry"))
                             .on_click(cx.listener(|s,_,w,cx|s.toggle_amend(true,w,cx))))
                         .child(crate::error_ui::details_button("amend-message-error",e)))))
-                .child(Textarea::new(&self.input).h(px(120.)).external_focus_ring(false).disabled(self.write_token.is_some()).aria_label(t("Commit message")))
+                .child(Textarea::new(&self.input).h(px(200.)).external_focus_ring(false).disabled(self.write_token.is_some()).aria_label(t("Commit message")))
                 .when_some(self.notice.clone(),|v,text|v.child(div().text_size(px(12.)).max_h(px(72.)).overflow_hidden().child(text)))
                 .when_some(self.write_error.as_ref(),|v,e|v.child(v_flex().gap_1().min_w_0()
                     .child(div().text_size(px(13.)).child(t(e.summary)))
@@ -276,7 +296,7 @@ impl Render for LocalView {
                     .child(Button::new("commit-push").label(t(if !matches!(self.draft.amend(),Amend::Off){"Amend Commit and Push…"}else{"Commit and Push…"}))
                         .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.recovery || self.write_token.is_some() || !self.draft.can_submit(self.selection.count()))
                         .on_click(cx.listener(|s,_,w,cx|s.submit(true,false,w,cx))))
-                    .when(self.write_token.is_some(),|v|v.child(Button::new("commit-cancel").label(t("Cancel")).on_click(cx.listener(|s,_,_,cx|{if let Some(t)=&s.write_token{t.cancel();}cx.notify();}))))))
+                    .when(self.write_token.is_some() && !self.rolling_back,|v|v.child(Button::new("commit-cancel").label(t("Cancel")).on_click(cx.listener(|s,_,_,cx|{if let Some(t)=&s.write_token{t.cancel();}cx.notify();}))))))
     }
 }
 
@@ -292,7 +312,7 @@ mod refresh_tests {
         let (_, cx) = cx.add_window_view(|window, cx| {
             let count = std::rc::Rc::new(std::cell::Cell::new(0));
             let query = cx.new(|_| crate::changes_refresh::ChangesRefresh::with_loader(
-                Repository::new("unused"), std::rc::Rc::new(move |_, _, cx| {
+                Repository::new("unused"), std::rc::Rc::new(move |_, _, _, cx| {
                     let n = count.get() + 1; count.set(n);
                     let timer = cx.background_executor().timer(std::time::Duration::from_millis(if n == 1 { 100 } else { 1000 }));
                     cx.background_spawn(async move {
@@ -303,7 +323,7 @@ mod refresh_tests {
                                 path: format!("review-{n}.txt").into(), old_path: None,
                                 status: "?".into(), area: plico::git::Area::Untracked,
                             })], review_versions: vec![],
-                        }, false))
+                        }, false, vec![]))
                     })
                 })));
             let view = cx.new(|cx| LocalView::with_refresh(Repository::new("unused"), query, window, cx));

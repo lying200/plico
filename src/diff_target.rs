@@ -23,6 +23,7 @@ pub struct Target {
 
 impl Target {
     pub fn new(repository: Repository, commit: Option<Commit>, change: Change) -> Result<Self> {
+        if change.area==Area::Ignored {return Err("Ignored files have no review diff".into());}
         if (change.area == Area::Commit) != commit.is_some() {
             return Err("Diff target does not match its revision area".into());
         }

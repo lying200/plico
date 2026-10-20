@@ -112,7 +112,7 @@ impl Review {
                     Area::Staged => ("HEAD".into(), t("Staged").into()),
                     Area::Unstaged => (t("Staged").into(), t("Working tree").into()),
                     Area::Untracked => (t("Empty file").into(), t("Untracked working file").into()),
-                    Area::Conflict => return None,
+                    Area::Conflict | Area::Ignored => return None,
                 };
                 let before = file
                     .old_path

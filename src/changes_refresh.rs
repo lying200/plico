@@ -3,12 +3,12 @@ use gpui_kit::{App, AppContext, Context, EventEmitter, Task};
 use plico::{commit_changes::Snapshot, commit_recovery, git::{Cancel, Repository}};
 use std::{rc::Rc, time::Duration};
 
-type Result = std::result::Result<(Snapshot, bool), String>;
-type Loader = Rc<dyn Fn(Repository, Cancel, &mut App) -> Task<Result>>;
+type Result = std::result::Result<(Snapshot, bool, Vec<plico::git::Change>), String>;
+type Loader = Rc<dyn Fn(Repository, Cancel, bool, &mut App) -> Task<Result>>;
 
 pub enum Update {
     Started,
-    Loaded(Snapshot, bool),
+    Loaded(Snapshot, bool, Vec<plico::git::Change>),
     Failed(String),
 }
 
@@ -21,6 +21,7 @@ pub struct ChangesRefresh {
     flight: Option<Flight>,
     revision: u64,
     loaded: bool,
+    show_ignored: bool,
     feedback: bool,
     query: Task<()>,
     delay: Task<()>,
@@ -28,18 +29,20 @@ pub struct ChangesRefresh {
 impl EventEmitter<Update> for ChangesRefresh {}
 impl ChangesRefresh {
     pub fn new(repository: Repository) -> Self {
-        Self::with_loader(repository, Rc::new(|repo, token, cx| {
+        Self::with_loader(repository, Rc::new(|repo, token, show_ignored, cx| {
             cx.background_spawn(async move {
                 let snapshot = Snapshot::load(&repo, &token)?;
                 let recovery = commit_recovery::pending(&repo.editor_directory(&token)?)?.is_some();
-                Ok((snapshot, recovery))
+                let ignored=if show_ignored { plico::local_changes::ignored(&repo,&token)? } else {vec![]};
+                Ok((snapshot, recovery, ignored))
             })
         }))
     }
     pub(crate) fn with_loader(repository: Repository, loader: Loader) -> Self {
-        Self { repository, loader, flight: None, revision: 0, loaded: false,
+        Self { repository, loader, flight: None, revision: 0, loaded: false, show_ignored: false,
             feedback: false, query: Task::ready(()), delay: Task::ready(()) }
     }
+    pub fn set_show_ignored(&mut self,value:bool,cx:&mut Context<Self>){self.show_ignored=value;self.request(cx);}
     pub fn busy(&self) -> bool { self.flight.is_some() }
     pub fn loaded(&self) -> bool { self.loaded }
     pub fn feedback(&self) -> bool { self.feedback }
@@ -59,7 +62,7 @@ impl ChangesRefresh {
                 if s.busy() { s.feedback = true; cx.notify(); }
             });
         });
-        let work = (self.loader)(self.repository.clone(), token, cx);
+        let work = (self.loader)(self.repository.clone(), token, self.show_ignored, cx);
         self.query = cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |s, cx| {
@@ -67,9 +70,9 @@ impl ChangesRefresh {
                 s.delay = Task::ready(());
                 s.feedback = false;
                 match result {
-                    Ok((snapshot, recovery)) => {
+                    Ok((snapshot, recovery, ignored)) => {
                         s.loaded = true;
-                        cx.emit(Update::Loaded(snapshot, recovery));
+                        cx.emit(Update::Loaded(snapshot, recovery, ignored));
                     }
                     Err(error) => cx.emit(Update::Failed(error)),
                 }
@@ -97,12 +100,12 @@ mod tests {
         let events = Rc::new(RefCell::new(Vec::new()));
         let loader: Loader = {
             let starts = starts.clone(); let tokens = tokens.clone();
-            Rc::new(move |_, token, cx| {
+            Rc::new(move |_, token, _, cx| {
                 let n = starts.get() + 1; starts.set(n); tokens.borrow_mut().push(token);
                 let timer = cx.background_executor().timer(Duration::from_millis(if n == 1 { 500 } else { 100 }));
                 cx.background_spawn(async move {
                     timer.await;
-                    if n == 2 { Err("read failed".into()) } else { Ok((snapshot(), false)) }
+                    if n == 2 { Err("read failed".into()) } else { Ok((snapshot(), false, vec![])) }
                 })
             })
         };

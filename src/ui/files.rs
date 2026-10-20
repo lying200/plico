@@ -51,6 +51,7 @@ impl Review {
                 Area::Untracked => "Untracked · New file preview",
                 Area::Conflict => "Conflict · Unmerged index entries",
                 Area::Commit => "Committed change",
+                Area::Ignored => "Ignored Files",
             }));
         }
         let repo = self.repo.clone();

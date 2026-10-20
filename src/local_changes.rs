@@ -20,6 +20,7 @@ pub enum Row {
 }
 #[derive(Default)]
 pub struct Model {
+    flat: bool,
     files: Vec<Change>,
     rows: Vec<Row>,
     selected: Option<Identity>,
@@ -27,6 +28,8 @@ pub struct Model {
     collapsed_directories: HashSet<(Area, PathBuf)>,
 }
 impl Model {
+    pub fn grouped(&self)->bool { !self.flat }
+    pub fn set_grouped(&mut self,grouped:bool){self.flat=!grouped;self.rebuild();}
     pub fn files(&self) -> &[Change] { &self.files }
     pub fn rows(&self) -> &[Row] { &self.rows }
     /// Includes collapsed descendants; path components prevent src matching src-other.
@@ -105,12 +108,16 @@ impl Model {
     }
     fn rebuild(&mut self) {
         self.rows.clear();
-        for area in [Area::Conflict, Area::WorkingTree, Area::Unstaged, Area::Staged, Area::Untracked] {
+        for area in [Area::Conflict, Area::WorkingTree, Area::Unstaged, Area::Staged, Area::Untracked, Area::Ignored] {
             let count = self.files.iter().filter(|f| f.area == area).count();
             if count == 0 { continue; }
             let expanded = !self.collapsed_groups.contains(&area);
             self.rows.push(Row::Group { area, count, expanded });
-            if expanded {
+            if expanded && self.flat {
+                let mut files:Vec<_>=self.files.iter().enumerate().filter(|(_,f)|f.area==area).collect();
+                files.sort_by_key(|(_,f)|f.path.clone());
+                self.rows.extend(files.into_iter().map(|(index,_)|Row::Entry{area,row:file_tree::Row::File{index,depth:0}}));
+            } else if expanded {
                 self.rows.extend(file_tree::rows(self.files.iter().enumerate().filter(|(_, f)| f.area == area).map(|(i,f)| (i,f.path.as_path())),
                     |p| self.collapsed_directories.contains(&(area,p.to_path_buf())))
                     .into_iter().map(|row| Row::Entry { area, row }));
@@ -122,6 +129,17 @@ impl Model {
 mod tests {
     use super::*;
     fn file(path: &str, area: Area) -> Change { Change { path: path.into(), old_path: None, status: "M".into(), area } }
+    #[test]
+    fn grouping_switch_preserves_selected_identity_and_ignored_scope_is_separate() {
+        let mut m=Model::default();let target=file("src/a",Area::WorkingTree);
+        m.replace(vec![target.clone(),file("build",Area::Ignored),file("src/b",Area::WorkingTree)]);
+        m.select(0);m.collapse_all();m.set_grouped(false);
+        assert_eq!(m.selected(),Some(0));
+        assert!(!m.rows().iter().any(|r|matches!(r,Row::Entry{row:file_tree::Row::Folder{..},..})));
+        let group=m.rows().iter().position(|r|matches!(r,Row::Group{area:Area::WorkingTree,..})).unwrap();
+        assert_eq!(m.inclusion_paths(group).len(),2);
+        m.set_grouped(true);assert!(m.reveal(&target).is_some());assert_eq!(m.selected(),Some(0));
+    }
     #[test]
     fn diff_navigation_reveals_collapsed_exact_version() {
         let mut m = Model::default();
@@ -181,4 +199,10 @@ mod tests {
         m.replace(vec![]); m.replace(vec![file("src/b",Area::Unstaged)]);
         assert!(m.rows().iter().any(|r| matches!(r, Row::Entry{row:file_tree::Row::File{..},..})));
     }
+}
+
+/// Ignored directories remain collapsed metadata entries; never enumerate build output.
+pub fn ignored(repo:&crate::git::Repository,token:&crate::git::Cancel)->Result<Vec<Change>,String>{
+    let bytes=repo.read(&["ls-files","--others","--ignored","--exclude-standard","--directory","-z"].map(std::ffi::OsStr::new),token)?;
+    bytes.split(|b|*b==0).filter(|b|!b.is_empty()).map(|b|Ok(Change{path:crate::git::path_from_bytes(b)?,old_path:None,status:"!".into(),area:Area::Ignored})).collect()
 }

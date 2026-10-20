@@ -2149,3 +2149,15 @@ Windows 原生验收：独立 80 条提交 fixture 与本地 bare remote，启�
 回归：抽取实际渲染使用的来源判定，旧行为在 `clicking_same_log_commit_reclaims_preview_without_closing_commit_sidebar` 失败；修复后同一测试经过真实 Review／LocalView 事件订阅，验证同一 Log 行切回、侧栏仍展开、普通通知不抢来源、再次显式本地选择切回、清空 Log 选择不暴露本地 Diff。桌面测试 44 项通过，仍排除已记录 Diff 生命周期基线失败。Windows release 构建通过。
 
 Windows 原生验证使用独立两提交 fixture、独立 bottom-preview profile；`artifacts/preview-owner-20261020/log-same.png` 显示点击原来同一条 Log 提交后 BASE → COMMITTED，`local-again.png` 显示重新选择本地文件后 COMMITTED → LOCAL UNCOMMITTED，`log-other-settled.png` 显示选择另一条提交后 Empty tree → BASE。Commit 侧栏始终展开且本地选择保留。原生键盘与多选组合仍待手测；没有触发用户仓库写操作，关闭的仅自建测试进程。
+
+### 2026-10-20 同行修改滚动时两侧错帧
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与源码快照不保证一致。本轮重新实读 `platform/diff-impl/src/com/intellij/diff/tools/util/side/TwosideTextDiffViewer.java::MyVisibleAreaListener` 和 `tools/util/SyncScrollSupport.java::TwosideSyncScrollSupport.visibleAreaChanged/ScrollHelper.visibleAreaChanged/syncVerticalScroll/doScrollVertically`：可见区域事件内同步从侧，然后请求内容重绘；普通同步关闭从侧滚动动画，通过禁入区避免回传。曲线仍反映两侧实际显示位置，新增／删除、折行或文档边界导致的合理倾斜不应强行拉平。
+
+根因与最小复现：两个 200 行、不折行、只在第 9 行替换文本、总行数不变的编辑器，主侧移动 20px 后首次 prepaint 的同一差异范围分别为 `(148,168)` 与 `(168,188)`。本地原先在 `InputBaseElement::paint` 末尾才 `publish_scroll_offset`，从侧收到事件后再排下一帧；上一轮仅验证“中栏读取的几何等于本帧各侧几何”，没有验证两侧是否已同步，因此漏掉此时序。
+
+本地映射：`vendor/gpui-base/src/input/base/state.rs` 在滚轮事件内更新偏移后立即发布，在已有布局时的 `set_scroll_offset` 同样提前发布；保留初始布局及新尺寸校正的 paint 发布兜底和 peer 防回传。新滚轮输入清除尚未绘制的旧 deferred peer 请求，防止下一帧把新输入覆盖回去。未增加定时重绘、动画或 Git 查询，未更改差异行映射算法。保留差异：GPUI 的事件队列在绘制前分发，不移植 Swing 同步监听器；光标引起的布局内滚动及通用 scrollbar 直接修改 handle 的路径仍有 paint 兜底，本轮不宣称所有输入路径均已同帧化。
+
+验证：`equal_line_changes_scroll_together_on_first_frame` 通过真实 EditableDiff 与每帧 prepaint probe 捕获所有中间帧，修前失败，修后左右作为主侧均通过；45 项桌面测试通过，继续明确跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败。未合成鼠标滚轮事件做界面自动化；动态手感由用户手测。本次用户附件为 Commit 菜单，未将其作为 Diff 现象截图证据。
+
+补充验收：独立 gpui-base 单元测试 `wheel_publishes_viewport_before_paint_and_supersedes_pending_peer` 通过，验证无编辑器绘制时也已发布事件、清除旧 peer 请求、随后 paint 发布不重复事件。Windows release 构建通过；独立 200 行仓库新开 Diff Tab 的原生截图 `artifacts/scroll-sync-20261020/tab.png` 确认第 9 行两侧及中栏连续对齐。静态截图不代表持续滚动已验收。测试进程关闭，未操作用户 Rebased／IDE。

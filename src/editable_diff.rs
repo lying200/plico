@@ -493,6 +493,53 @@ mod lifecycle_tests {
         });
         cx.update(|window,cx|{let _=window.draw(cx);});
     }
+    type Extents = ((gpui::Pixels, gpui::Pixels), (gpui::Pixels, gpui::Pixels));
+    struct SyncProbe {
+        diff: Entity<EditableDiff>,
+        frames: std::rc::Rc<std::cell::RefCell<Vec<Extents>>>,
+    }
+    impl Render for SyncProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let diff=self.diff.clone(); let frames=self.frames.clone();
+            div().size_full().child(self.diff.clone()).child(gpui::canvas(move |_,_,cx| {
+                let view=diff.read(cx);
+                if let (Some(a),Some(b))=(view.original.read(cx).source_line_extent(8..9), view.modified.read(cx).source_line_extent(8..9)) {
+                    frames.borrow_mut().push((a,b));
+                }
+            },|_,_,_,_|{}).absolute().size_full())
+        }
+    }
+    #[gpui::test]
+    fn equal_line_changes_scroll_together_on_first_frame(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut diff = None;
+        let frames=std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let text = (0..200).map(|i| format!("line {i}\n")).collect::<String>();
+            let modified = text.replace("line 8\n", "changed 8\n");
+            let file = gpui::component::diff::DiffFile::from_editor_sources(
+                Some(("a.txt", &text)), Some(("a.txt", &modified))).unwrap();
+            let view = cx.new(|cx| EditableDiff::snapshot(&file, std::path::Path::new("a.txt"), window, cx));
+            diff = Some(view.clone()); let probe=cx.new(|_|SyncProbe {diff:view, frames:frames.clone()}); Root::new(probe, window, cx)
+        });
+        let diff = diff.unwrap();
+        for _ in 0..3 { cx.update(|w,cx| { let _=w.draw(cx); }); }
+        for original in [true, false] {
+            for offset in [-20., -40., -60., -10.] {
+                frames.borrow_mut().clear();
+                cx.update(|_,cx| {
+                    let view=diff.read(cx);
+                    let editor=if original {view.original.clone()} else {view.modified.clone()};
+                    editor.update(cx,|e,cx|e.set_scroll_offset(point(px(0.),px(offset)),cx));
+                });
+                cx.update(|w,cx| { let _=w.draw(cx); });
+                assert!(!frames.borrow().is_empty());
+                for (a,b) in frames.borrow().iter() {
+                    assert_eq!(a,b,"equal-line change must stay aligned on every frame, source left={original}, offset={offset}");
+                }
+            }
+        }
+    }
     // Sample the same prepaint API used by SourceChanges, before editor paint.
     struct GutterProbe {
         editor: Entity<EditorState>,

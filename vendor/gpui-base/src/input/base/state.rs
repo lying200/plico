@@ -2610,8 +2610,12 @@ impl<M: InputModeKind> InputBaseState<M> {
         let delta = event.delta.pixel_delta(line_height);
 
         self.peer_scroll_pending = false;
+        // Explicit input supersedes any paired viewport queued before this event.
+        self.deferred_scroll_offset = None;
         let old_offset = self.scroll_handle.offset();
         self.update_scroll_offset(Some(old_offset + delta), cx);
+        // Deliver paired-editor synchronization before either side is painted.
+        self.publish_scroll_offset(cx);
 
         // Only stop propagation if the offset actually changed
         if self.scroll_handle.offset() != old_offset {
@@ -3148,6 +3152,13 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn set_scroll_offset(&mut self, offset: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         self.peer_scroll_pending = false;
         self.deferred_scroll_offset = Some(offset);
+        // With a laid-out viewport, publish navigation before the next frame.
+        // Retain the deferred target so a simultaneous layout change can clamp
+        // it again using fresh dimensions. Initial layout still resolves in paint.
+        if self.last_layout.is_some() {
+            self.update_scroll_offset(Some(offset), cx);
+            self.publish_scroll_offset(cx);
+        }
         cx.notify();
     }
 
@@ -5753,6 +5764,41 @@ mod tests {
             let line = state.input_bounds;
             assert_eq!(line.center().y, px(30.), "line {line:?}");
         });
+    }
+
+    #[gpui::test]
+    fn wheel_publishes_viewport_before_paint_and_supersedes_pending_peer(cx: &mut TestAppContext) {
+        use std::{cell::RefCell, rc::Rc};
+        cx.update(crate::init);
+        let mut input = None;
+        let window = cx.open_window(size(px(400.), px(100.)), |window, cx| {
+            input = Some(cx.new(|cx| crate::input::EditorState::new(window, cx)));
+            gpui::EmptyView
+        });
+        let input = input.unwrap();
+        input.update(cx, |state, cx| {
+            state.input_bounds = Bounds::new(Point::default(), size(px(100.), px(100.)));
+            state.scroll_size = size(px(100.), px(1000.));
+            state.set_peer_scroll_offset(point(px(0.), px(-200.)), cx);
+        });
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let recorded = events.clone();
+        let _subscription = cx.update(|cx| cx.subscribe(&input, move |_, event: &InputEvent, _| {
+            if let InputEvent::ScrollChanged { previous, offset } = event { recorded.borrow_mut().push((*previous, *offset)); }
+        }));
+        window.update(cx, |_, window, cx| {
+            input.update(cx, |state, cx| {
+                state.on_scroll_wheel(&ScrollWheelEvent {
+                    delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-40.))),
+                    ..Default::default()
+                }, window, cx);
+                assert!(state.deferred_scroll_offset.is_none(), "new input must supersede the old peer request");
+            });
+        }).unwrap();
+        assert_eq!(*events.borrow(), vec![(Point::default(), point(px(0.), px(-40.)))],
+            "the input isn't rendered: synchronization must not wait for paint");
+        input.update(cx, |state, cx| state.publish_scroll_offset(cx));
+        assert_eq!(events.borrow().len(), 1, "paint must not echo the same viewport");
     }
 
     #[gpui::test]

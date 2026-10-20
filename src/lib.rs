@@ -164,3 +164,5 @@ pub mod line_changes;
 pub mod worktree_events;
 
 pub mod rollback_operation;
+
+pub mod reference_checkout;

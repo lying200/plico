@@ -1,5 +1,6 @@
 //! Application window, shared state, construction and top-level composition.
 mod checkout;
+mod reference_checkout;
 mod chrome;
 mod editor_tabs;
 mod files;

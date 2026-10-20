@@ -2171,3 +2171,29 @@ Windows 原生验证使用独立两提交 fixture、独立 bottom-preview profil
 保留差异：单窗口单仓库模型；沿用 Plico 既有“未配置远端”的执行后提示，没有为此按钮额外发起配置查询来提前禁用；加载动画使用 GPUI Spinner，未复制 Swing 动画资源。未添加尚无对应功能的设置齿轮。结构对齐截图中的搜索框右侧入口，未宣称像素级一致。
 
 验证：45 项桌面测试通过（仍跳过既有 `releasing_diff_clears_padding_from_retained_source` 基线失败），4 项 operation 生命周期测试通过，含新增取消期间保持 Fetch 状态／禁止重复启动／完成恢复测试。Windows release 构建成功；仅在独立 fixture 与本地 bare remote 上用延迟 upload-pack 实测按钮，`artifacts/popup-fetch-20261020/{idle,loading,completed}.png` 分别记录空闲、加载及成功恢复，弹窗全程保留，状态栏显示 Fetch completed。认证及 Git 执行代码未改动。新入口及加载状态已原生核对，未宣称完整弹窗像素级还原。
+
+### 2026-10-20 分支／Tag Checkout 入口缺口核对（分析，未修改行为）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与该快照不保证相同。实读 `plugins/git4idea/backend/src/actions/ref/{GitCheckoutAction,GitSingleRefAction}.kt`：具体 Branch／Tag 均可 Checkout；单仓库当前本地分支、detached 状态下当前 Tag 不显示该动作；不能用目标 hash 等于 HEAD 代替当前引用判断。普通远端分支走专门的 `GitRemoteBranchesUtil.checkoutRemoteBranch`，不是 detached checkout。
+
+继续实读 `backend/src/remote/hosting/GitRemoteBranchesUtil.kt::checkoutRemoteBranch/askNewBranchNameAndCheckout` 与 `backend/src/ui/branch/GitBranchCheckoutOperation.kt`：主菜单多仓库入口使用远端分支去掉 remote 后的名字建议本地分支名；同名本地分支跟踪冲突先要求新名字。已有本地分支独有提交时给出 checkout+rebase、保留本地分支 checkout、取消的选择（reset 模式则为丢弃本地提交）；无本地分支时创建并 checkout。另一单仓库工具入口还可优先使用已跟踪该远端的本地分支；不能混为主菜单始终复用任意跟踪分支的规则。
+
+本地缺口：`src/ui/log_branches.rs` 的树右键菜单只提供 Log 过滤／定位，没有任何 Checkout 入口；`src/ui/repository_popup.rs` 的级联菜单使用 `!current && (local || tag)`，明确排除了远端分支，且入口为点击／右箭头展开而不是统一右键动作；`src/ui/log_history.rs` 的 Checkout 子菜单只枚举指向所选提交的本地分支，另有 detached revision 动作。`src/checkout.rs` 已有本地分支、提交号 checkout 及冲突恢复，但没有上述远端分支命名／跟踪冲突／独有提交流程。Tag 从顶部菜单走目标提交号，未按全名复验 Tag 是否移动；`repository_groups` 只标当前本地分支，没有 detached 当前 Tag 判断。
+
+后续实现应统一具体引用的动作构造和目标解析（本地／远端／Tag），让顶部菜单、Log 分支树复用同一规则；远端必须增加完整准备与冲突选择流程，不能直接复用提交号 checkout 冒充功能对齐。本轮没有 Git 写操作、UI 改动或原生验收；以上是已读代码的行为分析，不宣称 Checkout 已修复。
+
+### 2026-10-20 统一引用 Checkout 与远端分支决策
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 与该源码快照不保证一致。沿上节入口实读 `GitCheckoutAction.kt`、`GitSingleRefAction.kt`、`GitRemoteBranchesUtil.kt::checkoutRemoteBranch/askNewBranchNameAndCheckout`、`GitBranchActionsUtil.kt::hasTrackingConflicts`、`GitBranchCheckoutOperation.kt`、`GitNewBranchDialog.kt::GitNewBranchOptions` 以及 `GitRefUtil.java::getCurrentReference`、`GitCheckoutOperation.java`、`GitCheckoutNewBranchOperation.java`。补充校正上节分析：主分支菜单传入 `GitNewBranchOptions(name, true, true, false, repositories)`，第三参数为 reset，因此同名本地分支有独有提交时实际选择是 **Checkout and Rebase / Drop Local Commits / Cancel**，不是非 reset 模式的 Use Local Branch。
+
+提取规则：当前本地分支按引用身份排除；同一 HEAD 上其他分支仍可切换。Tag 使用完整 ref 并进入 detached HEAD；当前 detached Tag 不重复显示动作。远端分支按去掉配置 remote 前缀的名字创建／切换本地分支；同名本地分支跟踪其他目标时要求新名字，未设置 upstream 本身不算冲突；有独有提交必须先显式选择变基或丢弃。主菜单不任意复用其他名字的跟踪分支。
+
+本地 `src/ui/reference_checkout.rs` 统一目标解析及准备／命名／独有提交弹窗，顶部级联及右键、Log 引用树右键、提交 Checkout 子菜单共同使用；引用目标来自 snapshot 而不是当前有界提交列表。本地分支复用既有 checkout／Smart Checkout 流程。`src/reference_checkout.rs` 负责远端／Tag 准备、锁内复验及执行：校验 HEAD OID 和 symbolic identity、完整 ref（含 annotated tag 对象）、本地 tip 和 upstream；拒绝进行中的 Git 操作及过期确认。远端创建／替换绑定 upstream；只有明确选择 Drop Local Commits 才允许丢弃本地独有提交。执行后检查实际 HEAD、attached/detached 状态、变基后的祖先关系和冲突，退出码成功不足以判定成功。保存编辑文档后才写 Git，完成／失败／取消均刷新实际状态。
+
+保留差异：Plico 单仓库，弹窗使用 GPUI 而非 Swing；同名冲突输入非法名字后当前以状态栏错误反馈，未复制 IDE 的内联名称校验。新增远端／Tag 路径遇到会覆盖未提交文件时保留 Git 拒绝和诊断，不自动 stash 或 force；既有本地分支 Smart Checkout 保持不变。远端变基冲突保留 Git rebase 状态，供已有继续／中止操作处理。尚未统一远端／Tag 的 Smart Checkout 弹窗，不能据此宣称完整 checkout 恢复体验完全一致。不复制 IDE 多仓库协调及所有分支操作菜单；无无效占位操作。
+
+验证：11 项独立临时仓库集成测试通过，覆盖创建与跟踪、快进、独有提交显式决策、变基保留提交／冲突、命名跟踪冲突、过期 HEAD／ref／upstream、Tag detached／替换对象、取消前无写入、脏文件保护。46 项桌面测试通过（新增引用身份／历史窗口无关的菜单可用性测试），继续单独排除已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败。原生界面验收记录见后续补充。
+
+Windows release 构建通过；独立 Windows fixture 与本地 bare remote 原生核对顶部远端 Checkout 级联、独有提交三选一弹窗、跟踪冲突新名字弹窗、Log 引用树 Tag 右键、Log 提交 Checkout 子菜单。实际完成 `review-other -> origin/other` 的创建／绑定、Tag detached 切换，并以宿主机 Git 断言；截图及断言保存在 `artifacts/reference-checkout-20261020/`（`remote-filter.png`、`local-commits-ready.png`、`naming-ready.png`、`name-completed.png`、`tag-menu.png`、`tag-completed.png`、`commit-checkout.png`、`native-results.txt`）。准备期间截图不是完成证据。验收中修复了准备结束后取消决策弹窗留下“正在检查”文案的问题。顶部右键与键盘组合、中英文弹窗布局仍待完整原生验收；未宣称逐像素复刻。仅操作独立 fixture、关闭自建进程，未操作用户项目或 Rebased／IDE。
+
+补充原生断言：从 Log 提交 Checkout 子菜单切换到与当前 Tag 相同 OID 的 `same-head` 本地分支，宿主机 `symbolic-ref HEAD` 确认为 `refs/heads/same-head`；截图 `same-head-completed.png`。证明入口按引用身份判断，不因目标等于 HEAD 而遗漏本地分支。最终测试进程已关闭。

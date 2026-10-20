@@ -631,7 +631,7 @@ impl Review {
             .when(count>0 && !self.repository_actions.is_empty(), |v|v.child(div().h(px(1.)).w_full().bg(rgb(POPUP_BORDER))))
             .when(count==0 && self.repository_actions.is_empty(), |v| v.child(div().p_2().text_color(rgb(MUTED)).child(t("No matching branches or actions"))))
             .when(count>0, |v|v.child(uniform_list("repository-reference-tree", count, cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
-                let Some(snapshot) = &s.snapshot else { return Vec::new(); };
+                if s.snapshot.is_none() { return Vec::new(); }
                 let groups=s.repository_groups();
                 let rows = branch_popup::visible_rows(&groups, &s.repository_expansion, true);
                 range.filter_map(|index| rows.get(index).map(|row| {
@@ -653,14 +653,15 @@ impl Review {
                             .on_click(cx.listener(move |s,_,_,cx| { s.dismiss_repository_child(cx); s.repository_expansion.toggle(key.clone()); s.repository_selection=Some(plico::branch_search::Selection::Folder(key.clone())); cx.notify(); })).into_any_element();
                     }
                     let VisibleNode::Entry(Node::Ref { reference, label }) = &row.node else { unreachable!() };
-                    let full_ref = reference.full_name.to_owned(); let target = reference.id.to_owned();
-                    let head = snapshot.head_id.clone(); let current = reference.current;
-                    let local = full_ref.starts_with("refs/heads/"); let tag = full_ref.starts_with("refs/tags/");
+                    let full_ref = reference.full_name.to_owned();
+                    let current = reference.current;
+                    let tag = full_ref.starts_with("refs/tags/");
                     let owner = cx.entity().downgrade();
                     let section = row.section;
                     let identity=plico::branch_search::Selection::Reference(section,full_ref.clone());
                     let hover_identity=identity.clone();
                     let child_open=s.repository_child_selection.as_ref()==Some(&identity);
+                    let context_owner=owner.clone(); let context_ref=full_ref.clone();
                     let change_owner=owner.clone();
                     let favorite = reference.favorite;
                     let favorite_ref = full_ref.clone();
@@ -687,15 +688,12 @@ impl Review {
                                 s.repository_selection=Some(plico::branch_search::Selection::Reference(section,full_ref.clone()));
                                 cx.notify();
                             });
-                            if !current && (local || tag) {
-                                let owner = owner.clone(); let reference = full_ref.clone(); let target = target.clone(); let head = head.clone();
-                                menu = menu.item(PopupMenuItem::new(t("Checkout")).on_click(move |_,w,cx| {
-                                    let _ = owner.update(cx, |s,cx| {
-                                        s.dismiss_repository_menu(cx);
-                                        if let Some(head) = &head { if local { s.start_local_checkout(reference.clone(),target.clone(),head.clone(),w,cx); }
-                                            else { s.start_checkout(target.clone(),head.clone(),w,cx); } }
-                                        cx.notify();
-                                    });
+                            let checkout = owner.upgrade().is_some_and(|s|s.read(menu_cx).reference_checkout_target(&full_ref).is_some());
+                            if checkout {
+                                let disabled=owner.upgrade().is_none_or(|s|s.read(menu_cx).operation.busy());
+                                let owner=owner.clone();let reference=full_ref.clone();
+                                menu=menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
+                                    let _=owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
                                 }));
                             }
                             let full_ref = full_ref.clone();
@@ -709,7 +707,18 @@ impl Review {
                                 }
                                 cx.notify();
                             });
-                        }))).into_any_element()
+                        })))
+                        .context_menu(move |menu,_,cx| {
+                            let available=context_owner.upgrade().is_some_and(|s|s.read(cx).reference_checkout_target(&context_ref).is_some());
+                            let disabled=context_owner.upgrade().is_none_or(|s|s.read(cx).operation.busy());
+                            let owner=context_owner.clone();let reference=context_ref.clone();
+                            menu.when(available,|menu|menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
+                                let _=owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
+                            }))).item(PopupMenuItem::new(t("Copy Reference Name")).on_click({
+                                let reference=context_ref.clone();move |_,_,cx|cx.write_to_clipboard(ClipboardItem::new_string(reference.clone()))
+                            }))
+                        })
+                        .into_any_element()
                 })).collect::<Vec<_>>()
             })).track_scroll(&self.repository_scroll).h(px(count.min(12) as f32 * 28.))))
             .into_any_element()

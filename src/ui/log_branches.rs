@@ -876,12 +876,19 @@ impl Review {
                                         }
                                     });
                                 })
-                                .context_menu(move |menu, _, _| {
+                                .context_menu(move |mut menu, _, cx| {
                                     let Some(name) = &menu_ref else {
                                         return menu;
                                     };
                                     let name = name.clone();
                                     let owner = menu_owner.clone();
+                                    if owner.upgrade().is_some_and(|s|s.read(cx).reference_checkout_target(&name).is_some()) {
+                                        let disabled=owner.upgrade().is_none_or(|s|s.read(cx).operation.busy());
+                                        let checkout_owner=owner.clone();let reference=name.clone();
+                                        menu=menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
+                                            let _=checkout_owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
+                                        })).separator();
+                                    }
                                     let filter_owner = owner.clone();
                                     let filter_name = name.clone();
                                     menu.when(!name.starts_with("refs/tags/"), |menu| {

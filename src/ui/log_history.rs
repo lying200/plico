@@ -339,9 +339,10 @@ impl Review {
                                                 .separator().when(true, |menu| {
                                                     let branches = checkout_owner.upgrade().and_then(|e| {
                                                         let s = e.read(cx);
-                                                        s.snapshot.as_ref().map(|snapshot| snapshot.branches.iter()
-                                                            .filter(|b| b.id == target && b.name.starts_with("refs/heads/") && snapshot.current_branch.as_ref().is_none_or(|n| b.name != format!("refs/heads/{n}")))
-                                                            .map(|b| b.name.clone()).collect::<Vec<_>>())
+                                                        s.snapshot.as_ref().map(|snapshot| snapshot.branches.iter().map(|b|(&b.name,&b.id))
+                                                            .chain(snapshot.tags.iter().map(|t|(&t.name,&t.id)))
+                                                            .filter(|(name,id)| **id==target && s.reference_checkout_target(name).is_some())
+                                                            .map(|(name,_)|name.clone()).collect::<Vec<_>>())
                                                     }).unwrap_or_default();
                                                     if branches.is_empty() {
                                                         menu.item(PopupMenuItem::new(format!("{} {}", t("Checkout Revision"), &target[..8])).disabled(!checkout_enabled)
@@ -351,10 +352,10 @@ impl Review {
                                                     } else {
                                                         menu.submenu(t("Checkout"), window, cx, move |mut sub, _, _| {
                                                             for reference in &branches {
-                                                                let reference = reference.clone(); let owner = owner.clone(); let target = target.clone(); let head = head.clone(); let path = path.clone();
+                                                                let reference = reference.clone(); let owner = owner.clone(); let path = path.clone();
                                                                 sub = sub.item(PopupMenuItem::new(reference.strip_prefix("refs/heads/").unwrap_or(&reference).to_owned()).disabled(!checkout_enabled)
                                                                     .on_click(move |_, w, cx| { let _ = owner.update(cx, |s, cx| {
-                                                                        if s.repo.path == path { if let Some(head) = &head { s.start_local_checkout(reference.clone(), target.clone(), head.clone(), w, cx); } }
+                                                                        if s.repo.path == path { s.checkout_reference(reference.clone(), w, cx); }
                                                                     }); }));
                                                             }
                                                             let owner = owner.clone(); let target = target.clone(); let head = head.clone(); let path = path.clone();

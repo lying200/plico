@@ -123,3 +123,51 @@ fn cancellation_during_hard_reset_leaves_a_complete_repository() {
     assert_eq!(fs::read(f.0.join("z.txt")).unwrap(),b"base\n");
     assert!(!f.0.join(".git/index.lock").exists(),"Abandoned Git lock");
 }
+
+#[test]
+fn linked_worktree_rechecks_operation_and_recovery_after_dialog() {
+    for marker in ["MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "recovery"] {
+        let (f, base, head) = history();
+        let linked = f.0.join("linked");
+        f.git(&["worktree", "add", "--detach", linked.to_str().unwrap(), &head]);
+        let repo = Repository::new(&linked);
+        let token = Cancel::default();
+        let prepared = Prepared::prepare(&repo, base.clone(), &token).unwrap();
+        let directory = repo.editor_directory(&token).unwrap();
+        assert_ne!(directory, f.0.join(".git"));
+        match marker {
+            "rebase-merge" => fs::create_dir(directory.join(marker)).unwrap(),
+            "recovery" => fs::write(plico::commit_recovery::path(&directory), "pending").unwrap(),
+            _ => fs::write(directory.join(marker), format!("{base}\n")).unwrap(),
+        }
+        fs::write(linked.join("file"), "valuable\n").unwrap();
+        assert!(prepared.execute(&repo, Mode::Hard, &token, &Default::default()).is_err());
+        assert_eq!(fs::read(linked.join("file")).unwrap(), b"valuable\n");
+        assert!(!Repository::new(&f.0).operation_state(&token).unwrap().in_progress());
+        let output = Command::new("git").arg("-C").arg(&linked).args(["rev-parse", "HEAD"]).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), head);
+    }
+}
+
+#[test]
+fn rechecks_unmerged_index_without_operation_marker() {
+    use std::io::Write;
+    let (f, base, head) = history();
+    let repo = Repository::new(&f.0);
+    let prepared = Prepared::prepare(&repo, base, &Cancel::default()).unwrap();
+    let blob = String::from_utf8(f.git(&["rev-parse", "HEAD:file"])).unwrap();
+    let mut child = f.command().args(["update-index", "--index-info"])
+        .stdin(std::process::Stdio::piped()).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    write!(stdin, "0 {}\tfile\n100644 {} 1\tfile\n100644 {} 2\tfile\n",
+        "0".repeat(40), blob.trim(), blob.trim()).unwrap();
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    let before = f.git(&["ls-files", "--stage"]);
+    f.write("file", "valuable\n");
+    assert!(prepared.execute(&repo, Mode::Hard, &Cancel::default(), &Default::default()).is_err());
+    assert_eq!(f.git(&["ls-files", "--stage"]), before);
+    assert_eq!(fs::read(f.0.join("file")).unwrap(), b"valuable\n");
+    assert_eq!(String::from_utf8(f.git(&["rev-parse", "HEAD"])).unwrap().trim(), head);
+}

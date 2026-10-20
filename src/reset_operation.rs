@@ -31,9 +31,12 @@ impl Prepared {
     }
     pub fn source(&self)->String { self.branch.as_deref().map(|b|b.strip_prefix("refs/heads/").unwrap_or(b).to_owned()).unwrap_or_else(||format!("HEAD ({})",&self.head[..8])) }
     fn check(&self,repo:&Repository,token:&Cancel)->Result<(),String> {
-        if repo.editor_directory(token)?!=self.directory || crate::commit_operation::head(repo,token)?.as_deref()!=Some(&self.head)
-            || crate::squash_check::symbolic_head(repo,token)?!=self.branch {return Err("Repository state changed; reopen Reset".into());}
-        let state=repo.operation_state(token)?;
+        let directory=repo.editor_directory(token)?;
+        if directory!=self.directory || crate::commit_operation::head(repo,token)?.as_deref()!=Some(&self.head)
+            {return Err("Repository state changed; reopen Reset".into());}
+        let branch=crate::squash_check::symbolic_head(repo,token)?;
+        if branch!=self.branch {return Err("Repository state changed; reopen Reset".into());}
+        let state=repo.operation_state_at(&directory,branch.is_none(),token)?;
         if state.in_progress() || !state.conflicts.is_empty() {return Err("Finish the current Git operation before Reset".into());}
         if crate::commit_recovery::pending(&self.directory)?.is_some(){return Err("Resolve pending index recovery before Reset".into());}
         Ok(())

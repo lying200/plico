@@ -2277,3 +2277,17 @@ Windows 原生验收：独立 `Plico-validation/chunk-commit-20261020/fixture` �
 - Windows release 构建通过。独立 profile 的原生 Plico 打开 spring-framework，检查选择提交、返回已查看提交及加载反馈；`artifacts/interaction-perf-20261021/final-details-busy.png` 可见右下角 Spinner 和文件面板 Reading Git data。截图只核对状态/结构，不作为 GPU 延迟的精确计时。既有 Rebased/IDE 进程未关闭，用户仓库未 reset/修改。刷新按钮动画、各种 DPI 与操作模式的完整原生矩阵仍待手测，不宣称像素级完成。
 - 最终 Trace2 为 1 次 log + 1 次 rev-list；完整 1000 条刷新 1343 ms，初步对照 3953 ms。该轮宿主机普通 git --version 本身由约 43–47 ms 波动到 66–75 ms，因此不混用各轮极值宣传固定倍数。详情缓存 1000 次查询共 43 µs（纯查找，不是端到端 UI 时间）。原始阶段探针已移除，保留明确标识的只读 profiling example，不将硬件耗时断言放入 CI。
 - 流式实现每次遍历一次 HEAD；对单分支超长历史仍有遍历成本，没有上游全量图常驻缓存。这是低内存权衡，后续应单独测超长线性历史，而非宣称所有规模都无延迟。
+
+### 后续：Reset 单次校验内的重复查询
+
+前一轮优化已提交并推送为 `842c526`。继续使用同一只读 profiling example，未修改用户的 spring-framework。重新读取参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `plugins/git4idea/backend/src/reset/GitResetAction.java`、`GitResetOperation.java` 全文：上游使用 repository 对象和已取得详情，确认后后台执行，保存文档并刷新 VFS/dirty scope。安装版仍为 1.1.20，不保证对应此快照。
+
+本地发现 `reset_operation::Prepared::check` 已读取并比较 directory、HEAD、symbolic HEAD，紧接着 `Repository::operation_state` 又查询同一 directory 和 symbolic HEAD。现在提取 crate 内部 `git.rs::operation_state_at`，仅复用本次 check 刚查询的数据；每次 prepare 与 execute 仍各自重新查询身份。markers、unmerged index 和 pending recovery 仍现场读取；不缓存弹窗授权，不跳过 operation guard、目标合法性、HEAD/branch 复验、取消边界和执行后状态刷新。公开 `operation_state` 入口仍独立查询全部状态。保留本地比上游更显式的写前检查，不借提速变更模式或丢弃检查。
+
+功能保障测试在改动前后均通过，新增覆盖弹窗打开后 linked worktree 出现 Merge、Cherry-pick、Rebase、pending recovery，以及没有 operation marker 但 index 出现 unmerged stages 的情况；断言 Hard reset 被拒绝，工作区内容、HEAD、冲突 index 保留。原模式、detached、HEAD/分支改变、锁、取消测试继续保留。
+
+Windows release profiler 顺序执行 before/after，每种 5 次，并开启相同 Trace2；该轮未并行运行测试。Reset 准备 1043–1121 ms（中位 1069）→ 867–897 ms（中位 883），约减少 17%。整个 harness 的 Git 启动数 103→93：5 次准备各少一次 `rev-parse --absolute-git-dir` 和一次 `symbolic-ref`，其他命令数不变。普通 Git 启动约 67–74 ms，不能与先前不带 Trace2、不同宿主负载的极值混算。此处是后端准备时间，不含用户确认或实际 reset 写盘。证据 `artifacts/interaction-perf-20261021/reset-{before,after,query-counts}.txt`。
+
+验证：Linux repository 112 项与 reset 8 项通过；Windows 原生 reset 7 项通过（另一个测试为 Unix smudge fixture），Windows release profiling 构建通过。没有 UI 布局/交互变更，本轮未新做窗口截图；未发布包。
+
+进一步源码对照实际读取 `GitRewordAction.kt` 和 `rebase/log/GitCommitEditingActionBase.kt`：上游 update 使用 cachedMetadata、repository state、quick containing-branches 判定，未知信息在 actionPerformed 时严格复验。当前 `ui/reword.rs::Gate::new` 每次选择立即启动完整 `Prepared::prepare`，属于下一处候选；本轮不修改，尚未量化其与详情查询的竞争。后续需拆分 availability 与写前准备并保留受保护分支、HEAD/merge/rebase 禁用规则，不能只取消后台检查或复用过期写操作授权。

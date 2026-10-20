@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -383,11 +383,15 @@ impl Repository {
     /// Read per-worktree operation markers and unmerged index paths, without
     /// inferring conflict state from a failed command's translated stderr.
     pub fn operation_state(&self, token: &Cancel) -> Result<crate::operation_state::State> {
+        let directory = self.editor_directory(token)?;
+        let detached = self.text(&["symbolic-ref", "--quiet", "HEAD"], token).is_err();
+        self.operation_state_at(&directory, detached, token)
+    }
+    /// Reuse identity freshly read by the caller within this same check, never
+    /// a cached dialog snapshot. Markers and unmerged index entries are always
+    /// read again, including for linked worktrees.
+    pub(crate) fn operation_state_at(&self, directory: &Path, detached: bool, token: &Cancel) -> Result<crate::operation_state::State> {
         use crate::operation_state::{Operation, State};
-        let directory = self.read(&[OsStr::new("rev-parse"), OsStr::new("--absolute-git-dir")], token)?;
-        let directory = directory.strip_suffix(b"\n").unwrap_or(&directory);
-        let directory = directory.strip_suffix(b"\r").unwrap_or(directory);
-        let directory = path_from_bytes(directory)?;
         let mut operation = Operation::None;
         for (marker, state) in [
             ("MERGE_HEAD", Operation::Merge), ("rebase-apply", Operation::RebaseApply),
@@ -411,7 +415,6 @@ impl Repository {
                 Err(error) => return Err(error.to_string()),
             }
         } else { None };
-        let detached = self.text(&["symbolic-ref", "--quiet", "HEAD"], token).is_err();
         let unmerged = self.read(&[OsStr::new("ls-files"), OsStr::new("--unmerged"), OsStr::new("-z")], token)?;
         let mut conflicts = std::collections::BTreeSet::new();
         for record in unmerged.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {

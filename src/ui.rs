@@ -176,6 +176,7 @@ pub struct Review {
     base: Option<i18n::ComparisonTitle>,
     error: Option<String>,
     preview_error: Option<String>,
+    details_cache: plico::detail_cache::Cache,
     busy: bool,
     history_loading: bool,
     loading_patch: bool,
@@ -431,6 +432,7 @@ impl Review {
             base: None,
             error: None,
             preview_error: None,
+            details_cache: Default::default(),
             busy: false,
             history_loading: false,
             loading_patch: false,
@@ -1002,6 +1004,7 @@ impl Render for Review {
                     .on_click(cx.listener(|s, _, w, cx| s.show_error_details(w, cx))))
                 .child(Button::new("dismiss-operation-error").ghost().xsmall().label(t("Dismiss"))
                     .on_click(cx.listener(|s, _, _, cx| { s.error = None; cx.notify(); })))))
+            .when(self.operation.busy() || self.busy || self.history_loading, |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
             .when_some(self.status_message.clone(), |v, text| v.child(div().max_w_full().min_w_0().truncate().child(text)))
             .when(self.squash_undo.is_some(), |v| v.child(Button::new("squash-undo").ghost().xsmall().label(t("Undo Squash"))
                 .disabled(self.operation.busy()).on_click(cx.listener(|s, _, w, cx| s.undo_squash(w, cx)))))

@@ -2245,3 +2245,35 @@ Windows 原生验收：独立 `Plico-validation/chunk-commit-20261020/fixture` �
 验证：部分提交 Git 集成测试扩至 8 项，通过多块＋部分行＋整文件混合、未选 index／工作区保留、过期正文和非法路径拒绝；既有 33 项提交 index 测试通过。2 项选择模型测试覆盖拆分初始化、增删、空内容和无末尾换行；1 项 GPUI scope 测试覆盖共享三态和过期选择不扩大范围。Windows release 构建通过。独立 `Plico-validation/multi-commit-20261020/fixture` 原生验证两个整块与两侧部分行同时勾选、三态联动、右键菜单、逐行切换和真实提交；宿主机 Git 断言只提交所选内容、工作区不变、其他文件 staged/unstaged 均保留。截图与断言见 `artifacts/multi-commit-20261020/{blocks-selected,line-menu,line-included,selected-lines-and-blocks,committed}.png` 和 `native-results.txt`。不操作用户仓库；未发布新包。
 
 收尾回归：50 项桌面测试通过，仍只排除已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败。补充 scope 测试验证最后一行取消后，文件不进入提交但逐行控件状态保留。最终 Windows 构建再次打开独立 fixture，`final/arrows.png` 确认普通块回退箭头与提交 checkbox 共存，只有部分行块隐藏整块回退箭头；已关闭自建进程。原生完整提交流程已在此前同一增量构建验证，收尾改动是上述控件／空选择状态，不把截图当作滚动交互验证。
+
+## 2026-10-21 Windows 操作延迟排查
+
+参考源码仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，与已安装 Rebased 1.1.20 不保证一致。本轮实际读取：
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/data/AbstractDataGetter.kt`：全部命中时直接交付；未命中按 repository 分组在 Backgroundable task 中查询，保留取消和完成通知。
+- `CommitDetailsGetter.kt`：Caffeine 上限 10,000，低内存和 dispose 时清理；详情缓存独立于 placeholder。
+- `plugins/git4idea/backend/src/log/GitLogProvider.kt::readFullDetails/readMetadata`：metadata 与完整变更数据分层，完整数据经 GitLogUtil 批量读。
+- `plugins/git4idea/backend/src/reset/GitResetAction.java`、`GitResetOperation.java::execute`：对话框使用已取得的详情，确认后进入后台任务，执行完刷新仓库/VFS/dirty scope。并不在 UI 线程直接执行 reset。
+- `plugins/git4idea/backend/src/status/GitChangesCollector.java::collect/collectChanges`：使用已有 repository HEAD 与 status；仅 MM 等必要情况计算净差异。
+- `platform/platform-api/src/com/intellij/openapi/ui/LoadingDecorator.kt`：加载生命周期驱动动画，短任务可延迟显示，结束移除加载层。
+
+反馈循环：新增只读 `examples/interaction_profile.rs`，直接调用选择提交使用的 `Repository::details`、`commit_changes::Snapshot::load`、`reset_operation::Prepared::prepare`，包含 Git 子进程时间，不包括 UI/GPU 绘制。不执行 reset、不修改被测仓库。Windows release 在用户确认的 `C:\code\spring-framework` 实测 5 次：详情 283–337 ms，本地刷新 494–595 ms，Reset 准备 1550–1753 ms；独立小 fixture 同样约 285–391 / 579–665 / 1609–1744 ms，排除仅大仓库规模导致。以每路径 100 ms 为探测预算运行返回 1；此预算仅定位可感知等待，不是跨设备 CI 门槛。
+
+逐阶段探针确认 Windows `ProcessTree::spawn` 的系统线程 snapshot 约 8–9 ms，逐项枚举约 43–45 ms，每个 Git 命令额外付出约 52 ms。不是 Git 本身在计算这些时间。`src/process_tree.rs` 改为 PSS_CAPTURE_THREADS，仅采集本次仍暂停的 Git 进程线程，不抓取地址空间/句柄/context；仍保持 CREATE_SUSPENDED → AssignProcessToJobObject → ResumeThread，失败由 Drop 杀掉未启动的子进程。snapshot 和 walk marker 均 RAII 释放。官方 API 依据：[PssCaptureSnapshot](https://learn.microsoft.com/en-us/windows/win32/api/processsnapshot/nf-processsnapshot-psscapturesnapshot)、[PssFreeSnapshot](https://learn.microsoft.com/en-us/windows/win32/api/processsnapshot/nf-processsnapshot-pssfreesnapshot)（当前进程持有的 snapshot 用 GetCurrentProcess 释放）。Windows 8.1+ 可用，满足现有 Windows 10/11 应用范围。未使用未文档化 Nt API、未取消进程树保护。
+
+单独此改动后的同机同仓库 5 次：spawn 准备 2–3 ms，详情 144–165 ms，刷新 292–311 ms，Reset 准备 804–850 ms。原始证据 `artifacts/interaction-perf-20261021/{baseline,stages,process-fix}.txt`。100 ms 探测预算仍未全部达到，不能宣称所有操作瞬时完成。
+
+本地映射与保留差异：
+- `src/detail_cache.rs` + `ui/log_selection.rs`：窗口级 LRU，32 条/估算 2 MiB 双上限；repository、OID、parents、shallow 状态均纳入身份；只缓存成功的详情，不缓存可变 refs/所属分支/写操作验证。命中同步恢复面板，未命中保留 generation 与 Cancel。`ui/repository.rs` 切换仓库或非分页历史刷新即清空，比上游更保守，避免浅克隆边界、replace/config 变化后沿用旧结果。低内存目标下不复制上游 10,000 条缓存。
+- `ui.rs` 右下角为正在执行的操作/历史或详情加载增加 Spinner；`local_view.rs` 刷新按钮沿用既有 300 ms feedback 延迟显示 loading。没有伪造百分比、没有更改取消/Reset 不可中断语义。
+- 尚有优化空间：选择提交会额外启动 Reword eligibility 和 containing-branches 查询；Reset 准备/复验存在重复 metadata 查询；历史刷新仍重新建图。此次未放松写前验证，也未用缓存替代仓库真实状态；没有宣称已完整复刻上游批量预取/增量 dirty scope。
+
+继续测量发现 Log 刷新还有独立瓶颈：在进程启动修复后的 spring-framework 上，`operation_state + history::read(1000) + graph_print` 仍为 3953 ms。Git Trace2 证实该刷新调用了 37 次 `log`（1 次列表＋36 次 HEAD 拓扑分页）；显示窗口包含未合入 HEAD 的提交时，原 `contained_in_head` 必须扫完整个历史且每页重新 `--skip`。此时不只是进度提示缺失。
+
+进一步实际读取同参考 commit 的 `ContainingBranchesGetter.kt`（分支 checksum 失效、限量 LIFO 后台任务与图查询）以及 `CurrentBranchConditionCache.kt`（单线程后台构建 permanent graph 的 membership predicate，返回旧 condition，变动时置 outdated）。本地没有全量 permanent graph，采用轻量差异实现：`git.rs::contained_in_head` 一次 `rev-list <固定 HEAD> --`；`head_membership.rs` 流式处理，只保留当前窗口匹配 OID，单行最长 66 字节，输出规模不随整仓历史进入内存；沿用进程超时/取消。没有为了性能取消未合入分支的正确性，没有使用日期截止或只扫前 1000 条的近似判断。查询依然作为快照的一部分完成，而不是上游的异步旧 condition，避免高亮短暂显示旧 HEAD。
+
+最终验证记录：
+- 一次全量 `cargo test --locked --no-default-features` 491 项通过；HEAD 流式改动后补跑 lib 215 项、repository 112 项通过。桌面 50 项通过，仍显式排除原有 `releasing_diff_clears_padding_from_retained_source` 已知失败。
+- Windows 原生 process_tree 5 项（含 32 次启动后的 snapshot/job/process 句柄不累积、父进程先退出后的后代清理、不误杀无关进程）、operation_process 7 项、reset_operation 5 项通过；HEAD membership 原生真实 Git 合并/未合并/detached 测试通过。所有 Reset 写操作只在自动生成的临时 fixture。
+- Windows release 构建通过。独立 profile 的原生 Plico 打开 spring-framework，检查选择提交、返回已查看提交及加载反馈；`artifacts/interaction-perf-20261021/final-details-busy.png` 可见右下角 Spinner 和文件面板 Reading Git data。截图只核对状态/结构，不作为 GPU 延迟的精确计时。既有 Rebased/IDE 进程未关闭，用户仓库未 reset/修改。刷新按钮动画、各种 DPI 与操作模式的完整原生矩阵仍待手测，不宣称像素级完成。
+- 最终 Trace2 为 1 次 log + 1 次 rev-list；完整 1000 条刷新 1343 ms，初步对照 3953 ms。该轮宿主机普通 git --version 本身由约 43–47 ms 波动到 66–75 ms，因此不混用各轮极值宣传固定倍数。详情缓存 1000 次查询共 43 µs（纯查找，不是端到端 UI 时间）。原始阶段探针已移除，保留明确标识的只读 profiling example，不将硬件耗时断言放入 CI。
+- 流式实现每次遍历一次 HEAD；对单分支超长历史仍有遍历成本，没有上游全量图常驻缓存。这是低内存权衡，后续应单独测超长线性历史，而非宣称所有规模都无延迟。

@@ -169,3 +169,7 @@ pub mod rollback_operation;
 pub mod reference_checkout;
 
 pub mod partial_selection;
+
+pub mod detail_cache;
+
+mod head_membership;

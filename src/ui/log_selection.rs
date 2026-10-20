@@ -190,6 +190,12 @@ impl Review {
                 cx,
             )
         }));
+        if let Some(details) = self.details_cache.get(&self.repo.path, &commit) {
+            self.busy = false;
+            self.apply_commit_details(&details, preferred.as_ref(), cx);
+            cx.notify();
+            return;
+        }
         let repo = self.repo.clone();
         self.task = cx.spawn(async move |this, cx| {
             let result = cx
@@ -202,29 +208,11 @@ impl Review {
                 this.busy = false;
                 match result {
                     Ok(d) => {
-                        let commit = this.selected.and_then(|i| this.commits.get(i));
-                        let presentation = commit_presentation::build(&d, commit);
-                        this.message = presentation.message;
-                        this.commit_metadata = presentation.metadata;
-                        this.base = Some(if commit.is_some_and(|commit| commit.shallow_boundary) {
-                            i18n::ComparisonTitle::Label(
-                                "Shallow boundary · Parent comparison unavailable",
-                            )
-                        } else {
-                            i18n::ComparisonTitle::Parent {
-                                revision: d.base,
-                                merge: commit.is_some_and(|commit| commit.parents.len() > 1),
-                            }
-                        });
-                        this.files = Arc::new(d.files);
-                        this.prune_directory_state();
-                        this.rebuild_files();
-                        this.pending_preview_file = None;
-                        if let Some(index) =
-                            plico::preview_selection::index(&this.files, preferred.as_ref())
-                        {
-                            this.load_file(index, cx);
+                        let d = Arc::new(d);
+                        if let Some(commit) = this.selected.and_then(|i| this.commits.get(i)) {
+                            this.details_cache.insert(&this.repo.path, commit, d.clone());
                         }
+                        this.apply_commit_details(&d, preferred.as_ref(), cx);
                     }
                     Err(e) => this.error = Some(e),
                 }
@@ -232,5 +220,26 @@ impl Review {
             });
         });
         cx.notify();
+    }
+    fn apply_commit_details(&mut self, d: &git::Details, preferred: Option<&Change>, cx: &mut Context<Self>) {
+        let commit = self.selected.and_then(|i| self.commits.get(i));
+        let presentation = commit_presentation::build(d, commit);
+        self.message = presentation.message;
+        self.commit_metadata = presentation.metadata;
+        self.base = Some(if commit.is_some_and(|commit| commit.shallow_boundary) {
+            i18n::ComparisonTitle::Label("Shallow boundary · Parent comparison unavailable")
+        } else {
+            i18n::ComparisonTitle::Parent {
+                revision: d.base.clone(),
+                merge: commit.is_some_and(|commit| commit.parents.len() > 1),
+            }
+        });
+        self.files = Arc::new(d.files.clone());
+        self.prune_directory_state();
+        self.rebuild_files();
+        self.pending_preview_file = None;
+        if let Some(index) = plico::preview_selection::index(&self.files, preferred) {
+            self.load_file(index, cx);
+        }
     }
 }

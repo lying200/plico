@@ -1010,23 +1010,16 @@ impl Repository {
             shallow,
         })
     }
-    /// Keep membership only for this displayed window; page through immutable HEAD.
+    /// One streaming walk, not repeated --skip queries through all of HEAD.
+    /// A displayed commit from an unmerged branch may never be found.
     fn contained_in_head(&self, head: Option<&str>, commits: &[Commit], token: &Cancel) -> Result<HashSet<String>> {
         let Some(head) = head else { return Ok(HashSet::new()); };
-        let mut remaining: HashSet<_> = commits.iter().map(|c| c.id.clone()).collect();
-        let mut included = HashSet::new();
-        let roots = vec![head.to_owned()];
-        let mut offset = 0;
-        while !remaining.is_empty() {
-            let page = self.topology_page(&roots, offset, HISTORY_PAGE, token)?;
-            offset += page.commits.len();
-            for commit in page.commits {
-                if token.cancelled() { return Err("Cancelled".into()); }
-                if remaining.remove(&commit.id) { included.insert(commit.id); }
-            }
-            if !page.more { break; }
-        }
-        Ok(included)
+        if commits.is_empty() { return Ok(HashSet::new()); }
+        if !is_oid(head) { return Err("Invalid history root".into()); }
+        let remaining = commits.iter().map(|c| c.id.clone()).collect();
+        let query = token.clone();
+        self.read_stream(&[OsStr::new("rev-list"), OsStr::new(head), OsStr::new("--")], token,
+            move |out, _| crate::head_membership::read(out, remaining, &query))
     }
     /// Branches whose tips contain this immutable commit, independent of the
     /// loaded history window. Only query the selected commit; retain no cache.

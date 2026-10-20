@@ -204,6 +204,7 @@ impl Render for LocalView {
             .on_action(cx.listener(|s,_:&ToggleDirectory,_,cx|s.toggle_directory(cx)))
             .child(h_flex().h(px(32.)).flex_shrink_0().px_2().gap_1()
                 .child(Button::new("local-refresh").ghost().small().icon(icon("jb/refresh_dark.svg")).tooltip(t("Refresh"))
+                    .loading(self.refresh.read(cx).feedback())
                     .disabled(self.write_token.is_some()).on_click(cx.listener(|s,_,_,cx|s.refresh(cx))))
                 .child(Button::new("local-rollback").ghost().small().icon(icon("jb/rollback_dark.svg")).tooltip(t("Rollback… · Ctrl+Alt+Z"))
                     .disabled(!self.can_rollback(cx)).on_click(cx.listener(|s,_,_,cx|s.request_rollback(cx))))

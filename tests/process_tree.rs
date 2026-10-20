@@ -5,6 +5,7 @@ use std::{io::{Read, Write}, process::{Command, Stdio}, sync::mpsc, thread, time
 #[test]
 fn child_fixture() {
     let Ok(mode) = std::env::var("GITUI_PROCESS_TREE_FIXTURE") else { return; };
+    if mode == "exit" { return; }
     if mode == "descendant" {
         println!("descendant-ready"); std::io::stdout().flush().unwrap();
         thread::sleep(Duration::from_secs(20));
@@ -64,4 +65,22 @@ fn drop_cleans_descendants_even_after_leader_exits() { verify_cleanup("parent-ex
 #[test]
 fn spawn_failure_returns_without_a_child() {
     assert!(ProcessTree::spawn(&mut Command::new("gitui-nonexistent-process-fixture-2026")).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn repeated_spawns_release_snapshot_and_job_handles() {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
+    fn handles() -> u32 {
+        let mut count = 0;
+        assert_ne!(unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) }, 0);
+        count
+    }
+    let before = handles();
+    for _ in 0..32 {
+        let mut tree = ProcessTree::spawn(fixture("exit").stdout(Stdio::null()).stderr(Stdio::null())).unwrap();
+        assert!(tree.child.wait().unwrap().success());
+        drop(tree);
+    }
+    assert!(handles() <= before + 4, "process/snapshot/job handles leaked across repeated spawns");
 }

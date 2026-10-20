@@ -61,10 +61,10 @@ mod windows {
     use super::*;
     use std::os::windows::{io::{AsRawHandle, FromRawHandle, OwnedHandle}, process::CommandExt};
     use windows_sys::Win32::{Foundation::INVALID_HANDLE_VALUE, System::{
-        Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next},
+        Diagnostics::ProcessSnapshotting::*,
         JobObjects::{CreateJobObjectW, SetInformationJobObject, AssignProcessToJobObject,
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE},
-        Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenThread, THREAD_SUSPEND_RESUME, ResumeThread},
+        Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenThread, THREAD_SUSPEND_RESUME, ResumeThread, GetCurrentProcess},
     }};
     fn owned(handle: *mut core::ffi::c_void) -> io::Result<OwnedHandle> {
         if handle.is_null() || handle == INVALID_HANDLE_VALUE { return Err(io::Error::last_os_error()); }
@@ -85,25 +85,36 @@ mod windows {
         if unsafe { AssignProcessToJobObject(tree.job.as_raw_handle(), tree.child.as_raw_handle()) } == 0 {
             return Err(io::Error::last_os_error()); // tree Drop also kills the unassigned suspended child
         }
-        resume_primary_thread(tree.child.id())?;
+        resume_primary_thread(&tree.child)?;
         Ok(tree)
     }
-    fn resume_primary_thread(pid: u32) -> io::Result<()> {
-        // std::process::Child exposes its process handle, not the primary thread handle.
-        // A newly created, still-suspended process has not started user code or helpers.
-        let snapshot = owned(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) })?;
-        let mut entry = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
-        let mut found = None;
-        let mut more = unsafe { Thread32First(snapshot.as_raw_handle(), &mut entry) } != 0;
-        while more {
-            if entry.th32OwnerProcessID == pid {
-                if found.is_some() { return Err(io::Error::other("Suspended process has multiple threads")); }
-                found = Some(entry.th32ThreadID);
-            }
-            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
-            more = unsafe { Thread32Next(snapshot.as_raw_handle(), &mut entry) } != 0;
+    fn resume_primary_thread(child: &Child) -> io::Result<()> {
+        // Inspect only our still-suspended child, not every thread on the machine.
+        // No address space, handles or thread contexts are captured.
+        struct Snapshot(HPSS);
+        impl Drop for Snapshot { fn drop(&mut self) { unsafe { PssFreeSnapshot(GetCurrentProcess(), self.0); } } }
+        struct Marker(HPSSWALK);
+        impl Drop for Marker { fn drop(&mut self) { unsafe { PssWalkMarkerFree(self.0); } } }
+        fn checked(code: u32) -> io::Result<()> {
+            if code == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(code as i32)) }
         }
-        let tid = found.ok_or_else(|| io::Error::other("Suspended process thread not found"))?;
+        let mut handle = std::ptr::null_mut();
+        checked(unsafe { PssCaptureSnapshot(child.as_raw_handle(), PSS_CAPTURE_THREADS, 0, &mut handle) })?;
+        let snapshot = Snapshot(handle);
+        let mut marker = std::ptr::null_mut();
+        checked(unsafe { PssWalkMarkerCreate(std::ptr::null(), &mut marker) })?;
+        let marker = Marker(marker);
+        let mut entry = PSS_THREAD_ENTRY::default();
+        checked(unsafe { PssWalkSnapshot(snapshot.0, PSS_WALK_THREADS, marker.0,
+            (&mut entry as *mut PSS_THREAD_ENTRY).cast(), std::mem::size_of::<PSS_THREAD_ENTRY>() as u32) })?;
+        if entry.ProcessId != child.id() { return Err(io::Error::other("Unexpected captured process")); }
+        let tid = entry.ThreadId;
+        let next = unsafe { PssWalkSnapshot(snapshot.0, PSS_WALK_THREADS, marker.0,
+            (&mut entry as *mut PSS_THREAD_ENTRY).cast(), std::mem::size_of::<PSS_THREAD_ENTRY>() as u32) };
+        if next != windows_sys::Win32::Foundation::ERROR_NO_MORE_ITEMS {
+            checked(next)?;
+            return Err(io::Error::other("Suspended process has multiple threads"));
+        }
         let thread = owned(unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, tid) })?;
         match unsafe { ResumeThread(thread.as_raw_handle()) } {
             1 => Ok(()),

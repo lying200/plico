@@ -188,6 +188,7 @@ impl Review {
             "Plico – {}",
             path.file_name().unwrap_or_default().to_string_lossy()
         ));
+        self.details_cache.clear();
         self.repo = Repository::new(path);
         self.show_long_edges = layout_preferences::load_log_long_edges(&self.repo.path);
         self.graph_model = None;
@@ -295,6 +296,7 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         if !more {
+            self.details_cache.clear();
             if let Some(view) = &self.local_view {
                 view.update(cx, |s, cx| s.refresh(cx));
             }

@@ -217,6 +217,7 @@ impl Review {
         self.saved_changes_available = false;
         self.stash_open = false;
         self.stash_view = None;
+        self.commit_stash_selected = false;
         self.comparison = None;
         self.comparison_visible = false;
         self.comparison_preview = None;

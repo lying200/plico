@@ -2197,3 +2197,17 @@ Windows 原生验证使用独立两提交 fixture、独立 bottom-preview profil
 Windows release 构建通过；独立 Windows fixture 与本地 bare remote 原生核对顶部远端 Checkout 级联、独有提交三选一弹窗、跟踪冲突新名字弹窗、Log 引用树 Tag 右键、Log 提交 Checkout 子菜单。实际完成 `review-other -> origin/other` 的创建／绑定、Tag detached 切换，并以宿主机 Git 断言；截图及断言保存在 `artifacts/reference-checkout-20261020/`（`remote-filter.png`、`local-commits-ready.png`、`naming-ready.png`、`name-completed.png`、`tag-menu.png`、`tag-completed.png`、`commit-checkout.png`、`native-results.txt`）。准备期间截图不是完成证据。验收中修复了准备结束后取消决策弹窗留下“正在检查”文案的问题。顶部右键与键盘组合、中英文弹窗布局仍待完整原生验收；未宣称逐像素复刻。仅操作独立 fixture、关闭自建进程，未操作用户项目或 Rebased／IDE。
 
 补充原生断言：从 Log 提交 Checkout 子菜单切换到与当前 Tag 相同 OID 的 `same-head` 本地分支，宿主机 `symbolic-ref HEAD` 确认为 `refs/heads/same-head`；截图 `same-head-completed.png`。证明入口按引用身份判断，不因目标等于 HEAD 而遗漏本地分支。最终测试进程已关闭。
+
+### 2026-10-20 Stash 归属 Commit 页签及记录右键操作
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与源码快照不保证一致。实读 `plugins/git4idea/backend/resources/intellij.vcs.git.backend.xml` 的 `git.stash` 注册、`Git.Stash.Operations.ContextMenu`；前者明确 `isInCommitToolWindow="true"`。`ChangesViewContentManager.kt::getToolWindowId` 按 Commit 模式将内容映射到 Commit 工具窗口，而不是单独的 Stash 工具窗口。`GitStashContentProvider.kt` 将 Stash 注册为内容 Tab，并可配置与 Shelf 合并；`GitStashProvider.kt` 按保存记录身份提供单选操作；`SavedPatchesUi.kt` 在记录树安装右键菜单，在 changes browser 底部放置恢复动作。因此此前只参考 SavedPatches 内部 splitter 便创建独立左栏入口不充分，本轮纠正该结构。
+
+本地 `ui/chrome.rs` 将 Commit／Stash 页签及隐藏按钮置于共同标题栏；`ui.rs` 去掉独立 Stash 工具栏按钮，Commit 图标在两个页签下均保持选中。`ui/editor_tabs.rs` 复用现有 LocalView／StashView 实体，切换不丢提交草稿、文件选择、记录选择；同一窗口隐藏／切换到 Project 后，Commit 入口恢复最后选择的页签。显式 Local Changes 动作仍进入 Commit 页签，恢复提示的 Stash 动作仍进入 Stash 页签。现有底部预览按活动来源切换；LocalView 不再重复绘制自己的标题栏，Stash 刷新放在页签内部工具栏。
+
+实读 `stash/ui/GitStashActions.kt`：单条选择才启用 Apply／Pop／Drop；普通 Apply／Pop 均不恢复 index，Drop 需要确认。`stash/GitStashUtils.kt::dropStashWithConfirmation` 在确认中展示 selector 和 message，然后执行 `stash drop selector`；`tests/git4idea/stash/GitStashTest.kt` 验证记录 selector、分支、消息、日期；不是上游 Drop 写操作测试。本地 `stash_view.rs` 增加记录右键 Pop／Apply／Drop；右击先选中目标，异步加载文件内容不阻塞对记录本身的操作。Drop 由 `ui/saved_changes.rs` 展示确认并通过既有操作生命周期执行；`stash_operation.rs::drop_stash` 在仓库锁内复验 selector 对应的 OID，序号移动时拒绝删除。删除不改工作区／index，也不把删除保存数据当成已经恢复 Squash 更改，不清除 Squash recovery ownership。取消确认无 Git 写操作，执行后刷新记录和选择回退。
+
+保留差异与范围：仅 Git Stash，尚未实现 Shelf，不将两者混称；Stash 页签允许空列表时进入，而不完全照搬 IDE 可见性 registry。页签选择仅在当前项目窗口生命周期保留，未跨启动持久化。此轮补齐工具窗口归属及基础记录菜单，并非完整 Stash 功能对齐：Unstash As（恢复 index／新分支）、Clear All、与本地比较开关，以及创建 Stash 的完整界面仍需分别对照实现；未放置无行为菜单项。精确像素样式与 IDE 独立原生对话框不宣称一致。
+
+验证：新增 3 项临时仓库 Drop 测试通过，覆盖只删除确认记录、HEAD／index／工作区不变、序号漂移拒绝、取消与非法身份无写入；既有 Apply／Pop 的多场景集成回归通过。47 项桌面测试通过（仍单独排除已记录的 Diff 生命周期基线失败），其中新增真实 Review 页签测试验证实体复用、隐藏后恢复 Stash、Project 切换后恢复页签。Windows release 构建通过。原生验证中确认草稿跨 Commit／Stash 切换保留，并发现首次右键切换记录时 loading 提示挤动列表导致菜单丢失；已将 loading 放入固定高度工具栏，避免鼠标按下与抬起之间改变行位置。
+
+原生验收：独立 `Plico-validation/stash-tabs-20261020/fixture`，`artifacts/stash-tabs-20261020/{stash,draft-retained}.png` 确认页签结构、底部预览及草稿保留；最终构建 `final/context.png` 确认首次右键选中另一个 stash，内容加载中菜单仍出现且记录位置稳定；`final/confirm.png` 显示正确的 `stash@{1}` 和消息。`finish.ps1` 断言取消后完整 stack 不变，确认后只移除旧记录，HEAD／index／工作区不变；`final/dropped.png`、`final/reopened.png` 确认刷新后回退到剩余记录及隐藏重开仍为 Stash。结果见 `native-results.txt`。仅关闭自建测试进程；未操作用户仓库或 Rebased/IDE。键盘菜单、中文长文案和恢复冲突下页签交互仍待原生专项验收；未重新发布安装包。

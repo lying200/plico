@@ -303,54 +303,23 @@ impl Review {
                 .children(self.comparison.clone())
                 .into_any_element();
         }
-        if self.local_visible {
-            return div()
-                .size_full()
-                .children(self.local_view.clone())
-                .into_any_element();
-        }
         if self.project_visible {
-            return div()
-                .size_full()
-                .children(self.project_view.clone())
-                .into_any_element();
+            return div().size_full().children(self.project_view.clone()).into_any_element();
         }
-        v_flex()
-            .size_full()
-            .rounded(px(10.))
-            .overflow_hidden()
-            .bg(rgb(PANEL))
-            .child(
-                h_flex()
-                    .h(px(36.))
-                    .px_3()
-                    .child(t("Stashes"))
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("stashes-refresh")
-                            .ghost()
-                            .small()
-                            .icon(jb_icon("refresh_dark.svg"))
-                            .tooltip(t("Refresh"))
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                if let Some(v) = &s.stash_view {
-                                    v.update(cx, |v, cx| v.refresh(cx));
-                                }
-                            })),
-                    )
-                    .child(
-                        Button::new("stashes-hide")
-                            .ghost()
-                            .small()
-                            .icon(jb_icon("closeSmall.svg"))
-                            .tooltip(t("Hide"))
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.stash_open = false;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(div().flex_1().min_h_0().children(self.stash_view.clone()))
+        v_flex().size_full().min_h_0().bg(rgb(PANEL))
+            .child(h_flex().h(px(36.)).flex_shrink_0().px_2().gap_1().border_b_1().border_color(rgb(BORDER))
+                .child(islands_tab("commit-content-tab",self.local_visible).child(t("Commit"))
+                    .on_click(cx.listener(|s,_,w,cx|s.open_local(w,cx))))
+                .child(islands_tab("stash-content-tab",self.stash_open).child(t("Stash"))
+                    .on_click(cx.listener(|s,_,w,cx|s.open_stashes(w,cx))))
+                .child(div().flex_1())
+                .child(Button::new("commit-window-hide").ghost().small().icon(jb_icon("hideToolWindow_dark.svg"))
+                    .tooltip(t("Hide")).on_click(cx.listener(|s,_,_,cx| {
+                        s.local_visible=false;s.stash_open=false;cx.notify();
+                    }))))
+            .child(div().flex_1().min_h_0().child(if self.local_visible {
+                div().size_full().children(self.local_view.clone()).into_any_element()
+            } else {div().size_full().children(self.stash_view.clone()).into_any_element()}))
             .into_any_element()
     }
     pub(super) fn git_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {

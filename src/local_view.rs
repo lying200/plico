@@ -8,7 +8,6 @@ mod options;
 pub use rollback::{RequestRollback, ExecuteRollback};
 actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh, Rollback, ToggleDirectory]);
 pub struct OpenDiff(pub Target, pub Chain);
-pub struct Hide;
 /// Explicit tree navigation, separate from refresh/draft notifications.
 pub struct PreviewSelected;
 pub struct Submit(pub bool, pub bool);
@@ -23,7 +22,6 @@ pub struct LocalView {
     refresh: Entity<crate::changes_refresh::ChangesRefresh>, error: Option<String>,
 }
 impl EventEmitter<OpenDiff> for LocalView {}
-impl EventEmitter<Hide> for LocalView {}
 impl EventEmitter<PreviewSelected> for LocalView {}
 impl EventEmitter<Submit> for LocalView {}
 impl EventEmitter<Changed> for LocalView {}
@@ -201,9 +199,6 @@ impl Render for LocalView {
             .on_action(cx.listener(|s,_:&Refresh,_,cx|s.refresh(cx)))
             .on_action(cx.listener(|s,_:&Rollback,_,cx|s.request_rollback(cx)))
             .on_action(cx.listener(|s,_:&ToggleDirectory,_,cx|s.toggle_directory(cx)))
-            .child(h_flex().h(px(36.)).px_3().border_b_1().border_color(rgb(0x2c2d30)).child(div().font_weight(FontWeight::SEMIBOLD).child(t("Commit"))).child(div().flex_1())
-                .child(Button::new("local-hide").ghost().small().icon(icon("jb/hideToolWindow_dark.svg")).tooltip(t("Hide"))
-                    .on_click(cx.listener(|_,_,_,cx|cx.emit(Hide)))))
             .child(h_flex().h(px(32.)).flex_shrink_0().px_2().gap_1()
                 .child(Button::new("local-refresh").ghost().small().icon(icon("jb/refresh_dark.svg")).tooltip(t("Refresh"))
                     .disabled(self.write_token.is_some()).on_click(cx.listener(|s,_,_,cx|s.refresh(cx))))

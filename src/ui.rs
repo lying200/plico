@@ -165,6 +165,7 @@ pub struct Review {
     preview_preference_error: Option<String>,
     saved_changes_available: bool,
     stash_open: bool,
+    commit_stash_selected: bool,
     stash_view: Option<Entity<crate::stash_view::StashView>>,
     settings_open: bool,
     settings_session: u64,
@@ -413,6 +414,7 @@ impl Review {
             editor_tabs: Default::default(),
             saved_changes_available: false,
             stash_open: false,
+            commit_stash_selected: false,
             stash_view: None,
             bottom_preview: layout_preferences::load_bottom_preview(),
             file_preview: layout_preferences::load_file_preview(),
@@ -874,9 +876,9 @@ impl Render for Review {
             .child(
                 h_flex().flex_1().min_h_0().items_stretch().px(px(8.)).gap(px(6.)).bg(rgb(SHELL))
                     .child(v_flex().w(px(36.)).gap_1()
-                        .child(Button::new("local-tool-window").ghost().selected(self.local_visible)
-                            .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-commit_dark.svg")).tooltip(t("Local Changes")).accessibility_label(t("Local Changes"))
-                            .on_click(cx.listener(|s, _, w, cx| { if s.local_visible { s.local_visible = false; cx.notify(); } else { s.open_local(w, cx); } })))
+                        .child(Button::new("local-tool-window").ghost().selected(self.local_visible || self.stash_open)
+                            .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-commit_dark.svg")).tooltip(t("Commit")).accessibility_label(t("Commit"))
+                            .on_click(cx.listener(|s, _, w, cx| { s.toggle_commit_window(w, cx); })))
                         .when(self.comparison.is_some(), |v| v.child(Button::new("comparison-tool-window").ghost().selected(self.comparison_visible)
                             .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-changes_dark.svg")).tooltip(t("Compare Versions"))
                             .on_click(cx.listener(|s, _, _, cx| {
@@ -888,9 +890,7 @@ impl Render for Review {
                         .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-project_dark.svg")).tooltip(t("Project"))
                         .accessibility_label(t("Project"))
                         .on_click(cx.listener(|s, _, w, cx| s.toggle_project(w, cx))))
-                        .child(Button::new("stashes-tool-window").ghost().selected(self.stash_open)
-                            .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("shelve_dark.svg")).tooltip(t("Stashes")).accessibility_label(t("Stashes"))
-                            .on_click(cx.listener(|s, _, w, cx| { if s.stash_open { s.stash_open = false; cx.notify(); } else { s.open_stashes(w, cx); } }))))
+                    )
                     .child(div().flex_1().min_w_0().h_full().child(h_resizable("tool-windows-width").with_state(&self.tool_windows_width)
                     .child(resizable_panel().visible(self.local_visible || self.project_visible || self.stash_open || self.comparison_visible).flex_none().size(px(300.)).size_range(px(240.)..px(700.))
                         .child(div().size_full().pr(px(6.)).child(div().relative().size_full().overflow_hidden().child(self.left_tool_windows(cx)).children(island_corners(true)))))

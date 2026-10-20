@@ -59,3 +59,17 @@ fn classify(command: &Result<Outcome, String>, state: &Result<State, String>) ->
     if command.stopped.is_none() && command.input_error.is_none() && command.status.success() && state.is_ok() { Status::Success }
     else { Status::Failed }
 }
+
+/// Drop only the stash that the user confirmed, never a newly shifted selector.
+/// Unlike Apply/Pop this must not clear Squash recovery ownership: deleting the
+/// saved data does not mean the working changes were restored.
+pub fn drop_stash(repo: &Repository, entry: &Entry, token: &Cancel, progress: &Progress) -> Result<Outcome,String> {
+    let number=entry.selector.strip_prefix("stash@{").and_then(|s|s.strip_suffix('}'))
+        .filter(|s|!s.is_empty() && s.bytes().all(|b|b.is_ascii_digit()));
+    if number.is_none() || !is_oid(&entry.oid) {return Err("Invalid saved stash identity".into());}
+    let _guard=repo.operation_guard(token)?;
+    let current=repo.text(&["rev-parse","--verify","--end-of-options",&entry.selector],token)?;
+    if current.trim()!=entry.oid {return Err("Saved changes have moved; refresh the stash list".into());}
+    let mut command=repo.operation_command();command.args(["stash","drop",&entry.selector]);
+    operation_process::run(&mut command,token,progress,None).map_err(|e|e.to_string())
+}

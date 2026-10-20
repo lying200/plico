@@ -216,11 +216,6 @@ impl Review {
                 },
             )
             .detach();
-            cx.subscribe(&view, |s, _, _: &crate::local_view::Hide, cx| {
-                s.local_visible = false;
-                cx.notify();
-            })
-            .detach();
             cx.observe(&view, |s, _, cx| {
                 s.sync_document_lock(cx);
                 cx.notify();
@@ -229,6 +224,7 @@ impl Review {
             self.local_view = Some(view);
         }
         self.comparison_visible = false;
+        self.commit_stash_selected = false;
         self.local_visible = true;
         self.local_preview_requested = true;
         self.project_visible = false;
@@ -795,6 +791,12 @@ impl Review {
 
         cx.notify();
     }
+    pub(super) fn toggle_commit_window(&mut self,window:&mut Window,cx:&mut Context<Self>) {
+        if self.local_visible || self.stash_open {
+            self.local_visible=false;self.stash_open=false;cx.notify();
+        } else if self.commit_stash_selected {self.open_stashes(window,cx);}
+        else {self.open_local(window,cx);}
+    }
     pub(super) fn open_stashes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_project_preview(cx);
         self.close_settings(cx);
@@ -834,6 +836,9 @@ impl Review {
                 },
             )
             .detach();
+            cx.subscribe_in(&view,window,|s,_,event:&crate::stash_view::DropStash,w,cx| {
+                s.confirm_drop_stash(event.0.clone(),w,cx);
+            }).detach();
             cx.subscribe_in(
                 &view,
                 window,
@@ -856,6 +861,7 @@ impl Review {
         self.comparison_visible = false;
         self.project_visible = false;
         self.local_visible = false;
+        self.commit_stash_selected = true;
         self.stash_open = true;
         cx.notify();
     }

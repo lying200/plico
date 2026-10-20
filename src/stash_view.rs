@@ -1,7 +1,7 @@
 //! SavedPatchesUi: stash list beside grouped changes, opening editor Diff tabs.
 use plico::{stash, git::{Cancel, Repository}, diff_target::{Target, Chain}, i18n::t};
 use gpui_kit::{prelude::FluentBuilder as _, *};
-use gpui_kit::component::{button::{Button, ButtonVariants as _}, Disableable as _, Sizable as _, h_flex, v_flex, resizable::{v_resizable, resizable_panel}};
+use gpui_kit::component::{button::{Button, ButtonVariants as _}, Disableable as _, Sizable as _, menu::{ContextMenuExt as _, PopupMenuItem}, h_flex, v_flex, resizable::{v_resizable, resizable_panel}};
 
 actions!(stash_review, [ShowDiff, NextFile, PreviousFile]);
 pub fn init(cx: &mut App) {
@@ -12,6 +12,8 @@ pub struct OpenDiff(pub Target, pub Chain, pub crate::diff_tab::StashOrigin);
 pub struct Restore(pub stash::Entry, pub plico::stash_operation::Action);
 pub struct Acknowledge(pub plico::squash_saved::Pending);
 pub struct ViewLocal;
+pub struct DropStash(pub stash::Entry);
+impl EventEmitter<DropStash> for StashView {}
 impl EventEmitter<Acknowledge> for StashView {}
 impl EventEmitter<Restore> for StashView {}
 impl EventEmitter<ViewLocal> for StashView {}
@@ -176,17 +178,36 @@ impl StashView {
 impl Render for StashView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let left = v_flex().size_full().min_h_0()
+            .child(h_flex().h(px(32.)).flex_shrink_0().px_2()
+                .child(Button::new("stash-refresh").ghost().small().icon(crate::ui_style::jb_icon("refresh_dark.svg"))
+                    .tooltip(t("Refresh")).disabled(self.write_busy).on_click(cx.listener(|s,_,_,cx|s.refresh(cx))))
+                .when(self.busy,|v|v.child(div().flex_1().truncate().child(t("Loading saved changes…")))) )
             .when_some(self.error.clone().filter(|_| self.entries.is_empty()), |v, error| v.child(crate::error_ui::notice(
                 "stash-list-error", "Could not load saved changes", error, self.busy || self.write_busy,
                 cx.listener(|s, _, _, cx| s.refresh(cx)))))
             .child(uniform_list("stash-entries", self.entries.len(), cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
                 range.map(|index| {
                     let entry = &s.entries[index];
+                    let menu_entry=entry.clone();let owner=cx.entity().downgrade();
                     div().id(("stash", index)).h(px(32.)).w_full().px_3().flex().items_center().gap_2().rounded(px(4.))
                         .when(s.selected == Some(index), |d| d.bg(rgb(0x2e436e)))
                         .child(div().text_color(rgb(0x8b8e95)).child(entry.selector.clone()))
                         .child(div().flex_1().truncate().child(entry.message.clone()))
                         .on_click(cx.listener(move |s, _, _, cx| s.select(index, cx)))
+                        .on_mouse_down(MouseButton::Right,cx.listener(move |s,_,_,cx|s.select(index,cx)))
+                        .context_menu(move |mut menu,_,cx| {
+                            let disabled=owner.upgrade().is_none_or(|s|s.read(cx).write_busy);
+                            for (label,action) in [("Pop",plico::stash_operation::Action::Pop),("Apply",plico::stash_operation::Action::Apply)] {
+                                let owner=owner.clone();let entry=menu_entry.clone();
+                                menu=menu.item(PopupMenuItem::new(t(label)).disabled(disabled).on_click(move |_,_,cx| {
+                                    let _=owner.update(cx,|s,cx|if !s.write_busy {cx.emit(Restore(entry.clone(),action));});
+                                }));
+                            }
+                            let owner=owner.clone();let entry=menu_entry.clone();
+                            menu.separator().item(PopupMenuItem::new(t("Drop Stash…")).disabled(disabled).on_click(move |_,_,cx| {
+                                let _=owner.update(cx,|s,cx|if !s.write_busy {cx.emit(DropStash(entry.clone()));});
+                            }))
+                        })
                 }).collect()
             })).flex_1())
             .when(self.entries.is_empty() && !self.busy && self.error.is_none(), |v| v.child(div().p_3().child(t("No stashes"))))
@@ -239,7 +260,6 @@ impl Render for StashView {
             .when_some(self.recovery_error.clone().filter(|error| self.error.as_ref() != Some(error)), |v, error| v.child(crate::error_ui::notice(
                 "stash-recovery-error", "Could not inspect the Squash recovery record.", error, self.busy || self.write_busy,
                 cx.listener(|s, _, _, cx| s.refresh(cx)))))
-            .when(self.busy, |v| v.child(div().px_3().py_1().child(t("Loading saved changes…"))))
             .child(div().flex_1().min_h_0().child(v_resizable("stash-split").child(resizable_panel().size(px(150.)).size_range(px(60.)..px(1000.)).child(left))
                 .child(resizable_panel().child(right))))
     }

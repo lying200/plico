@@ -178,3 +178,67 @@ impl Review {
         cx.notify();
     }
 }
+
+impl Review {
+    pub(super) fn confirm_drop_stash(&mut self,entry:plico::stash::Entry,window:&mut Window,cx:&mut Context<Self>) {
+        if self.operation.busy() || self.operation.saving_documents() {return;}
+        let owner=cx.entity().downgrade();let path=self.repo.path.clone();
+        window.open_dialog(cx,move |dialog,_,_| {
+            let owner=owner.clone();let path=path.clone();let entry=entry.clone();
+            dialog.title(t("Drop Stash")).w(px(480.)).centered(true).overlay_closable(false)
+                .child(div().child(t("Delete this saved stash? Its changes will not be restored.")))
+                .child(div().child(format!("{}: {}",entry.selector,entry.message)))
+                .footer(crate::dialog_style::confirmation(Button::new("drop-stash-confirm").primary().label(t("Drop Stash"))))
+                .on_ok(move |_,_,cx| {
+                    let _=owner.update(cx,|s,cx|if s.repo.path==path {s.drop_stash(entry.clone(),cx);});true
+                })
+        });
+    }
+    fn drop_stash(&mut self,entry:plico::stash::Entry,cx:&mut Context<Self>) {
+        let Some((operation,token))=self.begin_operation(plico::active_operation::Kind::Recovery,plico::active_operation::Phase::Executing,cx) else{return;};
+        let repo=self.repo.clone();self.status_message=Some(t("Dropping stash…").into());
+        self.operation_task=cx.spawn(async move |this,cx| {
+            let result=cx.background_spawn(async move {plico::stash_operation::drop_stash(&repo,&entry,&token,&Default::default())}).await;
+            let _=this.update(cx,|s,cx| {
+                if s.finish_operation(operation,cx).is_none(){return;}
+                let (message,diagnostic)=match result {
+                    Ok(out) if out.status.success() && out.stopped.is_none()=>("Stash deleted",None),
+                    Ok(out)=>("Could not delete stash",Some(String::from_utf8_lossy(&out.stderr.bytes()).into_owned())),
+                    Err(error)=>("Could not delete stash",Some(error)),
+                };
+                s.status_message=Some(t(message).into());
+                if let Some(view)=&s.stash_view {view.update(cx,|v,cx|v.result(t(message).into(),diagnostic,cx));}
+                s.refresh(false,cx);cx.notify();
+            });
+        });cx.notify();
+    }
+}
+
+#[cfg(all(test,feature="desktop-tests"))]
+mod tab_tests {
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use gpui::component::Root;
+    #[gpui::test]
+    fn commit_and_stash_tabs_reuse_views_and_remember_hidden_selection(cx:&mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review=None;
+        let (_,cx)=cx.add_window_view(|w,cx| {
+            let view=cx.new(|cx|Review::new(PathBuf::new(),100,None,w,cx));review=Some(view.clone());Root::new(view,w,cx)
+        });
+        let view=review.unwrap();
+        cx.update(|w,cx|view.update(cx,|s,cx| {
+            s.open_local(w,cx);let local=s.local_view.as_ref().unwrap().entity_id();
+            s.open_stashes(w,cx);let stash=s.stash_view.as_ref().unwrap().entity_id();
+            assert!(s.stash_open && !s.local_visible && s.commit_stash_selected);
+            s.toggle_commit_window(w,cx);assert!(!s.local_visible && !s.stash_open);
+            s.toggle_commit_window(w,cx);assert!(s.stash_open);
+            s.open_local(w,cx);assert!(s.local_visible && !s.stash_open && !s.commit_stash_selected);
+            assert_eq!(s.local_view.as_ref().unwrap().entity_id(),local);
+            s.open_stashes(w,cx);assert_eq!(s.stash_view.as_ref().unwrap().entity_id(),stash);
+            s.toggle_project(w,cx);assert!(!s.stash_open && s.project_visible);
+            s.toggle_commit_window(w,cx);assert!(s.stash_open && !s.project_visible);
+        }));
+    }
+}

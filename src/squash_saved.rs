@@ -71,8 +71,11 @@ pub(crate) fn restore(repo: &crate::git::Repository, directory: &Path, record: &
     if repo.stash_head(&token)?.as_deref() != Some(&record.stash) {
         return Err("Saved changes are no longer the top stash; automatic restore stopped".into());
     }
+    crate::conflicts::clear_saved_context(repo, &token)?;
     let output = operation_process::run(repo.operation_command().args(["stash", "pop", "--index"]),
-        &token, progress, None).map_err(|e| e.to_string())?;
+        &token, progress, None).map_err(|e| e.to_string());
+    crate::conflicts::record_saved_context(repo)?;
+    let output = output?;
     if !output.status.success() || output.stopped.is_some() || output.input_error.is_some() {
         return Err("Could not restore saved Squash changes; inspect the retained stash and working tree".into());
     }

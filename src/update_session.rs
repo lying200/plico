@@ -239,10 +239,17 @@ impl<'a> Session<'a> {
         if self.repo.stash_head(&token)?.as_deref() != self.saved_oid() {
             return Err("Saved changes are no longer the top stash; automatic restore stopped".into());
         }
+        let state = self.repo.operation_state(&token)?;
+        if state.in_progress() || !state.conflicts.is_empty() {
+            return Err("Finish the Git operation before restoring saved changes".into());
+        }
+        crate::conflicts::clear_saved_context(self.repo, &token)?;
         let mut command = self.repo.operation_command();
         command.args(["stash", "pop"]);
         if reinstate_index { command.arg("--index"); }
-        let outcome = operation_process::run(&mut command, &token, progress, None).map_err(|e| e.to_string())?;
+        let outcome = operation_process::run(&mut command, &token, progress, None).map_err(|e| e.to_string());
+        crate::conflicts::record_saved_context(self.repo)?;
+        let outcome = outcome?;
         if outcome.status.success() { self.saved = None; }
         Ok(Some(outcome))
     }

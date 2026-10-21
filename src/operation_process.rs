@@ -67,7 +67,7 @@ fn drain(mut pipe: impl Read, progress: Option<Progress>) -> io::Result<(Tail, c
 /// Authentication must be provided by command configuration, not this null stdin.
 pub fn run(command: &mut Command, cancel: &Cancel, progress: &Progress,
     timeout: Option<Duration>) -> io::Result<Outcome> {
-    run_inner(command, cancel, progress, timeout, None)
+    run_inner(command, cancel, progress, timeout, None, None)
 }
 
 /// Deliver bounded, already-prepared input without copying it. The caller owns
@@ -76,16 +76,23 @@ pub fn run(command: &mut Command, cancel: &Cancel, progress: &Progress,
 /// process tree before joining the writer, including when Git never reads stdin.
 pub fn run_with_input(command: &mut Command, cancel: &Cancel, progress: &Progress,
     timeout: Option<Duration>, input: &[u8]) -> io::Result<Outcome> {
-    run_inner(command, cancel, progress, timeout, Some(input))
+    run_inner(command, cancel, progress, timeout, Some(input), None)
+}
+
+/// Stream binary stdout directly to a file; stderr and cancellation retain the
+/// regular operation lifecycle. Callers must reject unsuccessful/partial output.
+pub fn run_to_file(command: &mut Command, cancel: &Cancel, progress: &Progress,
+    output: std::fs::File) -> io::Result<Outcome> {
+    run_inner(command, cancel, progress, None, None, Some(output))
 }
 
 fn run_inner(command: &mut Command, cancel: &Cancel, progress: &Progress,
-    timeout: Option<Duration>, input: Option<&[u8]>) -> io::Result<Outcome> {
+    timeout: Option<Duration>, input: Option<&[u8]>, output: Option<std::fs::File>) -> io::Result<Outcome> {
     if cancel.cancelled() { return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled before start")); }
     *progress.0.lock().unwrap_or_else(|e| e.into_inner()) = Tail::default();
     let mut tree = ProcessTree::spawn(command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped()).stderr(Stdio::piped()))?;
-    let out = tree.child.stdout.take().unwrap();
+        .stdout(output.map(Stdio::from).unwrap_or_else(Stdio::piped)).stderr(Stdio::piped()))?;
+    let out = tree.child.stdout.take();
     let err = tree.child.stderr.take().unwrap();
     let stdin = tree.child.stdin.take();
     let write_failed = AtomicBool::new(false);
@@ -97,7 +104,10 @@ fn run_inner(command: &mut Command, cancel: &Cancel, progress: &Progress,
             if result.is_err() { failed.store(true, Ordering::Release); }
             result // pipe is closed here, delivering EOF before joining
         }));
-        let stdout = scope.spawn(move || drain(out, None));
+        let stdout = scope.spawn(move || match out {
+            Some(out) => drain(out, None),
+            None => Ok(Default::default()),
+        });
         let stderr_progress = progress.clone();
         let stderr = scope.spawn(move || drain(err, Some(stderr_progress)));
         let started = Instant::now();

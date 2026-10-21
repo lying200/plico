@@ -572,14 +572,19 @@ fn conflicted_branch_rebase_retains_saved_changes_until_abort() {
 fn branch_rebase_restore_conflict_keeps_stash_and_recovery_record() {
     use branch_create::Choice;
     let f = Fixture::new();
+    fs::write(f.0.join("b"), "base b\n").unwrap();
+    f.git(&["add", "b"]);
+    f.git(&["commit", "-m", "second file"]);
     f.git(&["checkout", "-b", "task"]);
     fs::write(f.0.join("a"), "task change\n").unwrap();
+    fs::write(f.0.join("b"), "task b\n").unwrap();
     f.git(&["commit", "-am", "task"]);
     f.git(&["checkout", "main"]);
     fs::write(f.0.join("main"), "main\n").unwrap();
     f.git(&["add", "main"]);
     f.git(&["commit", "-m", "main"]);
     fs::write(f.0.join("a"), "draft change\n").unwrap();
+    fs::write(f.0.join("b"), "draft b\n").unwrap();
     let plan =
         Prepared::read_options(&f.repo(), "task", "HEAD", true, false, &Cancel::default()).unwrap();
     let result = branch_create::execute_choice(
@@ -602,6 +607,51 @@ fn branch_rebase_restore_conflict_keeps_stash_and_recovery_record() {
             .unwrap()
             .is_some()
     );
+    let repo = f.repo();
+    let token = Cancel::default();
+    let snapshot = plico::conflicts::Snapshot::read(&repo, &token).unwrap();
+    assert!(
+        snapshot.reversed,
+        "automatic stash restore must keep the user's draft on the left"
+    );
+    let file = &snapshot.files[0];
+    assert_eq!(
+        plico::conflicts::content(
+            &repo,
+            file.side(plico::conflicts::Side::Yours, snapshot.reversed)
+                .unwrap(),
+            &token
+        )
+        .unwrap(),
+        b"draft change\n"
+    );
+    let result = plico::conflicts::resolve(
+        &repo,
+        &snapshot,
+        file,
+        plico::conflicts::Resolution::Accept(plico::conflicts::Side::Yours),
+        &token,
+        &Default::default(),
+    )
+    .unwrap();
+    let remaining = result.snapshot.unwrap();
+    assert_eq!(remaining.files.len(), 1);
+    assert!(remaining.reversed);
+    let reopened = plico::conflicts::Snapshot::read(&f.repo(), &token).unwrap();
+    assert!(reopened.reversed);
+    let result = plico::conflicts::resolve(
+        &repo,
+        &reopened,
+        &reopened.files[0],
+        plico::conflicts::Resolution::Accept(plico::conflicts::Side::Yours),
+        &token,
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(result.snapshot.unwrap().files.is_empty());
+    assert_eq!(fs::read(f.0.join("b")).unwrap(), b"draft b\n");
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), b"draft change\n");
+    assert!(!f.0.join(".git/plico-conflict-saved-changes").exists());
 }
 
 #[test]

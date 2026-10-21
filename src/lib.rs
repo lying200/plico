@@ -179,3 +179,9 @@ pub mod tool_window_order;
 pub mod branch_create;
 
 pub mod branch_delete;
+
+pub mod conflicts;
+
+pub mod sequencer_operation;
+
+pub mod external_merge;

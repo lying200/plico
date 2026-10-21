@@ -2,7 +2,7 @@
 //! before replacement; the original file is never truncated in place.
 //! Revalidation detects external edits, not a transactional filesystem CAS:
 //! another process can still race the final comparison and replacement.
-use std::{fs, io::{self, Write}, path::{Path, PathBuf}};
+use std::{fs, io::{self, Read, Write}, path::{Path, PathBuf}};
 
 use crate::{file_document::Save, git::Cancel, project_files::{self, Project}};
 
@@ -64,6 +64,64 @@ fn save_before_replace(
     replace(&temporary.0, &destination)?;
     // Once replacement succeeds, acknowledge success even if cancellation was
     // requested concurrently; the new disk baseline must not be forgotten.
+    Ok(())
+}
+
+/// Bounded-memory transport for external merge files. No editor size limit.
+pub(crate) fn copy_stream(source: &Path, output: &mut fs::File, cancel: &Cancel) -> Result<(), Error> {
+    let mut source = fs::File::open(source)?;
+    if !source.metadata()?.is_file() { return Err(Error::Conflict); }
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        if cancel.cancelled() { return Err(project_files::Error::Cancelled.into()); }
+        let count = source.read(&mut buffer)?;
+        if count == 0 { return Ok(()); }
+        output.write_all(&buffer[..count])?;
+    }
+}
+
+pub(crate) fn same_file_bytes(left: &Path, right: &Path, cancel: &Cancel) -> Result<bool, Error> {
+    let mut left = fs::File::open(left)?;
+    let mut right = fs::File::open(right)?;
+    if !left.metadata()?.is_file() || !right.metadata()?.is_file() { return Err(Error::Conflict); }
+    let length = left.metadata()?.len();
+    if length != right.metadata()?.len() { return Ok(false); }
+    let mut a = [0; 64 * 1024];
+    let mut b = [0; 64 * 1024];
+    let mut remaining = length;
+    while remaining != 0 {
+        if cancel.cancelled() { return Err(project_files::Error::Cancelled.into()); }
+        let count = remaining.min(a.len() as u64) as usize;
+        left.read_exact(&mut a[..count])?;
+        right.read_exact(&mut b[..count])?;
+        if a[..count] != b[..count] { return Ok(false); }
+        remaining -= count as u64;
+    }
+    // Detect growth during the comparison as well as differing initial lengths.
+    Ok(left.read(&mut a[..1])? == 0 && right.read(&mut b[..1])? == 0)
+}
+
+pub(crate) fn save_from_file(project: &Project, path: &Path, expected: &Path,
+    source: &Path, cancel: &Cancel) -> Result<(), Error> {
+    let destination = project.resolve(path, cancel)?;
+    if !same_file_bytes(&destination, expected, cancel)? { return Err(Error::Conflict); }
+    let permissions = fs::metadata(&destination)?.permissions();
+    if permissions.readonly() { return Err(Error::ReadOnly); }
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random).map_err(|e| io::Error::other(e.to_string()))?;
+    let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let temporary_path = destination.with_file_name(format!(".plico-save-{suffix}.tmp"));
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temporary_path)?;
+    let temporary = Temporary(temporary_path);
+    file.set_permissions(permissions)?;
+    copy_stream(source, &mut file, cancel)?;
+    file.sync_all()?;
+    drop(file);
+    if project.resolve(path, cancel)? != destination
+        || !same_file_bytes(&destination, expected, cancel)? { return Err(Error::Conflict); }
+    if fs::metadata(&destination)?.permissions().readonly() { return Err(Error::ReadOnly); }
+    if cancel.cancelled() { return Err(project_files::Error::Cancelled.into()); }
+    replace(&temporary.0, &destination)?;
     Ok(())
 }
 

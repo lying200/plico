@@ -217,6 +217,24 @@ impl Review {
                     .on_click(cx.listener(|s, _, w, cx| s.open_push(w, cx))),
             )
             .child(self.repository_branch_menu(cx))
+            .when_some(self.operation_state.as_ref().filter(|s| matches!(s.operation,
+                plico::operation_state::Operation::CherryPick | plico::operation_state::Operation::Revert))
+                .map(|s| (s.operation, !s.conflicts.is_empty())), |v, (kind, conflicts)| {
+                let pick = kind == plico::operation_state::Operation::CherryPick;
+                v.child(titlebar_button("continue-sequence").primary()
+                    .label(t(if pick { "Continue Cherry-pick" } else { "Continue Revert" }))
+                    .disabled(conflicts || self.operation.busy() || self.settings_open)
+                    .on_click(cx.listener(move |s, _, w, cx| s.start_sequence(kind, false, w, cx))))
+                 .child(titlebar_button("abort-sequence")
+                    .label(t(if pick { "Abort Cherry-pick" } else { "Abort Revert" }))
+                    .disabled(self.operation.busy() || self.settings_open)
+                    .on_click(cx.listener(move |s, _, w, cx| s.confirm_abort_sequence(kind, w, cx))))
+            })
+            .when(self.operation_state.as_ref().is_some_and(|state| !state.conflicts.is_empty()), |v| {
+                v.child(titlebar_button("resolve-conflicts").label(t("Resolve Conflicts…"))
+                    .disabled(self.operation.busy() || self.settings_open)
+                    .on_click(cx.listener(|s, _, w, cx| s.open_conflicts(w, cx))))
+            })
             .when(
                 self.operation_state.as_ref().is_some_and(|state| {
                     state.operation == plico::operation_state::Operation::Merge

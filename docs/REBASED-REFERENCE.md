@@ -2621,3 +2621,119 @@ Windows release构建通过；独立三文件、每文件两处变更的仓库�
 阶段要求对应证据：HEAD／历史提交／引用创建入口分别位于 Review快捷键和分支菜单、log_history、repository_popup；可选 checkout 及草稿保留通过分支集成与原生创建核验；删除的当前分支禁用、worktree占用复验、未合并显式确认、删除恢复通过临时 Git 测试与原生删除／恢复；取消、引用变化、保存和恢复冲突均有真实 Git 回归。20 项分支集成、222 项核心单元、57 项桌面以及27项相邻Git操作回归通过；既有桌面1项忽略与1项过滤如前文记录。阶段1功能交付完成，进入阶段2前单独提交。
 
 保留差异与范围：单仓库流程不做 Rebased 多仓库选择；删除未合并分支采用显式确认后 -D，以满足本阶段未合并保护要求；删除恢复入口在状态栏且只保留本窗口最后一次删除，持久恢复属于阶段5；不包含整个 Rebased 的补全建议／高级设置系统。输入框焦点描边、对话框尺寸和标题栏间距仍有像素差异，不宣称像素级一致。统一冲突文件编辑和解决闭环按已授权阶段2推进，现有 rebase 状态与恢复记录为其保留完整真实状态。
+
+### 阶段 2起点：冲突内容与两侧语义（2026-10-21）
+
+阶段1已提交 `f77f7dc` 后开始阶段2。已读同一参考版本 `plugins/git4idea/backend/src/merge/GitMergeProvider.java` 前200行：detect依据仓库状态决定左右两侧反转，rebase/unstash的 yours/theirs 不能直接等同 index stage 2/3；loadRevisions 委托 GitMergeUtil；解决普通文件后 addFilesForce；列表通过 `ls-files --unmerged -t -z` 获取 index stage，二进制类型独立识别。后续必须继续读 MyMergeSession 的删除处理和 GitMergeUtil 的 acceptOneVersion/markConflictResolved，尚未读到的逻辑不算已确认。
+
+本地现有 `operation_state::State` 只有冲突路径列表；`ui/history_operations.rs` 与 `ui/chrome.rs` 已有 rebase Continue/Abort，但缺少按冲突文件展示各 stage、编辑或外部工具及标记解决入口。下一步建立有明确 stage 身份的冲突快照，保证修改／删除、二进制和 rebase 左右语义正确。
+
+### 阶段 2：冲突版本快照（2026-10-21）
+
+已继续读取 `GitMergeProvider.java::MyMergeSession` 与 `GitMergeUtil.java::loadMergeData/acceptOneVersion/markConflictResolved/isReverseRoot`。规则：index stage1为base、2为ours、3为theirs；缺少一侧代表删除；DETECT 仅在 rebase 时反转，stash 需要调用者明确指定反转情境；接受现存版本先 checkout 对应一侧，再 add，接受删除则走 deletePaths。不能仅按文件是否存在判断冲突一侧。
+
+新增 `src/conflicts.rs`：按 NUL 分隔解析原始路径与 mode/OID/stage，保留删除和 add/add 的 stage 缺失；rebase 展示侧反转；按不可变 blob OID 延迟读取内容；冲突操作前可重新核对选中文件的完整 index 身份和仓库 HEAD／操作类型。gitlink 不能作为普通文件 blob 读取。文件读写／外部工具和解决 UI 尚未接入。
+
+验证：2 项解析单测通过（含路径制表符换行、截断、重复 stage、非法路径），真实临时仓库测试验证 merge/rebase 的 Yours/Theirs 内容及外部 git add 后旧快照拒绝。现有 raw Git 读取8MiB上限仍适用于单 blob 预览，后续接 UI 时须给明确大文件处理入口，不能静默截断。
+
+### 阶段 2：单文件解决操作（2026-10-21，未接 UI）
+
+继续读取参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `GitMergeUtil.java:414–470` 和 `plugins/git4idea/backend/src/util/GitFileUtils.kt::addPaths/deletePaths`：接受现存侧执行 checkout ours/theirs，随后 add -A -f；接受缺失侧执行 rm；手工解决通过 add 标记，删除文件也由 -A 登记。上游批量 add 使用 --ignore-errors；本地每次只处理一条精确路径，不使用批量部分成功选项。
+
+本地 `src/conflicts.rs::resolve` 接入既有 operation_guard 与 operation_process；逐条保留命令结果，无论失败／取消均重新读取冲突状态，不把 checkout 成功当作解决成功。所有路径使用 --literal-pathspecs 和 --，拒绝 .git、父级链接、目录以及 gitlink 的普通文件解决；不递归删除。Gitlink 仍需外部处理。当前尚未补上游的版本相关 --sparse 参数，稀疏仓库支持需继续补齐。接受一侧必须由 UI 显式选择，标记解决前须先保存共享文档；本次没有自动选择或继续操作。
+
+临时真实 Git 测试覆盖手工标记、二进制修改双方选择、修改／删除双方选择、含方括号文件名、无关文件暂存／未暂存内容保留、解决后旧快照拒绝；merge/rebase 侧语义测试保留。UI、原生截图、外部合并工具和统一 Continue/Abort 尚待实现，不计阶段2交付。
+
+### 阶段 2：冲突列表 UI 接线（2026-10-21，待原生验收）
+
+已读取同一参考 commit 的 `MultipleFileMergeDialog.kt`（列表、选择启用、acceptForResolution）和 `flow/OneShotMergeFlowDelegate.kt`：左侧文件表格，右侧纵向 Accept Yours／Accept Theirs／Merge，底部 Close；无选择时禁用，处理完成更新未解决列表。支持按目录分组；新版迭代解决另有独立 delegate，不将其与已安装版本混同。
+
+本地新增 `src/ui/conflicts.rs`，标题栏在存在冲突时显示 Resolve Conflicts，异步读取最新快照，文件表格显示双方修改／删除；右侧接受双方版本、编辑文件、标记解决，底部关闭。写操作前保存共享文档，使用既有操作生命周期与文档锁，完成后刷新工作区与历史并重新读取冲突；成功条件包括命令与最终 index 状态。编辑复用已有文件 Tab，关闭列表不等于中止 Git 操作。增加中英文文案。
+
+保留待办／差异：尚为单选平铺列表；内置三方编辑器未实现，当前 Edit File 是现有编辑页入口；二进制／大文件的外部工具入口、稀疏仓库、stash 显式反转语义及完整操作继续／中止仍需补齐。当前仅 Linux 桌面编译检查通过，正在构建 Windows 原生版本，未宣称 UI 验收或阶段完成。
+
+阶段2本轮原生核验：Windows release 构建通过，独立进程 PID40176 打开自有 `Plico-validation/conflicts-mvp-20261021/repo`。`artifacts/conflicts-mvp-20261021/conflicts-list.png` 确认列表／双方状态／右侧按钮／底部 Close；点击 Accept Theirs 后 `conflicts-resolved.png` 显示无剩余冲突、按钮禁用，主窗口出现 Complete Merge。Git 只读复核 `ls-files -u` 为空，工作区与 index 的 review.txt 都为 task 内容，MERGE 尚待用户完成。Linux 读取该 Windows fixture 的 status 额外显示工作区执行位 100644→100755（内容 diff 为0/0），属于跨环境 mode 差异，未把它误报为冲突残留。只关闭自有 PID40176，保留用户应用。阶段2其他待办未变，不提交阶段完成记录。
+
+### 阶段 2：已有 Cherry-pick／Revert 的继续与中止（2026-10-21）
+
+已读参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `GitAbortOperationAction.kt`、`CherryPickContinueCommand.kt`、`GitCherryPickContinueProcess.kt`、`EmptyCherryPickResolutionStrategy.kt`、`GitRevertProcess.kt`：中止需确认并调用对应 --abort；Cherry-pick --continue 区分冲突、覆盖本地修改、无操作、空提交与未知失败；空提交有 skip/create-empty 策略，不能仅当成功处理。Revert 原始流程以 AUTO_COMMIT 执行，发生冲突进入共用 apply-changes 流程。额外读取的 GitRevertResolvedAction 是“撤销冲突解决结果”，不是继续 Revert 的依据。
+
+本地新增 `sequencer_operation.rs` 与 `ui/sequencer.rs`：限定已有且类型匹配的操作，未解决冲突拒绝 Continue，执行后无论失败／取消均读取实际状态；Continue 接入既有提交信息 editor helper，Abort 确认后执行，保存共享文档并统一刷新。标题栏在 CherryPick/Revert 状态显示对应 Continue/Abort，无冲突才可继续。本次没有新建 Cherry-pick/Revert 的入口（分别属于阶段5/3）。保留差异／待办：空提交仍显示失败并保留状态，尚需提供明确 skip/create-empty 选择；尚未做本轮 Windows 原生按钮与 editor bridge 验证。
+
+已读 `GitRepositoryReader.kt::GitSequencerTodoReader`：多提交序列中手工 commit 会移除 *_HEAD，但 sequencer/todo 的 pick/revert 仍标识正在进行的操作。本地 operation_state_at 增加有界7字节读取，以完整命令前缀识别，未知序列仍保留 Sequencer，不擅自解释。临时真实 Git 回归覆盖 Cherry-pick/Revert 冲突继续和中止、未解决拒绝、错误操作类型拒绝，以及手工提交后继续剩余 Cherry-pick 队列。
+
+### 阶段 2：空 Cherry-pick 显式策略（2026-10-21）
+
+依据前述 `EmptyCherryPickResolutionStrategy.kt`，补充 Skip (--skip) 与 Keep (commit --allow-empty，优先 -F MERGE_MSG)；本地使用显式选择弹窗而非应用级默认策略，取消保留操作现场。`EmptyCommit` 记录 HEAD 与 CHERRY_PICK_HEAD，选择前复验暂存区无变化、无冲突及对象身份；只有 sequencer/todo 没有 CHERRY_PICK_HEAD 时不误判为空提交。Skip 另拒绝未暂存修改，避免丢失用户解决后继续编辑的内容。多提交序列保留空提交后若队列仍在，可通过 Continue 继续剩余项，不伪报整个序列完成。
+
+新增真实 Git 测试验证两种策略、保持树内容不变、弹窗期间新增暂存内容时拒绝旧选择。sequencer_operation 集成共3项通过；Linux 桌面检查及 Windows 全 bins release 构建通过。独立 Windows PID32660、fixture `sequence-mvp-20261021/repo` 实测 Continue→空提交弹窗→Keep：`sequence-empty.png` 和 `sequence-completed.png` 留在 artifacts/conflicts-mvp-20261021；Git复核新提交186cd89、与父提交树无差异、工作区干净、CHERRY_PICK_HEAD消失。进程已关闭。此路径未触发提交信息编辑器，普通非空继续的 editor bridge 原生验证仍待补。
+
+此前尝试复用上一轮跨环境 fixture 时 merge --abort 因工作区文件状态不一致拒绝，未强制清理；改用新的独立 fixture，并显式设置 core.filemode=false/core.autocrlf=false 消除测试环境混用。用户仓库未参与写测试。
+
+### 阶段 2：外部合并工具数据生命周期（2026-10-21，UI 待接）
+
+已读取参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `platform/diff-impl/src/com/intellij/diff/tools/external/ExternalMergeTool.kt` 和 `ExternalDiffToolUtil.java::executeMerge/tryExecuteMerge/waitMergeProcessWithModal/runWithTempMergeFiles/createMergeCommandLine`。规则：三个输入与结果文件分离；参数 %1=左／yours、%2=右／theirs、%3=base、%4=output；外部命令使用独立 argv；trustExitCode 分支按进程退出码，否则要求用户 Mark as Resolved；成功后 apply 输出，结束清理临时文件。
+
+新增 `src/external_merge.rs`：独立随机临时目录、按不可变 stage 读取输入，结果以当前工作区内容初始化；无 shell 的 argv 占位符替换（不递归替换文件名中的 %）；沿用进程树取消；输出只有显式 apply 才以共享安全保存机制写回，apply 前重新核对冲突 index 和磁盘基线；独立的 MarkResolved 才暂存。临时目录生命周期由 Prepared 所有，失败可保留结果供 UI 决定。符号链接和 gitlink 不进入外部普通文件流程；普通二进制不解码，可作为字节数据处理。
+
+验证：参数替换单测和真实临时 Git 外部进程测试通过，覆盖输出隔离、外部磁盘修改拒绝覆盖、apply不等于stage、解决后旧快照拒绝、临时目录清理。conflicts集成现3项通过。当前上限仍为工作区5MiB／blob8MiB，删除导致工作区文件不存在也尚未支持此入口；后续需补大文件路径／明确处理，不作为阶段完成。工具配置与UI确认尚未接入，未做此路径Windows原生验证。
+
+### 阶段 2：外部工具配置与确认接线（2026-10-21）
+
+补读 `ExternalDiffSettingsConfigurable.kt`、`ExternalToolsTablePanel.kt` 和 `ExternalToolsTreePanel.kt`：上游支持按类型选择多个工具，编辑实体包含 programPath／argumentPattern／mergeTrustExitCode，merge默认参数 `%1 %2 %3 %4`，附参数说明。本地 `ui/external_conflicts.rs` 提供冲突窗口的外部工具入口、Program与Arguments输入及说明，保存到应用配置而非仓库配置；本阶段单工具，每次启动前可修改。不实现多工具／类型映射／默认接管，且始终显式确认结果，这些差异不冒充完整设置还原。
+
+参数先解析成argv再替换占位符，无shell变量或通配符展开，保留Windows路径反斜杠，未闭合引号拒绝；与上游通用ParametersListUtil相比不包含其全部转义语法。新增Windows路径／空格引号测试；2项参数单测和3项conflicts真实Git测试通过。外部执行占有应用操作生命周期与文档锁，执行前保存共享文档；进程结束弹出结果确认，Cancel不apply。确认采用后安全写回、标记解决、刷新工作区和Log。
+
+外部工具原生验证：Windows release构建后独立PID41656，仍使用自有sequence fixture；测试工具是独立powershell脚本，仅把%2复制至%4。原生配置页／结果确认／已解决列表截图为 external-config.png、external-confirm.png、external-resolved.png。工具退出、尚未确认时，Git unmerged三stage与工作区冲突标记保持原样；确认MarkResolved后，unmerged为空，工作区与index均为task内容。随后原生Continue Cherry-pick生成20cd300，工作区干净、CHERRY_PICK_HEAD消失、Log刷新（nonempty-completed.png）。当前Git未请求编辑器，因此验证的是非空继续完整路径，不宣称已触发editor桥接弹窗。自有进程已关闭。Windows编译中的仅Unix需要mut的警告已通过cfg局部绑定消除，后续构建复核。
+
+阶段2仍待：大文件外部处理、结果apply失败后的保留／重试、稀疏仓库、stash显示侧的上下文，及整体验收。未提交阶段完成。
+
+### 阶段 2：外部合并失败结果保留（2026-10-21）
+
+复读参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `ExternalDiffToolUtil.java::handleMergeRequest/runWithTempMergeFiles`：上游仅在用户接受结果后 apply，finally 清理输出及输入。本地仍保持显式采用；另增加保守差异：工具失败／中断、写回或标记解决失败时保留独立临时目录并报告结果路径，防止磁盘基线复验失败后丢失用户已经完成的外部编辑。成功流程及采用前普通取消仍清理。保留文件需要用户复制／清理，尚未提供恢复结果管理页或一键重试，不宣称完整恢复交互完成。
+
+本地位置：`external_merge.rs::Prepared::retain_output`、`ui/external_conflicts.rs`。完成判据额外检查新冲突快照不再包含目标文件，不能仅以 Git 退出码断言解决成功。真实 Git 集成验证：外部编辑期间工作文件变化导致拒绝写入，关闭 Prepared 后保留的结果内容仍存在，冲突 index 不变；常规成功生命周期仍删除临时目录。conflicts 三项集成通过，桌面编译通过；新增错误详情界面尚待 Windows 原生验收。阶段 2 仍未完成，不提交阶段完成记录。
+
+### 阶段 2：外部合并大文件流式处理（2026-10-21）
+
+复读同一参考 commit 的 `ExternalDiffToolUtil.java::createInputFiles/createOutputFile`、`LocalOutputFile`、`NonLocalOutputFile`、`DocumentOutputFile`：上游按文件／文档内容类型选择传输，文件输出可直接刷新或文件复制，不以编辑器文档大小作为统一门槛。本地保持独立输出与乐观内容复验，外部合并不再经过5MiB编辑器读取或8MiB Git文本输出限制。
+
+实现：`operation_process::run_to_file` 将 cat-file blob 的二进制 stdout 直接导向临时文件，保留 stderr、进程树取消和退出检查；`external_merge::Prepared` 将工作区基线保存在磁盘；`file_save::save_from_file` 使用64KiB缓冲复制与内容比较，完整写好同目录临时文件后复验并使用既有平台替换方法，保留权限及Windows访问WSL的替换策略。基线比较为乐观检查，仍不是跨进程文件系统CAS；另一个进程可在最终比较与替换之间竞争，限制与原编辑器保存一致。
+
+验证：新增9MiB+17字节二进制真实Git冲突测试，检查base／yours／theirs完整长度及尾字节、完整输出写回、取消不改原文件、apply不自动stage、没有残留保存临时文件。conflicts集成4项、既有file_save单测5项及桌面编译通过。此规模不是内存测量；传输缓冲有界不代表Git子进程内存已测量。Windows构建与原生验收仍待完成。
+
+本轮后续验证：共享 `operation_process` 集成7项通过（stdin／双输出并行、取消、超时、早期拒绝与有界诊断）；Windows x64 release 构建通过，无编译警告。新增流式路径已被9MiB真实Git测试直接覆盖；该Windows二进制尚未进行本轮原生运行验收。
+
+下一项源码依据已核对：`GitVersionSpecialty.kt::ADD_REJECTS_SPARSE_FILES_FOR_CONFLICTS` 从Git2.34.0起成立，`GitMergeUtil.java::markConflictResolved` 据此为add与rm添加--sparse。当前本地尚未实现该分支，须在阶段2交付前补齐及测试。
+
+### 阶段 2：稀疏范围之外的冲突（2026-10-21）
+
+按已读 `GitMergeUtil::markConflictResolved` 与 `GitVersionSpecialty::ADD_REJECTS_SPARSE_FILES_FOR_CONFLICTS`，`conflicts::resolve` 使用当前仓库实际Git执行环境查询版本；2.34及以上为add/rm追加--sparse，checkout保持上游--ours/--theirs参数。无法识别版本则在写入前报错，不猜测能力。版本边界单测包含Windows和Apple后缀。
+
+新增真实Git sparse-checkout fixture：冲突文件原本不在检出范围，合并后对修改／删除冲突分别接受Yours、接受Theirs、手工MarkResolved，均验证最终index无冲突、文件内容／删除正确且范围内无关文件不变。conflicts集成5项及模块3项通过，桌面编译通过。原生验收待补。
+
+进一步澄清stash侧语义：已实际读取`GitStashUtils.kt::UnstashConflictResolver.makeParams`，普通手工Apply/Pop只设置customizer，不setReverse；`GitConflictResolver.Params`默认reverse=false。`GitStashChangesSaver.java::UnstashConflictResolver.makeParamsOrUse`的自动保存恢复默认setReverse(true)。因此不能把所有Operation::None的冲突统一反转；后续需为自动恢复失败传递明确上下文，避免从仅有stash或恢复记录推断。此项仍待实现，不将阅读结论当作行为已完成。
+
+阶段2原生补验：最新Windows release构建通过，自有Plico PID12468打开独立Windows Git fixture `Temp/plico-conflict-audit-ad44f257e83d43499e7598e59241c03c`。Abort Merge弹窗取消后只读核验三个unmerged stage仍存在；再次打开并确认Abort后，HEAD仍为80e2e703，review.txt恢复main内容，status为空，MERGE_HEAD已删除，顶部冲突／中止按钮消失，底部提示Merge aborted。截图`artifacts/conflicts-mvp-20261021/abort-confirm.png`、`abort-completed.png`；仅关闭自有PID，未操作用户Rebased或业务仓库。该验证覆盖Merge中止及取消确认，不等同于所有新功能原生验收。
+
+### 阶段 2：自动恢复 Stash 的双方语义（2026-10-21）
+
+依据上段已读的`GitStashChangesSaver::UnstashConflictResolver.makeParamsOrUse`与`GitStashUtils::UnstashConflictResolver`，本地自动保存恢复失败后写入工作树专属`plico-conflict-saved-changes`上下文，记录HEAD及原始unmerged index版本；普通手工Apply/Pop在无既存冲突时清除旧上下文，不反转双方。`Snapshot::read`仅在无Git操作标记且HEAD、剩余冲突的路径／mode／OID匹配记录时反转，接受前还复验反转状态；逐文件解决允许剩余集合缩小，最后一个解决后移除上下文。该上下文不等于原有stash恢复所有权记录，不自动删除保留的stash，也不把解决冲突冒充恢复流程全部完成。
+
+接线位置：`update_session::Session::restore_saved`、`squash_saved::restore`、`stash_operation::execute`及`conflicts`。自动恢复前已有操作／冲突则拒绝再次pop；Git进程报告错误后仍读取实际冲突，避免只按退出结果猜测。上下文读取有界并拒绝链接／reparse；写入失败显式报错。与上游仅内存参数不同，该记录在重开窗口后仍有效；外部工具若完全重建相同HEAD及index冲突，无法仅靠内容身份区分新旧事件，此限制未声称解决跨进程事务问题。
+
+测试：真实分支rebase后自动恢复两个文件产生冲突，“我的版本”均为保存草稿；解决首文件后重读仍反转，解决末文件后上下文清理，stash恢复记录仍保留。手工Apply测试确认旧上下文清除、Yours为当前工作区。conflicts集成6项、branch_create20项、reference_checkout11项、stash_drop3项及核心单测227项通过，桌面编译通过。本轮新增上下文逻辑尚待Windows构建及原生验收；阶段2仍未提交。
+
+### 阶段 2：功能阶段交付核对（2026-10-21）
+
+最新Windows release构建通过；独立Plico PID41792、自有Windows fixture `Temp/plico-conflict-audit-58a2c86efcf34f33bf427060bdb631fc`完成以下原生核验：
+
+- 外部工具使用独立copy脚本产生task结果，等待确认期间将工作文件改为其他内容；确认后写回拒绝、三条unmerged stage不变，错误详情显示保留路径。只读检查结果文件仍为task，工作区仍为期间修改内容。截图`external-preserved-failure.png`。后台任务已在错误返回前保留文件，即使界面回调无法执行也不会清理失败结果。
+- 从冲突列表Edit File进入已有编辑Tab，实际键入后自动保存；重新打开列表并Mark Resolved，index读取与编辑内容一致，unmerged为空，空态禁用操作按钮，顶部出现Complete Merge。截图`manual-resolved.png`。
+- 关闭列表后点击Complete Merge，生成双父提交9dba922（b0b013e、4c9ca85），status为空，操作入口消失。截图`manual-merge-completed.png`。仅关闭自有PID41792，保留用户应用。
+
+功能范围核对：冲突列表、接受两侧、手工编辑并标记、外部工具、继续／中止已具备；修改／删除、二进制、大文件、稀疏检出、rebase与自动恢复stash的侧语义、过期状态拒绝、空cherry-pick和多提交队列均有真实Git回归。核心227项、branch_create20项、reference_checkout11项、stash_drop3项、conflicts6项、sequencer_operation3项、operation_process7项通过；最新Windows原生构建包含全部实现。自动恢复stash两文件的侧语义由集成测试证明，未额外声称在Windows逐项点选所有边界。
+
+UI阶段核对：左侧文件／双方状态表，右侧纵向动作，底部关闭；加载与操作共用底部状态和取消，空态禁用，失败详情可复制，编辑复用现有Tab与保存生命周期。明确保留的实现差异：列表单选平铺，没有目录分组／批量处理；内置三方合并编辑器未引入，使用现有编辑页或单个外部工具；外部工具始终确认而非信任退出码，失败结果以路径恢复而非独立恢复管理页；继续／中止沿用Plico已有顶部操作入口，不复制IDE通知系统。上述均为本阶段轻量冲突闭环的实现边界，不宣称完整复刻Rebased或像素级还原。gitlink冲突保持外部处理，普通二进制可接受一侧或外部工具，不能在文本编辑器编辑。新增中英文标签已接入集中资源。
+
+阶段2功能交付完成，按用户要求提交后再开始阶段3的主动分支Merge与普通提交Revert；本阶段仅增加既有Cherry-pick/Revert的恢复入口，不冒充这两项的发起能力已完成。

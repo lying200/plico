@@ -1,5 +1,8 @@
 //! Application window, shared state, construction and top-level composition.
 mod checkout;
+mod conflicts;
+mod external_conflicts;
+mod sequencer;
 mod branch_management;
 mod reference_checkout;
 mod chrome;

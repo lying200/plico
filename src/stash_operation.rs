@@ -31,6 +31,9 @@ pub fn execute(repo: &Repository, entry: &Entry, action: Action, reinstate_index
     let saved = repo.editor_directory(token).and_then(|directory| {
         crate::squash_saved::read(&directory).map(|record| (directory, record))
     });
+    if repo.operation_state(token)?.conflicts.is_empty() {
+        crate::conflicts::clear_saved_context(repo, token)?;
+    }
     let mut command = repo.operation_command();
     command.args(["stash", match action { Action::Apply => "apply", Action::Pop => "pop" }]);
     if reinstate_index { command.arg("--index"); }

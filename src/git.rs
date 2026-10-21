@@ -400,6 +400,20 @@ impl Repository {
         ] {
             if directory.join(marker).try_exists().map_err(|e| e.to_string())? { operation = state; break; }
         }
+        // GitSequencerTodoReader: a manual commit after resolving a conflict
+        // removes *_HEAD while a multi-commit sequence is still in progress.
+        if operation == Operation::Sequencer {
+            match std::fs::File::open(directory.join("sequencer/todo")) {
+                Ok(file) => {
+                    let mut prefix = Vec::new();
+                    file.take(7).read_to_end(&mut prefix).map_err(|e| e.to_string())?;
+                    if prefix.starts_with(b"pick ") { operation = Operation::CherryPick; }
+                    else if prefix.starts_with(b"revert ") { operation = Operation::Revert; }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.to_string()),
+            }
+        }
         let rebase_dir = match operation {
             Operation::RebaseApply => Some("rebase-apply"), Operation::RebaseMerge => Some("rebase-merge"), _ => None,
         };

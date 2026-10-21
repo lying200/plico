@@ -34,11 +34,11 @@ impl Render for Options {
                     )
                     .child(
                         div()
-                            .pl(px(32.))
+                            .pl(rems(2.))
                             .text_size(rems(1.))
-                            .line_height(px(18.))
+                            .line_height(relative(1.5))
                             .text_color(rgb(0x92949a))
-                            .child(t(mode.description())),
+                            .whitespace_normal().child(t(mode.description())),
                     ),
             );
         }

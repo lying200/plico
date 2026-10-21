@@ -163,7 +163,9 @@ impl PushDialog {
 }
 impl Render for PushDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut header = h_flex().h(px(28.)).items_center().px_2().flex_shrink_0().gap_1()
+        let row_height = crate::ui_style::tree_row_height(cx);
+        let control_height = crate::ui_style::text_row_height(28., 10., cx);
+        let mut header = h_flex().h(control_height).items_center().px_2().flex_shrink_0().gap_1()
             .when(self.selected.is_none() && !self.editing, |v| v.bg(rgb(0x2a4371)))
             .on_action(cx.listener(|s, action: &Enter, _, cx| {
                 if s.editing {
@@ -187,7 +189,7 @@ impl Render for PushDialog {
                 .child(Button::new("cancel-target").label(t("Cancel")).on_click(cx.listener(|s, _, w, cx| s.cancel_edit(w, cx))));
         } else {
             let label = self.target.as_ref().map(|t| format!("{} : {}", t.remote, t.branch)).unwrap_or_else(|| t("Select remote").into());
-            header = header.child(Button::new("edit-target").link().h(px(24.)).px_0().disabled(self.busy).label(label).on_click(cx.listener(|s, _, w, cx| {
+            header = header.child(Button::new("edit-target").link().h(row_height).px_0().disabled(self.busy).label(label).on_click(cx.listener(|s, _, w, cx| {
                 s.editing = true; s.commits.clear(); s.files.clear(); s.aggregate = None; s.details = None; s.selected = None; s.branch.read(cx).focus_handle(cx).focus(w, cx); cx.notify();
             })));
         }
@@ -203,7 +205,7 @@ impl Render for PushDialog {
         if !self.editing && self.applied_upstream { left = left.child(t("New upstream")); }
         if self.target.as_ref().is_some_and(|target| target.new_branch) { left = left.child(t("New branch")); }
         let rows = self.commits.iter().enumerate().map(|(i, commit)| {
-            div().id(("outgoing", i)).h(px(24.)).pl(px(24.)).pr_2().truncate()
+            div().id(("outgoing", i)).h(row_height).pl(px(24.)).pr_2().truncate()
                 .when(self.selected == Some(i), |v| v.bg(rgb(0x2a4371)))
                 .child(commit.subject.clone()).on_mouse_down(MouseButton::Left, cx.listener(move |s, _, _, cx| s.select(i, cx)))
         }).collect::<Vec<_>>();
@@ -215,7 +217,7 @@ impl Render for PushDialog {
         if !self.busy && !self.editing && self.aggregate.is_some() {
             let file_rows = plico::file_tree::rows(self.files.iter().enumerate().filter_map(|(i, f)| f.after.as_ref().or(f.before.as_ref()).map(|r| (i, r.path.as_path()))),
                 |path| self.collapsed_directories.contains(path));
-            right = right.child(h_flex().h(px(28.)).items_center().px_1().gap_1().flex_shrink_0()
+            right = right.child(h_flex().h(control_height).items_center().px_1().gap_1().flex_shrink_0()
                 .child(Button::new("push-show-diff").ghost().size(px(24.)).icon(gpui_kit::component::Icon::default().path("jb/diff_dark.svg").size(px(16.)))
                     .tooltip(t("Show Diff")).disabled(self.files.is_empty()).on_click(cx.listener(|s, _, w, cx| s.show_file_diff(w, cx))))
                 .child(Button::new("push-source").ghost().size(px(24.)).icon(gpui_kit::component::Icon::default().path("jb/edit_dark.svg").size(px(16.)))
@@ -240,7 +242,7 @@ impl Render for PushDialog {
                     .children(file_rows.into_iter().map(|row| match row {
                         plico::file_tree::Row::Folder { path, depth, count, expanded } => {
                             let name=path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                            h_flex().id(SharedString::from(format!("push-folder:{}",path.display()))).h(px(24.)).items_center().gap_1().pl(px(6.+depth as f32*16.))
+                            h_flex().id(SharedString::from(format!("push-folder:{}",path.display()))).h(row_height).items_center().gap_1().pl(px(6.+depth as f32*16.))
                                 .child(gpui_kit::component::Icon::default().path(if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"}).size(px(12.)))
                                 .child(gpui_kit::component::Icon::default().path("jb/folder_dark_4x.svg").size(px(16.)))
                                 .child(name).child(div().text_color(rgb(0x6f737a)).child(format!("{count} {}",t("files"))))
@@ -249,7 +251,7 @@ impl Render for PushDialog {
                         plico::file_tree::Row::File { index:i, depth } => {
                             let file=&self.files[i];let path=&file.after.as_ref().or(file.before.as_ref()).unwrap().path;
                             let color=if file.before.is_none(){0x6aab73}else if file.after.is_none(){0xcf8e6d}else{0x6897bb};
-                            h_flex().id(("push-file",i)).h(px(24.)).items_center().gap_1().pl(px(22.+depth as f32*16.)).pr_2()
+                            h_flex().id(("push-file",i)).h(row_height).items_center().gap_1().pl(px(22.+depth as f32*16.)).pr_2()
                                 .when(self.selected_file==Some(i),|v|v.bg(rgb(0x33353b)))
                                 .child(gpui_kit::component::Icon::default().path(crate::ui_style::file_icon(path)).size(px(16.)))
                                 .child(div().truncate().text_color(rgb(color)).child(path.file_name().unwrap_or_default().to_string_lossy().to_string()))

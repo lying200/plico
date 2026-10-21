@@ -27,31 +27,33 @@ impl Review {
                         let callback=s.diff_source_callback(cx);draft.update(cx,|s,_|s.source_callback=Some(callback));
                         cx.observe_in(&draft, window, |_, _, w, _| w.refresh()).detach();
                         let owner = cx.entity().downgrade(); let path = repo.path.clone();
-                        window.open_dialog(cx, move |dialog, _, cx| {
+                        window.open_dialog(cx, move |dialog, window, cx| {
+                            let control_height = text_row_height(28., 10., cx);
+                            let dialog_height = px(540.).min((window.viewport_size().height - px(48.)).max(px(0.)));
                             let owner = owner.clone(); let confirm = draft.clone(); let path = path.clone();
-                            dialog.title(h_flex().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(16.))).child(div().font_weight(FontWeight::NORMAL).child(format!("{} {}", t("Push Commits to"), repo.path.file_name().unwrap_or_default().to_string_lossy())))).w(px(800.)).h(px(540.)).pb_0().centered(true).overlay_closable(false)
+                            dialog.title(h_flex().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(16.))).child(div().font_weight(FontWeight::NORMAL).child(format!("{} {}", t("Push Commits to"), repo.path.file_name().unwrap_or_default().to_string_lossy())))).w(px(800.)).h(dialog_height).pb_0().centered(true).overlay_closable(false)
                                 .content({ let draft = draft.clone(); move |body, _, _| body.p_0().min_h_0().overflow_hidden().child(draft.clone()) })
                                 .footer({
                                     let normal_owner = owner.clone(); let normal_draft = draft.clone(); let normal_path = path.clone();
                                     let force_owner = owner.clone(); let force_draft = draft.clone(); let force_path = path.clone();
                                     let can_force = draft.read(cx).spec().is_some_and(|s| plico::push::force_allowed(&s.target));
                                     let tags_draft = draft.clone(); let mode_draft = draft.clone();
-                                    DialogFooter::new().items_center().gap(px(12.)).mx(px(-16.)).px(px(12.)).py(px(8.)).border_t_1().border_color(rgb(0x26282c))
-                                        .child(Button::new("push-help").ghost().label("?").accessibility_label(t("Push help")).size(px(24.)).rounded(px(12.)).border_1().border_color(rgb(0x40434a)).mr(px(8.)).on_click(|_,w,cx| {
+                                    DialogFooter::new().items_center().flex_wrap().gap(px(12.)).mx(px(-16.)).px(px(12.)).py(px(8.)).border_t_1().border_color(rgb(0x26282c))
+                                        .child(Button::new("push-help").ghost().label("?").accessibility_label(t("Push help")).size(control_height).with_size(control_height).p_0().rounded(control_height / 2.).border_1().border_color(rgb(0x40434a)).mr(px(8.)).on_click(|_,w,cx| {
                                             w.open_dialog(cx,|d,_,_|d.title(t("Push")).w(px(460.)).child(t("Push selected commits to the target branch. Enable Push tags to include tags. Force Push checks the last known remote revision before replacing history.")).footer(DialogFooter::new().child(gpui_kit::component::dialog::DialogClose::new().trigger(|b|b.label(t("Close"))))));
                                         }))
                                         .child(h_flex().items_center().gap(px(8.))
                                         .child(gpui_kit::component::checkbox::Checkbox::new("push-tags").label(t("Push tags:"))
                                             .checked(draft.read(cx).push_tags).on_click(move|checked,_,cx|tags_draft.update(cx,|d,cx|{d.push_tags=*checked;cx.notify();})))
-                                        .child(Button::new("push-tags-mode").w(px(132.)).h(px(28.)).with_size(px(28.)).dropdown_caret(true).rounded(px(4.)).label(t(match draft.read(cx).tag_mode { plico::push::TagMode::All=>"All",plico::push::TagMode::CurrentBranch=>"Current Branch" }))
+                                        .child(Button::new("push-tags-mode").w(rems(11.)).h(control_height).with_size(control_height).dropdown_caret(true).rounded(px(4.)).label(t(match draft.read(cx).tag_mode { plico::push::TagMode::All=>"All",plico::push::TagMode::CurrentBranch=>"Current Branch" }))
                                             .border_color(rgb(if draft.read(cx).push_tags {0x40434a}else{0x33353b})).bg(rgb(if draft.read(cx).push_tags {0x26282c}else{0x191a1c})).text_color(rgb(if draft.read(cx).push_tags {FG}else{0x4c4f56})).disabled(!draft.read(cx).push_tags).dropdown_menu(move|mut menu,_,_|{
                                                 for (mode,label) in [(plico::push::TagMode::All,"All"),(plico::push::TagMode::CurrentBranch,"Current Branch")] {
                                                     let draft=mode_draft.clone();menu=menu.item(PopupMenuItem::new(t(label)).on_click(move|_,_,cx|draft.update(cx,|d,cx|{d.tag_mode=mode;cx.notify();})));
                                                 }menu
                                             })))
                                         .child(div().flex_1())
-                                        .child(DropdownButton::new("push-actions").with_size(px(28.)).separator_color(rgba(0xffffff80).into())
-                                            .button(Button::new("push-confirm").primary().h(px(28.)).min_w(px(72.)).font_weight(FontWeight::SEMIBOLD).label(t("Push"))
+                                        .child(DropdownButton::new("push-actions").with_size(control_height).separator_color(rgba(0xffffff80).into())
+                                            .button(Button::new("push-confirm").primary().h(control_height).min_w(px(72.)).font_weight(FontWeight::SEMIBOLD).label(t("Push"))
                                                 .on_click(move |_, w, cx| {
                                                     if let Some(spec) = normal_draft.read(cx).spec() {
                                                         let _ = normal_owner.update(cx, |s, cx| { if s.repo.path == normal_path { w.close_dialog(cx); s.start_push(spec, w, cx); } });
@@ -70,7 +72,7 @@ impl Review {
                                                     }))
                                                     .when(!can_force, |m| m.item(PopupMenuItem::new(t("Force push is prohibited for this protected branch")).disabled(true))).select_first()
                                             }))
-                                        .child(gpui_kit::component::dialog::DialogClose::new().trigger(|b| b.label(t("Cancel")).min_w(px(72.)).h(px(28.)).with_size(px(28.)).rounded(px(4.))))
+                                        .child(gpui_kit::component::dialog::DialogClose::new().trigger(|b| b.label(t("Cancel")).min_w(px(72.)).h(control_height).with_size(control_height).rounded(px(4.))))
                                 })
                                 .on_ok(move |_, window, cx| {
                                     let Some(spec) = confirm.read(cx).spec() else { return false; };

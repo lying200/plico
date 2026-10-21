@@ -2512,3 +2512,11 @@ Commit大字号文件行也已截图核对（large-commit.png），无文字垂�
 参考同一commit，读取`ChangeInfoCalculator.kt`、`CommitLegendPanel.kt::CommitLegendComponent/LegendChunk`与`CommitStatusPanel.kt`：只统计included；NEW、MODIFICATION/MOVED、DELETED分别计数；新增和未跟踪同时存在时显示a+b，零项隐藏，顺序新增/修改/删除，紧凑符号+/*/-，完整可访问文本保留。
 本地`commit_inclusion::Inclusion::summary`遍历已选身份，不读Git、不复制文件列表，before/after区分增删改，重命名归修改；部分选择身份仍计一个文件。`local_view/status.rs`分色绘制三段并提供中英文文字、完整tooltip/aria；按真实字体测量紧凑文本的最小宽度，空间不够时整段可换行，防止Amend吞掉计数。零项不绘制。保留差异：颜色沿用本地文件状态色；整数未做区域千分位格式；极窄窗口和很大计数仍受面板宽度限制。
 验证：新增身份计数测试覆盖未选择、重复勾选、重命名、删除、未跟踪和清空；57项桌面回归通过（排除既有基线失败），compact规则测试覆盖+1+2/*3/-4与零项。cargo check/Windows release通过。原生独立仓库勾选三项tracked及一项unversioned后显示绿色+1+1、蓝色*1、灰色-1；未选择时为空。截图`legend-*.png`已查看。未执行真实提交或推送；原生中文/大计数仍待进一步验收。
+
+### Push、Reset与编辑提交信息弹窗审查（2026-10-21）
+参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；原生安装版Rebased 1.1.20 / IC-262.10968.SNAPSHOT。读取 `plugins/git4idea/backend/src/reset/GitNewResetDialog.kt`（目标摘要、radio组及comment说明）、`plugins/git4idea/backend/src/rebase/log/GitNewCommitMessageActionDialog.kt`（预填完整消息、聚焦编辑器、非空校验）、`plugins/git4idea/backend/src/push/GitPushOptionsPanel.java`（标签checkbox控制selector启用，FlowLayout同排）、`platform/dvcs-impl/src/com/intellij/dvcs/push/ui/VcsPushDialog.java`（默认Push split action、Cancel、Help及底部options布局）。
+本地 `reset_dialog.rs` 说明文字从固定18px改为1.5em行盒，缩进随字体；`ui/remote.rs` Push底栏控件按字体撑高、selector宽11em、footer支持换行，540逻辑像素高度限制在窗口可用范围内；Help按钮也随控件高度增长。`push_dialog.rs`提交与文件行、头栏使用共同行高。未更改Push/Reset/reword的Git操作与校验流程。
+原生隔离仓库对照已打开三种Rebased弹窗；Plico使用相同仓库、UI12与UI20，检查Push加载完成、目标与两条outgoing commit、Reset四种模式及说明、消息预填和初始焦点，取消后回到Log。未执行Push/Reset/重写。截图已查看，存于本地 `artifacts/tree-ui-20261021/` 的reference-*、plico-*、large-*。
+保留差异：本地消息编辑框固定180逻辑像素、使用UI字体和圆角输入框，参考版采用commit editor并有历史入口；Reset仍缺Help且目标整段semibold；Push右侧toolbar项目组织与分隔线仍有差异。原生20号检查不是Rebased相同字号/相同窗口的逐像素对比，极窄窗口、32字号和多DPI尚未完整验收。Log空提交说明横向溢出另记后续，不混入本轮弹窗修改。
+验证：cargo check和Windows release构建通过；本轮仅布局修改，沿用此前57项桌面回归结果（已知diff padding基线失败仍排除），未宣称重跑全部写操作测试。
+补充原生验收：UI20且窗口缩小至1100×1000物理像素时，Push标签选项、帮助与确认/取消均完整可见（narrow-push.png）；帮助符号随控件高度修正后恢复显示。该尺寸仍为单行底栏，不作为极窄换行已验证的声明。

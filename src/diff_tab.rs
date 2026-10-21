@@ -36,6 +36,7 @@ pub struct DiffTab {
     chain: Chain,
     picker: Option<Entity<ListState<FilePicker>>>,
     viewer: Option<Entity<DiffState>>,
+    loading_focus: Option<FocusHandle>,
     token: Cancel,
     generation: u64,
     task: Task<()>,
@@ -98,7 +99,7 @@ impl DiffTab {
         });
     }
     pub fn new(target: Target, chain: Chain) -> Self {
-        Self { commit_scope:None, disk_task: Task::ready(()), disk_generation: 0, disk_refreshing: false, disk_pending: false, disk_error: None, navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
+        Self { commit_scope:None, disk_task: Task::ready(()), disk_generation: 0, disk_refreshing: false, disk_pending: false, disk_error: None, navigation_hint_task:Task::ready(()),navigation_boundary: None, pending_navigation: None, documents: Default::default(), editable: None, retained_document: None, pending_editable: None, source_callback: None, embedded: false, split_ratio: 0.5, split_dragging: Default::default(), source_available: false, last_source_position: None, unavailable: None, snapshot_revision: 0, stash_origin: None, target, chain, picker: None, viewer: None, loading_focus: None, token: Cancel::default(), generation: 0, task: Task::ready(()), loading: false, preferred_mode: DiffMode::Split, appearance: DiffAppearance::default(), error: None, preference_error: None }
     }
     fn set_split_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
         if self.split_ratio == ratio { return; }
@@ -157,7 +158,10 @@ impl DiffTab {
         self.pending_navigation = Some(true);
         self.token = Cancel::default(); self.loading = true; self.error = None; self.source_available=false;
         let viewer = cx.new(|cx| DiffState::new([], cx).with_mode(DiffMode::Split).with_context_lines(None).with_inline_unit(crate::diff_settings::inline_unit(self.appearance.emphasis)));
-        if focus && !self.embedded { viewer.read(cx).focus_handle(cx).focus(window, cx); }
+        // A DiffState is not mounted while the loading placeholder is visible.
+        // Keep focus on the stable tab container until its editor exists.
+        let loading_focus = self.loading_focus.get_or_insert_with(|| cx.focus_handle());
+        if focus && !self.embedded { loading_focus.focus(window, cx); }
         cx.observe(&viewer, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&viewer,|s,_,event:&gpui_kit::component::diff::DiffEvent,cx|{
             if let gpui_kit::component::diff::DiffEvent::SelectionChanged(Some(range))=event {
@@ -216,6 +220,7 @@ impl DiffTab {
             self.target = target;
             cx.emit(FileChanged(self.target.clone()));
             self.activate(window, cx);
+            self.focus_viewer(window, cx);
         }
     }
     pub fn dismiss_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -224,6 +229,10 @@ impl DiffTab {
         cx.notify();
     }
     pub fn focus_viewer(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.loading {
+            if let Some(focus) = &self.loading_focus { focus.focus(window, cx); }
+            return;
+        }
         if self.editable.is_some() {
             if let Some(editable)=&self.editable {editable.update(cx,|v,cx|v.focus(window,cx)); return;}
         }
@@ -249,6 +258,7 @@ impl DiffTab {
             self.target = target;
             cx.emit(FileChanged(self.target.clone()));
             self.activate(window, cx);
+            self.focus_viewer(window, cx);
         }
     }
     fn place(&self) -> DiffPlace {
@@ -388,6 +398,9 @@ impl Render for DiffTab {
                 if let Some(focused)=focused {focused.focus(window,cx);}
             }
         }
+        if !self.loading && self.loading_focus.as_ref().is_some_and(|focus| focus.is_focused(window)) {
+            self.focus_viewer(window, cx);
+        }
         let id = self.target.identity();
         let short = |r: &str| r[..8.min(r.len())].to_owned();
         let (before, after) = if let Some(endpoints) = &id.combined {
@@ -460,6 +473,7 @@ impl Render for DiffTab {
             else { Diff::new(viewer).split_ratio(self.split_ratio).size_full().soft_wrap(self.appearance.soft_wrap).line_number(self.appearance.line_numbers).change_indicator(DiffChangeIndicator::None).header_visible(false).hunk_separator(DiffHunkSeparator::LineInfo).into_any_element() }
         } else { div().into_any_element() };
         v_flex().relative().size_full().min_h_0().bg(rgb(0x191a1c))
+            .when_some(self.loading_focus.as_ref(), |view, focus| view.track_focus(focus))
             .on_mouse_down(MouseButton::Left,cx.listener(|s,_,_,cx|s.clear_navigation_hint(cx)))
             .on_scroll_wheel(cx.listener(|s,_,_,cx|s.clear_navigation_hint(cx)))
             .on_key_down(cx.listener(|s,event:&KeyDownEvent,_,cx|if event.keystroke.key!="f7" {s.clear_navigation_hint(cx);} ))
@@ -571,6 +585,65 @@ mod editable_navigation_tests {
                 assert!(viewport.height > gpui::px(0.) && viewport.height < gpui::px(800.), "bounded viewport: {viewport:?}");
                 assert!(travel > viewport.height * 3., "500 lines must be scrollable without F7 ({mode:?}, width {width}): viewport={viewport:?}, travel={travel:?}");
             });
+        }
+    }
+    // Full toolbar rendering hits the upstream duplicate-hover debug assertion.
+    // Run this test with --config "profile.test.debug-assertions=false".
+    #[gpui::test]
+    #[cfg_attr(debug_assertions, ignore = "GPUI toolbar duplicate-hover assertion; run without debug assertions")]
+    fn cross_file_navigation_retains_editor_focus_after_loading(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut tab = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let change = |name: &str| plico::git::Change { area: Area::Unstaged, path: name.into(), old_path: None, status: "M".into() };
+            let target = Target::new(plico::git::Repository::new("missing-fixture"), None, change("a.txt")).unwrap();
+            let chain = Chain::new(&target, &[change("a.txt"), change("b.txt")]).unwrap();
+            let view = cx.new(|_| DiffTab::new(target, chain));
+            tab = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        let tab = tab.unwrap();
+        let unrelated = cx.update(|_, cx| cx.focus_handle());
+        for (working, mode, moved_away) in [
+            (true, gpui::component::diff::DiffMode::Split, false),
+            (false, gpui::component::diff::DiffMode::Split, false),
+            (false, gpui::component::diff::DiffMode::Unified, false),
+            (true, gpui::component::diff::DiffMode::Unified, false),
+            (true, gpui::component::diff::DiffMode::Split, true),
+        ] {
+            for embedded in [false, true] {
+                for next in [true, false] {
+                    cx.update(|window, cx| tab.update(cx, |s, cx| {
+                        s.embedded = embedded;
+                        s.move_file(next, window, cx);
+                        // Freeze the Git completion so an actual loading frame is painted.
+                        s.task = gpui::Task::ready(());
+                    }));
+                    for _ in 0..2 { cx.update(|window, cx| { let _ = window.draw(cx); }); }
+                    cx.update(|window, cx| tab.update(cx, |s, cx| {
+                        if moved_away { unrelated.focus(window, cx); }
+                        s.preferred_mode = mode;
+                        s.viewer.as_ref().unwrap().update(cx, |v, cx| v.set_files(vec![DiffFile::from_sources(
+                            Some(("a.txt", "old\n")), Some(("a.txt", "new\n"))).unwrap()], cx));
+                        s.pending_editable = working.then(|| plico::working_copy::Contents {
+                            original: "old\n".into(),
+                            working: plico::file_document::Document::new(b"new\n".to_vec()).unwrap(),
+                        });
+                        s.loading = false;
+                        cx.notify();
+                    }));
+                    for _ in 0..3 { cx.update(|window, cx| { let _ = window.draw(cx); }); }
+                    cx.update(|window, cx| tab.update(cx, |s, cx| {
+                        let actual = window.focused(cx);
+                        if moved_away {
+                            assert_eq!(actual, Some(unrelated.clone()), "loading must not steal focus");
+                            return;
+                        }
+                        s.focus_viewer(window, cx);
+                        assert_eq!(actual, window.focused(cx), "cross-file focus was lost (embedded={embedded}, next={next})");
+                    }));
+                }
+            }
         }
     }
     #[gpui::test]

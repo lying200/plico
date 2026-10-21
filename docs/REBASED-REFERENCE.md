@@ -2530,3 +2530,9 @@ UI20原生检查发现“23 minutes ago”在145px日期列中换行，行盒居
 原生UI20、空提交、右侧窄面板截图稳定复现文字跨过左右边界。原因是`ui/files.rs`绝对定位居中层直接放置未限宽的文本；`ui/preview.rs`有同类排版。本地给文本独立的满宽、可收缩、居中换行容器，外层加padding及绘制裁剪，底部空Diff容器也限制最小宽高，避免内容撑大面板。保留本地对空提交/浅克隆/过滤无结果的解释文字，采用换行而不是上游短提示/空白，是明确的可读性差异。Git查询和选择生命周期不变。
 此修正是纯布局，使用同一原生测试仓库截图回归，不添加只断言样式属性的单测。
 验证：Windows release构建通过；原生UI20下普通窗口、底部预览开启和1100×1000物理像素窗口均确认提示在各自边界内换行，截图empty-fixed.png、empty-bottom.png、empty-narrow.png。右侧最窄约300物理像素时说明仍完整可见。此次未执行Git写操作，仅关闭自有测试实例。
+
+### F7跨文件加载后的焦点交接（2026-10-21）
+参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版Rebased 1.1.20 / IC-262.10968.SNAPSHOT。读取 `platform/diff-impl/src/com/intellij/diff/tools/util/CrossFilePrevNextDifferenceIterableSupport.kt`、`impl/DiffRequestProcessor.java::doApplyRequest/getPreferredFocusedComponent/isFocusedInWindow` 和 `util/DiffUtil.java::runPreservingFocus`（后两者同在`platform/diff-impl/src/com/intellij/diff/`）：替换request/viewer前记录Diff是否持有焦点，仅在此前持有焦点时交给新的首选组件；跨文件导航与文件内导航分开处理。
+本地`src/diff_tab.rs`：加载时旧DiffState未挂载，但原先把焦点给了它；工作区EditableDiff创建后没有交接，F7离开有效事件路径。现在使用挂载在DiffTab根容器的稳定loading_focus承接异步加载，完成后仅当此容器仍持有焦点才交给真实编辑器。显式跨文件/文件选择在嵌入预览中也承接焦点，后台预览加载仍不主动抢焦点。保留差异：上游同步runPreservingFocus，本地异步Git加载通过持久焦点句柄衔接，不照搬Swing生命周期。
+验证：新增回归先红后绿，覆盖工作区/历史、split/unified、独立Tab/嵌入预览、前后文件、加载时主动移开焦点。完整toolbar渲染触发上游GPUI重复hover的debug_assert，因此该测试在debug配置下显式ignore，使用`cargo test --locked --config 'profile.test.debug-assertions=false' --features desktop-tests --bin plico cross_file_navigation_retains_editor_focus_after_loading`运行通过（普通assert仍有效）。该配置跑全套时local-tree debug_bounds为空；默认debug配置重跑其余57项全通过，既有padding基线失败仍排除。未修改生产依赖来绕过断言。
+Windows release构建通过；独立三文件、每文件两处变更的仓库，原生split工作区Diff从a到b，再不点击鼠标按F7定位b的第二处；Shift+F7返回a后继续定位a的第一处，左侧选择同步。截图`artifacts/f7-focus-20261021/focus-{cross,next,back,back-next}-fixed.png`已查看。嵌入模式与unified的焦点交接由自动回归覆盖，此轮未做完整原生矩阵。只关闭自有验证实例，未修改用户仓库。

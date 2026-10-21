@@ -1,32 +1,41 @@
 //! Rebased JBUIScale.computeSystemFontData uses win.messagebox.font on Windows.
 //! Resolve once; rendering and explicit text measurement must use the same face.
 pub fn family() -> &'static str {
-    #[cfg(windows)]
-    {
-        static FAMILY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        FAMILY.get_or_init(|| windows_message_font().unwrap_or_else(|| ".SystemUIFont".into()))
-    }
-    #[cfg(not(windows))]
-    { "Inter" }
+    #[cfg(windows)] { &system_font().0 }
+    #[cfg(not(windows))] { "Inter" }
+}
+
+fn default_ui_size() -> u16 {
+    #[cfg(windows)] { system_font().1 }
+    #[cfg(not(windows))] { 13 }
 }
 
 #[cfg(windows)]
-fn windows_message_font() -> Option<String> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SystemParametersInfoW,
+fn system_font() -> &'static (String, u16) {
+    static FONT: std::sync::OnceLock<(String, u16)> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| windows_message_font().unwrap_or_else(|| (".SystemUIFont".into(), 12)))
+}
+
+#[cfg(windows)]
+fn windows_message_font() -> Option<(String, u16)> {
+    use windows_sys::Win32::UI::{
+        HiDpi::SystemParametersInfoForDpi,
+        WindowsAndMessaging::{NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS},
     };
     let mut metrics = NONCLIENTMETRICSW::default();
     metrics.cbSize = std::mem::size_of::<NONCLIENTMETRICSW>() as u32;
-    // SAFETY: cbSize describes a live, writable NONCLIENTMETRICSW; this GET
-    // operation only fills the supplied buffer and does not retain its pointer.
+    // SAFETY: this GET fills a live buffer of cbSize bytes. Request 96-DPI
+    // logical metrics; GPUI applies monitor DPI once when drawing the window.
     let ok = unsafe {
-        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, metrics.cbSize,
-            (&mut metrics as *mut NONCLIENTMETRICSW).cast(), 0)
+        SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, metrics.cbSize,
+            (&mut metrics as *mut NONCLIENTMETRICSW).cast(), 0, 96)
     };
     if ok == 0 { return None; }
     let face = metrics.lfMessageFont.lfFaceName;
     let end = face.iter().position(|c| *c == 0).unwrap_or(face.len());
-    String::from_utf16(&face[..end]).ok().filter(|name| !name.trim().is_empty())
+    let family = String::from_utf16(&face[..end]).ok().filter(|name| !name.trim().is_empty())?;
+    let size = metrics.lfMessageFont.lfHeight.unsigned_abs().clamp(9, 32) as u16;
+    Some((family, size))
 }
 
 use gpui_kit::{App, SharedString, px};
@@ -40,7 +49,7 @@ pub struct Preferences {
     pub editor_size: u16,
 }
 impl Default for Preferences {
-    fn default() -> Self { Self { ui_family: family().into(), ui_size: 13, editor_family: "JetBrains Mono".into(), editor_size: 13 } }
+    fn default() -> Self { Self { ui_family: family().into(), ui_size: default_ui_size(), editor_family: "JetBrains Mono".into(), editor_size: 13 } }
 }
 impl Preferences {
     pub fn current(cx: &App) -> Self {

@@ -238,7 +238,7 @@ impl Render for ProjectView {
                     .on_click(cx.listener(|s, _, w, cx| s.reveal_current(w, cx))))
                 .child(Button::new("project-collapse-all").ghost().icon(Icon::default().path("jb/collapseAll_dark.svg").size(px(16.)))
                     .tooltip(t("Collapse All")).on_click(cx.listener(|s, _, _, cx| s.collapse_all(cx))))
-                .child(Button::new("project-options").ghost().icon(Icon::default().path("jb/history-show_dark.svg").size(px(16.)))
+                .child(Button::new("project-options").ghost().icon(Icon::default().path("jb/moreVertical_dark.svg").size(px(16.)))
                     .tooltip(t("View Options")).dropdown_menu(move |menu, _, _| {
                         let owner = owner.clone();
                         menu.item(PopupMenuItem::new(t("Always Select Opened File")).checked(follow)

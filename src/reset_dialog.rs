@@ -35,7 +35,7 @@ impl Render for Options {
                     .child(
                         div()
                             .pl(px(32.))
-                            .text_size(px(13.))
+                            .text_size(rems(1.))
                             .line_height(px(18.))
                             .text_color(rgb(0x92949a))
                             .child(t(mode.description())),

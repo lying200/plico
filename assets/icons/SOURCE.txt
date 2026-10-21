@@ -119,3 +119,11 @@ Commit Diff checkboxes (unmodified), Rebased 4aec35256d765c217aa0d662b82ac4e860c
 platform/icons/src/expui/diff/gutterCheckBox{,Selected,Indeterminate}@14x14_dark.svg
 Local names: gutterCheckBox{,Selected,Indeterminate}.svg.
 Copyright JetBrains s.r.o. and contributors, Apache-2.0 (LICENSE.txt).
+
+Shared control / Project options alignment (2026-10-21):
+detachhead/rebased commit 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/general/{close,chevronLeft,chevronUp,moreVertical}_dark.svg.
+Unmodified SVGs; Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+Assets maps GPUI's built-in close and directional-chevron paths to these and
+the existing JetBrains chevronDown/chevronRight resources, so dialogs, Select
+and cascading menus use the same icon family as application toolbars.

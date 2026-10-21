@@ -201,7 +201,7 @@ impl UserMenu {
         let bounds = self.popup_bounds.clone();
         let mut body = v_flex().relative()
             .child(canvas(move |rect,_,_| bounds.set(Some(rect)), |_,_,_,_| {}).absolute().size_full())
-            .bg(rgb(0x26282c)).border_1().border_color(rgb(0x393b40)).rounded(px(8.)).overflow_hidden().text_size(px(13.)).text_color(rgb(0xd1d3d9));
+            .bg(rgb(0x26282c)).border_1().border_color(rgb(0x393b40)).rounded(px(8.)).overflow_hidden().text_size(rems(1.)).text_color(rgb(0xd1d3d9));
         if let Some(editor) = &self.editor {
             body = body.w(px(430.)).child(div().bg(rgb(0x191a1c)).p(px(2.)).child(Textarea::new(editor).h(px(52.)).appearance(false)))
                 .child(div().border_t_1().border_color(rgb(0x393b40)).px_2().py_2().text_size(px(11.)).text_color(rgb(0x9fa2a8))
@@ -236,7 +236,7 @@ impl UserMenu {
                         .snap_to_window_with_margin(px(8.))
                         .child(div().w(px(layout.width)).p_1().bg(rgb(0x26282c))
                             .border_1().border_color(rgb(0x393b40)).rounded(px(8.)).shadow_lg()
-                            .text_size(px(13.)).text_color(rgb(0xd1d3d9))
+                            .text_size(rems(1.)).text_color(rgb(0xd1d3d9))
                             .child(canvas({ let bounds = self.completion_bounds.clone(); move |rect, _, _| bounds.set(Some(rect)) }, |_, _, _, _| {}).absolute().size_full())
                             .child(list)))
                         .with_priority(101)); // Above the parent popup (GPUI popup priority 100).

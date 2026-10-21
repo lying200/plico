@@ -1,7 +1,7 @@
 //! Selected-commit ancestry query, independent of file/Diff loading jobs.
 use plico::i18n::{self, t};
 use plico::git::{Cancel, Repository};
-use gpui_kit::{component::{h_flex, v_flex, text::TextView}, prelude::FluentBuilder as _, *};
+use gpui_kit::{component::{ActiveTheme as _, h_flex, v_flex, text::TextView}, prelude::FluentBuilder as _, *};
 
 pub struct ContainingBranches {
     token: Cancel,
@@ -67,7 +67,7 @@ impl Batch {
 impl Render for ContainingBranches {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut panel = v_flex().relative().w_full().min_w_0().flex_shrink_0()
-            .font_family(crate::ui_font::family()).text_size(px(13.)).line_height(px(17.)).text_color(rgb(0xd1d3d9));
+            .font_family(cx.theme().font_family.clone()).text_size(cx.theme().font_size).line_height(relative(1.3)).text_color(rgb(0xd1d3d9));
         let owner = cx.entity().downgrade();
         let width = self.width;
         panel = panel.child(canvas(move |bounds, window, _| {
@@ -84,8 +84,8 @@ impl Render for ContainingBranches {
             Some(Ok(branches)) => {
                 let head = i18n::message(i18n::Message::ContainingBranches(branches.len()));
                 let measure = |text: &str| {
-                    let run = TextRun { len: text.len(), font: Font { family: crate::ui_font::family().into(), ..Default::default() }, color: rgb(0xd1d3d9).into(), background_color: None, underline: None, strikethrough: None };
-                    window.text_system().shape_line(text.to_owned().into(), px(13.), &[run], None).width
+                    let run = TextRun { len: text.len(), font: Font { family: cx.theme().font_family.clone(), ..Default::default() }, color: rgb(0xd1d3d9).into(), background_color: None, underline: None, strikethrough: None };
+                    window.text_system().shape_line(text.to_owned().into(), cx.theme().font_size, &[run], None).width
                 };
                 // Fit incrementally: avoid shaping every name in a large result.
                 // Rebased reserves the ellipsis/link width before fitting names.

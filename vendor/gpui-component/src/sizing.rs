@@ -245,8 +245,8 @@ impl<T: Styled> StyleSized<T> for T {
     fn input_text_size(self, size: Size) -> Self {
         match size {
             Size::XSmall => self.text_xs(),
-            Size::Small => self.text_sm(),
-            Size::Medium => self.text_sm(),
+            Size::Small => self.text_base(),
+            Size::Medium => self.text_base(),
             Size::Large => self.text_base(),
             Size::Size(size) => self.text_size(size * 0.875),
         }
@@ -324,7 +324,7 @@ impl<T: Styled> StyleSized<T> for T {
         let padding = size.table_cell_padding();
         match size {
             Size::XSmall => self.text_xs(),
-            Size::Small | Size::Medium => self.text_sm(),
+            Size::Small | Size::Medium => self.text_base(),
             Size::Large => self.text_base(),
             _ => self,
         }
@@ -337,7 +337,7 @@ impl<T: Styled> StyleSized<T> for T {
     fn button_text_size(self, size: Size) -> Self {
         match size {
             Size::XSmall => self.text_xs(),
-            Size::Small | Size::Medium => self.text_sm(),
+            Size::Small | Size::Medium => self.text_base(),
             _ => self.text_base(),
         }
     }

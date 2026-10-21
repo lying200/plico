@@ -40,7 +40,7 @@ where
         .gap_2()
         .w_full()
         .min_w_0()
-        .text_size(px(13.))
+        .text_size(rems(1.))
         .child(div().child(t(summary)))
         .child(
             h_flex()
@@ -63,10 +63,10 @@ pub fn show_details(error: String, title: &'static str, window: &mut Window, cx:
         let copied = error.clone();
         dialog.title(t(title)).w(px(680.)).centered(true)
             .when(git_error::is_ownership_error(&error), |dialog| dialog.child(
-                div().text_size(px(13.)).child(t("Git refused access because the repository owner differs. Review the path and Git's instructions before trusting this directory. No trust configuration has been changed."))))
+                div().text_size(rems(1.)).child(t("Git refused access because the repository owner differs. Review the path and Git's instructions before trusting this directory. No trust configuration has been changed."))))
             .child(div().relative().w_full().min_w_0().max_h(px(280.))
                 .child(div().id("error-details-output").w_full().max_h(px(280.)).overflow_y_scroll()
-                    .track_scroll(&scroll).pr_3().text_size(px(13.)).child(error.clone()))
+                    .track_scroll(&scroll).pr_3().text_size(rems(1.)).child(error.clone()))
                 .child(Scrollbar::vertical(&scroll).mode(ScrollbarMode::Always)))
             .footer(DialogFooter::new()
                 .child(Button::new("copy-error-details").min_w(px(72.)).label(t("Copy error details"))

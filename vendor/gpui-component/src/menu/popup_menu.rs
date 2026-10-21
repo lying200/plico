@@ -1313,7 +1313,7 @@ impl PopupMenu {
 
         let this = MenuItemElement::new(ix)
             .relative()
-            .text_sm()
+            .text_base()
             .py_0()
             .px(INNER_PADDING)
             .rounded(radius)

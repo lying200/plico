@@ -2434,3 +2434,37 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 保留差异：Plico 单项目窗口将该唯一行为项放在 Project 标题栏 View Options 内，暂不增加只有一项的 Behavior 子菜单；偏好按用户保存，未复刻 IDE 多 Project pane/global 三层配置。只处理现有文件/Diff Tab 的文件路径，不引入 IDE PSI 元素导航。
 
 验证：4 项 ProjectView desktop tests 通过（缓存定位不启动 IO、不抢焦点、手动选择取消、树聚焦抑制；以及原有定位/菜单回归）。Windows 原生独立 fixture 已核对默认未勾选菜单、开启设置、两个文件 Tab、全部折叠后切换 Tab 自动展开并选中目标；截图在本地 `artifacts/project-auto-follow-20261021/`。Windows release 构建通过。功能结构/交互已核对，精确像素及真实 WSL 跨机体验仍未验收。
+
+## UI 横向检查：默认字体、控件和通用图标（2026-10-21）
+
+参考源码 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版 Rebased 1.1.20 / IC-262.10968.SNAPSHOT。本轮以独立配置启动安装版，在自建 project-tools fixture 中只读查看；不是修改用户 IDE 设置。原生 JBR FontProbe 输出：Windows messageFont = Microsoft YaHei UI 12，JetBrains Mono 13 的 FontMetrics 高18。配置 other.xml 的 NotRoamableUiSettings 也记录12；编辑器配置没有字号覆盖。
+
+已读取与提取规则：
+- `platform/util/ui/src/com/intellij/ui/scale/JBUIScale.kt::computeSystemFontData`、`platform/platform-impl/src/com/intellij/ide/ui/laf/IdeaLaf.kt::initComponentDefaults`、`platform/util/ui/src/com/intellij/util/ui/JBFont.java`：Windows 消息字体是 UI 字族及字号来源，普通控件使用同一 Label 字体；不能只读字族然后固定13。
+- `platform/editor-ui-api/src/com/intellij/openapi/editor/colors/FontPreferences.java`：JBR 默认 JetBrains Mono 13；默认 line spacing 1.2。`platform/platform-impl/src/com/intellij/openapi/editor/impl/view/EditorView.java::initMetricsIfNeeded` 用字体实际 metrics 和舍入策略计算行高，不能直接将13乘1.2当作行高。
+- `platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json`：普通 Button 72×28、ComboBox 49×28，Tree/List 普通行高24、compact22；Tree 使用现代 Chevron；背景、边框、前景分层与现有共享色板基本一致。
+- `platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaComboBoxUI.java::paintArrow`：New UI 使用 General.ChevronDown；`platform/icons/src/PlatformIconMappings.json` 映射 Cancel/通知关闭到现代 close，Actions.More 到 moreVertical。
+- `platform/platform-impl/src/com/intellij/openapi/wm/impl/ToolWindowImpl.kt::GearActionGroup`：New UI 的工具窗口选项入口为 Actions.More，而非查看选项眼睛。
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogGraphTable.java::getRowHeight`、`ui/render/GraphCommitCellRenderer.kt::calculateHeight`、`JBUI.java::VersionControl.Log`：Log 行高取字体内容高度（含垂直 padding）与主题最小行高较大值，不能套用 Tree 行高。
+
+本地修正：
+- `src/ui_font.rs` 从96-DPI Win32消息字体同时获取字族/字号，GPUI负责显示器缩放，避免二次DPI放大。API失败默认12；非Windows保留原来Inter13。已有 fonts.json 的显式设置不覆盖，恢复默认会使用新系统默认。
+- `vendor/gpui-component/src/sizing.rs`、`menu/popup_menu.rs`、`tooltip.rs`：标准控件文字使用UI基础字号，移除默认0.875缩小。输入框/Select/Checkbox/Radio复用同一 sizing；显式样式仍优先。
+- Reset、错误提示、提交面板、用户/路径筛选和文件历史普通正文取消固定13。ContainingBranches 使用当前UI字体绘制并测量，修复自定义字号后省略位置与文字宽度不一致。
+- `src/assets.rs` 将框架内置关闭及四向Chevron路径映射至原版现代资源；Project 标题栏选项改为 moreVertical。资源来源保留在 assets/icons/SOURCE.txt。
+
+检查范围与剩余差异：
+| 区域 | 本轮结论 |
+| --- | --- |
+| 标题栏、项目头像、拉取/推送/分支 | 主图标已有上游资源；头像使用独立Mono字体，继续保留，不跟随正文任意缩放 |
+| 默认UI字体、菜单、普通控件、筛选 | 上述系统默认与字号继承问题已修正；未统一修改所有明确为辅助信息的小字 |
+| Project/Commit/Log右侧文件树 | 现有分别26/28/28行高，上游Tree普通24；选中背景、缩进/边距也有差异，尚未完成统一密度与焦点态还原 |
+| Log/文件历史 | 上游按字体metrics计算行高，本地固定28；大字号下行高/graph命中同步调整仍待实现，不能只改CSS高度 |
+| 文件编辑器/Diff | 默认字体13已对齐；本地字号×1.5行高与Java metrics×line-spacing不是同一机制；折行、gutter及光栅化仍有差异，本轮保持现有滚动/光标几何 |
+| 设置与标准弹窗 | 通用正文及关闭/下拉图标已统一；自绘弹窗的精确间距、控件高度/宽度与全DPI对照仍待逐项验收 |
+| Push/Pull/Reset/Stash/Changelist | 保持已有结构与操作逻辑，本轮不改Git操作；历史验收不能替代本轮所有弹窗同条件截图 |
+| 菜单与快捷键 | 原版Chevron替换；菜单阴影、键盘焦点环、勾选标记和辅助快捷键小字仍有框架绘制差异 |
+
+本轮是跨界面检查与明确问题修正，不宣称全功能像素级一致。原生截图/字体采样保存在本地 `artifacts/ui-audit-20261021/`；参考程序使用Safe Mode，因此其文件类型插件/Git入口状态不作为功能差异结论。字体与共同控件的视觉核对有效，Git Log、写操作弹窗同条件完整对照仍需后续验收。
+
+验证结果：`cargo check --locked --bin plico`、Windows release 构建通过；55项桌面回归通过，明确排除原有 `releasing_diff_clears_padding_from_retained_source` 基线失败。原生Plico设置页确认未保存自定义字体时UI为Microsoft YaHei UI 12、编辑器JetBrains Mono 13，Project三点菜单、Log、设置打开/关闭截图已查看。验证exe与最终构建SHA256均为 `c6230d720cb5c51efa6050537b48b07ea1efcc8c181dbb4b36188106750bd3e4`。两款窗口尺寸不同，截图用于功能结构/字体检查而非逐像素差分。仅关闭本轮自有Plico与Rebased实例。

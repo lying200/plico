@@ -101,7 +101,7 @@ impl PathsMenu {
         let mut body = v_flex().relative()
             .child(canvas(move |rect,_,_| bounds.set(Some(rect)), |_,_,_,_| {}).absolute().size_full())
             .bg(rgb(0x26282c)).border_1().border_color(rgb(0x393b40))
-            .rounded(px(8.)).overflow_hidden().text_size(px(13.)).text_color(rgb(0xd1d3d9));
+            .rounded(px(8.)).overflow_hidden().text_size(rems(1.)).text_color(rgb(0xd1d3d9));
         if let Some(editor) = &self.editor {
             body = body.w(px(430.))
                 .child(div().bg(rgb(0x191a1c)).p(px(2.)).child(Textarea::new(editor).h(px(52.)).appearance(false)))

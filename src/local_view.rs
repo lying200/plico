@@ -5,6 +5,7 @@ use gpui_kit::{prelude::FluentBuilder as _, *};
 use gpui_kit::component::{button::{Button, ButtonVariants as _}, checkbox::Checkbox, input::{Textarea, TextareaState, InputEvent}, Disableable as _, Sizable as _, menu::{ContextMenuExt as _, PopupMenuItem}, Icon, h_flex, v_flex};
 mod rollback;
 mod options;
+mod status;
 pub use rollback::{RequestRollback, ExecuteRollback};
 actions!(local_review, [ShowDiff, NextFile, PreviousFile, Refresh, Rollback, ToggleDirectory]);
 pub struct OpenDiff(pub Target, pub Chain);
@@ -282,9 +283,9 @@ impl Render for LocalView {
             })).when(self.refresh.read(cx).loaded() && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
                 div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
-                .child(h_flex().gap_2().child(Checkbox::new("commit-amend").label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
+                .child(h_flex().min_w_0().gap_2().child(Checkbox::new("commit-amend").max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
-                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(div().flex_1()).child(div().text_size(px(12.)).text_color(rgb(0x589df6)).child(format!("{} {}",self.scope.read(cx).inclusion.count(),t("selected")))))
+                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(status::selection_status(self.scope.read(cx).inclusion.count(), cx)))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))
                 .when_some(match self.draft.amend(){Amend::Failed(e)=>Some(e.clone()),_=>None},|v,e|v.child(v_flex().gap_1()
                     .child(div().text_size(rems(1.)).child(t("Could not load commit message")))

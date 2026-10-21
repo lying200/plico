@@ -2489,3 +2489,11 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 
 验证：cargo check、Windows release构建通过；55项桌面测试通过（仍排除既有 `releasing_diff_clears_padding_from_retained_source` 基线失败）。Windows隔离配置使用UI20/编辑器13，Project与Log右侧文件树行高随字号增长，展开后键盘打开example.rs成功，编辑器字号保持13；已查看原生截图 `artifacts/tree-ui-20261021/large-project.png`、`large-current.png`。一次截图采样全黑未计入验收，重新捕获有效截图后继续检查。未做全尺寸Rebased像素差分。
 Commit大字号文件行也已截图核对（large-commit.png），无文字垂直裁切；同时发现窄提交栏的Amend旁计数横向空间不足，属于后续响应式控件布局问题，未纳入本次树行高修正。
+
+### 提交栏窄宽度计数（2026-10-21）
+
+参考 `4aec35256d765c217aa0d662b82ac4e860c396fd`（安装版Rebased 1.1.20）：读取 `platform/vcs-impl/src/com/intellij/vcs/commit/NonModalCommitPanel.kt`，statusComponent左侧是工具栏，右侧留给计数；`CommitStatusPanel.kt::adjustLegendToFitPanel` 按当前字体测量完整legend与可用宽度，窗口尺寸变化时切换compact；`openapi/vcs/changes/ui/CommitLegendPanel.kt::CommitLegendComponent` 保留完整accessibleName。另读 `CommitActionsPanel.kt`，上游按钮区使用MigLayout与不换行工具栏，本地保留既有独立Commit/Commit and Push按钮及窄栏换行，暂不改变操作入口。
+
+本地 `local_view/status.rs` 隔离计数绘制：以实际布局宽度、当前UI字体测量完整文本，不够时显示数字，右对齐；tooltip和aria label保留完整含义，不新增异步布局任务。Amend最多占行宽80%，留空间给状态；计数不再固定12号。保留差异：目前仍为选中文件总数（包含0），不是上游按新增/修改/删除分色的legend；不在本轮更改计数语义。极端窄栏仍可能裁切很长数字，整个提交栏的最小宽度和超大字号布局未宣称完全对齐。
+
+验证：cargo check与Windows release构建通过。原生隔离仓库UI20下计数紧凑显示，勾选README后从0即时变为1；Amend文字在此宽度换行，底部按钮换行但均完整。UI12下完整显示“0 selected”。截图已查看并保存于`artifacts/tree-ui-20261021/status-*.png`。只验证显示与选择，不执行Commit/Push。此次低影响布局改动未重复跑整套Git测试；未完成全部字号/语言/极窄宽度验收。

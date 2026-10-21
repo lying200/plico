@@ -1,7 +1,7 @@
 //! GitConfigureRemotesDialog: single-repository name/URL table and nested
 //! Define Remote/removal confirmation. Git execution belongs to Review.
 use gpui_kit::component::{
-    Disableable as _, WindowExt as _,
+    Disableable as _, Sizable as _, Icon, WindowExt as _,
     button::{Button, ButtonVariants as _},
     dialog::{DialogClose, DialogFooter},
     h_flex, v_flex,
@@ -131,57 +131,57 @@ impl Manager {
 impl Render for Manager {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
-            .gap_2()
             .min_w_0()
+            .border_1().border_color(rgb(0x2b2d30))
             .child(
                 h_flex()
-                    .gap_1()
+                    .gap_1().px_1().py_1().border_b_1().border_color(rgb(0x2b2d30))
                     .child(
                         Button::new("remote-add")
                             .ghost()
-                            .label("+")
+                            .icon(Icon::default().path("jb/add_dark.svg").size(px(16.))).small()
                             .tooltip(t("Add Remote"))
                             .disabled(self.busy)
                             .on_click(cx.listener(|s, _, w, cx| s.define(false, w, cx))),
                     )
                     .child(
-                        Button::new("remote-edit")
-                            .ghost()
-                            .label(t("Edit"))
-                            .disabled(self.busy || self.selected.is_none())
-                            .on_click(cx.listener(|s, _, w, cx| s.define(true, w, cx))),
-                    )
-                    .child(
                         Button::new("remote-remove")
                             .ghost()
-                            .label("−")
+                            .icon(Icon::default().path("jb/remove_dark.svg").size(px(16.))).small()
                             .tooltip(t("Remove Remote"))
                             .disabled(self.busy || self.selected.is_none())
                             .on_click(cx.listener(|s, _, w, cx| s.remove(w, cx))),
+                    )
+                    .child(
+                        Button::new("remote-edit")
+                            .ghost()
+                            .icon(Icon::default().path("jb/edit_dark.svg").size(px(16.))).small().tooltip(t("Edit Remote"))
+                            .disabled(self.busy || self.selected.is_none())
+                            .on_click(cx.listener(|s, _, w, cx| s.define(true, w, cx))),
                     ),
             )
             .child(
                 h_flex()
-                    .gap_3()
-                    .child(div().w(px(130.)).child(t("Remote name")))
-                    .child(div().flex_1().child("URL")),
+                    .px_2().py_1().border_b_1().border_color(rgb(0x2b2d30))
+                    .child(div().w(px(90.)).flex_shrink_0().border_r_1().border_color(rgb(0x2b2d30)).child(t("Remote name")))
+                    .child(div().pl_2().flex_1().child("URL")),
             )
             .child(
                 v_flex()
                     .id("remotes-table")
-                    .h(px(180.))
+                    .h(px(((self.rows.len() + 3).clamp(4, 8) * 26) as f32))
                     .overflow_y_scroll()
                     .children(self.rows.iter().enumerate().map(|(i, r)| {
                         h_flex()
                             .id(("remote-row", i))
-                            .gap_3()
+                            .gap_2()
                             .px_2()
                             .py_1()
                             .min_w_0()
                             .when(self.selected == Some(i), |v| v.bg(rgb(0x2e4369)))
                             .child(
                                 div()
-                                    .w(px(130.))
+                                    .w(px(90.))
                                     .flex_shrink_0()
                                     .truncate()
                                     .child(r.name.clone()),
@@ -238,6 +238,6 @@ pub fn show(
             .centered(true)
             .overlay_closable(false)
             .child(manager.clone())
-            .footer(DialogFooter::new().child(DialogClose::new().trigger(|b| b.label(t("Close")))))
+            .footer(DialogFooter::new().child(DialogClose::new().trigger(|b| b.primary().label(t("OK")).min_w(px(72.)))))
     });
 }

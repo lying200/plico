@@ -127,3 +127,8 @@ Unmodified SVGs; Copyright JetBrains s.r.o. and contributors, Apache-2.0.
 Assets maps GPUI's built-in close and directional-chevron paths to these and
 the existing JetBrains chevronDown/chevronRight resources, so dialogs, Select
 and cascading menus use the same icon family as application toolbars.
+
+Remote toolbar icons (unmodified, Apache-2.0):
+Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/icons/src/expui/general/add_dark.svg
+platform/icons/src/expui/general/remove_dark.svg

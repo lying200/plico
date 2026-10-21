@@ -44,11 +44,19 @@ pub fn t(english: &'static str) -> &'static str {
     translate(english, CHINESE.load(Ordering::Relaxed) != 0)
 }
 fn translate(english: &'static str, chinese: bool) -> &'static str {
-    if !chinese { return english; }
+    if !chinese { return if english == "Remote name" { "Name" } else { english }; }
     match english {
         "Clone Repository" => "克隆仓库",
         "Clone Repository…" => "克隆仓库…",
         "Clone" => "克隆",
+        "Delete" => "删除",
+        "File" => "文件",
+        "Enter a repository URL or directory" => "请输入仓库地址或目录",
+        "Source is not a directory" => "源路径不是目录",
+        "Choose an absolute destination directory" => "请选择使用绝对路径的目标目录",
+        "Destination is not a directory" => "目标路径不是可用目录",
+        "Destination directory is not empty" => "目标目录不为空",
+        "Clone worker ended" => "克隆任务意外结束",
         "Shallow clone" => "浅克隆",
         "Clone submodules" => "克隆子模块",
         "Clone depth must be greater than zero" => "克隆深度必须大于零",
@@ -59,6 +67,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Clone failed" => "克隆失败",
         "The destination remains on disk. Inspect it before retrying." => "目标目录仍保留在磁盘上，请检查后再重试。",
         "Remote name" => "名称",
+        "Edit Remote" => "编辑远端",
+        "Shallow clone with a history truncated to" => "浅克隆，仅保留最近",
         "Edit" => "编辑",
         "Remove" => "删除",
         "Git Remotes" => "Git 远端",
@@ -408,7 +418,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Copy Revision Number" => "复制版本号",
         "Select commits to view changes" => "选择提交以查看更改",
         "Showing the first 50 commits" => "仅显示前 50 条提交详情",
-        "commits" => "个提交", "No changes" => "没有变更",
+        "commits" => "条提交", "No changes" => "没有变更",
         "Show Diff" => "显示差异", "Could not open file diff" => "无法打开文件差异",
         "Set upstream" => "设为上游", "New upstream" => "新上游",
         "Apply" => "应用", "Previous" => "上一页", "Next" => "下一页", "New branch" => "新分支",
@@ -757,5 +767,16 @@ impl ComparisonTitle {
                 (false, false) => format!("Compared with {revision}"),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod setup_translation_tests {
+    #[test]
+    fn remote_and_author_names_have_distinct_context() {
+        assert_eq!(super::translate("Remote name", true), "名称");
+        assert_eq!(super::translate("Name", true), "姓名");
+        assert_eq!(super::translate("Remote name", false), "Name");
+        assert_eq!(super::translate("Name", false), "Name");
     }
 }

@@ -1,6 +1,6 @@
 //! Rebased DvcsCloneDialogComponent: URL, destination chooser, shallow clone.
 use gpui_kit::component::{
-    Disableable as _, Sizable as _, WindowExt as _,
+    Disableable as _, Sizable as _, Icon, WindowExt as _,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex,
@@ -103,33 +103,33 @@ impl Render for Form {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_3()
-            .min_w_0()
+            .min_w_0().min_h(px(260.))
             .child(
                 h_flex()
                     .gap_3()
                     .items_center()
-                    .child(div().w(px(90.)).child("URL"))
+                    .child(div().w(px(70.)).flex_shrink_0().child("URL:"))
                     .child(Input::new(&self.url).disabled(self.busy).flex_1()),
             )
             .child(
                 h_flex()
                     .gap_3()
                     .items_center()
-                    .child(div().w(px(90.)).child(t("Directory")))
-                    .child(Input::new(&self.directory).disabled(self.busy).flex_1())
-                    .child(
+                    .child(div().w(px(70.)).flex_shrink_0().child(format!("{}:", t("Directory"))))
+                    .child(Input::new(&self.directory).disabled(self.busy).flex_1().suffix(
                         Button::new("clone-browse")
-                            .label("…")
+                            .ghost().small().icon(Icon::default().path("jb/open_dark.svg").size(px(16.)))
+                            .tooltip(t("Clone destination directory"))
                             .disabled(self.busy)
                             .on_click(cx.listener(|s, _, w, cx| s.browse(w, cx))),
-                    ),
+                    )),
             )
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap_3().items_center().flex_wrap()
                     .child(
                         Checkbox::new("clone-shallow")
-                            .label(t("Shallow clone"))
+                            .label(t("Shallow clone with a history truncated to"))
                             .checked(self.shallow)
                             .disabled(self.busy)
                             .on_click(cx.listener(|s, v, _, cx| {
@@ -137,9 +137,8 @@ impl Render for Form {
                                 cx.notify();
                             })),
                     )
-                    .when(self.shallow, |v| {
-                        v.child(Input::new(&self.depth).disabled(self.busy).w(px(100.)))
-                    }),
+                    .child(Input::new(&self.depth).disabled(self.busy || !self.shallow).w(px(66.)))
+                    .child(t("commits")),
             )
             .child(
                 Checkbox::new("clone-submodules")
@@ -193,6 +192,7 @@ pub fn show(
             if matches!(event, InputEvent::Change) {
                 s.suggestion
                     .edited(std::path::Path::new(input.read(cx).value().as_ref()));
+                cx.notify();
             }
         })
         .detach();
@@ -202,6 +202,7 @@ pub fn show(
                     s.directory
                         .update(cx, |i, cx| i.set_value(path.to_string_lossy(), w, cx));
                 }
+                cx.notify();
             }
         })
         .detach();
@@ -255,7 +256,8 @@ pub fn show(
                 )
             } else {
                 crate::dialog_style::confirmation(
-                    Button::new("clone-confirm").primary().label(t("Clone")),
+                    Button::new("clone-confirm").primary().label(t("Clone"))
+                        .disabled(form.read(cx).url.read(cx).value().trim().is_empty() || form.read(cx).directory.read(cx).value().trim().is_empty()),
                 )
             })
             .on_ok(move |_, w, cx| {

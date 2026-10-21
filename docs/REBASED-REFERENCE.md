@@ -3089,3 +3089,34 @@ HTTP fixture 均已按进程路径关闭，未操作用户程序。
 未原生逐项覆盖：远端双击编辑、最新远端中文标签、Amend／按块／Commit and Push 各自
 触发身份弹窗的组合；后三者接入共享提交前置检查，不能把共享代码当作独立原生验收。
 精确图标／间距仍保留差异，不宣称像素级还原。第 4 阶段功能交付完成，进入提交。
+
+### 前四阶段 UI／i18n 收尾（用户收口范围，2026-10-21）
+
+用户明确本次 goal 只完成前四阶段与 UI 对齐，第五阶段不启动。
+参考仍为 Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd；安装版本为
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT，与源码快照不等同。本轮实际读取：
+GitConfigureRemotesDialog.kt 的 createActions/createCenterPanel/updateTableWidth，
+GitDefineRemoteDialog.kt 的 createCenterPanel/getPreferredFocusedComponent，
+GitUserNameNotDefinedDialog.kt 的身份字段，DvcsCloneDialogComponent.kt 的表单和
+isOkActionEnabled，GitCloneDialogComponent.kt 与 GitShallowCloneViewModel.kt。
+
+提取规则与映射：远端管理 Add/Remove/Edit 顺序，单 OK，名称／URL 对齐的表格，
+行数随远端数量增长并封顶；src/remotes_dialog.rs 使用真实上游 add/remove SVG、
+已有 edit SVG，表格共享列宽及边框。src/clone_dialog.rs 使用内嵌目录浏览图标、
+常驻但条件禁用的 depth 字段及 commits 单位；URL 为空禁用 Clone，输入事件即时刷新。
+定义远端和身份表单标签与输入垂直居中。远端语境 Remote name 在中英文分别为
+“名称”／“Name”，作者 Name 保持“姓名”／“Name”；回归测试防止再次混用。
+补齐 Clone 校验错误、Delete、File 中文；Git 原始诊断及仓库数据保持原文。
+
+保留差异：单仓库对话框固定宽度、超长 URL 截断；不复刻尚无功能的托管账户／插件入口，
+不存储可能包含凭据的 URL 历史；保留已有真实子模块选项。Clone 使用应用内弹窗，
+不宣称与 IDE 独立窗口像素一致。用户截图用于结构对照，本轮没有操作用户 Rebased 窗口。
+
+最终验证：桌面 check 无警告；名称上下文翻译回归通过；Windows release 构建通过
+（最后一轮 41.08 秒）。对四阶段修改文件进行静态 t("literal") 翻译键核对，无遗漏；
+这不是动态 Git 诊断全量翻译的声明。最终 Windows 自有 PID 26524（en）、12440（zh-CN）
+核对 Git Remotes 与 Clone，截图 artifacts/setup-ui-20261021/ui-final-{remotes,clone}-{en,zh-CN}.png。
+确认名称／Name、工具栏顺序、列起点、OK 宽度、目录轮廓图标、禁用 depth 及空 URL
+禁用 Clone，两种语言均无本次表单文字溢出。测试进程已关闭，配置仅修改独立测试 profile。
+前四阶段提交 f77f7dc、3821fcd、0a2a0e6、6939478，完整核心回归已在第4阶段收尾通过；
+本轮仅 UI／翻译变化。按用户最新收口要求，本次目标完成，不启动第五阶段。

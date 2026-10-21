@@ -19,6 +19,8 @@ impl AssetSource for Assets {
             "jb/diff-apply-right_dark.svg" => Some(include_bytes!("../assets/icons/diff-apply-right_dark.svg")),
             "branding/plico.svg" => Some(include_bytes!("../assets/branding/plico.svg")),
             "jb/warning_dark.svg" => Some(include_bytes!("../assets/icons/warning_dark.svg")),
+            "jb/add_dark.svg" => Some(include_bytes!("../assets/icons/add_dark.svg")),
+            "jb/remove_dark.svg" => Some(include_bytes!("../assets/icons/remove_dark.svg")),
             "jb/edit_dark.svg" => Some(include_bytes!("../assets/icons/edit_dark.svg")),
             "jb/tool-project_dark.svg" => Some(include_bytes!("../assets/icons/tool-project_dark.svg")),
             "jb/file-shell_dark_4x.svg" => Some(include_bytes!("../assets/icons/file-shell_dark_4x.svg")),

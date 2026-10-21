@@ -44,13 +44,13 @@ impl Render for Form {
             .gap_3()
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap_3().items_center()
                     .child(div().w(px(85.)).child(t("Name")))
                     .child(Input::new(&self.name).disabled(self.busy).flex_1()),
             )
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap_3().items_center()
                     .child(div().w(px(85.)).child(t("Email")))
                     .child(Input::new(&self.email).disabled(self.busy).flex_1()),
             )

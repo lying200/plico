@@ -284,6 +284,7 @@ impl Review {
     }
     pub(super) fn files(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selection_color = row_selection(&self.files_focus, window);
+        let row_height = tree_row_height(cx);
         let files = self.files.clone();
         let flat = !self.local && !self.log_files_options.directory;
         let rows = self.file_rows.clone();
@@ -319,12 +320,12 @@ impl Review {
                                             return h_flex()
                                                 .id(row)
                                                 .w_full()
-                                                .h(px(28.))
+                                                .h(row_height)
                                                 .pr_2()
-                                                .pl(px(8.
-                                                    + *depth as f32 * 16.
+                                                .pl(px(TREE_INSET
+                                                    + *depth as f32 * TREE_INDENT
                                                     + if area == Area::Commit { 0. } else { 24. }))
-                                                .gap_2()
+                                                .gap(px(4.))
                                                 .child(jb_icon(if *expanded {
                                                     "chevronDown_dark.svg"
                                                 } else {
@@ -363,9 +364,9 @@ impl Review {
                                             return h_flex()
                                                 .id(row)
                                                 .w_full()
-                                                .h(px(28.))
+                                                .h(row_height)
                                                 .px_2()
-                                                .gap_2()
+                                                .gap(px(4.))
                                                 .child(
                                                     jb_icon(if expanded {
                                                         "chevronDown_dark.svg"
@@ -401,11 +402,11 @@ impl Review {
                                         .relative()
                                         .id(row)
                                         .w_full()
-                                        .h(px(28.))
+                                        .h(row_height)
                                         .px_2()
-                                        .gap_2()
-                                        .pl(px(32.
-                                            + depth as f32 * 16.
+                                        .gap(px(4.))
+                                        .pl(px(TREE_INSET + 20.
+                                            + depth as f32 * TREE_INDENT
                                             + if f.area == Area::Commit { 0. } else { 24. }))
                                         .when(selected == Some(i), |d| {
                                             d.child(tree_selection(selection_color))

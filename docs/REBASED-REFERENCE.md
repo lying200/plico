@@ -2468,3 +2468,24 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 本轮是跨界面检查与明确问题修正，不宣称全功能像素级一致。原生截图/字体采样保存在本地 `artifacts/ui-audit-20261021/`；参考程序使用Safe Mode，因此其文件类型插件/Git入口状态不作为功能差异结论。字体与共同控件的视觉核对有效，Git Log、写操作弹窗同条件完整对照仍需后续验收。
 
 验证结果：`cargo check --locked --bin plico`、Windows release 构建通过；55项桌面回归通过，明确排除原有 `releasing_diff_clears_padding_from_retained_source` 基线失败。原生Plico设置页确认未保存自定义字体时UI为Microsoft YaHei UI 12、编辑器JetBrains Mono 13，Project三点菜单、Log、设置打开/关闭截图已查看。验证exe与最终构建SHA256均为 `c6230d720cb5c51efa6050537b48b07ea1efcc8c181dbb4b36188106750bd3e4`。两款窗口尺寸不同，截图用于功能结构/字体检查而非逐像素差分。仅关闭本轮自有Plico与Rebased实例。
+
+## 三处文件树密度与选中态（2026-10-21）
+
+参考仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版Rebased 1.1.20。
+已读取 `platform/platform-impl/src/com/intellij/ui/tree/ui/DefaultTreeUI.java` 的paint选择分支：现代单行选择左右留白12，Tree.Selection.arc取8（圆角半径4）；`platform/util/ui/src/com/intellij/ui/render/RenderingUtil.java` 按焦点选择背景；`ManyIslandsDark.theme.json` 使用活跃blue-50 #2A4371、非活跃gray-40 #33353B，Tree.rowHeight=24。
+缩进依据：`Control.java` 默认ClassicPainter，`ClassicPainter.java` left=max(controlWidth/2,Tree.leftChildIndent)，逐层步长left+right。`darcula.theme.json` left=7/right=11，现代16px Chevron得到19；`UISettingsState.kt` compactTreeIndents默认false，registry中compact painter默认false。另读CompactPainter以确认其独立算法，本轮不新增紧凑模式。
+
+本地在 `ui_style.rs` 共用Tree行高24、层级步长19、选择留白12与圆角背景。Project从26改24；Commit变更树及Log右侧文件树从28改24；统一图标间距4。Project与Commit选中文件从固定全宽蓝底改为有留白圆角、随焦点变色，复用现有Log右侧选择层。只改行容器布局，uniform_list的实际布局继续负责鼠标命中和滚动，不另写固定像素坐标。提交图/graph的28行高不在本轮改动范围。
+
+保留差异：未引入所有IDE树的hover层/连续多选合并圆角、目录组选择模型和紧凑模式；本地有checkbox的Commit树用现有层级模型，未复刻Swing renderer所有像素偏移；大字号下的动态行高仍需后续统一处理。不是所有文件树状态的像素级完成声明。
+
+验证：`cargo check --locked --bin plico`通过；桌面回归55项通过，排除已知基线失败`releasing_diff_clears_padding_from_retained_source`。最后仅将rem间距改为明确4px后再次通过Windows release构建。使用独立Windows仓库和配置验证Project展开/键盘打开文件、Commit选中文件与焦点移入提交信息框、Log右侧嵌套文件树；截图已查看，蓝色焦点态与灰色非焦点态切换正确，记录在本地`artifacts/tree-ui-20261021/`。本轮未自动化滚动，也未完成Rebased同尺寸全状态像素差分；大字号、多选连接圆角和紧凑模式仍待后续验收。仅关闭本轮自有测试实例。
+
+### 文件树大字号行高（2026-10-21）
+
+参考commit同上。新增读取 `platform/platform-impl/src/com/intellij/ide/ui/laf/LafManagerImpl.kt` 的 `patchHiDPI`/`patchRowHeight`：Tree行高由主题值通过用户缩放修正，并剔除上次缩放避免重复叠加；`platform/util/ui/src/com/intellij/ui/scale/JBUIScale.kt` 的 `getFontScale`、`scale`、`scaleFontSize` 区分字体/用户缩放与系统DPI，Windows基准为12。`DefaultTreeUI.NodeDimensions` 使用实际rowHeight计算行边界；`treeStructure/Tree.java` 字体变化会使尺寸失效。
+
+本地 `ui_style::tree_row_height` 将默认24行高按UI字号/12增长（最小24），Project、Commit、Log文件树在每次render取当前值，交给uniform_list统一布局、命中、滚动范围；没有重复乘显示器DPI。编辑器字号不参与。保留差异：Plico尚无独立的全局UI缩放设置，本轮仅以UI字号驱动树行高，图标/缩进不随其整体放大；小于12的字号仍保留24行高，不复刻IDE全局密度切换。Log提交图的固定行高以及全局控件高度仍待独立处理，不宣称任意字号的全部UI完成对齐。
+
+验证：cargo check、Windows release构建通过；55项桌面测试通过（仍排除既有 `releasing_diff_clears_padding_from_retained_source` 基线失败）。Windows隔离配置使用UI20/编辑器13，Project与Log右侧文件树行高随字号增长，展开后键盘打开example.rs成功，编辑器字号保持13；已查看原生截图 `artifacts/tree-ui-20261021/large-project.png`、`large-current.png`。一次截图采样全黑未计入验收，重新捕获有效截图后继续检查。未做全尺寸Rebased像素差分。
+Commit大字号文件行也已截图核对（large-commit.png），无文字垂直裁切；同时发现窄提交栏的Amend旁计数横向空间不足，属于后续响应式控件布局问题，未纳入本次树行高修正。

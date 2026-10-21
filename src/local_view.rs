@@ -189,6 +189,8 @@ impl LocalView {
 fn icon(path:&'static str)->Icon {Icon::default().path(path).size(px(16.))}
 impl Render for LocalView {
     fn render(&mut self,window:&mut Window,cx:&mut Context<Self>)->impl IntoElement {
+        let selection_color = crate::ui_style::row_selection(&self.focus, window);
+        let row_height = crate::ui_style::tree_row_height(cx);
         let chinese = plico::i18n::is_chinese();
         if self.ui_chinese != chinese {
             self.ui_chinese = chinese;
@@ -223,7 +225,7 @@ impl Render for LocalView {
                 let owner=cx.entity().downgrade();
                 crate::error_ui::notice("commit-read-error","Could not load local changes",e,self.refresh.read(cx).busy(),move|_,_,cx|{let _=owner.update(cx,|s,cx|s.refresh(cx));})
             }))
-            .child(div().relative().flex_1().min_h_0().child(uniform_list("local-tree",self.model.rows().len(),cx.processor(|s,range:std::ops::Range<usize>,_,cx| {
+            .child(div().relative().flex_1().min_h_0().child(uniform_list("local-tree",self.model.rows().len(),cx.processor(move |s,range:std::ops::Range<usize>,_,cx| {
                 range.map(|row| {
                     let item=s.model.rows()[row].clone();
                     let updating = s.refresh.read(cx).feedback() && matches!(item, Row::Group { .. });
@@ -251,8 +253,8 @@ impl Render for LocalView {
                     let row_text = StyledText::new(row_text).with_highlights([(name_end..text_end, HighlightStyle {
                         color: Some(rgb(crate::ui_style::MUTED).into()), ..Default::default()
                     })]);
-                    h_flex().id(("local-row",row)).w_full().h(px(28.)).pl(px(8.+depth as f32*14.)).pr_2().gap_2()
-                        .when(selected,|v|v.bg(rgb(0x2e436e)))
+                    h_flex().id(("local-row",row)).relative().w_full().h(row_height).pl(px(crate::ui_style::TREE_INSET+depth as f32*crate::ui_style::TREE_INDENT)).pr(px(crate::ui_style::TREE_INSET)).gap(px(4.))
+                        .when(selected,|v|v.child(crate::ui_style::tree_selection(selection_color)))
                         .when(branch, |v|v.child(icon(asset)))
                         .when(area!=plico::git::Area::Ignored,|v|v.child(Checkbox::new(("commit-file",row)).checked(total>0 && included==total)
                             .indeterminate(included>0 && included<total)

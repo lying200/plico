@@ -227,6 +227,8 @@ impl ProjectView {
 impl Render for ProjectView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.schedule_follow(window, cx);
+        let selection_color = crate::ui_style::row_selection(&self.focus, window);
+        let row_height = crate::ui_style::tree_row_height(cx);
         let owner = cx.entity().downgrade();
         let follow = self.auto_follow;
         v_flex().size_full().bg(rgb(0x18191a)).rounded(px(10.)).overflow_hidden().key_context("ProjectBrowser").track_focus(&self.focus)
@@ -252,7 +254,7 @@ impl Render for ProjectView {
             .on_action(cx.listener(|s, _: &OpenFile, _, cx| s.open(cx)))
             .on_action(cx.listener(|s, _: &Expand, _, cx| { if let Some((e, _, more)) = s.rows.get(s.active).cloned() { if more { s.load_directory(e.path, true, cx); } else if e.kind == Kind::Directory { s.expand(e.path, cx); } } }))
             .on_action(cx.listener(|s, _: &Collapse, _, cx| { if let Some((e, _, _)) = s.rows.get(s.active).cloned() { s.collapse(&e.path, cx); } }))
-            .child(uniform_list("project-tree", self.rows.len(), cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
+            .child(uniform_list("project-tree", self.rows.len(), cx.processor(move |s, range: std::ops::Range<usize>, _, cx| {
                 range.map(|i| {
                     let (entry, depth, more) = s.rows[i].clone();
                     let expanded = s.directories.contains_key(&entry.path);
@@ -262,8 +264,8 @@ impl Render for ProjectView {
                     let file_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
                     let name = if entry.path.as_os_str().is_empty() { s.root.file_name().unwrap_or_default() } else { entry.path.file_name().unwrap_or_default() }.to_string_lossy().into_owned();
                     let name = if more { t("Load more files…").to_owned() } else { name };
-                    h_flex().id(("project-row", i)).w_full().h(px(26.)).pl(px(8. + depth as f32 * 14.)).gap_1().min_w_0()
-                        .when(i == s.active, |row| row.bg(rgb(0x2e4d89)))
+                    h_flex().id(("project-row", i)).relative().w_full().h(row_height).pl(px(crate::ui_style::TREE_INSET + depth as f32 * crate::ui_style::TREE_INDENT)).pr(px(crate::ui_style::TREE_INSET)).gap(px(4.)).min_w_0()
+                        .when(i == s.active, |row| row.child(crate::ui_style::tree_selection(selection_color)))
                         .on_mouse_down(MouseButton::Left, cx.listener(move |s, _, w, cx| { s.select(i); s.focus.focus(w, cx); cx.notify(); }))
                         .on_click(cx.listener(move |s, e: &ClickEvent, w, cx| { s.select(i); if more || e.click_count() == 2 { s.open(cx); } else { s.preview(false, w, cx); } }))
                         .child(div().id(("project-expand", i)).w(px(16.)).when(!more && entry.kind == Kind::Directory, |d| d
@@ -618,7 +620,7 @@ mod context_menu_tests {
             gpui::component::Root::new(view, window, cx)
         });
         cx.update(|w, cx| w.draw(cx).clear(cx));
-        let press = point(px(100.), px(100.)); // header 36 + root 26 + file 26 + folder
+        let press = point(px(100.), px(100.)); // header 36 + root 24 + file 24 + folder
         cx.simulate_mouse_down(press, MouseButton::Right, Default::default());
         cx.simulate_mouse_up(press, MouseButton::Right, Default::default());
         cx.run_until_parked();

@@ -6,6 +6,40 @@ use std::{
 
 pub const DEFAULT_FILES_FRACTION: f32 = 0.7;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogFilesOptions {
+    pub directory: bool,
+    pub details: bool,
+}
+impl Default for LogFilesOptions {
+    fn default() -> Self { Self { directory: true, details: true } }
+}
+fn read_log_files_options(path: &Path) -> LogFilesOptions {
+    let mut text = String::new();
+    let mut result = LogFilesOptions::default();
+    if std::fs::File::open(path).and_then(|f| f.take(65).read_to_string(&mut text)).is_err() || text.len() > 64 {
+        return result;
+    }
+    for line in text.lines() {
+        match line {
+            "directory=true" => result.directory = true,
+            "directory=false" => result.directory = false,
+            "details=true" => result.details = true,
+            "details=false" => result.details = false,
+            _ => {},
+        }
+    }
+    result
+}
+pub fn load_log_files_options() -> LogFilesOptions {
+    settings_path().map(|p| read_log_files_options(&p.with_file_name("log-files-options"))).unwrap_or_default()
+}
+pub fn save_log_files_options(options: LogFilesOptions) -> std::io::Result<()> {
+    let Some(path) = settings_path().map(|p| p.with_file_name("log-files-options")) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, format!("directory={}\ndetails={}\n", options.directory, options.details))
+}
+
 fn settings_path() -> Option<PathBuf> {
     #[cfg(windows)]
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
@@ -56,6 +90,22 @@ pub fn save_files_fraction(value: f32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn log_files_options_are_independent_and_bounded() {
+        let path = std::env::temp_dir().join(format!("plico-log-files-options-{}", std::process::id()));
+        for directory in [false, true] {
+            for details in [false, true] {
+                std::fs::write(&path, format!("directory={directory}\ndetails={details}\n")).unwrap();
+                assert_eq!(read_log_files_options(&path), LogFilesOptions { directory, details });
+            }
+        }
+        for text in ["directory=invalid".to_owned(), "x".repeat(65)] {
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(read_log_files_options(&path), LogFilesOptions::default());
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(read_log_files_options(&path), LogFilesOptions::default());
+    }
     #[test]
     fn rejects_invalid_and_oversized_preferences() {
         let path = std::env::temp_dir().join(format!("gitui-layout-test-{}", std::process::id()));

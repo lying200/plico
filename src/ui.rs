@@ -4,6 +4,7 @@ mod reference_checkout;
 mod chrome;
 mod editor_tabs;
 mod files;
+mod files_options;
 mod history_operations;
 mod log_branches;
 mod log_history;
@@ -65,6 +66,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("up", PreviousFile, Some("Files")),
         KeyBinding::new("ctrl-d", Expand, Some("Review")),
         KeyBinding::new("enter", Expand, Some("Files")),
+        KeyBinding::new("ctrl-alt-p", ToggleLogDirectory, Some("Files")),
         KeyBinding::new("escape", Back, Some("Review")),
         KeyBinding::new("ctrl-f4", CloseFile, Some("Review")),
         KeyBinding::new("f4", JumpToSource, Some("Review")),
@@ -159,6 +161,7 @@ pub struct Review {
     documents: crate::editing::Documents,
     editor_tabs: plico::editor_tabs_state::Tabs<EntityId>,
     bottom_preview: bool,
+    log_files_options: layout_preferences::LogFilesOptions,
     file_preview: bool,
     preview_mode: DiffMode,
     preview_appearance: layout_preferences::DiffAppearance,
@@ -418,6 +421,7 @@ impl Review {
             commit_stash_selected: false,
             stash_view: None,
             bottom_preview: layout_preferences::load_bottom_preview(),
+            log_files_options: layout_preferences::load_log_files_options(),
             file_preview: layout_preferences::load_file_preview(),
             preview_mode: DiffMode::Split,
             preview_appearance: Default::default(),

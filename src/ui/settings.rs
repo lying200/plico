@@ -29,13 +29,17 @@ impl Review {
             if let Some(draft) = &mut self.settings_draft {
                 draft.section = Page::Diff;
                 draft.error = Some(format!("{}: {error}", t("Settings could not be saved")));
+            } else {
+                self.error = Some(format!("{}: {error}", t("Settings could not be saved")));
             }
             cx.notify();
             return false;
         }
         self.bottom_preview = bottom;
-        if let Some(index) = self.selected_file {
-            self.load_file(index, cx);
+        if !self.busy {
+            if let Some(index) = self.selected_file {
+                self.load_file(index, cx);
+            }
         }
         cx.notify();
         true

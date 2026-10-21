@@ -1,6 +1,7 @@
 //! Main-window files coordination.
 //! Private implementation; shared lifecycle state remains owned by Review.
 use super::*;
+use super::files_options::log_file_count;
 
 impl Review {
     pub(super) fn load_file(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -131,10 +132,12 @@ impl Review {
     }
 
     pub(super) fn prune_directory_state(&mut self) {
+        let root_collapsed = self.collapsed_directories.contains(&(Area::Commit, PathBuf::new()));
         file_tree::retain_collapsed(
             &mut self.collapsed_directories,
             self.files.iter().map(|f| (f.area, f.path.as_path())),
         );
+        if root_collapsed { self.collapsed_directories.insert((Area::Commit, PathBuf::new())); }
     }
     pub(super) fn rebuild_files(&mut self) {
         let mut rows = Vec::new();
@@ -156,7 +159,13 @@ impl Review {
                 }
             }
         } else {
-            rows.extend(self.directory_rows(Area::Commit));
+            if self.log_files_options.directory && !self.files.is_empty() {
+                let expanded = !self.collapsed_directories.contains(&(Area::Commit, PathBuf::new()));
+                rows.push(FileRow::Folder(Area::Commit, PathBuf::new(), 0, self.files.len(), expanded));
+                if expanded { rows.extend(self.directory_rows(Area::Commit)); }
+            } else {
+                rows.extend(self.files.iter().enumerate().map(|(i, _)| FileRow::File(i, 0)));
+            }
         }
         self.file_rows = Arc::new(rows);
     }
@@ -174,13 +183,13 @@ impl Review {
         )
         .into_iter()
         .map(|row| match row {
-            file_tree::Row::File { index, depth } => FileRow::File(index, depth),
+            file_tree::Row::File { index, depth } => FileRow::File(index, depth + usize::from(area == Area::Commit)),
             file_tree::Row::Folder {
                 path,
                 depth,
                 count,
                 expanded,
-            } => FileRow::Folder(area, path, depth, count, expanded),
+            } => FileRow::Folder(area, path, depth + usize::from(area == Area::Commit), count, expanded),
         })
         .collect()
     }
@@ -215,6 +224,9 @@ impl Review {
         self.collapsed_files.clear();
         self.collapsed_directories.clear();
         if !expanded {
+            if !self.local && self.log_files_options.directory {
+                self.collapsed_directories.insert((Area::Commit, PathBuf::new()));
+            }
             for file in self.files.iter() {
                 if self.local && !self.collapsed_files.contains(&file.area) {
                     self.collapsed_files.push(file.area);
@@ -314,12 +326,7 @@ impl Review {
         let can_diff = self
             .selected_file
             .is_some_and(|i| self.files.get(i).is_some());
-        let has_tree = self.local && !self.files.is_empty()
-            || self.files.iter().any(|file| {
-                file.path
-                    .parent()
-                    .is_some_and(|p| !p.as_os_str().is_empty())
-            });
+        let has_tree = !self.files.is_empty() && (self.local || self.log_files_options.directory);
         h_flex()
             .h(px(LOG_TOOLBAR_HEIGHT))
             .flex_shrink_0()
@@ -338,6 +345,7 @@ impl Review {
                     .disabled(!can_diff)
                     .on_click(cx.listener(|s, _, w, cx| s.open_diff_tab(w, cx))),
             )
+            .when(!self.local, |bar| bar.child(self.files_view_options(cx)))
             .child(div().flex_1())
             .child(
                 Button::new("files-expand-all")
@@ -365,6 +373,7 @@ impl Review {
     pub(super) fn files(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selection_color = row_selection(&self.files_focus, window);
         let files = self.files.clone();
+        let flat = !self.local && !self.log_files_options.directory;
         let rows = self.file_rows.clone();
         let selected = self.selected_file;
         let owner = cx.entity().downgrade();
@@ -380,6 +389,7 @@ impl Review {
                     .min_h_0()
                     .track_focus(&self.files_focus)
                     .key_context("Files")
+                    .on_action(cx.listener(|s, _: &ToggleLogDirectory, _, cx| s.toggle_log_directory(cx)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|s, _, w, cx| s.files_focus.focus(w, cx)),
@@ -420,7 +430,7 @@ impl Review {
                                                 .child(
                                                     div()
                                                         .text_color(rgb(MUTED))
-                                                        .child(count.to_string()),
+                                                        .child(if path.as_os_str().is_empty() { log_file_count(*count) } else { count.to_string() }),
                                                 )
                                                 .on_click(move |_, _, cx| {
                                                     let _ = owner.update(cx, |s, cx| {
@@ -515,6 +525,7 @@ impl Review {
                                                         .into_owned(),
                                                 ),
                                         )
+                                        .when(flat, |row| row.child(div().truncate().text_color(rgb(MUTED)).child(f.path.parent().unwrap_or(std::path::Path::new("")).to_string_lossy().into_owned())))
                                         .on_click(move |event, window, cx| {
                                             let _ = owner.update(cx, |s, cx| {
                                                 s.activate_log_preview();
@@ -532,6 +543,7 @@ impl Review {
                         .track_scroll(&self.files_scroll),
                     )
                     .child(Scrollbar::vertical(&self.files_scroll))
+                    .when(self.files.is_empty() && !self.busy, |pane| pane.child(div().absolute().inset_0().flex().items_center().justify_center().text_color(rgb(MUTED)).child(t(self.empty_diff_message()))))
                     // Selection clears the previous tree immediately; keep visible
                     // feedback in the changes pane even when the Diff lives in a tab.
                     .when(self.busy, |pane| {
@@ -546,7 +558,7 @@ impl Review {
                         )
                     }),
             );
-        if self.local || (self.selected.is_none() && self.selection_details.is_empty()) {
+        if self.local || !self.log_files_options.details {
             return file_list.into_any_element();
         }
         let detail_commit = self.selected.and_then(|i| self.commits.get(i)).cloned();
@@ -681,6 +693,7 @@ impl Review {
                         menu
                     }),
             )
+            .when(self.selected.is_none() && self.selection_details.is_empty(), |pane| pane.child(div().absolute().inset_0().flex().items_center().justify_center().text_color(rgb(MUTED)).child(t("Commit details"))))
             .child(
                 Scrollbar::vertical(&self.details_scroll)
                     .mode(gpui_kit::component::scroll::ScrollbarMode::Always),

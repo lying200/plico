@@ -5,6 +5,7 @@ actions!(
     review,
     [
         Refresh,
+        ToggleLogDirectory,
         Open,
         OpenSettings,
         Older,

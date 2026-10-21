@@ -2327,3 +2327,20 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 - 已关闭本轮自建 Plico 进程；用户原有 Plico、Rebased 保留。未提交、未推送、未发布新包。
 
 保留：Unified 逐块／逐行入口、排除区域淡化和拆色、菜单动态文案／快捷键、悬停临时 checkbox 未在本轮补齐。普通历史 Diff 不引入提交范围控件；版本标题仍使用 Working tree 文案。Rollback 布局、远端／Tag Smart Checkout、Stash 高级恢复分别记录，不能将这些功能差异归结成颜色／间距问题。
+
+## Log 右侧展示区：分组与布局（2026-10-21）
+
+参考源码仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`；宿主机 Rebased 1.1.20 与该快照不视为同一版本。本轮读取：
+
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangesBrowser.kt`：继承 Show Diff，追加 Log changes toolbar，不重复创建 Group By；工具栏以 Log 工具栏作为高度参照。
+- 同目录 `MainFrame.java`：文件区／详情采用上下拆分；Show Details 仅切换第二个组件，不改变提交选择；Diff preview 独立于详情可见性。
+- `platform/vcs-log/impl/resources/intellij.platform.vcs.log.impl.xml`：PresentationSettings 顺序为 Group By、Layout；Layout 包含 Show Details、Show Diff Preview 和预览位置。
+- `ShowDetailsAction.java`、`ShowDiffPreviewAction.java`、`ChangeDiffPreviewLocationActions.kt`：分别控制 SHOW_DETAILS、SHOW_DIFF_PREVIEW，位置选项只在预览开启时可见。
+- `platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/DirectoryChangesGroupingPolicy.kt`：目录节点来自文件路径，分组不重新查询 Git。
+- `ChangesBrowserBase.java`、`VcsActions.xml`、`RevertSelectedChangesAction.java`、`TabbedShowHistoryForRevisionAction.java`：弯箭头是反向应用所选历史变更；时钟使用所选文件的 revision（删除使用 before revision），不能替换成工作区 Rollback 或 HEAD 文件历史。
+
+本地映射：`src/ui/files_options.rs` 管理眼睛菜单及选择保留；`src/ui/files.rs` 管理树／平铺、文件数根节点、详情显隐及空状态；`src/layout_preferences.rs` 持久化目录和详情选项。Ctrl+Alt+P 仅在 Files 焦点上下文切换；平铺显示父路径，切换不读 Git、不改变所选文件，恢复分组保留折叠状态。工具栏继续共用 LOG_TOOLBAR_HEIGHT。Diff 开关复用现有底部预览加载和设置持久化，不影响已打开的独立 Diff Tab；切换时退出本地变更预览来源，避免显示错误来源。读取提交详情期间不取消其加载任务。
+
+保留差异：本轮对齐展示选项和文件／详情布局；未添加反向应用历史变更与指定版本文件历史两个入口，它们需要独立的历史目标／写操作流程，不能用现有近似操作代替。预览仍沿用应用现有共享的底部模式，不新增右侧预览位置；多父提交分组没有在本轮扩展。未宣称整个右侧面板已像素级对齐。
+
+验证：配置默认值／独立值／异常输入测试、分组切换保持选中项与折叠状态的桌面测试通过；Windows release 编译通过。原生测试使用独立 profile，文件区菜单、详情隐藏、Diff 预览、平铺及重启持久化截图存放 `artifacts/log-files-20261021/`。未执行 Git 写操作；滚动不做自动化验收。

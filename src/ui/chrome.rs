@@ -297,6 +297,7 @@ impl Review {
             )
     }
     pub(super) fn left_tool_windows(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(view) = &self.project_view { view.update(cx, |v, _| v.set_project_showing(self.project_visible && !self.comparison_visible)); }
         if self.comparison_visible {
             return div()
                 .size_full()

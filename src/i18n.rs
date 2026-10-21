@@ -349,6 +349,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Absolute Path" => "绝对路径",
         "Path From Project Root" => "项目相对路径",
         "File Name" => "文件名",
+        "Always Select Opened File" => "始终定位打开的文件",
         "Select Opened File" => "定位当前打开文件",
         "File is not available in the project tree" => "文件不在当前项目树中或已不可用",
         "Show in File Manager" => "在文件浏览器中打开",

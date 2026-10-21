@@ -2420,3 +2420,17 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 - 状态/生命周期：桌面测试验证定位期间的折叠/主动选择会取消旧任务并使 generation 失效，后台结果不能抢回选择；复制菜单在目录刷新重排行后仍使用右键时路径。文件读取错误沿用现有错误区域，失败不清空原目录树。未新增自动跟随。
 - 检查：`cargo test --locked --test project_files` 13 项通过（新增跨分页祖先链及取消/缺失/过滤/越界/链接测试）；`cargo test --locked --features desktop-tests --bin plico project_view::` 3 项通过；最终 Windows release 构建通过。最后将相对路径拼接改为按平台路径组件连接，避免破坏 Unix 文件名内合法的反斜杠，Windows 输出规则保持不变。
 - 原生验证仅使用自建测试仓库和隔离配置；测试进程已关闭。中文文案已接入，中文截图、大目录 Windows/WSL 实测、完整像素对比仍未执行，不将它们计为本轮已验收。未提交、推送或发包。
+
+## Project 自动定位打开文件（2026-10-21）
+
+参考快照 `4aec35256d765c217aa0d662b82ac4e860c396fd`；宿主机 Rebased 1.1.20，版本并非同一承诺。
+已读：
+- `platform/platform-api/src/com/intellij/ui/AutoScrollFromSourceHandler.java`：selectionChanged 触发，100 ms 合并请求，隐藏/关闭自动跟随时不定位。
+- `platform/lang-impl/src/com/intellij/ide/projectView/impl/ProjectViewImpl.java` 的 `myAutoscrollFromSource`、`MyAutoScrollFromSourceHandler`：树有焦点时不跟随，自动定位不请求焦点。
+- 同目录 `ProjectViewState.kt`：默认关闭。
+- `platform/projectView/shared/resources/intellij.platform.projectView.xml`：工具窗口次级 Behavior 菜单提供 AutoscrollFromSource；ActionsBundle 文案为 Always Select Opened File。
+
+本地：`project_view/navigation.rs` 合并切换任务、复用受限异步目录定位并支持缓存命中；`ui/chrome.rs` 传递活动文件及面板可见性；`layout_preferences.rs` 持久化开关。手动选择/展开/折叠、切换目标、隐藏面板均取消过期任务；完成目录查询时再次检查焦点和可见性；不发送打开文件事件。
+保留差异：Plico 单项目窗口将该唯一行为项放在 Project 标题栏 View Options 内，暂不增加只有一项的 Behavior 子菜单；偏好按用户保存，未复刻 IDE 多 Project pane/global 三层配置。只处理现有文件/Diff Tab 的文件路径，不引入 IDE PSI 元素导航。
+
+验证：4 项 ProjectView desktop tests 通过（缓存定位不启动 IO、不抢焦点、手动选择取消、树聚焦抑制；以及原有定位/菜单回归）。Windows 原生独立 fixture 已核对默认未勾选菜单、开启设置、两个文件 Tab、全部折叠后切换 Tab 自动展开并选中目标；截图在本地 `artifacts/project-auto-follow-20261021/`。Windows release 构建通过。功能结构/交互已核对，精确像素及真实 WSL 跨机体验仍未验收。

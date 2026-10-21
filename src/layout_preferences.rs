@@ -447,3 +447,16 @@ pub fn save_tool_window_order(order: &crate::tool_window_order::Order) -> std::i
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(path, order.encode())
 }
+
+/// Follow editor selection in Project; opt-in, like ProjectViewState.
+pub fn load_project_auto_follow() -> bool {
+    let mut value = String::new();
+    settings_path().and_then(|p| std::fs::File::open(p.with_file_name("project-auto-follow")).ok())
+        .and_then(|f| f.take(16).read_to_string(&mut value).ok());
+    value.trim() == "true"
+}
+pub fn save_project_auto_follow(enabled: bool) -> std::io::Result<()> {
+    let path = settings_path().ok_or_else(|| std::io::Error::other("Settings directory unavailable"))?.with_file_name("project-auto-follow");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, if enabled { "true" } else { "false" })
+}

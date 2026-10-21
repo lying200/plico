@@ -2,7 +2,7 @@ mod navigation;
 use std::{collections::BTreeMap, path::{Path, PathBuf}};
 use plico::{git::Cancel, i18n::t, project_files::{self, Entry, Kind, Project}};
 use gpui_kit::{prelude::FluentBuilder as _, *};
-use gpui_kit::component::{button::{Button, ButtonVariants as _}, input::{Editor, EditorState, Position, RopeExt as _}, Icon, menu::{ContextMenuExt as _, PopupMenuItem}, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{button::{Button, ButtonVariants as _}, input::{Editor, EditorState, Position, RopeExt as _}, Icon, menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem}, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 
 actions!(project_browser, [Up, Down, First, Last, OpenFile, Expand, Collapse, ShowFileHistory, ShowSelectionHistory, SaveFile, CollapseAll]);
 pub struct FileSaved;
@@ -12,6 +12,10 @@ pub struct ProjectView {
     root: PathBuf,
     current_source: Option<PathBuf>,
     revealing: bool,
+    auto_follow: bool,
+    follow_pending: bool,
+    project_showing: bool,
+    follow_task: Task<()>,
     preview_enabled: bool,
     preview_task: Task<()>,
     preview_generation: u64,
@@ -43,7 +47,7 @@ impl ProjectView {
             KeyBinding::new("enter", OpenFile, Some("ProjectBrowser")), KeyBinding::new("right", Expand, Some("ProjectBrowser")),
             KeyBinding::new("left", Collapse, Some("ProjectBrowser")),
         ]);
-        let mut s = Self { root, current_source: None, revealing: false, preview_enabled: plico::layout_preferences::load_file_preview(), preview_task: Task::ready(()), preview_generation: 0, directories: BTreeMap::new(), cursors: BTreeMap::new(), refresh_restore: None, external_refresh_pending: false, restore_selection: None, rows: vec![], active: 0, focus: cx.focus_handle(),
+        let mut s = Self { root, current_source: None, revealing: false, auto_follow: plico::layout_preferences::load_project_auto_follow(), follow_pending: false, project_showing: false, follow_task: Task::ready(()), preview_enabled: plico::layout_preferences::load_file_preview(), preview_task: Task::ready(()), preview_generation: 0, directories: BTreeMap::new(), cursors: BTreeMap::new(), refresh_restore: None, external_refresh_pending: false, restore_selection: None, rows: vec![], active: 0, focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(), loading: None, error: None, token: Cancel::default(), generation: 0, task: Task::ready(()) };
         s.rebuild(); s.expand(PathBuf::new(), cx); s
     }
@@ -83,6 +87,7 @@ impl ProjectView {
         else { self.refresh(cx); }
     }
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.cancel_reveal();
         self.revealing = false;
         self.external_refresh_pending = false;
         self.cancel_preview();
@@ -171,6 +176,7 @@ impl ProjectView {
         }); cx.notify();
     }
     fn collapse(&mut self, path: &Path, cx: &mut Context<Self>) {
+        self.cancel_reveal();
         self.revealing = false;
         self.refresh_restore = None; self.restore_selection = None;
         self.cancel_preview();
@@ -219,7 +225,10 @@ impl ProjectView {
     }
 }
 impl Render for ProjectView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.schedule_follow(window, cx);
+        let owner = cx.entity().downgrade();
+        let follow = self.auto_follow;
         v_flex().size_full().bg(rgb(0x18191a)).rounded(px(10.)).overflow_hidden().key_context("ProjectBrowser").track_focus(&self.focus)
             .child(h_flex().h(px(36.)).px_3().child(t("Project")).child(div().flex_1())
                 .child(Button::new("project-refresh").ghost().icon(Icon::default().path("jb/refresh_dark.svg").size(px(16.)))
@@ -228,7 +237,13 @@ impl Render for ProjectView {
                     .tooltip(t("Select Opened File")).disabled(self.current_source.is_none())
                     .on_click(cx.listener(|s, _, w, cx| s.reveal_current(w, cx))))
                 .child(Button::new("project-collapse-all").ghost().icon(Icon::default().path("jb/collapseAll_dark.svg").size(px(16.)))
-                    .tooltip(t("Collapse All")).on_click(cx.listener(|s, _, _, cx| s.collapse_all(cx)))))
+                    .tooltip(t("Collapse All")).on_click(cx.listener(|s, _, _, cx| s.collapse_all(cx))))
+                .child(Button::new("project-options").ghost().icon(Icon::default().path("jb/history-show_dark.svg").size(px(16.)))
+                    .tooltip(t("View Options")).dropdown_menu(move |menu, _, _| {
+                        let owner = owner.clone();
+                        menu.item(PopupMenuItem::new(t("Always Select Opened File")).checked(follow)
+                            .on_click(move |_, _, cx| { let _ = owner.update(cx, |s, cx| s.toggle_auto_follow(cx)); }))
+                    })))
             .on_action(cx.listener(|s, _: &CollapseAll, _, cx| s.collapse_all(cx)))
             .on_action(cx.listener(|s, _: &Up, w, cx| s.step(false, w, cx)))
             .on_action(cx.listener(|s, _: &Down, w, cx| s.step(true, w, cx)))

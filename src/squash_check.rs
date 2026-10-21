@@ -104,17 +104,12 @@ pub(crate) fn symbolic_head(repo: &Repository, token: &Cancel) -> Result<Option<
 }
 
 pub(crate) fn protected_containing(repo: &Repository, id: &str, protection: Protection<'_>, token: &Cancel) -> Result<Option<String>, String> {
-    let known = repo.pull_targets(token)?;
+    let containing = repo.remote_branches_containing(id, token)?;
     let protected = match protection {
-        Protection::Defaults => known.branches.iter().filter(|target| default_protected(target)).collect::<Vec<_>>(),
-        Protection::Explicit(targets) => targets.iter().filter(|target| known.contains(&target.remote, &target.branch)).collect(),
+        Protection::Defaults => containing.iter().find(|target| default_protected(target)),
+        Protection::Explicit(targets) => targets.iter().find(|target| containing.contains(target)),
     };
-    let containing = repo.containing_branches(id, token)?.into_iter().collect::<HashSet<_>>();
-    for target in protected {
-        let name = format!("{}/{}", target.remote, target.branch);
-        if containing.contains(&name) { return Ok(Some(name)); }
-    }
-    Ok(None)
+    Ok(protected.map(|target| format!("{}/{}", target.remote, target.branch)))
 }
 
 /// Load only the selected messages, in Log selection order, for the dialog.

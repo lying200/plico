@@ -2291,3 +2291,19 @@ Windows release profiler 顺序执行 before/after，每种 5 次，并开启相
 验证：Linux repository 112 项与 reset 8 项通过；Windows 原生 reset 7 项通过（另一个测试为 Unix smudge fixture），Windows release profiling 构建通过。没有 UI 布局/交互变更，本轮未新做窗口截图；未发布包。
 
 进一步源码对照实际读取 `GitRewordAction.kt` 和 `rebase/log/GitCommitEditingActionBase.kt`：上游 update 使用 cachedMetadata、repository state、quick containing-branches 判定，未知信息在 actionPerformed 时严格复验。当前 `ui/reword.rs::Gate::new` 每次选择立即启动完整 `Prepared::prepare`，属于下一处候选；本轮不修改，尚未量化其与详情查询的竞争。后续需拆分 availability 与写前准备并保留受保护分支、HEAD/merge/rebase 禁用规则，不能只取消后台检查或复用过期写操作授权。
+
+### 后续：历史编辑的保护分支查询
+
+Reset 优化已推送为 `cde05ff`。本轮继续对照相同参考 commit，实际读取 `plugins/git4idea/backend/src/GitProtectedBranches.kt` 全文及 `rebase/log/GitCommitEditingActionBase.kt::checkCommitsCanBeEdited`：保护策略作用于真实 remote branch 的远端分支名，然后判断提交是否被该远端分支包含；不需要 Pull 的当前分支/upstream 目标选择。上游快路径使用已有 graph/repository 数据，执行时再严格检查。已安装 1.1.20 与源码快照仍分别记录。
+
+新增只读 `examples/reword_profile.rs`，调用 Log 选中时当前真实使用的 `reword::Prepared::prepare`，每次以 eligible/protected 记录结果；其他错误直接失败。100 ms 探测预算在 spring-framework 上返回 1，5 次 869–944 ms。这是后台检查自身耗时，未证明它使详情加载串行等待，也不等同于端到端 UI 延迟。
+
+先缩小查询而不改变 eligibility 生命周期：`squash_check::protected_containing` 原来获取完整 Pull inventory 后，再取全部本地/远端 containing branches；现在通过 `git.rs::remote_branches_containing` 使用 `git remote` 与受限 `for-each-ref --contains <OID> refs/remotes/`。每次仍现场读取，无缓存写操作授权；保留已配置远端筛选、既有 remote prefix 解析、跳过 symbolic refs、默认 main/master 与 explicit targets 顺序、取消/超时和 1 MiB ancestry 输出上限。HEAD 归属、merge/rebase、恢复记录、执行前及发布前复验仍由原调用链处理。Pull/Push inventory 与展示用 containing branches 未改。Reword 和 Squash 共用这项优化。
+
+同时修复原字符串交集的身份歧义：本地 `refs/heads/team/nested/main` 即便包含目标，也不能替未包含目标的 `refs/remotes/team/nested/main` 证明已发布。新集成测试在原实现上失败，改动后通过；覆盖带 `/` 的配置远端、symbolic master 别名、真实保护分支命中，以及 prepare 后新增保护包含关系时 execute 仍拒绝且 HEAD/消息不变。既有 Squash 测试继续覆盖默认/自定义保护、未保护远端、保护祖先与 detached。
+
+Windows release 同仓库、同 Trace2 设置顺序执行各 5 次，结果都为 protected：准备耗时中位数 1258→971 ms，约减少 23%；Git 命令总数 66→51，每次准备 13→10（额外 1 次是 harness 取 HEAD）。只减少此检查的查询，不声称整体点击延迟下降同等比例。证据 `artifacts/interaction-perf-20261021/reword-{before,after,query-counts}.txt`。Linux repository 112 项、reword 8 项通过，补充晚发布断言单独复跑通过。Windows release profiler 构建通过。本轮无 UI 布局变更；未新做窗口截图，未发布包。
+
+保留的优化空间：选择时仍运行完整 Reword prepare，且与详情里的 containing-branches 查询独立；尚未拆分快速 availability 或引入 refs 代际共享缓存。本次通过缩小必要查询获得收益，不以省略检查、更改禁用条件或持久缓存可变 refs 换速度。
+
+Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），Squash 相关 8 项通过；涵盖真实临时仓库的消息改写、作者/树/index/工作区保留、merge、rebase、取消、晚发布拦截和 Squash 过期确认/恢复边界。记录 `artifacts/interaction-perf-20261021/reword-native.txt`。未对用户仓库执行 Git 写操作。

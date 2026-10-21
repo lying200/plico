@@ -1024,6 +1024,27 @@ impl Repository {
         self.read_stream(&[OsStr::new("rev-list"), OsStr::new(head), OsStr::new("--")], token,
             move |out, _| crate::head_membership::read(out, remaining, &query))
     }
+    /// Fresh remote ancestry for history-editing policy. Unlike Pull inventory,
+    /// this needs neither the current branch nor its configured upstream.
+    /// Keep full ref identity until parsed: local "origin/main" is not remote.
+    pub(crate) fn remote_branches_containing(&self, id: &str, token: &Cancel) -> Result<Vec<crate::pull::Target>> {
+        if !is_oid(id) { return Err("Invalid commit ID".into()); }
+        let remotes = self.fetch_specs(token)?.into_iter().map(|s| s.remote().to_owned()).collect::<Vec<_>>();
+        let args = ["for-each-ref", "--contains", id, "--format=%(refname)%09%(symref)", "refs/remotes/"];
+        let output = self.read_stream(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token,
+            |out, flag| drain(out, 1024 * 1024, flag))?;
+        let output = utf8(output)?;
+        let mut branches = Vec::new();
+        for record in output.lines() {
+            if token.cancelled() { return Err("Cancelled".into()); }
+            let (name, symref) = record.split_once('\t').ok_or("Malformed remote branch record")?;
+            if !symref.is_empty() { continue; }
+            if let Some(target) = crate::pull::parse_remote_ref(name, &remotes) {
+                branches.push(target);
+            }
+        }
+        Ok(branches)
+    }
     /// Branches whose tips contain this immutable commit, independent of the
     /// loaded history window. Only query the selected commit; retain no cache.
     /// HEAD is included when reachable, matching Rebased's graph-backed list.

@@ -55,6 +55,53 @@ impl Selection {
                 )
             })
     }
+    /// Visible differences count whole chunks until a chunk is split into lines.
+    pub fn visible_counts(&self) -> (usize, usize) {
+        self.included.iter().fold((0, 0), |(n, total), state| {
+            let (included, count) = match state {
+                Included::All(value) => (usize::from(*value), 1),
+                Included::Lines { deleted, added } => (
+                    deleted.iter().chain(added).filter(|v| **v).count(),
+                    deleted.len() + added.len(),
+                ),
+            };
+            (n + included, total + count)
+        })
+    }
+    /// Whether Include / Exclude can change the selected tracker lines.
+    pub fn selected_actions(&self, original: bool, lines: Range<usize>) -> (bool, bool) {
+        let affected: Vec<_> = self
+            .blocks
+            .iter()
+            .enumerate()
+            .filter_map(|(i, b)| {
+                let r = if original { &b.original } else { &b.current };
+                (r.start < lines.end && r.end > lines.start).then_some((i, r))
+            })
+            .collect();
+        let partial = affected
+            .iter()
+            .any(|(_, r)| lines.start > r.start || lines.end < r.end);
+        let mut result = (false, false);
+        for (index, range) in affected {
+            let (n, total) = if partial {
+                match &self.included[index] {
+                    Included::All(value) => (usize::from(*value), 1),
+                    Included::Lines { deleted, added } => {
+                        let mask = if original { deleted } else { added };
+                        let selected = &mask[lines.start.max(range.start) - range.start
+                            ..lines.end.min(range.end) - range.start];
+                        (selected.iter().filter(|v| **v).count(), selected.len())
+                    }
+                }
+            } else {
+                self.block_counts(index)
+            };
+            result.0 |= n < total;
+            result.1 |= n > 0;
+        }
+        result
+    }
     pub fn block_counts(&self, index: usize) -> (usize, usize) {
         let b = &self.blocks[index];
         let total = b.original.len() + b.current.len();
@@ -179,6 +226,41 @@ impl Selection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn visible_counts_track_chunks_until_split() {
+        let mut s = Selection::new("a\nb\n".into(), "A\nB\n".into(), false);
+        assert_eq!(s.visible_counts(), (0, 1));
+        s.set_all(true);
+        assert_eq!(s.visible_counts(), (1, 1));
+        s.set_lines(false, 0..1, false);
+        assert_eq!(s.visible_counts(), (1, 4));
+        s.set_all(true);
+        assert_eq!(s.visible_counts(), (1, 1));
+    }
+    #[test]
+    fn menu_actions_follow_selected_changed_lines_and_whole_blocks() {
+        let mut s = Selection::new(
+            "same\na\nb\nend\n".into(),
+            "same\nA\nB\nend\n".into(),
+            false,
+        );
+        assert_eq!(s.selected_actions(false, 0..1), (false, false));
+        assert_eq!(s.selected_actions(false, 1..2), (true, false));
+        s.set_selected_lines(false, 1..2, true);
+        assert_eq!(s.selected_actions(false, 1..2), (false, true));
+        assert_eq!(s.selected_actions(false, 2..3), (true, false));
+        // Selecting a whole block also considers excluded deletions on the other side.
+        assert_eq!(s.selected_actions(false, 1..3), (true, true));
+        s.set_selected_lines(false, 1..3, true);
+        assert_eq!(s.selected_actions(true, 1..3), (false, true));
+        assert_eq!(s.compose().unwrap(), s.current.as_ref());
+        let added = Selection::new("".into(), "new\n".into(), false);
+        assert_eq!(added.selected_actions(true, 0..1), (false, false));
+        assert_eq!(added.selected_actions(false, 0..1), (true, false));
+        let deleted = Selection::new("old\n".into(), "".into(), true);
+        assert_eq!(deleted.selected_actions(false, 0..1), (false, false));
+        assert_eq!(deleted.selected_actions(true, 0..1), (false, true));
+    }
     #[test]
     fn split_from_included_excludes_opposite_side_like_tracker() {
         let mut s = Selection::new("a\nb\n".into(), "A\nB\n".into(), true);

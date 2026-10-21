@@ -114,3 +114,8 @@ Copyright JetBrains s.r.o. and contributors, Apache-2.0. Unmodified resources.
 Rollback / Changes toolbar, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd:
 platform/icons/src/general/hideToolWindow_dark.svg
 platform/icons/src/general/locate_dark.svg
+
+Commit Diff checkboxes (unmodified), Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd:
+platform/icons/src/expui/diff/gutterCheckBox{,Selected,Indeterminate}@14x14_dark.svg
+Local names: gutterCheckBox{,Selected,Indeterminate}.svg.
+Copyright JetBrains s.r.o. and contributors, Apache-2.0 (LICENSE.txt).

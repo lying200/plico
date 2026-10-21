@@ -243,6 +243,14 @@ impl Render for LocalView {
                     };
                     let rollback_paths=paths.clone();let context_owner=cx.entity().downgrade();let rollback_enabled=area==plico::git::Area::WorkingTree && s.can_rollback(cx);
                     let parent_label=if !s.model.grouped(){match &s.model.rows()[row]{Row::Entry{row:file_tree::Row::File{index,..},..}=>{let p=s.model.files()[*index].path.parent().unwrap_or(std::path::Path::new(""));Some(if p.as_os_str().is_empty(){s.repo.path.file_name().unwrap_or_default().to_string_lossy().into_owned()}else{p.display().to_string()})},_=>None}}else{None};
+                    // One ordered text run: the secondary path must not shrink a short filename.
+                    let mut row_text = label.clone();
+                    let name_end = row_text.len();
+                    if let Some(parent) = parent_label { row_text.push_str("  "); row_text.push_str(&parent); }
+                    let text_end = row_text.len();
+                    let row_text = StyledText::new(row_text).with_highlights([(name_end..text_end, HighlightStyle {
+                        color: Some(rgb(crate::ui_style::MUTED).into()), ..Default::default()
+                    })]);
                     h_flex().id(("local-row",row)).w_full().h(px(28.)).pl(px(8.+depth as f32*14.)).pr_2().gap_2()
                         .when(selected,|v|v.bg(rgb(0x2e436e)))
                         .when(branch, |v|v.child(icon(asset)))
@@ -253,8 +261,7 @@ impl Render for LocalView {
                             .disabled(s.refresh.read(cx).busy() || s.error.is_some() || s.write_token.is_some() || total==0)
                             .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.scope.update(cx,|q,cx|q.set_scope(&ids,*checked,cx));cx.stop_propagation();cx.notify();}))))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
-                        .child(div().truncate().text_color(rgb(color)).when(branch && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(label))
-                        .when_some(parent_label,|v,label|v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(label)))
+                        .child(div().truncate().text_color(rgb(color)).when(branch && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(row_text))
                         .when(updating, |v| v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("updating…"))))
                         .on_mouse_down(MouseButton::Right,cx.listener(move|s,_,w,cx|{s.rollback_scope=Some((area,rollback_paths.clone()));s.focus.focus(w,cx);cx.notify();}))
                         .on_click(cx.listener(move |s,e:&ClickEvent,w,cx|{s.focus.focus(w,cx);

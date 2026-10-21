@@ -2307,3 +2307,23 @@ Windows release 同仓库、同 Trace2 设置顺序执行各 5 次，结果都�
 保留的优化空间：选择时仍运行完整 Reword prepare，且与详情里的 containing-branches 查询独立；尚未拆分快速 availability 或引入 refs 代际共享缓存。本次通过缩小必要查询获得收益，不以省略检查、更改禁用条件或持久缓存可变 refs 换速度。
 
 Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），Squash 相关 8 项通过；涵盖真实临时仓库的消息改写、作者/树/index/工作区保留、merge、rebase、取消、晚发布拦截和 Squash 过期确认/恢复边界。记录 `artifacts/interaction-perf-20261021/reword-native.txt`。未对用户仓库执行 Git 写操作。
+
+## 已实现功能横向检查与 Commit Diff 对齐（2026-10-21）
+
+完整覆盖表、证据等级、保留差异与优先级见 [REBASED-ALIGNMENT.md](REBASED-ALIGNMENT.md)。参考仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，现场安装 Rebased 1.1.20；本轮不声称二者是同一版本，也不声称所有功能像素／边界已穷举验收。
+
+本轮实际读取 `SimpleLocalChangeListDiffViewer.kt::createTitles/getStatusTextMessage`、`LocalTrackerDiffUtil.kt::ExcludeAllCheckboxPanel/PartiallyExcludeSelectedLinesFromCommitAction/getStatusText`、`DocumentTracker.kt::RangeExclusionState.countAffectedVisibleChanges` 和 Islands gutter checkbox SVG。规则与完整路径见横向检查文档。本地 `editable_diff/partial.rs`、`partial_selection.rs`、`diff_tab.rs`：文件总勾选移入右侧版本标题，删除额外的 25px 工具行；普通块按一处、拆分块按增删行显示差异数，全选时不追加 included 数；总勾选、块／行勾选与提交树继续共享 scope，父视图订阅选择变化。中栏采用上游中性 14px SVG，保留版权；右键包含／排除根据选区实际改变状态决定是否可用，无变更选区两项禁用。提交内容合成计数不受显示计数影响。没有为显示计数在每次绘制重新扫描完整 Diff。
+
+另实际读取 `ChangesBrowserFileNode.java`、`ChangesBrowserChangeNode.java::render`：文件名在前、父路径在后附加为同一行文本。本地 `local_view.rs` 改为单个带灰色后缀的 StyledText，修复窄侧栏父路径挤压短文件名；长路径仍截断。没有改变文件身份、勾选范围与排序。
+
+验证：
+
+- `cargo test --locked --lib partial_selection`：4 项通过，新增整块／拆分显示计数、普通文本不可操作、选中部分／整块及空侧菜单状态覆盖。
+- `cargo test --locked --test partial_commit`：8 项通过，保留混合部分／整文件提交、index／工作区保留、换行符／filter、过期选择拒绝。
+- 既有 50 项 desktop-tests 回归通过；仍明确排除此前已记录的 `releasing_diff_clears_padding_from_retained_source` 基线失败。新增 `title_checkbox_click_updates_shared_scope_and_toggles_back` 真实点击事件测试单独通过，验证标题点击更新共享 scope 且可再次取消。
+- `cargo check --locked --bin plico`、Windows release 构建通过，`git diff --check` 通过。
+- 自建 Windows Plico 使用独立 profile，只读打开 Rebased 当前的 `arrow-boundary-fixture`；本轮只切视图／提交 inclusion，不修改文件、不写 Git。`artifacts/alignment-20261021/rebased.png` 是用户现有 Rebased 原生参考；`commit-before.png`／`diff-before.png` 为改前；`final-commit.png` 核对短文件名，`final-diff.png` 核对标题／块控件与计数，`final-included.png` 核对标题全选联动及全选计数，`final-excluded.png` 核对从块控件取消，`final-menu.png` 核对未修改行的两项菜单禁用。截图窗口／侧栏宽度不同，用于结构和状态核对，不作为像素完全重合的证据。部分状态 SVG 与算法有测试；本轮原生 fixture 只有一个块，未把它宣称为多块三态视觉全覆盖。
+- 原生验证曾因预览图缩放导致点击坐标偏差（原图 2182×1361），按原图尺寸修正后上述点击均正常；未为脚本问题修改产品事件机制。没有滚动自动化；没有内存／帧率性能结论。
+- 已关闭本轮自建 Plico 进程；用户原有 Plico、Rebased 保留。未提交、未推送、未发布新包。
+
+保留：Unified 逐块／逐行入口、排除区域淡化和拆色、菜单动态文案／快捷键、悬停临时 checkbox 未在本轮补齐。普通历史 Diff 不引入提交范围控件；版本标题仍使用 Working tree 文案。Rollback 布局、远端／Tag Smart Checkout、Stash 高级恢复分别记录，不能将这些功能差异归结成颜色／间距问题。

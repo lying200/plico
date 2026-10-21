@@ -4,6 +4,9 @@ pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         let data: Option<&'static [u8]> = match path {
+            "jb/gutterCheckBoxIndeterminate.svg" => Some(include_bytes!("../assets/icons/gutterCheckBoxIndeterminate.svg")),
+            "jb/gutterCheckBoxSelected.svg" => Some(include_bytes!("../assets/icons/gutterCheckBoxSelected.svg")),
+            "jb/gutterCheckBox.svg" => Some(include_bytes!("../assets/icons/gutterCheckBox.svg")),
             "jb/incoming_dark.svg" => Some(include_bytes!("../assets/icons/incoming_dark.svg")),
             "jb/outgoing_dark.svg" => Some(include_bytes!("../assets/icons/outgoing_dark.svg")),
             "jb/diff-apply-right_dark.svg" => Some(include_bytes!("../assets/icons/diff-apply-right_dark.svg")),

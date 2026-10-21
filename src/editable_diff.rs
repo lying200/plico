@@ -427,7 +427,6 @@ impl Render for EditableDiff {
         if self.unified_mode {
             return if let Some(view)=&self.unified {
                 v_flex().size_full().min_h_0()
-            .child(self.partial_header(cx))
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
                     .children(self.working.as_ref().and_then(|d|Editing::error_banner(d, &self.documents, cx)))
                     .child(Editor::new(&view.editor).readonly(self.documents.locked() || !view.ready()).appearance(false).bordered(false).h_full().font_family(crate::ui_font::editor_family(cx)).text_size(crate::ui_font::editor_size(cx))).into_any_element()
@@ -435,7 +434,6 @@ impl Render for EditableDiff {
         }
         let editor=self.modified.clone();
         v_flex().size_full().min_h_0()
-            .child(self.partial_header(cx))
                     .when(self.eol_only,|v|v.child(div().px_3().py_1().bg(rgb(0x253447)).child(plico::i18n::t("Only line separators differ"))))
             .children(self.working.as_ref().and_then(|d|Editing::error_banner(d, &self.documents, cx)))
             .child(h_flex().relative().flex_1().min_h_0().w_full().items_stretch().overflow_hidden()

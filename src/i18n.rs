@@ -69,6 +69,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Previous change" => "上一处更改",
         "Next change" => "下一处更改",
         "Include in commit" => "包含到提交",
+        "Exclude from commit" => "从提交中排除",
         "Include selected lines in commit" => "将所选行包含到提交",
         "Exclude selected lines from commit" => "从提交中排除所选行",
         "Commit this change" => "提交此处更改",
@@ -515,6 +516,7 @@ pub enum Message<'a> {
     MoreReferences(usize),
     LoadedCommits { count: usize, offset: usize },
     FilePosition { current: usize, total: usize },
+    DiffCount { total: usize, included: Option<usize> },
     ContainingBranches(usize),
     RepositoryDiff(&'a str),
     AuthorDate { author: &'a str, date: &'a str },
@@ -555,6 +557,14 @@ pub(crate) fn render_message(value: Message<'_>, chinese: bool) -> String {
         (Message::LoadedCommits { count, offset }, false) => format!("{count} commits loaded · offset {offset}"),
         (Message::FilePosition { current, total }, true) => format!("{current}/{total} 个文件"),
         (Message::FilePosition { current, total }, false) => format!("{current}/{total} files"),
+        (Message::DiffCount { total, included }, chinese) => {
+            let mut text = if chinese { format!("{total} 处差异") }
+                else { format!("{total} {}", if total == 1 { "difference" } else { "differences" }) };
+            if let Some(n) = included {
+                text.push_str(&if chinese { format!("，已包含 {n} 处") } else { format!(", {n} included") });
+            }
+            text
+        },
         (Message::ContainingBranches(count), true) => format!("位于 {count} 个分支："),
         (Message::ContainingBranches(count), false) => format!("In {count} {}: ", if count == 1 { "branch" } else { "branches" }),
         (Message::RepositoryDiff(name), true) => format!("仓库差异：{name}"),

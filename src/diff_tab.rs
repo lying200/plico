@@ -356,6 +356,7 @@ impl Render for DiffTab {
                 if let Some(viewer)=&s.viewer {viewer.update(cx,|v,cx|v.set_files(vec![event.0.clone()],cx));}
                 cx.notify();
             }).detach();
+            cx.observe(&editable, |_, _, cx| cx.notify()).detach();
             self.editable = Some(editable);
         }
         // Unified/one-sided/three-way comparisons keep the specialized viewer.
@@ -407,6 +408,7 @@ impl Render for DiffTab {
             None => after,
         };
         let old_path = id.old_path.as_deref().unwrap_or(&id.path);
+        let inclusion_checkbox = self.editable.as_ref().and_then(|v| v.update(cx, |v, cx| v.inclusion_checkbox(cx)));
         let file = self.viewer.as_ref().and_then(|v| v.read(cx).files().first());
         let status = file.map(|f| f.status());
         let metadata = file.map(|f| f.extended_headers().iter()
@@ -414,9 +416,16 @@ impl Render for DiffTab {
             .map(|h| h.as_ref()).collect::<Vec<&str>>().join(" · ")).unwrap_or_default();
         // UnifiedDiffViewer stacks both non-empty revision titles vertically.
         let unified = self.preferred_mode == DiffMode::Unified;
-        let title_cell = |revision: String, path: Option<String>, locked: bool, fraction: f32| h_flex()
+        let inclusion_counts = self.editable.as_ref().and_then(|v| v.read(cx).inclusion_counts(cx));
+        let difference_count = inclusion_counts
+            .filter(|_| !self.loading && self.error.is_none() && self.unavailable.is_none())
+            .map(|(included, total)| i18n::message(i18n::Message::DiffCount {
+                total, included: (included != total).then_some(included),
+            }));
+        let title_cell = |revision: String, path: Option<String>, locked: bool, fraction: f32, checkbox: Option<AnyElement>| h_flex()
             .when(!unified, |cell| cell.w(relative(fraction)).flex_shrink_0()).when(unified, |cell| cell.w_full())
             .min_w_0().overflow_hidden().px_1().pt(px(2.)).pb(px(2.))
+            .children(checkbox)
             .when(locked,|cell|cell.child(Icon::default().path("jb/locked_dark.svg").size(px(16.)).text_color(rgb(0xced0d6))))
             .child(div().flex_shrink_0().ml_1().text_color(rgb(0xbcbec4)).child(revision))
             .when_some(path, |cell, path| {
@@ -428,8 +437,8 @@ impl Render for DiffTab {
             .then(|| id.path.display().to_string());
         let titles = div().flex().when(unified, |row| row.flex_col())
             .w_full().flex_shrink_0().border_b_1().border_color(rgb(0x26282c))
-            .when(status != Some(DiffFileStatus::Added), |row| row.child(title_cell(before, Some(old_path.display().to_string()), true, if status == Some(DiffFileStatus::Deleted) { 1. } else { self.split_ratio })))
-            .when(status != Some(DiffFileStatus::Deleted), |row| row.child(title_cell(after, after_path, self.editable.as_ref().is_none_or(|v|v.read(cx).working.is_none()), if status == Some(DiffFileStatus::Added) { 1. } else { 1. - self.split_ratio })));
+            .when(status != Some(DiffFileStatus::Added), |row| row.child(title_cell(before, Some(old_path.display().to_string()), true, if status == Some(DiffFileStatus::Deleted) { 1. } else { self.split_ratio }, None)))
+            .when(status != Some(DiffFileStatus::Deleted), |row| row.child(title_cell(after, after_path, self.editable.as_ref().is_none_or(|v|v.read(cx).working.is_none()), if status == Some(DiffFileStatus::Added) { 1. } else { 1. - self.split_ratio }, inclusion_checkbox)));
         let content = if let Some(message) = self.unavailable { div().p_4().child(t(message)).into_any_element() }
         else if self.loading { div().p_4().child(t("Reading Git data…")).into_any_element() }
         else if let Some(error) = self.error.clone() {
@@ -477,6 +486,7 @@ impl Render for DiffTab {
                     .tooltip(t("Next file")).disabled(self.unavailable.is_some() || self.chain.index() + 1 >= self.chain.len())
                     .on_click(cx.listener(|s, _, w, cx| s.move_file(true, w, cx)))))
                 .child(div().flex_1())
+                .when_some(difference_count, |toolbar, count| toolbar.child(div().text_color(rgb(0x8c8e93)).text_size(px(12.)).child(count)))
                 .child({
                     let owner = cx.entity().downgrade();
                     crate::diff_settings::mode_selector(self.preferred_mode, move |mode, cx| {

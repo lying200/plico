@@ -634,6 +634,7 @@ impl HistoryView {
         let recommended_width = graph.iter().map(|r| r.width).max().unwrap_or(1);
         let graph_width = recommended_width.min(6) as f32 * 16. + 12.;
         let graph_hover = self.graph_hover;
+        let row_height = crate::ui_style::log_row_height(cx);
         let head_rows: Vec<bool> = (0..self.visible.len()).map(|i| self.revision(i).is_some_and(|r| Some(&r.id) == self.head_id.as_ref())).collect();
         let selection = self.selection.is_some();
         v_flex()
@@ -673,7 +674,7 @@ impl HistoryView {
             })
             .child(if selection {
                 h_flex()
-                    .h(px(28.))
+                    .h(px(row_height))
                     .gap_2()
                     .border_b_1()
                     .border_color(rgb(0x393b40))
@@ -684,7 +685,7 @@ impl HistoryView {
                     .into_any_element()
             } else {
                 h_flex()
-                    .h(px(28.))
+                    .h(px(row_height))
                     .gap_2()
                     .border_b_1()
                     .border_color(rgb(0x393b40))
@@ -704,7 +705,7 @@ impl HistoryView {
                             h_flex()
                                 .id(("history-row", row))
                                 .w_full()
-                                .h(px(28.))
+                                .h(px(row_height))
                                 .gap_2()
                                 .px_2()
                                 .when(selected[row], |v| v.bg(rgb(0x2e4676)))
@@ -726,7 +727,7 @@ impl HistoryView {
                                         });
                                         let hover_owner = owner.clone(); let click_owner = owner.clone();
                                         let hover_graph = graph.clone(); let click_graph = graph.clone();
-                                        commit = commit.child(crate::ui_graph::graph_arrow_cell(r, width, row, crate::ui_graph::GraphNodeStyle { head: head_rows[row], background: if selected[row] { 0x2e4676 } else { 0x18191a } }, hovered, tooltip, move |segment,cx| {
+                                        commit = commit.child(crate::ui_graph::graph_arrow_cell(r, width, row_height, row, crate::ui_graph::GraphNodeStyle { head: head_rows[row], background: if selected[row] { 0x2e4676 } else { 0x18191a } }, hovered, tooltip, move |segment,cx| {
                                             let _ = hover_owner.update(cx, |s,cx| {
                                                 if s.loading || !std::sync::Arc::ptr_eq(&hover_graph,&s.graph) { return; }
                                                 if segment.is_none() && s.graph_hover.is_some_and(|(i,_)| i != row) { return; }

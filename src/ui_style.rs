@@ -166,6 +166,12 @@ pub(crate) fn tree_row_height(cx: &App) -> Pixels {
     use gpui_kit::component::ActiveTheme;
     px((f32::from(cx.theme().font_size) * 2.).round().max(24.))
 }
+// Rebased GraphCommitCellRenderer: content line box + 7px padding,
+// with the modern Log theme's 26px minimum. GPUI's line box is 1.5em.
+pub(crate) fn log_row_height(cx: &App) -> f32 {
+    use gpui_kit::component::ActiveTheme;
+    (f32::from(cx.theme().font_size) * 1.5 + 7.).ceil().max(26.)
+}
 pub(crate) const TREE_INDENT: f32 = 19.;
 pub(crate) const TREE_INSET: f32 = 12.;
 pub(crate) fn tree_selection(color: u32) -> impl IntoElement {

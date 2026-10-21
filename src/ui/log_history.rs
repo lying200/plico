@@ -135,6 +135,7 @@ impl Review {
     }
     pub(super) fn history(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selection_color = row_selection(&self.history_focus, window);
+        let row_height = log_row_height(cx);
         let checkout_head = self.snapshot.as_ref().and_then(|s| s.head_id.clone());
         let checkout_enabled = !self.operation.busy() && checkout_head.is_some();
         let checkout_path = self.repo.path.clone();
@@ -236,7 +237,7 @@ impl Review {
                                         .id(i)
                                         .relative()
                                         .w_full()
-                                        .h(px(28.))
+                                        .h(px(row_height))
                                         .px_2()
                                         .gap_2()
                                         .min_w(px(736.))
@@ -248,7 +249,7 @@ impl Review {
                                                 .rounded(px(4.)).bg(rgb(selection_color))
                                         ))
                                         .child(h_flex().flex_1().min_w_0().overflow_hidden().gap_2()
-                                            .child(interactive_graph_cell(rows[i].clone(), graph::text_offset_columns(&rows[i], recommended_width) * 16. + 12., i,
+                                            .child(interactive_graph_cell(rows[i].clone(), graph::text_offset_columns(&rows[i], recommended_width) * 16. + 12., row_height, i,
                                                 GraphNodeStyle { head: checkout_head.as_deref() == Some(c.id.as_str()),
                                                     background: if selected.contains(&c.id) { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG } },
                                                 owner.clone(), rows.clone(), commits.clone(), graph_hover))
@@ -479,6 +480,7 @@ impl Review {
 fn interactive_graph_cell(
     row: Row,
     width: f32,
+    row_height: f32,
     index: usize,
     node_style: GraphNodeStyle,
     owner: WeakEntity<Review>,
@@ -509,6 +511,7 @@ fn interactive_graph_cell(
     graph_arrow_cell(
         row,
         width,
+        row_height,
         index,
         node_style,
         hovered,

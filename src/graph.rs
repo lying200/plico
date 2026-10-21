@@ -61,18 +61,25 @@ pub struct ArrowHit {
 /// Only arrow-bearing edges are actionable; an earlier ordinary edge or node
 /// still wins an overlap, matching the painter's element selection order.
 pub fn arrow_at(row: &Row, x: f32, y: f32) -> Option<ArrowHit> {
-    if !(0. ..28.).contains(&y) || !x.is_finite() { return None; }
-    if (x - (8. + row.node as f32 * 16.)).hypot(y - 14.) <= 4. { return None; }
+    arrow_at_height(row, x, y, 28.)
+}
+
+/// Hit geometry uses the same row height as the caller's graph painter.
+pub fn arrow_at_height(row: &Row, x: f32, y: f32, height: f32) -> Option<ArrowHit> {
+    if !height.is_finite() || height <= 0. { return None; }
+    let center = height / 2.;
+    if !(0. ..height).contains(&y) || !x.is_finite() { return None; }
+    if (x - (8. + row.node as f32 * 16.)).hypot(y - center) <= 4. { return None; }
     for (index, edge) in row.segments.iter().enumerate() {
         let current = if edge.upper() { edge.to() } else { edge.from() };
         let other = if edge.upper() { edge.from() } else { edge.to() };
-        let (x1, y1) = (8. + current as f32 * 16., 14.);
-        let (x2, y2) = (8. + other as f32 * 16., if edge.upper() { -14. } else { 42. });
+        let (x1, y1) = (8. + current as f32 * 16., center);
+        let (x2, y2) = (8. + other as f32 * 16., if edge.upper() { -center } else { height + center });
         if (x1 - x).hypot(y1 - y) + (x2 - x).hypot(y2 - y) < (x1 - x2).hypot(y1 - y2) + 1.5 {
             return edge.arrow().then(|| ArrowHit { segment: index, target: row.arrow_target(index) });
         }
         // Raw full segments represent both halves, and are never arrows.
-        if edge.full() && (x - x1).abs() < 1.5 && y >= 14. { return None; }
+        if edge.full() && (x - x1).abs() < 1.5 && y >= center { return None; }
     }
     None
 }
@@ -276,6 +283,11 @@ mod tests {
         assert!(arrow_at(&row, 24., 27.).is_none(), "diagonal bounding box is not a clickable edge");
         assert!(arrow_at(&row, 32., 28.).is_none(), "do not cross row boundaries");
         assert!(arrow_at(&row, f32::NAN, 21.).is_none());
+        for height in [26., 37., 55.] {
+            assert_eq!(arrow_at_height(&row, 32., height * 0.75, height).unwrap().target, Some(39));
+            assert!(arrow_at_height(&row, 32., height, height).is_none());
+            assert!(arrow_at_height(&row, 24., height * 0.96, height).is_none());
+        }
         row.node = 1;
         assert!(arrow_at(&row, 24., 14.).is_none(), "node takes priority over arrow edge");
         row.node = 0;

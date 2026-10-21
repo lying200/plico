@@ -36,6 +36,7 @@ pub(crate) struct GraphNodeStyle {
 pub(crate) fn graph_arrow_cell(
     row: Row,
     width: f32,
+    row_height: f32,
     index: usize,
     node_style: GraphNodeStyle,
     hovered: Option<usize>,
@@ -44,7 +45,7 @@ pub(crate) fn graph_arrow_cell(
     on_jump: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     if !row.segments.iter().any(|edge| edge.arrow()) {
-        return graph_cell(row, width, node_style, None).into_any_element();
+        return graph_cell(row, width, row_height, node_style, None).into_any_element();
     }
     let bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
     let actionable = hovered.is_some_and(|segment| row.arrow_target(segment).is_some());
@@ -57,14 +58,14 @@ pub(crate) fn graph_arrow_cell(
                 return None;
             }
             let point = position - bounds.origin;
-            graph::arrow_at(&row, point.x.as_f32(), point.y.as_f32())
+            graph::arrow_at_height(&row, point.x.as_f32(), point.y.as_f32(), row_height)
         }
     };
     let hover_hit = hit.clone();
     let down_hit = hit.clone();
     let on_hover = std::rc::Rc::new(on_hover);
     let leave = on_hover.clone();
-    graph_cell(row, width, node_style, hovered)
+    graph_cell(row, width, row_height, node_style, hovered)
         .id(("graph-arrow", index))
         // Explicit anchoring avoids the default static position below the
         // drawing canvas, which would offset the hit region by a whole row.
@@ -105,6 +106,7 @@ pub(crate) fn graph_arrow_cell(
 pub(crate) fn graph_cell(
     row: Row,
     width: f32,
+    row_height: f32,
     node_style: GraphNodeStyle,
     hovered: Option<usize>,
 ) -> Div {
@@ -114,7 +116,7 @@ pub(crate) fn graph_cell(
         .relative()
         .overflow_hidden()
         .w(px(width))
-        .h(px(28.))
+        .h(px(row_height))
         .flex_none()
         .child(
             canvas(
@@ -156,7 +158,7 @@ pub(crate) fn graph_cell(
                             } else {
                                 edge.from() as f32
                             }),
-                            bounds.origin.y + px(if edge.upper() { 0. } else { 14. }),
+                            bounds.origin.y + px(if edge.upper() { 0. } else { row_height / 2. }),
                         );
                         let to = point(
                             x(if !edge.upper() && edge.adjacent() {
@@ -166,9 +168,9 @@ pub(crate) fn graph_cell(
                             }),
                             bounds.origin.y
                                 + px(if edge.full() || !edge.upper() {
-                                    28.
+                                    row_height
                                 } else {
-                                    14.
+                                    row_height / 2.
                                 }),
                         );
                         // The Commit cell clips wide graphs before the author
@@ -189,7 +191,7 @@ pub(crate) fn graph_cell(
                             let dx = (to.x - from.x).as_f32();
                             let dy = (to.y - from.y).as_f32();
                             let length = dx.hypot(dy);
-                            let period = length * 2. / (length * 2. / 28.).floor().max(1.);
+                            let period = length * 2. / (length * 2. / row_height).floor().max(1.);
                             let dash = period - 12.;
                             let phase = dash / 2. + if edge.upper() { length } else { 0. };
                             let mut at = 0.;
@@ -226,7 +228,7 @@ pub(crate) fn graph_cell(
                             let tip = if edge.upper() { from } else { to };
                             let center = point(
                                 x(if edge.upper() { edge.to() } else { edge.from() } as f32),
-                                bounds.origin.y + px(14.),
+                                bounds.origin.y + px(row_height / 2.),
                             );
                             let dx = (tip.x - center.x).as_f32();
                             let dy = (tip.y - center.y).as_f32();
@@ -258,7 +260,7 @@ pub(crate) fn graph_cell(
             div()
                 .absolute()
                 .left(px(2. + node as f32 * 16.))
-                .top(px(8.))
+                .top(px(row_height / 2. - 6.))
                 .size(px(12.))
                 .rounded_full()
                 .bg(rgb(COLORS[color % COLORS.len()]))
@@ -284,7 +286,7 @@ pub(crate) fn graph_cell(
             div()
                 .absolute()
                 .left(px(4. + node as f32 * 16.))
-                .top(px(10.))
+                .top(px(row_height / 2. - 4.))
                 .size(px(8.))
                 .rounded_full()
                 .bg(rgb(COLORS[color % COLORS.len()]))

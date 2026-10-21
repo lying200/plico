@@ -441,7 +441,7 @@ impl Review {
                             }
                             if preserve && offset == this.history_offset {
                                 super::log_viewport::restore(
-                                    &this.history_scroll, &this.commits, &s.commits, offset,
+                                    &this.history_scroll, &this.commits, &s.commits, offset, log_row_height(cx),
                                 );
                             }
                             this.history_offset = offset;

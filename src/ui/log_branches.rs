@@ -92,7 +92,7 @@ impl Review {
             let scroll = self.history_scroll.0.borrow();
             let bounds = scroll.base_handle.bounds();
             let index = self.selected.unwrap_or(0);
-            let y = bounds.origin.y + scroll.base_handle.offset().y + px((index + 1) as f32 * 28.);
+            let y = bounds.origin.y + scroll.base_handle.offset().y + px((index + 1) as f32 * log_row_height(cx));
             point(
                 bounds.origin.x + px(80.),
                 y.max(bounds.origin.y).min(bounds.bottom()),

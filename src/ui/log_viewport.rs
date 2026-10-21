@@ -7,6 +7,7 @@ pub(super) fn restore(
     before: &[Commit],
     after: &[Commit],
     history_offset: usize,
+    row_height: f32,
 ) {
     // Read at publication time, not when the asynchronous query started.
     let (top, pending, position) = {
@@ -17,7 +18,7 @@ pub(super) fn restore(
             .deferred_scroll_to_item
             .as_ref()
             .map(|item| item.item_index)
-            .unwrap_or_else(|| ((-position.y / px(28.)).max(0.)).floor() as usize);
+            .unwrap_or_else(|| ((-position.y / px(row_height)).max(0.)).floor() as usize);
         (top, pending, position)
     };
     let changed = before.iter().map(|c| &c.id).ne(after.iter().map(|c| &c.id));
@@ -37,7 +38,7 @@ pub(super) fn restore(
         } else {
             // Keep the visible commit at the same pixel height, including partial rows.
             let mut restored = position;
-            restored.y -= px((index as f32 - top as f32) * 28.);
+            restored.y -= px((index as f32 - top as f32) * row_height);
             scroll.0.borrow().base_handle.set_offset(restored);
         }
     }
@@ -76,7 +77,7 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            0,
+            0, 28.,
         );
         assert_eq!(
             target(&scroll),
@@ -92,7 +93,7 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            0,
+            0, 28.,
         );
         assert_eq!(target(&scroll), 2);
     }
@@ -103,7 +104,7 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            1000,
+            1000, 28.,
         );
         assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-28.));
     }
@@ -119,12 +120,19 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            0,
+            0, 28.,
         );
         assert_eq!(
             scroll.0.borrow().base_handle.offset(),
             gpui_kit::point(px(-12.), px(-63.))
         );
+    }
+    #[test]
+    fn large_font_refresh_preserves_the_visible_commit_and_partial_row() {
+        let scroll = UniformListScrollHandle::new();
+        scroll.0.borrow().base_handle.set_offset(gpui_kit::point(px(0.), px(-44.)));
+        restore(&scroll, &commits(&["old", "base"]), &commits(&["remote", "old", "base"]), 0, 37.);
+        assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-81.));
     }
     #[test]
     fn reference_only_refresh_does_not_snap_partial_first_row() {
@@ -138,7 +146,7 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["old", "base"]),
-            0,
+            0, 28.,
         );
         assert!(scroll.0.borrow().deferred_scroll_to_item.is_none());
         assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-7.));

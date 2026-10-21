@@ -2497,3 +2497,8 @@ Commit大字号文件行也已截图核对（large-commit.png），无文字垂�
 本地 `local_view/status.rs` 隔离计数绘制：以实际布局宽度、当前UI字体测量完整文本，不够时显示数字，右对齐；tooltip和aria label保留完整含义，不新增异步布局任务。Amend最多占行宽80%，留空间给状态；计数不再固定12号。保留差异：目前仍为选中文件总数（包含0），不是上游按新增/修改/删除分色的legend；不在本轮更改计数语义。极端窄栏仍可能裁切很长数字，整个提交栏的最小宽度和超大字号布局未宣称完全对齐。
 
 验证：cargo check与Windows release构建通过。原生隔离仓库UI20下计数紧凑显示，勾选README后从0即时变为1；Amend文字在此宽度换行，底部按钮换行但均完整。UI12下完整显示“0 selected”。截图已查看并保存于`artifacts/tree-ui-20261021/status-*.png`。只验证显示与选择，不执行Commit/Push。此次低影响布局改动未重复跑整套Git测试；未完成全部字号/语言/极窄宽度验收。
+
+### Log与文件历史统一行高（2026-10-21）
+参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版1.1.20。读取`GraphCommitCellRenderer.kt::calculateRowContentHeight/preferredHeight`（字体或DPI变化重算，字体度量+垂直padding，与refs高度取max）、`JBUI.java::VersionControl.Log`（默认最小26、padding7）及`SimpleGraphCellPainter.kt`（paint与hit共用rowHeight和rowCenter）。
+本地`ui_style::log_row_height`使用GPUI 1.5em行盒+7、最小26；Log/文件历史行与表头、graph端点/节点/箭头命中、键盘相邻提交弹窗锚点和刷新滚动恢复共用高度。`graph::arrow_at_height`保留原有节点优先/边顺序规则；默认28入口保留用于旧调用和原测试。保留差异：GPUI行盒不是Java FontMetrics；横向lane宽度、节点直径和线宽保持现有值，未整体按字号放大。字体变化时不保证保留当前行的精确像素锚点；异步刷新使用当时行高恢复。
+验证：16项graph相关单测、56项桌面回归通过（排除既有diff padding基线失败）；新增26/37/55高度的箭头命中边界和37高度的部分可见行刷新恢复检查。cargo check及Windows release通过，原生UI20的3提交测试图线连接与节点居中截图已查看（`artifacts/tree-ui-20261021/log-adaptive.png`）。不自动化滚动；复杂图形/文件历史原生全状态尚待用户验收。

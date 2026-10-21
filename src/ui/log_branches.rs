@@ -888,6 +888,13 @@ impl Review {
                                             let _=checkout_owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
                                         })).separator();
                                     }
+                                    if name.starts_with("refs/heads/") || name.starts_with("refs/remotes/") {
+                                        let merge_owner=owner.clone();let merge_ref=name.clone();
+                                        let enabled=owner.upgrade().is_some_and(|s|s.read(cx).can_merge_branch(&name));
+                                        menu=menu.item(PopupMenuItem::new(t("Merge into Current")).disabled(!enabled).on_click(move |_,w,cx| {
+                                            let _=merge_owner.update(cx,|s,cx|s.merge_branch(merge_ref.clone(),w,cx));
+                                        }));
+                                    }
                                     let filter_owner = owner.clone();
                                     let filter_name = name.clone();
                                     menu.when(!name.starts_with("refs/tags/"), |menu| {

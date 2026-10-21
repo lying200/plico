@@ -704,6 +704,13 @@ impl Review {
                                     let _=delete_owner.update(cx,|s,cx|s.prepare_delete_branch(delete_ref.clone(),w,cx));
                                 }));
                             }
+                            if !tag && !current {
+                                let merge_owner=owner.clone();let merge_ref=full_ref.clone();
+                                let enabled=owner.upgrade().is_some_and(|s|s.read(menu_cx).can_merge_branch(&full_ref));
+                                menu=menu.item(PopupMenuItem::new(t("Merge into Current")).disabled(!enabled).on_click(move |_,w,cx| {
+                                    let _=merge_owner.update(cx,|s,cx|s.merge_branch(merge_ref.clone(),w,cx));
+                                }));
+                            }
                             let create_owner = owner.clone(); let create_ref = full_ref.clone();
                             menu = menu.item(PopupMenuItem::new(t("New Branch…")).disabled(disabled).on_click(move |_, w, cx| {
                                 let _ = create_owner.update(cx, |s, cx| s.new_branch_dialog(create_ref.clone(), w, cx));
@@ -729,6 +736,13 @@ impl Review {
                                 let delete_owner=context_owner.clone();let delete_ref=context_ref.clone();
                                 menu=menu.item(PopupMenuItem::new(t("Delete…")).disabled(disabled || current).on_click(move |_,w,cx| {
                                     let _=delete_owner.update(cx,|s,cx|s.prepare_delete_branch(delete_ref.clone(),w,cx));
+                                }));
+                            }
+                            if !tag && !current {
+                                let merge_owner=context_owner.clone();let merge_ref=context_ref.clone();
+                                let enabled=context_owner.upgrade().is_some_and(|s|s.read(cx).can_merge_branch(&context_ref));
+                                menu=menu.item(PopupMenuItem::new(t("Merge into Current")).disabled(!enabled).on_click(move |_,w,cx| {
+                                    let _=merge_owner.update(cx,|s,cx|s.merge_branch(merge_ref.clone(),w,cx));
                                 }));
                             }
                             let create_owner=context_owner.clone(); let create_ref=context_ref.clone();

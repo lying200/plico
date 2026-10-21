@@ -258,3 +258,37 @@ fn empty_cherry_pick_requires_explicit_choice_and_revalidates_index() {
         assert_eq!(f.git(&["status", "--porcelain"], true), "");
     }
 }
+
+#[test]
+fn continued_revert_does_not_commit_generated_conflict_comments() {
+    for marker in ["#", ";"] {
+        let f = Fixture::new();
+        f.git(&["config", "core.commentChar", marker], true);
+        f.commit("base");
+        f.commit("task");
+        let target = f.git(&["rev-parse", "HEAD"], true);
+        f.commit("later");
+        f.git(&["revert", &target], false);
+        fs::write(f.0.join("a"), "resolved").unwrap();
+        f.git(&["add", "a"], true);
+        let repo = Repository::new(&f.0);
+        let result = sequencer_operation::execute(
+            &repo,
+            Operation::Revert,
+            Action::Continue {
+                editor: "true".as_ref(),
+                requests: None,
+            },
+            &Cancel::default(),
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(result.command.unwrap().status.success());
+        let message = f.git(&["show", "-s", "--format=%B", "HEAD"], true);
+        assert!(
+            !message.contains(&format!("{marker} Conflicts:")),
+            "generated comments leaked: {message}"
+        );
+        assert!(message.contains(&target));
+    }
+}

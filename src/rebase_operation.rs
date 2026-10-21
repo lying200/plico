@@ -44,7 +44,7 @@ pub fn diagnostic(result: &Result<ResultState, String>) -> Option<String> {
     (!text.trim().is_empty()).then_some(text)
 }
 
-fn collect_errors(stdout: &str, stderr: &str) -> String {
+pub(crate) fn collect_errors(stdout: &str, stderr: &str) -> String {
     const PREFIXES: &[&str] = &["warning:", "error:", "fatal:", "remote: error", "Cannot",
         "Could not", "Interactive rebase already started", "refusing to pull", "cannot rebase:",
         "conflict", "unable", "The file will have its original", "runnerw:"];
@@ -56,7 +56,7 @@ fn collect_errors(stdout: &str, stderr: &str) -> String {
     else { stdout.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").to_owned() }
 }
 
-fn display_text(text: &str) -> String {
+pub(crate) fn display_text(text: &str) -> String {
     // Strip URL userinfo/query/fragment before truncating, so a truncated URL
     // cannot leave half a credential visible. Hook output remains plain text.
     let mut safe = String::new();

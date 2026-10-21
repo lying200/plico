@@ -217,6 +217,15 @@ impl Review {
                     .on_click(cx.listener(|s, _, w, cx| s.open_push(w, cx))),
             )
             .child(self.repository_branch_menu(cx))
+            .when(self.revert_saved_available,|v|v.child(titlebar_button("revert-saved-recovery")
+                .label(t("Saved Revert Changes")).disabled(self.operation.busy() || self.settings_open)
+                .on_click(cx.listener(|s,_,w,cx|s.open_revert_saved(w,cx)))))
+            .when(self.revert_recovery_available,|v|v.child(titlebar_button("saved-revert-queue")
+                .label(t("Saved Revert Queue")).disabled(self.operation.busy() || self.settings_open)
+                .on_click(cx.listener(|s,_,w,cx|s.open_revert_queue(w,cx)))))
+            .when(self.merge_recovery_available,|v|v.child(titlebar_button("merge-saved-recovery")
+                .label(t("Saved Merge Changes")).disabled(self.operation.busy() || self.settings_open)
+                .on_click(cx.listener(|s,_,w,cx|s.open_merge_recovery(w,cx)))))
             .when_some(self.operation_state.as_ref().filter(|s| matches!(s.operation,
                 plico::operation_state::Operation::CherryPick | plico::operation_state::Operation::Revert))
                 .map(|s| (s.operation, !s.conflicts.is_empty())), |v, (kind, conflicts)| {

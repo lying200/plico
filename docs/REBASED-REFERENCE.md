@@ -2737,3 +2737,190 @@ Windows release构建通过；独立三文件、每文件两处变更的仓库�
 UI阶段核对：左侧文件／双方状态表，右侧纵向动作，底部关闭；加载与操作共用底部状态和取消，空态禁用，失败详情可复制，编辑复用现有Tab与保存生命周期。明确保留的实现差异：列表单选平铺，没有目录分组／批量处理；内置三方合并编辑器未引入，使用现有编辑页或单个外部工具；外部工具始终确认而非信任退出码，失败结果以路径恢复而非独立恢复管理页；继续／中止沿用Plico已有顶部操作入口，不复制IDE通知系统。上述均为本阶段轻量冲突闭环的实现边界，不宣称完整复刻Rebased或像素级还原。gitlink冲突保持外部处理，普通二进制可接受一侧或外部工具，不能在文本编辑器编辑。新增中英文标签已接入集中资源。
 
 阶段2功能交付完成，按用户要求提交后再开始阶段3的主动分支Merge与普通提交Revert；本阶段仅增加既有Cherry-pick/Revert的恢复入口，不冒充这两项的发起能力已完成。
+
+### 阶段 3：分支 Merge 与普通 Revert 源码入口（2026-10-21）
+
+阶段2已提交3821fcd后开始本阶段。已读同一参考commit的`branch/GitMergeOperation.java`前225行：保存文档后尝试merge，区分已有冲突、本地修改覆盖、未跟踪覆盖、合并冲突、已最新与未知失败；引用歧义时使用完整ref重试；冲突后进入共用resolver；成功可建议删除源分支。Smart Merge后续方法尚未读完，不能据此前半段实现完整保护流程。
+
+已读`revert/GitRevertProcess.kt`全文件：继承GitApplyChangesProcess，按Log逆时间序处理，普通Revert自动提交、不沿用原提交作者元数据，空结果单独识别，冲突通过共用apply-changes流程。需继续读取GitApplyChangesProcess、GitImpl.revert与GitRevertTest；仅定位到测试路径不算验证。现有`merge_update.rs`服务Pull／Push更新且带fetch／tracking要求，不能直接当作任意分支合并入口。
+
+### 阶段 3：普通 Revert 后端及 Log 入口（2026-10-21，进行中）
+
+继续读取相同参考 commit 的 `revert/GitRevertAction.kt`、`revert/GitRevertProcess.kt`、`commands/GitImpl.java::revert`、`applyChanges/GitApplyChangesProcess.kt`执行与结果处理部分，以及`tests/git4idea/revert/GitRevertTest.kt`。上游普通Revert自动生成提交，根提交可用，包含merge commit时禁用；实际执行前重新获取详情；本地修改／暂存覆盖失败不自动丢弃，空结果单独提示，冲突进入公共resolver。多选按Log逆时间顺序执行，上游还支持保存修改后重试与部分成功通知，本轮未冒充已完成这些分支。
+
+本地`revert_operation.rs`在执行前复验HEAD、分支、gitdir及操作状态，通过已有editor/auth桥执行`git revert <oid>`；不自动stage或stash。执行后即使失败／取消也读真实状态与HEAD，区分成功、空结果、冲突、取消、失败。`ui/sequencer.rs`复用现有文档保存、操作锁、编辑器请求与刷新生命周期；Log右键菜单新增Revert Commit，单选普通提交且仓库无进行中操作／冲突才启用。冲突打开公共解决窗口；空结果正常提示。中英文标签已接入。未将后端HEAD读取失败或意外未生成提交当作成功。
+
+验证：真实临时Git仓库5项集成测试通过，覆盖普通／根提交、重复撤销空结果、无关未暂存修改保留、覆盖本地修改与暂存内容拒绝、过期快照、merge提交禁用、开始前取消不写入、冲突手工解决继续及中止。桌面编译检查通过。当前尚未完成Windows原生UI验收；单选只是本轮接线进度，多选／部分成功／保存后重试及主动分支Merge仍待本阶段后续实现，不提交阶段完成记录。
+
+### 阶段 3：Revert 多提交执行与部分结果（2026-10-21，UI 队列待接）
+
+复读同一参考 commit 的`GitRevertProcess.kt`和`GitApplyChangesProcess.kt::execute/executeForRepository/executeForCommitChunk/handleLocalChangesDetected/notifyResult`：按照Log逆时间序逐条执行；成功项和空结果分别记录；冲突／覆盖／失败停止；保存后重试过滤掉成功及空结果项；冲突解决后可继续。实际读取`VcsLogUtil.java`确认MAX_SELECTED_COMMITS=1000。
+
+本地`revert_operation::Batch`先验证整组选中提交，禁止混入merge commit、无效对象或重复选择；取得同一仓库写锁后按原顺序执行，逐条复验预期HEAD／分支／gitdir。结果保留successful、skipped、remaining及最后命令状态，取消或验证失败也不丢失先前成功记录。remaining包括停止项及其后未处理项，排除已处理项。超过1000项明确拒绝而非截断。当前批处理尚未接入UI，菜单仍为单选；剩余队列的冲突恢复与保存后重试尚需实现，不能把数据结构当作完整恢复功能。
+
+真实Git集成共9项通过，新增覆盖空结果后继续、成功后下一项冲突、无效后续对象在首次写入前拒绝、重复选择拒绝、执行前HEAD变化和1000项上限。当前新增部分为后端，未新增Windows原生验收记录；阶段3仍进行中。
+
+### 阶段 3：多选 Revert UI 与冲突后队列继续（2026-10-21，原生验收进行中）
+
+沿用已读GitApplyChangesProcess的逐提交策略。Log菜单按当前显示顺序收集选择并检查每条父数，保持1000项上限；后台通过Batch执行，显示成功／跳过／剩余数量。冲突后的Recovery保存精确gitdir、branch、HEAD、REVERT_HEAD及剩余项，继续时在同一写锁下复验，完成当前冲突提交后执行后续项。Abort成功及切换仓库清空窗口队列；重复恢复及外部Abort后旧恢复均拒绝。队列目前仅窗口内保留，重开窗口的剩余项恢复／覆盖本地修改后的保存重试尚未补齐，不视为阶段完成。
+
+新增真实Git测试覆盖解决首个冲突后继续下一条、未解决拒绝、重复恢复拒绝、外部Abort后拒绝旧队列。Revert共11项通过，共用sequencer原有3项通过；桌面检查和Windows release构建通过。原生独立PID38584及临时fixture `plico-revert-audit-6df9ee7c6b044acab49742f83c4d5d86`发现多选菜单启用查询错误：snapshot.commits已被移动到Review.commits，导致Revert禁用。已改为读取实际列表数据，正在重新构建，尚未认定UI通过。一次截图全黑被采集校验拒绝，随后有效截图确认两条选择及禁用状态；不把全黑结果记为验收。仅关闭自有38584，用户进程未动。
+
+阶段3本轮原生补验：修正菜单数据源后Windows release再次构建通过。独立PID42824、自有Windows fixture `Temp/plico-revert-audit-28ffd92ec7574116884b730c3e3945e5`，选中second与first两条，右键Revert启用；点击后依次生成f045199 Revert second与198412f Revert first，Git status为空。Log新增两条且保留原选择，右下角显示Operation completed—Reverted:2,Skipped:0,Remaining:0。截图`artifacts/revert-mvp-20261021/multi-menu.png`与`multi-completed.png`。仅关闭自有42824。当前验证多选成功链路，不等于冲突队列与editor桥接的原生验收；保存后重试、重开后队列恢复、主动分支Merge仍待完成。菜单多选仍显示单数Revert Commit，待对齐计数文案。
+
+### 阶段 3：主动分支 Merge 后端（2026-10-21，UI 待接）
+
+已完整读取参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的`branch/GitMergeOperation.java`，包括proposeSmartMergePerformAndNotify、doSmartMerge、doMerge、restoreLocalChanges与rollback：先保存文档，执行普通merge；本地修改覆盖提供Smart Merge确认，用GitPreservingProcess保存后再试；冲突进入公共resolver，未跟踪覆盖独立报错；已最新与普通成功区别通知；同名tag歧义重试完整ref；成功可提议删除源分支。另实际读取`tests/git4idea/branch/GitBranchWorkerTest.kt`的本地修改／空白与单行路径、同意／拒绝Smart Merge、简单合并、已最新、同名tag、已有冲突测试片段；多仓库回滚不作为本地单仓库事务实现依据。
+
+新增`branch_merge.rs`：准备时记录完整本地／远端分支ref及OID、当前分支、HEAD、gitdir；执行前复验，并拒绝已有操作／冲突、同一分支或detached HEAD。直接使用完整ref，避免先尝试歧义短名；不fetch、不改变tracking。复用Session写锁及stash保存恢复，save_changes必须由后续UI显式确认；未跟踪文件不自动保存或删除。结果区分成功、已最新、本地覆盖、未跟踪覆盖、冲突、取消和失败；取消后读取真实状态，未照搬Pull专属reset--merge清理行为。Smart Merge无未完成操作时恢复草稿，失败／冲突保留saved_oid，不能宣称已自动恢复。
+
+真实Git集成5项通过：完整ref与同名tag、已最新、本地编辑先拒绝且无stash副作用、明确Smart后合并并恢复不重叠修改、冲突保留可读取草稿及Abort、未跟踪覆盖保护、目标引用变化拒绝、远端分支引用创建双父merge且不依赖remote配置。当前仅后端；Smart保存记录跨继续／中止的自动恢复、UI入口／确认／删除建议及Windows原生验收仍待接入，阶段3未完成。
+
+### 阶段 3：分支 Merge 菜单与 Smart Merge 确认（2026-10-21，原生待验收）
+
+已读同一参考commit `ui/branch/GitBranchPopupActions.java::MergeAction`：标签表达所选分支合入当前分支，调用brancher.merge；本地非保护分支成功后PROPOSE删除，其他NOTHING。已读`branch/GitSmartOperationDialog.java`主体：覆盖本地修改后展示受影响文件、Smart按钮、Don't Merge取消按钮，取消默认焦点；Merge不提供Force按钮。上游中心可使用ChangesBrowserWithRollback或简单路径列表。
+
+新增`ui/branch_merge.rs`，接入顶部仓库分支弹窗的子菜单／右键以及Log分支树右键，非当前本地／远端分支可用；detached、已有操作或冲突时禁用。执行前保存共享文档，后台复用editor请求桥、操作取消及完成刷新，冲突打开公共冲突列表。Smart Merge明确确认后使用首次准备的引用身份重新执行，弹窗期间分支变化由后端拒绝；取消无stash副作用。列表复用有界checkout_files解析，仅作显示，不作为命令参数；不完整时提示。取消默认焦点，Enter按焦点处理。
+
+桌面编译检查通过；Windows构建进行中。当前差异／待办：未复用完整ChangesBrowserWithRollback；菜单暂为通用“Merge into Current”，未动态展示两侧分支；成功后的删除建议、Smart冲突后继续／中止自动恢复草稿，以及原生UI验收仍待完成。保存的stash OID在状态提示保留，但不能以提示替代恢复流程。未提交阶段完成记录。
+
+本轮Windows x64 release构建已完成，无编译警告；尚未启动该二进制进行Merge UI原生验收。
+
+### 阶段 3：Smart Merge 跨窗口草稿恢复（2026-10-21）
+
+补读同一参考commit `util/GitPreservingProcess.kt::execute/load/configureSaver`及`stash/GitStashChangesSaver.java::load`：保存与恢复使用不可取消区段，autoLoadDecision控制暂缓恢复，load只执行一次；stash pop在启用staging时带--index，自动恢复冲突的左右语义反转。之前GitMergeOperation的resolver完成后restoreLocalChanges为恢复依据。
+
+新增`merge_saved.rs`，在Smart Merge保存后、实际merge前记录工作树专属`plico-merge-saved`。记录包含原HEAD、目标提交、分支、stashOID，有界读取，拒绝链接／Windows reparse；不能覆盖旧记录。Merge Commit／Abort在消耗MERGE_HEAD前核验归属，结束后核验分支、实际HEAD或双父提交，再恢复且只pop仍在顶部的指定stash，保留原staged与unstaged。成功清理记录，恢复失败保留stash及记录并返回独立restore结果；UI不能仅凭合并命令成功显示全部完成，额外显示恢复错误并同步共享文档。
+
+本地保留差异：记录落盘而非仅保存在上游操作对象中，重开窗口后仍可在应用内继续／中止并恢复；外部完成合并、恢复失败后的显式重试／放弃记录入口尚未补齐，当前保留数据不等同于完整恢复管理。跨进程外部写入仍只能做身份复验，不宣称文件系统事务。
+
+真实Git分支Merge集成8项通过，覆盖中止后草稿恢复、重新构造Repository后完成冲突并恢复staged/unstaged、无关stash成为顶部时拒绝自动应用／删除、恢复自身冲突时保留草稿和记录。旧Abort测试从“stash保留”更新为“草稿已恢复且stash/记录清理”，与新增行为对应。共用conflicts6项及sequencer3项通过，桌面编译通过。本轮恢复逻辑Windows原生构建／验收待补，阶段3仍未完成。
+
+### 阶段 3：保留草稿的显式恢复入口（2026-10-21，原生待验收）
+
+依据已读`GitStashChangesSaver::showSavedChanges`及UnstashConflictResolver的Show Stash／Resolve动作，复用Plico既有Stash页，不另造stash清单。上游没有本地持久化记录清理动作；本地需明确解除应用记录，沿用既有Squash恢复确认结构，作为已记录的实现差异。
+
+`merge_saved::Pending`捕获记录、gitdir、HEAD、branch；Retry与Clear均在写锁下复验，存在Git操作／冲突时拒绝。显式重试还要求原始／合并结果身份、指定stash仍在顶部，以及tracked工作区／index无修改，避免失败pop部分成功后再次套用；未跟踪覆盖仍由Git拒绝。支持外部完成／中止后重试；Clear只移除记录，保留工作区、index及stash，不把Clear称作恢复。
+
+新增`ui/merge_recovery.rs`及标题栏条件入口，仓库刷新读取有界记录以便重开窗口后可见。窗口提供Show Stashes、条件启用Retry Restore、二次确认Clear；清理确认的Enter仅取消，显式按钮才清理。后台错误有详情，完成后共享文档与Log同步刷新。当前入口使用Plico已有顶部恢复动作位置，不复制IDE通知系统；此为结构差异。
+
+分支Merge真实Git集成10项通过，新增外部Abort后重试、弹窗期间新修改导致拒绝、旧分支快照拒绝、进行中冲突拒绝清理，以及清理只移除记录而保留stash和本地内容。桌面编译通过；Windows构建进行中，原生恢复窗口尚待验收。阶段3仍未完成。
+
+本轮包含显式恢复窗口的Windows x64 release构建已通过，无编译警告；尚未进行该窗口原生点选验收。
+
+阶段3 Smart Merge Windows原生补验（2026-10-21）：已核验自有PID35740仍运行且路径为验证目录Plico-merge.exe，在独立fixture `Temp/plico-merge-audit-258e0b11fa144c6aaf49e86f36bc57a2` 从顶部task分支子菜单执行Merge。首次显示覆盖文件review.txt的Smart确认，取消默认焦点；点击Don't Merge后HEAD仍为8611971、草稿末行FIVE保留、stash列表为空。再次执行并点击Smart Merge，实际HEAD变为目标22cb487，内容同时保留目标首行ONE和草稿末行FIVE；stash为空、plico-merge-saved不存在。Log自动刷新HEAD/main位置，状态显示Branch merged。截图`artifacts/merge-mvp-20261021/smart-confirmation.png`与`smart-completed.png`。此验收覆盖取消和成功恢复链路，不代替恢复失败窗口与Revert冲突队列验收；阶段3仍在进行中。
+
+### 阶段3：Revert冲突队列跨窗口恢复（2026-10-21）
+
+本轮重新读取参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的`applyChanges/GitApplyChangesProcess.kt::executeForRepository/executeForCommitChunk/handleLocalChangesDetected`：逐条执行，冲突暂停；保存重试排除successful与alreadyPicked。上游队列存在process对象中，本地窗口可独立关闭，因此增加Git工作树目录内的有界持久化记录，作为明确实现差异。
+
+新增`src/revert_operation/recovery_record.rs`：冲突返回前保存剩余OID顺序、当前HEAD及分支；读取拒绝非普通文件、链接／Windows reparse、超过72KB、超过1000项、重复或非法OID。继续前复验gitdir、HEAD、branch、REVERT_HEAD及磁盘队列归属；成功完成当前项后清理其记录，后续再次冲突保存新队列。共享sequencer Abort成功且实际操作结束后清理归属记录。`ui/sequencer.rs`重开窗口后的Continue在后台加载队列，不能默默只继续当前一项。
+
+真实Git测试12项Revert与3项sequencer通过；重构原冲突继续测试为销毁结果、重新创建Repository并从磁盘读取队列，确认继续当前项后执行剩余项并删除记录。新增Abort清理及非法记录拒绝测试。桌面编译检查通过。Windows构建进行中，原生重开窗口验收待补。此记录不宣称进程崩溃事务安全：命令完成与后续队列转移仍有间隙；外部完成／中止产生的过期记录需要显式处理入口，保存本地修改后的Revert重试也仍待完成。
+
+本轮包含Revert队列持久化的Windows x64 release构建通过（51.65秒，无警告）；原生重开与过期记录入口仍待后续验收／实现。
+
+### 阶段3：外部结束Revert后的队列管理（2026-10-21）
+
+再次读取同一参考commit的GitApplyChangesProcess::handleLocalChangesDetected及notifyResult，确认已完成项不重试。上游没有Plico持久化队列，因此显式清理为本地生命周期补充，不宣称复制上游对话框。结构沿用现有恢复动作：条件入口、待处理OID列表、说明、明确清理与Cancel；不自动推断外部操作后应该继续哪些提交。
+
+`revert_operation::Pending`读取队列和当前HEAD/branch快照；只允许在无进行中Git操作／无冲突时清理，在写锁内复验快照与队列。清理不修改index、worktree或refs。新Revert批次发现旧队列会先拒绝，避免执行后才发现不能保存新队列。UI后台刷新检测记录，`ui/revert_recovery.rs`提供中英文入口及有界滚动列表，Enter不触发清理。
+
+Revert真实Git13项及共用sequencer3项通过；新增外部Abort、进行中禁止清理、新批次拒绝覆盖、弹窗后切分支拒绝，以及同时保留staged/unstaged和HEAD的验证。桌面检查通过。Windows构建进行中，原生入口／取消／清理待验收。损坏记录仍报告错误，不自动删除；保存修改后重试及Merge成功删除建议仍待完成。
+
+本轮Windows x64 release构建通过（50.60秒）。原生自有PID40296、fixture `plico-revert-audit-7bb728348e6440bb98dc57086b9bd170`：Log右键first执行Revert，真实冲突产生plico-revert-queue，含HEAD470b662、refs/heads/main、target3dca114。关闭自有窗口，在该fixture使用宿主机Git abort，再以自有PID33032重开：Saved Revert Queue入口仍在，弹窗显示原target。Cancel后记录仍存在；重开弹窗显式Clear后记录删除，HEAD仍470b662、status为空、review.txt仍为second换行。截图`artifacts/revert-mvp-20261021/queue-review.png`和`queue-cleared.png`。仅关闭自有测试进程，用户Rebased未动。此次验收为外部Abort后的跨窗口发现／取消／清理，不替代冲突继续编辑器桥接验收。
+
+### 阶段3：Merge完成后的源分支删除建议（2026-10-21）
+
+已重新读取参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的GitMergeOperation::notifySuccess与GitBranchPopupActions.MergeAction::deleteOnMerge：仅本地非保护分支PROPOSE，成功通知提供显式Delete动作，不自动删除。Plico当前保护策略与Push一致为main/master；尚无上游自定义正则／provider配置，这是既有差异。
+
+`branch_merge::Prepared::prepare_deletion`点击时复验gitdir、合并目标分支身份、源tip和源提交被HEAD包含，再交给既有branch_delete准备／执行（worktree占用、upstream未合并检查、删除确认及恢复）。UI成功状态旁增加源分支名的Delete链接和Dismiss，替代上游通知动作；切仓／新Merge清空建议。取消、失败或仍保留Smart草稿时不显示。未直接自动删除，建议后源tip移动也不能删除新tip。修正Merge准备失败时残留“Merging…”状态。
+
+真实Git Merge11项及桌面检查通过，新增尚未合入拒绝、成功生成删除准备、切换当前分支拒绝、默认保护分支禁止建议、源tip变化拒绝。原生按钮验收待补；冲突后独立Continue完成的删除建议尚未接入，不能据此认定阶段完成。
+
+同轮完整读取GitApplyChangesLocalChangesDetectedNotification.kt：Show Files展示本地差异，有本地修改时提供保存重试；staging环境使用stash，其他遵循保存策略。结合GitApplyChangesProcess，重试过滤successful及alreadyPicked；Plico的Revert保存重试尚待接入。
+
+包含删除建议的Windows x64 release构建通过（52.51秒，无警告）；该新按钮原生验收尚未进行。
+
+### 阶段3：Revert保存重试后端（2026-10-21，UI待接）
+
+完整读取参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的`cherrypick/GitLocalChangesConflictDetector.kt`：匹配would be overwritten by操作名，不限包含文件列表的merge头。重读GitApplyChangesProcess::execute，确认显式保存、逐项执行、失败保留saver、全部完成后load。流式事件增加ApplyChangesWouldBeOverwritten，Revert结合非零退出、无操作/冲突、HEAD未变以及非untracked事件分类LocalChanges，不能把未跟踪覆盖当成可stash重试。
+
+BatchReport新增retry，包含未处理项并绑定本次已完成部分之后的HEAD，排除成功和跳过项。`revert_operation/save_retry.rs`在同一写锁下复验、显式Session.save、执行剩余批次，全部完成后restore_saved(--index)。新工作树专属plico-revert-saved记录保留stash/head/branch，8KB上限、独占创建、拒绝链接及reparse；保存失败若已产生stash也保留OID并停止。冲突／失败不自动pop，不覆盖上一份恢复记录。
+
+Revert真实Git16项通过：新增部分成功后只重试剩余且过期请求拒绝；暂存和未暂存内容成功恢复、stash/记录清理；重试冲突保留stash且重建Repository可读归属记录。此前LocalChanges测试的Failed断言更新为具体状态，其文件保留断言不变。桌面检查通过，diff --check干净。当前仅后端：UI按钮、跨Continue/Abort自动恢复、恢复失败显式入口尚未接入，不能视作保存重试功能交付。Windows本轮后端构建待补。
+
+补充未跟踪同路径覆盖测试：不提供保存重试、不生成stash、HEAD和未跟踪内容保持原样。Revert共17项通过，流式事件专项1项通过；Windows x64 release构建通过（53.30秒，无警告）。UI与跨操作恢复待接范围不变。
+
+### 阶段3：Revert保存重试UI与继续／中止恢复（2026-10-21）
+
+继续依据已读GitApplyChangesProcess、GitApplyChangesLocalChangesDetectedNotification、GitStashChangesSaver的显式保存／成功load／失败保留规则。Plico提供居中“本地修改阻止了撤销提交”确认，列出只包含剩余提交的OID，Save and Retry显式触发，Cancel/Enter不写入。它替代上游重要通知的保存动作，尚未复刻其Show Files入口；这是待补的结构差异。
+
+`ui/sequencer.rs`新增SaveRevert，复用文档保存、editor桥、取消、后台结果与刷新。将原五元结果改成命名SequenceCompletion，保留retry与recovery分工；保存／恢复错误不吞掉，恢复后重新读取真实冲突状态。后端Recovery::resume在写锁内读取并核验保存记录与原历史，全部剩余提交完成后restore(--index)；公共Revert Abort验证当前队列身份后恢复到该停止点的草稿。新批次遇到保留的saved记录先拒绝，不能覆盖旧草稿。实际HEAD／分支／顶部stash复验失败保留记录，恢复冲突记录反向语义。
+
+Revert18项和共用sequencer3项通过；新增重建Repository后Continue/Abort恢复staged+unstaged、并替换refs/stash模拟外部变化，确认完成Revert但报告恢复失败、旧草稿记录和新stash引用均保留。桌面检查通过，diff --check干净。原生保存确认及editor桥验收待补；保留草稿的显式恢复/清理入口尚待实现，阶段3未完成。
+
+本轮Windows x64 release构建通过（52.12秒）。原生自有PID29664、fixture `plico-save-revert-audit-b9feaca896be4b53986046fa7658d00b`：draft.txt同时含staged draft与unstaged draft；Log右键second触发保存重试确认。取消后实际HEAD仍209785b，index与工作区两版本均保留，stash为空。再次确认Save and Retry后生成d72eac3 Revert second，review.txt恢复first，draft两版本分别恢复，stash及plico-revert-saved清理，Log自动更新并显示成功1/跳过0/剩余0。首次过早点击的采样仍停留确认弹窗，未误记为完成；确认就绪后点击及Git断言通过。截图`artifacts/revert-mvp-20261021/save-confirmation.png`、`save-completed.png`。仅关闭自有29664；本场景无提交编辑器弹窗，不据此宣称冲突Continue编辑器桥验收通过。
+
+
+### 阶段3：保留的 Revert 草稿显式恢复（2026-10-21）
+
+重新读取参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `plugins/git4idea/backend/src/stash/GitStashChangesSaver.java::load/showSavedChanges/UnstashConflictResolver`：恢复使用 stash pop，暂存模式携带 --index；保留内容通过 Stash 界面查看，恢复冲突进入 resolver。Plico 保留同一工作区与暂存区恢复语义；跨窗口持久化记录及显式清理属于本地生命周期补充，不宣称是上游原生弹窗。
+
+`revert_operation/save_retry.rs::SavedPending` 捕获记录、HEAD 和分支；恢复前在操作锁内重新读取，要求原分支、原历史可达、保存的 stash 仍为顶部、无进行中操作／冲突、tracked 工作区和 index 干净。清理只删除应用记录，保留 stash 和全部文件；HEAD／分支改变后旧确认不能生效。`ui/revert_saved.rs` 提供查看 Stash、条件启用的恢复、二次确认清理及关闭；仓库刷新发现保留记录后显示标题栏入口。Enter 不执行清理。
+
+验证：桌面 cargo check 通过；Revert 真实 Git 集成 19 项通过。新增测试覆盖冲突中禁止恢复／清理、外部 abort 后重建 Repository 恢复 staged/unstaged、弹窗后新增修改拒绝恢复、切分支／新提交拒绝旧请求、清理记录保持 stash/index/worktree/HEAD。Windows release 正在构建，原生入口、取消及恢复交互尚待验收；不作为阶段完成或提交依据。
+
+本轮包含 Saved Revert Changes 入口的 Windows x64 release 构建通过（53.15 秒）；git diff --check 通过。原生界面验收仍待补，不宣称阶段3完成。
+
+
+阶段3保留草稿入口原生验收（2026-10-21）：最新Windows release以自有PID11808运行，独立fixture `plico-save-revert-audit-d79071c25f3146bcb85cda0226435450`。本项通过真实Git stash及按当前格式创建恢复记录构造“重开后存在保留草稿”状态，不冒充完整Revert失败链路；此前真实Git集成覆盖生成链路。原生标题栏入口可打开居中窗口，显示main、stash OID、说明及四个操作。点击Retry Restore后，宿主工作区草稿为unstaged draft，index为staged draft，HEAD仍b6a573e；stash列表为空，plico-revert-saved消失。完成后标题栏恢复入口消失，右下角显示Saved changes restored，取消/进度控件退出。截图`artifacts/revert-mvp-20261021/saved-revert-dialog.png`及`saved-revert-complete.png`。本项覆盖显式重试成功，不扩张为清理二次确认及全部异常原生验收；后者仍由集成测试及后续验收覆盖。
+
+
+### 阶段3：Revert 本地文件查看与重开后的冲突入口（2026-10-21）
+
+重读参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的 `GitApplyChangesLocalChangesDetectedNotification.kt`、`GitRevertAction.kt` 及 `GitApplyChangesProcess.kt::executeForCommitChunk`：本地覆盖错误提供Show Files和Save and Retry；菜单按选择数量切换单复数；每次序列遇到冲突均进入resolver，不能因恢复入口不同而省略。
+
+本地 `ui/sequencer.rs` 的重试确认新增Show Files，异步读取并去重tracked本地路径，在同一确认窗口展开有界文件列表，保留未处理提交队列和Save and Retry。没有自动stash或改变提交选择；取消后台读取不执行Git写入。与上游独立可查看差异的错误窗口有结构差异：本地展示只读路径列表，实际Diff继续由既有Commit面板提供。`ui/log_history.rs`多选改为Revert Commits并接入中文。重开后经Continue加载的Revert队列再次冲突，也会打开共用冲突窗口；此前仅新发起/内存Resume分支自动打开，已修正条件。
+
+桌面检查在Show Files及菜单接线后通过；冲突入口条件调整后的检查及本轮原生验收待补。阶段3仍进行中。
+
+本轮桌面检查及33项真实Git集成（Merge 11、Revert 19、sequencer 3）通过，git diff --check通过。已进一步复查GitMergeOperation::resolveConflicts/notifySuccess：冲突处理后成功仍有源分支删除建议。本地普通成功已有建议，但独立Continue路径尚未衔接，继续列为阶段3待完成项。
+
+
+### 阶段3：冲突后完成合并的删除建议（2026-10-21）
+
+复读相同参考commit的 `GitMergeOperation::resolveConflicts/notifySuccess`，上游解决冲突后仍按PROPOSE显示删除源分支动作。Plico `ui/branch_merge.rs` 保留本窗口主动Merge的Prepared身份；`ui/history_operations.rs::start_merge_operation` 在Continue前通过 `Prepared::matches_pending_merge` 核验gitdir、原HEAD/branch、源tip及MERGE_HEAD，完成后再次通过prepare_deletion检查包含关系与已有删除保护，然后显示已有显式删除建议。中止不产生建议；新合并／切仓清除旧上下文；结束后清理pending。建议仅为按钮，点击仍走删除确认和执行前复验。
+
+本轮保留差异：建议身份存在窗口生命周期中，关闭窗口后仍能继续Git合并和恢复草稿，但不推测应删除哪个来源分支；用户仍可走常规分支删除入口。这不是恢复数据丢失，未引入额外持久化元数据。上游长生命周期process建议也不作为跨重启保证。
+
+桌面检查通过，Merge集成12项通过。新增真实Git用例覆盖冲突开始/完成身份、冲突解决后prepare_deletion、Abort后禁止建议、源tip移动后拒绝旧身份。git diff --check通过；原生建议按钮及本轮Windows构建待补。
+
+
+本轮Windows release构建通过（1分02秒），完整 `cargo test --locked --no-default-features` 通过。原生自有PID42520、独立fixture `plico-merge-audit-76dadf16176a4fedb2d0a04d4d469709`：从分支菜单主动Merge task，产生真实冲突并自动打开resolver；Accept Theirs后显示All conflicts are resolved和顶部Complete Merge；点击完成产生daeefcc，父提交153626e/456ee1f，工作区干净，MERGE_HEAD消失。Log增加合并行，底部显示Merge completed及Delete branch task。点击建议进入已有Delete Branch确认，Cancel保留task=456ee1f及HEAD=daeefcc。截图在artifacts/merge-mvp-20261021的merge-continue-resolve/ready/final及merge-delete-ready.png。未自动删除源分支，未操作用户仓库。此验收覆盖冲突后完成及建议/取消；Revert继续的编辑器桥和新Show Files原生交互仍待补。
+
+
+### 阶段3：Revert跨窗口Continue及提交注释修正（2026-10-21）
+
+原生fixture `plico-revert-audit-980bf31a29a34267b6392caea27cd23f`，PID41864主动Revert first(1c7eec6)产生冲突，队列绑定HEAD702e3f9。Accept Theirs后工作区/index为base，重开为自有PID19276，Continue Revert从磁盘恢复并生成e81e255；队列及REVERT_HEAD消失、工作区干净、Log+1。截图revert-continue-conflict/reopened及revert-editor-ready.png存于artifacts/revert-mvp-20261021。Git本次未调用编辑器，不将截图文件名理解为弹窗证据。
+
+此原生验证发现提交说明泄漏 `# Conflicts:`。依据diagnosing-bugs流程新增真实Git回归 `continued_revert_does_not_commit_generated_conflict_comments`，修前0.23秒稳定失败。复读相同上游commit的GitImpl.revert及GitImplBase::loadFileAndShowInSimpleEditor：前者直接revert commit，后者过滤自身约定的注释行。Plico原始冲突生成未改commentChar，但sequencer Continue单独改为U+0001，使既有MERGE_MSG中的#不再被Git视作注释。仅移除Continue的配置覆盖后同一回归通过；不手工改写MERGE_MSG、不强制弹编辑器或改变原提交消息。进一步覆盖仓库自定义`;`注释字符，确认尊重仓库配置。源码位置src/sequencer_operation.rs，相关测试/桌面检查进行中，Windows修正后原生复验待补。
+
+
+阶段3修正后原生复验（2026-10-21）：Windows release构建通过（54.13秒）；修正后的Revert 19项、sequencer 4项及桌面检查通过。独立fixture `plico-revert-audit-074b6fc9fb224fa9b787a9086be94fa6`、自有PID15112，预置真实Git冲突及当前格式队列后经原生Continue生成e8b617；提交说明只包含正常Revert文本，没有Conflicts注释，REVERT_HEAD和队列均清理。此预置用于检查Continue，不冒充由本次窗口发起的完整冲突链路。
+
+随后给draft.txt分别写入staged draft和unstaged draft，原生Revert进入本地修改确认。Show Files展开Local Changes，只显示一次draft.txt，剩余目标e8b617及保存重试按钮保留。点击Cancel后通过真实Git和文件字节断言：HEAD仍e8b617，index为staged draft，工作区为unstaged draft，stash为空，plico-revert-saved/queue和REVERT_HEAD均不存在。截图`artifacts/revert-mvp-20261021/revert-current.png`、`revert-show-files.png`、`revert-files-cancel.png`。此项完成Show Files及取消验收；保留Merge草稿恢复窗口的原生验收仍待完成，阶段3尚未提交。
+
+
+阶段3Merge保留草稿入口原生验收（2026-10-21）：自有PID35928、独立fixture `plico-save-merge-audit-235e0f38ad434ccbb218353415624876`。用真实Git创建stash并按已核对格式预置plico-merge-saved，覆盖恢复入口本身；自动保存记录的生成链路由前述Smart Merge原生与集成测试覆盖。标题栏Saved Merge Changes打开居中窗口，展示分支、stash及四个操作；Retry Restore后HEAD仍76381f6，index为staged draft，工作区为unstaged draft，stash为空且恢复记录清理。等待后台刷新后入口消失，状态显示Saved changes restored。截图`artifacts/merge-mvp-20261021/saved-merge-dialog.png`及`saved-merge-complete.png`。本轮重跑Merge 12、Revert 19、sequencer 4项，共35项全部通过。此项不扩大为清理二次确认所有分支的原生验收。
+
+
+### 阶段3收尾：合并继续失败诊断与交付核对（2026-10-21）
+
+复读Rebased同一commit `plugins/git4idea/backend/src/merge/GitMerger.java::mergeCommit`，其runCommand.throwOnError保留Git失败。Plico原Continue/Abort只取外层Err，内层非零命令失败丢失详情。提取原展示判断后真实Git回归稳定失败（0.10秒，fatal输出丢失为空）；`merge_operation::diagnostic`现在合并command、state、restore错误，复用rebase已有输出筛选、URL凭据脱敏和长度限制。UI成功判断补充input_error检查，恢复错误不再遮蔽命令错误。两个诊断回归通过，覆盖真实Git非零退出及输入/状态/恢复错误组合与脱敏；Merge此前12项、Revert19项、sequencer4项及桌面检查通过。最新Windows release构建54.05秒通过。
+
+原生错误路径：独立fixture `plico-merge-audit-012e3319d19f44689332bab0371b41ac` 预置冲突后已暂存解决内容，用测试pre-commit hook拒绝提交；自有PID38644点击Complete Merge，弹窗准确展示fatal: Plico merge audit hook rejected，底部显示Merge operation failed。HEAD保持15443dc，MERGE_HEAD及已暂存resolved内容保留，可继续处理，不误报成功。截图artifacts/merge-mvp-20261021/merge-error-result.png。
+
+阶段3功能核对：指定本地/远端分支合并、显式Smart保存重试、覆盖文件提示、冲突继续/中止、删除来源分支建议与复验、保留草稿恢复；Log普通/root单选及多选Revert、merge commit禁用、空项跳过、部分完成与后续队列、保存重试、跨窗口继续/中止及外部结束后的记录处理均已接线，并有前述真实Git测试/原生主路径证据。阶段3可按功能阶段提交。
+
+保留差异：通知采用现有状态栏和恢复入口；Show Files在确认内列路径而非上游独立Diff窗口；保护分支沿用main/master默认策略；来源删除建议不跨窗口保存；应用Revert队列不是崩溃事务日志。精确像素、恢复记录清理二次确认的全部原生异常组合未作已验收声明；清理语义和过期拒绝已有真实Git测试。未强制弹出Git本来没有请求的提交编辑器。阶段4/5仍未实现，不将本次提交视为五阶段目标完成。

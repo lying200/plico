@@ -17,11 +17,14 @@ pub enum Event {
     LocalChangesWouldBeOverwritten,
     UntrackedFilesWouldBeOverwritten,
     RebaseNoChanges,
+    ApplyChangesWouldBeOverwritten,
 }
 // Modern headers from GitLocalChangesWouldBeOverwrittenDetector and
 // GitUntrackedFilesOverwrittenByOperationDetector. Stream evidence survives
 // bounded output-tail truncation; affected paths are collected separately later.
 const PATTERNS: &[(Event, &[u8])] = &[
+    // GitLocalChangesConflictDetector: catches revert/cherry-pick headers without a file list.
+    (Event::ApplyChangesWouldBeOverwritten, b"would be overwritten by "),
     // GitRebaseProblemDetector (apply backend; merge backend no longer emits this).
     (Event::RebaseNoChanges, b"no changes - did you forget to use 'git add'?"),
     (Event::LocalChangesWouldBeOverwritten, b"your local changes to the following files would be overwritten by"),

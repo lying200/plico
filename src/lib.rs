@@ -185,3 +185,9 @@ pub mod conflicts;
 pub mod sequencer_operation;
 
 pub mod external_merge;
+
+pub mod revert_operation;
+
+pub mod branch_merge;
+
+pub mod merge_saved;

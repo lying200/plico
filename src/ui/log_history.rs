@@ -323,6 +323,16 @@ impl Review {
                                             let create_owner=checkout_owner.clone(); let create_target=target.clone(); let create_path=path.clone();
                                             let reset_owner=checkout_owner.clone(); let reset_target=target.clone(); let reset_path=path.clone();
                                             let reset_enabled=checkout_owner.upgrade().is_some_and(|e|{let s=e.read(cx);!s.operation.busy() && !s.operation.saving_documents() && s.log_selection.ordered(&s.commit_ids()).len()==1});
+                                            let revert_owner=checkout_owner.clone(); let revert_path=path.clone();
+                                            let revert_targets = checkout_owner.upgrade().map(|e| {
+                                                let s=e.read(cx); s.log_selection.ordered(&s.commit_ids()).into_iter().map(str::to_owned).collect::<Vec<_>>()
+                                            }).unwrap_or_default();
+                                            let revert_enabled=checkout_owner.upgrade().is_some_and(|e| {
+                                                let s=e.read(cx); !s.operation.busy() && !s.operation.saving_documents()
+                                                    && !revert_targets.is_empty() && revert_targets.len() <= 1000
+                                                    && s.operation_state.as_ref().is_some_and(|state| !state.in_progress() && state.conflicts.is_empty())
+                                                    && revert_targets.iter().all(|id| s.commits.iter().any(|c| &c.id==id && c.parents.len()<=1))
+                                            });
                                             let parent_owner = checkout_owner.clone(); let child_owner = checkout_owner.clone();
                                             let adjacent_enabled = checkout_owner.upgrade().is_some_and(|e| {
                                                 let s = e.read(cx); !s.history_loading && s.log_selection.ordered(&s.commit_ids()).len() == 1
@@ -375,6 +385,9 @@ impl Review {
                                                 }))
                                                 .item(PopupMenuItem::new(t("Reset Current Branch to Here…")).disabled(!reset_enabled).on_click(move|_,w,cx| {
                                                     let _=reset_owner.update(cx,|s,cx|{if s.repo.path==reset_path{s.prepare_reset(reset_target.clone(),w,cx);}});
+                                                }))
+                                                .item(PopupMenuItem::new(t(if revert_targets.len() == 1 { "Revert Commit" } else { "Revert Commits" })).disabled(!revert_enabled).on_click(move |_,w,cx| {
+                                                    let _=revert_owner.update(cx,|s,cx|if s.repo.path==revert_path {s.revert_commits(revert_targets.clone(),w,cx);});
                                                 })).separator()
                                                 .item(PopupMenuItem::new(t("Edit Commit Message…")).action(Box::new(EditCommitMessage)).disabled(!reword_enabled).on_click(move |_, w, cx| {
                                                     let _ = reword_owner.update(cx, |s, cx| s.edit_commit_message(w, cx));

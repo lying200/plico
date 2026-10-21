@@ -4,6 +4,10 @@ mod conflicts;
 mod external_conflicts;
 mod sequencer;
 mod branch_management;
+mod branch_merge;
+mod merge_recovery;
+mod revert_recovery;
+mod revert_saved;
 mod reference_checkout;
 mod chrome;
 mod tool_rail;
@@ -101,10 +105,16 @@ pub struct Review {
     operation: plico::active_operation::Lifecycle,
     operation_task: Task<()>,
     status_message: Option<String>,
+    merged_branch: Option<plico::branch_merge::Prepared>,
+    pending_branch_merge: Option<plico::branch_merge::Prepared>,
     deleted_branch: Option<(PathBuf, Arc<plico::branch_delete::Prepared>)>,
     rebase_diagnostic: Option<String>,
     squash_undo: Option<Arc<plico::squash_undo::Undo>>,
     operation_state: Option<plico::operation_state::State>,
+    merge_recovery_available: bool,
+    revert_recovery_available: bool,
+    revert_saved_available: bool,
+    revert_recovery: Option<plico::revert_operation::Recovery>,
     repo: Repository,
     welcome: bool,
     ui_chinese: bool,
@@ -440,10 +450,16 @@ impl Review {
             operation: Default::default(),
             operation_task: Task::ready(()),
             status_message: None,
+            merged_branch: None,
+            pending_branch_merge: None,
             deleted_branch: None,
             rebase_diagnostic: None,
             squash_undo: None,
             operation_state: None,
+            revert_recovery: None,
+            merge_recovery_available: false,
+            revert_recovery_available: false,
+            revert_saved_available: false,
             limit,
             history_offset: 0,
             window_start: graph::Layout::default(),
@@ -987,6 +1003,12 @@ impl Render for Review {
                     .on_click(cx.listener(|s, _, _, cx| { s.error = None; cx.notify(); })))))
             .when(self.operation.busy() || self.busy || self.history_loading, |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
             .when_some(self.status_message.clone(), |v, text| v.child(div().max_w_full().min_w_0().truncate().child(text)))
+            .when_some(self.merged_branch.as_ref(), |v, merged| v.child(
+                Button::new("delete-merged-branch").link().xsmall()
+                    .label(format!("{} ‘{}’", t("Delete branch"), merged.reference.strip_prefix("refs/heads/").unwrap_or(&merged.reference)))
+                    .disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.delete_merged_branch(w,cx))))
+                .child(Button::new("dismiss-merge-deletion").ghost().xsmall().label(t("Dismiss"))
+                    .on_click(cx.listener(|s,_,_,cx| {s.merged_branch=None;cx.notify();}))))
             .when(self.deleted_branch.as_ref().is_some_and(|(path,_)|path==&self.repo.path), |v| v.child(
                 Button::new("restore-deleted-branch").link().xsmall().label(t("Restore deleted branch"))
                     .disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.restore_deleted_branch(w,cx)))))

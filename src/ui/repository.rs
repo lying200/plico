@@ -197,6 +197,12 @@ impl Review {
         self.rebase_diagnostic = None;
         self.squash_undo = None;
         self.operation_state = None;
+        self.revert_recovery = None;
+        self.merge_recovery_available = false;
+        self.merged_branch = None;
+        self.pending_branch_merge = None;
+        self.revert_recovery_available = false;
+        self.revert_saved_available = false;
         self.paths_menu
             .update(cx, |menu, cx| menu.reset(self.repo.path.clone(), cx));
         self.user_menu
@@ -365,6 +371,10 @@ impl Review {
             let result = cx
                 .background_spawn(async move {
                     let state = repo.operation_state(&token);
+                    let merge_recovery = repo.editor_directory(&token).and_then(|dir| plico::merge_saved::read(&dir))
+                        .map(|record| record.is_some()).unwrap_or(true);
+                    let revert_recovery = plico::revert_operation::Recovery::record_exists(&repo, &token).unwrap_or(true);
+                    let revert_saved = plico::revert_operation::SavedChanges::record_exists(&repo, &token).unwrap_or(true);
                     let result = if local {
                         repo.local_changes(&token).map(|f| (None, Some(f)))
                     } else if let Some(filter) = &text_filter {
@@ -403,7 +413,7 @@ impl Review {
                             .transpose()?;
                         Ok((window, local))
                     });
-                    (result, state, graph_model)
+                    (result, state, graph_model, (merge_recovery, revert_recovery, revert_saved))
                 })
                 .await;
             let _ =
@@ -414,6 +424,9 @@ impl Review {
                     this.busy = false;
                     this.history_loading = false;
                     this.operation_state = result.1.ok();
+                    this.merge_recovery_available = result.3.0;
+                    this.revert_recovery_available = result.3.1;
+                    this.revert_saved_available = result.3.2;
                     match result.0 {
                         Ok((
                             Some(history::Window {

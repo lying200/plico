@@ -20,6 +20,8 @@ impl Review {
                         ("Update Project", 3),
                         ("Pull", 1),
                         ("Fetch", 2),
+                        ("Git Remotes", 4),
+                        ("Clone Repository…", 5),
                     ] {
                         let owner = owner.clone();
                         menu = menu.item(PopupMenuItem::new(t(label)).disabled(disabled).on_click(
@@ -33,6 +35,8 @@ impl Review {
                                         0 => s.open_push(window, cx),
                                         1 => s.open_pull(window, cx),
                                         3 => s.open_project_update(window, cx),
+                                        4 => s.open_remotes(window, cx),
+                                        5 => s.open_clone(window, cx),
                                         _ => s.start_fetch(window, cx),
                                     }
                                 });

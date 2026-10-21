@@ -233,3 +233,83 @@ fn verify_push_auth_failure(dismiss: bool) {
 fn push_http_authentication_rejection_preserves_failure() { verify_push_auth_failure(false); }
 #[test]
 fn push_http_prompt_dismissal_cancels_operation() { verify_push_auth_failure(true); }
+
+// Define Remote uses ls-remote, not fetch: authentication must work without
+// adding configuration, downloading objects, or changing repository refs.
+fn verify_remote_access(dismiss: bool, authorized: bool, clone: bool) {
+    let fixture = Fixture::new();
+    let source = Fixture::new();
+    source.git(&["config", "user.name", "Fixture"]);
+    source.git(&["config", "user.email", "fixture@example.invalid"]);
+    source.git(&["config", "commit.gpgsign", "false"]);
+    fs::write(source.0.join("review.txt"), "remote content\n").unwrap();
+    source.git(&["add", "review.txt"]);
+    source.git(&["commit", "-m", "source"]);
+    source.git(&["update-server-info"]);
+    let config_before = fs::read(fixture.0.join(".git/config")).unwrap();
+    let (url, stop, server) = http_server(authorized.then(|| source.0.join(".git")));
+    let token = Cancel::default();
+    let requests = Requests::new(token.clone());
+    let worker_token = token.clone();
+    let worker_requests = requests.clone();
+    let helper = fixture.helper();
+    let repo = Repository::new(&fixture.0);
+    let destination = fixture.0.join("cloned repository");
+    let worker_destination = destination.clone();
+    let worker = thread::spawn(move || {
+        if clone {
+            let request = plico::clone_repository::Request { source: url, destination: worker_destination,
+                depth: None, recurse_submodules: false };
+            plico::clone_repository::execute(&request, &worker_token, &Default::default(), Some((&worker_requests, &helper)))
+                .map(|report| report.outcome)
+        } else {
+            plico::remote_management::check_access(&repo, &url, &worker_requests, &helper, &worker_token, &Default::default())
+        }
+    });
+    let start = Instant::now();
+    let mut prompts = 0;
+    while !worker.is_finished() {
+        if let Some(prompt) = requests.take_pending() {
+            prompts += 1;
+            assert_eq!(prompt.kind, Kind::HttpUsername);
+            if dismiss { drop(prompt); }
+            else { prompt.answer_credentials("fixture-user".into(), "fixture-password".into()).unwrap(); }
+        }
+        if start.elapsed() > Duration::from_secs(10) {
+            token.cancel(); stop.cancel();
+            panic!("Remote access authentication did not finish");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let outcome = worker.join().unwrap().unwrap();
+    stop.cancel();
+    let sent_auth = server.join().unwrap();
+    assert_eq!(prompts, 1);
+    assert_eq!(sent_auth, !dismiss);
+    assert_eq!(outcome.stopped, dismiss.then_some(StopReason::Cancelled));
+    assert_eq!(outcome.status.success(), authorized && !dismiss);
+    if authorized && !dismiss {
+        if clone { assert_eq!(fs::read_to_string(destination.join("review.txt")).unwrap(), "remote content\n"); }
+        else { assert!(String::from_utf8_lossy(&outcome.stdout.bytes()).contains("refs/heads/main")); }
+    } else if clone {
+        assert!(!destination.join("review.txt").exists());
+    }
+    assert_eq!(fs::read(fixture.0.join(".git/config")).unwrap(), config_before);
+    let refs = Command::new("git").arg("-C").arg(&fixture.0).arg("show-ref").output().unwrap();
+    assert!(refs.stdout.is_empty());
+    assert!(!fixture.0.join("review.txt").exists());
+    assert!(requests.take_pending().is_none());
+}
+#[test]
+fn remote_access_authentication_checks_refs_without_fetching() { verify_remote_access(false, true, false); }
+#[test]
+fn remote_access_authentication_rejection_remains_failure() { verify_remote_access(false, false, false); }
+#[test]
+fn remote_access_authentication_dismissal_cancels_check() { verify_remote_access(true, false, false); }
+
+#[test]
+fn clone_http_authentication_success_opens_complete_worktree() { verify_remote_access(false, true, true); }
+#[test]
+fn clone_http_authentication_failure_is_not_success() { verify_remote_access(false, false, true); }
+#[test]
+fn clone_http_authentication_dismissal_cancels_operation() { verify_remote_access(true, false, true); }

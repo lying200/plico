@@ -191,3 +191,10 @@ pub mod revert_operation;
 pub mod branch_merge;
 
 pub mod merge_saved;
+
+pub mod remote_management;
+pub mod identity_config;
+
+pub mod clone_repository;
+
+pub mod clone_destination;

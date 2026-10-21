@@ -2924,3 +2924,168 @@ Revert18项和共用sequencer3项通过；新增重建Repository后Continue/Abor
 阶段3功能核对：指定本地/远端分支合并、显式Smart保存重试、覆盖文件提示、冲突继续/中止、删除来源分支建议与复验、保留草稿恢复；Log普通/root单选及多选Revert、merge commit禁用、空项跳过、部分完成与后续队列、保存重试、跨窗口继续/中止及外部结束后的记录处理均已接线，并有前述真实Git测试/原生主路径证据。阶段3可按功能阶段提交。
 
 保留差异：通知采用现有状态栏和恢复入口；Show Files在确认内列路径而非上游独立Diff窗口；保护分支沿用main/master默认策略；来源删除建议不跨窗口保存；应用Revert队列不是崩溃事务日志。精确像素、恢复记录清理二次确认的全部原生异常组合未作已验收声明；清理语义和过期拒绝已有真实Git测试。未强制弹出Git本来没有请求的提交编辑器。阶段4/5仍未实现，不将本次提交视为五阶段目标完成。
+
+
+### 阶段4源码对照起点（2026-10-21，尚未实现）
+
+阶段3已提交0a2a0e6后开始本阶段。继续参考4aec35256d765c217aa0d662b82ac4e860c396fd，已读取GitConfigureRemotesDialog.kt：名称/URL表格、origin优先、增删改及双击编辑、删除确认；编辑先rename再set-url，任何失败需刷新真实状态而非假设事务回滚；添加/编辑可选fetch。已读取GitDefineRemoteDialog.kt：名称格式/唯一性与非空URL验证、默认勾选Fetch、异步ls-remote和loading、关闭取消scope、访问失败提示允许继续确认。
+
+已读取GitUserNameNotDefinedDialog.kt：Name/Email两个输入、非空和@校验、全局配置复选框、明确设置后继续提交。其实际配置写入/提交前检查调用链尚待读取，不把界面声明当作已验证写入语义。GitCheckoutProvider.java已读clone任务段：后台进度、成功后checkout listener打开、失败通知、委托CloneableProjectsService；取消及残留目录具体处理仍待沿该委托读取，不能据此决定删除目录。
+
+本地候选映射：欢迎页/项目入口新增Clone，仓库菜单新增Remotes管理，提交前身份引导复用现有commit流程；操作层复用Git子进程、askpass、取消和刷新机制。下一步先读完整clone生命周期、Git底层remote命令及identity检查/写入，再写后端真实Git测试。以上为已确认规则与后续读取边界，不是实现或原生验收完成记录。
+
+
+### 阶段4远端与身份配置后端（2026-10-21，UI未接）
+
+继续读取同一参考commit的GitImpl.addRemote/removeRemote/renameRemote/setRemoteUrl与GitRemoteTest（HTTP认证/错误密码/浅克隆用例，上游该测试标注缺服务器而禁用）。`remote_management.rs`按GitConfigureRemotesDialog顺序实现增删改和origin优先列表，保留fetch/push URL及远端配置快照；执行前在工作区操作锁内复验来源gitdir、名称唯一性及旧配置，外部修改后拒绝旧弹窗。URL采用独立参数，拒绝选项形态/控制字符；不输出凭据或给Remote实现Debug。访问检查复用askpass和可取消ls-remote；fetch仍由后续UI显式选项驱动。
+
+真实Git表明多URL的set-url可能失败，沿上游顺序保留已完成rename及未变URL，不声称事务回滚。测试覆盖该部分成功、额外push URL保留、branch.remote随rename更新、同名冲突、跨仓/过期快照、非法参数、预先取消、无写入访问检查、含点名称隔离、HEAD/index/worktree不受配置操作影响。
+
+完整读取GitCheckinHandlerFactory.kt的GitUserNameCheckinHandler检查/写入段及GitConfigUtil.setValue、GitUserRegistry.readCurrentUser。上游按显式范围顺序写user.name/user.email，失败不继续提交；表单要求非空及@。`identity_config.rs`提供独立读取、校验、Repository/Global显式范围、逐命令结果与最终有效配置；不自动提交。保留差异：Plico会对空email也提示配置，而上游Registry只有空name返回null；这是防止已有name但缺email时反复提交失败的引导。测试目前只写临时仓库local配置，不改真实global；Global隔离测试、提交UI恢复与原生验收尚待补。
+
+CloneableProjectsService的runCloneTask/cancelClone/onCancel已读：取消交给进度指示器，状态区分SUCCESS/FAILURE/CANCEL，没有在该层递归删除目录。GitImpl.clone已读：progress、Windows longpaths、可选depth与recurse-submodules、使用默认Git执行环境。本轮尚未实现Clone，也未据此假定所有失败目录已由Git清理。
+
+
+### 阶段4身份配置提交入口与原生验证（2026-10-21）
+
+沿已读GitUserNameNotDefinedDialog/GitUserNameCheckinHandler实现`identity_dialog.rs`：姓名/邮箱行、默认不选的全局范围、设置并提交/取消、姓名初始焦点、异步保存与关闭取消。中文文案已接入。`ui/identity.rs`后台预检配置，经操作身份及仓库路径核验后继续原提交；接入LocalView的普通/Amend/提交并推送以及SourceChanges变更块提交。既有暂存恢复动作跳过身份门禁。没有配置成功时不进入commit/index写入。全局默认不选为明确的局部作用域策略；当前不持久化该复选框，也不猜测操作系统用户名。
+
+Identity测试5项（其中一项为父测试启动的隔离子进程入口）、Remote6项通过，桌面检查通过；全局写入仅在子进程设置GIT_CONFIG_GLOBAL到测试临时文件，父进程和真实全局配置未改。Windows release构建44.52秒通过。
+
+原生PID42336、fixture `plico-identity-audit-c90da013ce224615b07369347d9591a0`：本地姓名/邮箱为空，勾选draft.txt并输入消息后点击Commit，显示居中配置窗口。Cancel后HEAD49a3600、空身份、index staged draft和工作区unstaged draft均保持。随后填Native User/native@example.invalid，未选global。夹具最初追加了重复user键，Git拒绝普通config写入，窗口显示错误并保留输入、没有提交；只在测试夹具中整理为单个空值后原窗口重试，生成0164278，作者为输入身份，提交选中文件，status干净。消息在测试SendKeys时受中文IME影响成为Identitynativetest；不将该输入工具行为记为产品消息转换。截图保存在artifacts/identity-mvp-20261021。普通提交主路径及取消/配置失败重试已验收；Amend/部分提交/提交并推送的独立原生回归仍待补。远端UI与Clone尚未完成，阶段4不提交。
+
+### MVP 第 4 阶段：Define Remote 连接检查接线（进行中）
+
+参考仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，本轮实际重读
+`plugins/git4idea/backend/src/remote/GitConfigureRemotesDialog.kt` 和
+`GitDefineRemoteDialog.kt`。后者名称／URL 校验后异步 `lsRemote`，检查时禁用输入，
+Fetch 默认勾选，URL 改动清除访问错误，dispose 取消检查；名称已有值时优先聚焦 URL。
+注意 `withOKEnabled()` 不能单独解释为“再次确定就跳过连接检查”：当前读取的
+`doOKAction` 每次仍会调用 `checkUrlAccess`，没有验证到无条件绕过检查的执行路径。
+
+本地 `remote_management::validate_edit` 提供只读预检查；实际 execute 仍在操作锁内
+重做同一检查，防止表单打开后其他工具修改配置。修复 check_access 只启动会话、
+却没有设置 GIT_ASKPASS 的遗漏，显式传入并验证 helper 路径，与既有 Fetch 一致。
+`tests/fetch_auth.rs` 增加本地 HTTP 认证成功／拒绝／关闭认证三条真实 Git 测试，
+验证 refs 查询成功、取消传递、无配置／引用／工作区写入；三条均通过。
+
+新增 `src/define_remote_dialog.rs` 为独立表单，包含默认 Fetch、异步校验、认证弹窗、
+busy 状态、取消与输入保留。尚未接入远端管理列表／写操作回调，未做原生视觉验收，
+因此不算第 4 阶段可见功能交付；编译时的未使用警告来自待接入表单，不予掩盖。
+剩余为管理列表和操作生命周期接线、Clone、Windows 原生验收；本阶段尚不提交。
+
+### MVP 第 4 阶段：远端管理列表接线（继续进行）
+
+本轮进一步读取同版本 `GitConfigureRemotesDialog.kt::editRemote/doFetch/changeRemote/runInModalTask`：
+无变化编辑不触发写入或 Fetch；Fetch 刷新后匹配远端名称和 URL；rename 成功但 set-url
+失败时不能假装整体回滚。本地 `src/remotes_dialog.rs` 提供名称／URL 表格、新增／编辑／
+删除、双击编辑和删除确认；URL 展示隐藏 HTTP 凭据和查询参数，编辑表单保留真实值。
+`src/ui/remote_management.rs` 接入 Git 菜单和 ConfigureRemote 操作生命周期，所有结果
+重新读取配置；有真实命令且成功、名称与 URL 仍匹配时，调用 `start_fetch_named`，只取
+该远端。暂保留差异：单仓库表格、文本 Edit 按钮与加减字符图标，尚待 Windows 视觉核对。
+
+远端集成测试 8 条通过；桌面编译无警告；Windows release 构建通过（44.40 秒，随后
+增加了无变化编辑不 Fetch 和 URL 匹配检查，后续原生测试须重新构建包含这两项）。
+列表／表单现在有实际入口，不再是上一记录中的未使用组件；原生交互仍待验收。
+第 4 阶段尚缺 Clone，未提交；第 5 阶段未开始。
+
+### MVP 第 4 阶段：Clone 后端与认证（进行中）
+
+实际读取同参考版本 `GitCloneDialogComponent.kt`、`GitCloneUtils.kt`、
+`GitCheckoutProvider.java::clone`、`GitImpl.java::clone`，以及平台
+`CloneDvcsValidationUtils.java`、`CloneDvcsValidationUtilsTest.kt` 和
+`CloneableProjectsService.kt::runCloneTask/cancelClone/removeCloneableProject`。
+规则：目标目录可不存在或为空；创建父目录后克隆；显式进度；可选 depth；成功后才通知
+打开项目；取消是独立结果，不等于成功，也不等于目录已清理。读取到的服务层没有额外
+递归删除目录的流程。URL 接受 HTTP／SSH／本地路径，去掉粘贴的 `git clone ` 前缀。
+
+本地新增 `src/clone_repository.rs`：参数直接传 Git，不经 shell；复用进程树取消与有界
+进度尾部、AskPass；Windows 加 core.longpaths=true。父目录创建后再次校验目标为空。
+支持 depth 和可选递归子模块；成功判定同时检查退出码、停止原因和输入错误。失败时
+保留 Git 实际留下的内容，报告 destination_exists，应用不额外删除；UI 尚待接入。
+保留差异：拒绝作为目标的符号链接；`--` 放在源地址前，同时阻止参数形式地址，理由
+是避免用户粘贴文本成为 Git 选项；具体项目选择／打开策略复用现有窗口流程。
+
+`tests/clone_repository.rs` 6 条测试通过：普通克隆及 tracking、空目录／非空保护、
+提前取消不创建父目录、失败不删除同级数据、浅克隆 depth、URL 形式。HTTP 认证测试
+复用本地服务和真正 AskPass helper，覆盖克隆成功／拒绝／关闭认证，不访问外部远端。
+这些仅证明后端，不能作为 Clone 界面或第 4 阶段完整验收；仍需 UI 和 Windows 验证。
+
+### MVP 第 4 阶段：Clone 界面接线与 Windows 路径问题
+
+新增 `src/clone_dialog.rs`／`src/ui/clone.rs`，欢迎页和 Git 菜单均有 Clone 入口；表单
+URL、目标目录和文件夹选择、浅克隆／depth、子模块选项；执行时禁用输入并显示有界进度。
+关闭弹窗请求取消，操作所有权保留到进程真正结束；成功且窗口仍打开才调用现有
+choose_project_window。失败保留输入和真实残留目录提示。继续参考同版本
+DvcsCloneDialogComponent 的 URL／Directory 行和首个 URL 聚焦。保留待办：URL 推导
+默认目标目录、记忆目录，尚未实现，不宣称完整视觉对齐。
+
+Windows 构建通过（55.29 秒），原生欢迎页和 Clone 表单已截图。首次本地源克隆失败，
+显示 fatal: Could not read from remote repository，目标没有创建。最小宿主 Git 对照
+确认普通 C:\\ 路径 exit=0，相同路径加 Rust canonicalize 返回的 verbatim 前缀
+\\\\?\\ 后 exit=128，stderr 为 hostname contains invalid characters。
+本地 `clone_repository::git_local_path` 转回普通盘符／UNC 表达（保留 canonical 结果），
+Windows core.longpaths=true 继续保留。正在重跑原始原生流程，不将编译通过当成修复验收。
+
+修复后原生复验通过：自有进程 PID 27624，欢迎页填写同一个本地 source 和 destination，
+点击 Clone 后成功打开 destination 项目，Log 显示 Clone fixture、hello.txt、main 和
+origin/main。源与目标 HEAD 均为 c7f90f91406020ec49f48afde1700aa5d506626e；原始失败
+同条件已不复现。截图 `artifacts/clone-mvp-20261021/dialog.png`、
+`windows-path-failure-before.png`、`opened-after-clone.png`。复验前 6 条克隆集成测试
+通过，新 Windows release 构建通过（55.29 秒）。只关闭本次启动的 Plico-clone.exe。
+仍待：远端管理完整原生交互、Clone 取消／失败重试、默认路径与相关配置引导的阶段审计。
+
+### MVP 第 4 阶段：远端管理 Windows 原生验证
+
+自有 Plico-clone.exe PID 36644，使用前一轮 Clone 创建的 destination 临时仓库。
+Git 菜单进入 Git Remotes 后显示 origin；新增 audit，URL 指向同一临时 source，
+保留默认 Fetch，完成后真实 refs/remotes/audit/main 指向源 HEAD。
+选择 audit 后点击 Edit，改名为 audit-renamed，完成后对应远端引用迁移。
+点击删除先取消：Git remote 仍有 audit-renamed 和 origin；再次删除并确认：
+Git remote 只剩 origin，旧 audit-renamed/main 引用不存在（show-ref exit=1）。
+HEAD 始终为 c7f90f91406020ec49f48afde1700aa5d506626e，status --porcelain 始终为空。
+新增／编辑执行时显示 Updating remote configuration，结束后列表重读，Log 引用同步。
+截图位于 `artifacts/remotes-mvp-20261021/`。仅验证工具栏编辑入口，双击入口未原生验证。
+
+原生核对发现远端 Name 复用了作者“姓名”翻译，Edit／Remove 缺中文；现已分别改为
+Remote name（名称）、编辑、删除。截图来自改文案前构建，待最后构建复核文案。
+继续读取 ClonePathProvider.java 和 FilePathDocumentChildPathHandle.kt：默认父目录用
+上次克隆路径；根据 URL 最末段推导子目录，用户修改目录后停止自动覆盖。这部分仍待接入。
+阶段尚未提交；下一步补 Clone 默认目录行为及剩余原生取消／重试，然后做阶段完整审计。
+
+### MVP 第 4 阶段：Clone 默认目录行为
+
+按前轮实际读取的 ClonePathProvider／FilePathDocumentChildPathHandle 接入
+`src/clone_destination.rs` 和 Clone 表单 URL／目录事件。默认父目录取上次有效克隆请求
+的父目录，无记录则用用户主目录（与 IDE 的 projects base dir 保留差异）；URL 的末段
+去 `.git` 并解码后建议子目录，拒绝解码后包含路径分隔符／控制字符的名称。
+一旦手动改目录或使用选择器，就停止后续 URL 自动覆盖；不扫描目录／仓库。
+只保存目录，不保存可能包含凭据的 URL 历史；读取最多 32 KiB，拒绝相对路径和损坏数据。
+配置写失败不阻断实际克隆。3 条模型测试通过，桌面编译通过；原生事件与记忆回读仍待核对。
+
+### MVP 第 4 阶段：取消、重试、目录记忆与最终构建复核
+
+继续沿用上述已读 Rebased 4aec352 的 Clone 生命周期与目录建议规则。
+原生取消验证使用独立 loopback TCP fixture：Git 停止后表单恢复可编辑，保留输入，
+明确提示残留目录，不自动删除。更改 URL 后手动目录保持不变；换到有效本地源和新目录
+retry 后成功打开，源与目标 HEAD 均为 c7f90f91406020ec49f48afde1700aa5d506626e。
+截图：artifacts/clone-mvp-20261021/clone-cancelled.png、
+clone-manual-directory-preserved.png、clone-retry-opened.png。
+
+最终 Windows 构建（43.00 秒）在自有 PID 25212 上复核：重新启动后读取上次父目录，
+URL 推导 repo 子目录；执行中只有底部一个 Cancel，点击后显示已取消和真实残留目录，
+恢复 Clone／Cancel 按钮及输入框。截图 clone-remembered-parent.png、
+clone-single-cancel.png、clone-single-cancelled.png 位于同一目录。测试 app 和本地慢速
+HTTP fixture 均已按进程路径关闭，未操作用户程序。
+
+本地 src/ui/clone.rs 将失败后的目录存在性检查移到后台（优先使用后端 Report），
+避免网络／WSL 文件系统元数据查询阻塞 UI。36 项定向测试通过：Clone 6、HTTP 认证14、
+身份5、远端8、目录建议3；桌面 cargo check 通过，完整核心回归另行运行。
+第 4 阶段仍未提交；提交前需完成完整回归结果及剩余阶段审计，不将像素级一致性视为已证明。
+
+阶段提交验收：完整 `cargo test --locked --no-default-features` exit=0。
+功能范围由 Clone 后端／表单／原生成功、取消、重试，远端 CRUD／自动 Fetch 原生流程，
+身份本地／隔离全局配置测试及原生配置后提交覆盖。源码依据与保留差异见以上记录。
+未原生逐项覆盖：远端双击编辑、最新远端中文标签、Amend／按块／Commit and Push 各自
+触发身份弹窗的组合；后三者接入共享提交前置检查，不能把共享代码当作独立原生验收。
+精确图标／间距仍保留差异，不宣称像素级还原。第 4 阶段功能交付完成，进入提交。

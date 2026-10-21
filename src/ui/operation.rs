@@ -3,6 +3,9 @@ use super::*;
 use plico::active_operation::{Id, Kind, Phase};
 impl Review {
     pub(super) fn commit_chunk(&mut self, event: crate::source_changes::CommitChunk, window: &mut Window, cx: &mut Context<Self>) {
+        self.with_commit_identity(window,cx,move |s,w,cx|s.commit_chunk_with_identity(event,w,cx));
+    }
+    fn commit_chunk_with_identity(&mut self, event: crate::source_changes::CommitChunk, window: &mut Window, cx: &mut Context<Self>) {
         let Some((id, token)) = self.begin_operation(Kind::Commit, Phase::Executing, cx) else { return; };
         let repo = self.repo.clone();
         self.status_message = Some(t("Committing…").into());

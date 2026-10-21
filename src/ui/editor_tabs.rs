@@ -189,10 +189,13 @@ impl Review {
                 |s, view, event: &crate::local_view::Submit, w, cx| {
                     let view = view.clone();
                     let (push, recover) = (event.0, event.1);
-                    s.with_saved_documents(w, cx, move |s, w, cx| {
-                        view.update(cx, |v, cx| v.submit_saved(push, recover, w, cx));
-                        s.sync_document_lock(cx);
-                    });
+                    let submit = move |s: &mut Self, w: &mut Window, cx: &mut Context<Self>| {
+                        s.with_saved_documents(w, cx, move |s, w, cx| {
+                            view.update(cx, |v, cx| v.submit_saved(push, recover, w, cx));
+                            s.sync_document_lock(cx);
+                        });
+                    };
+                    if recover {submit(s,w,cx);} else {s.with_commit_identity(w,cx,submit);}
                 },
             )
             .detach();

@@ -898,6 +898,9 @@ impl Review {
         });
     }
     pub(super) fn start_fetch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_fetch_named(None, window, cx);
+    }
+    pub(super) fn start_fetch_named(&mut self, name: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         if self.operation.busy() || self.welcome {
             return;
         }
@@ -931,7 +934,11 @@ impl Review {
         let repo = self.repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
-            let result = repo.fetch_specs(&token).and_then(|specs| {
+            let result = repo.fetch_specs(&token).and_then(|mut specs| {
+                if let Some(name) = &name {
+                    specs.retain(|spec| spec.remote() == name);
+                    if specs.is_empty() { return Err("Fetch remote is no longer configured".into()); }
+                }
                 plico::fetch::execute_authenticated(
                     &repo,
                     &specs,

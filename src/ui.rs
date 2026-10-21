@@ -20,6 +20,9 @@ mod log_history;
 mod log_viewport;
 mod log_selection;
 mod operation;
+mod identity;
+mod remote_management;
+mod clone;
 mod preview;
 mod remote;
 mod repository;
@@ -764,6 +767,7 @@ impl Render for Review {
                         .child(div().px_3().py_2().rounded(px(6.)).bg(rgb(SELECT)).child(t("Projects"))))
                     .child(v_flex().flex_1().h_full().min_w_0().p_4().gap_3()
                         .child(h_flex().h(px(40.)).flex_shrink_0().border_b_1().border_color(rgb(BORDER)).child(div().flex_1().child(t("Recent Projects")))
+                            .child(Button::new("clone-repository").label(t("Clone Repository…")).disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.open_clone(w,cx))))
                             .child(Button::new("open-repository").label(t("Open Repository…")).on_click(cx.listener(|s, _, w, cx| s.open(w, cx)))))
                         .when(self.recent_projects.is_empty(), |v| v.child(div().text_color(rgb(MUTED)).child(t("Browse history. Review changes."))))
                         .when_some(self.error.clone(), |v, error| v.child(div().text_color(rgb(0xf2a6a6)).child(error)))

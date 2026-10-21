@@ -18,6 +18,8 @@ pub enum Kind {
     Merge,
     Restore,
     Recovery,
+    ConfigureRemote,
+    Clone,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {

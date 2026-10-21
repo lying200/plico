@@ -304,6 +304,9 @@ impl Review {
                 .into_any_element();
         }
         if self.project_visible {
+            let source = self.active_file_index().and_then(|i| self.file_tabs.get(i)).map(|tab| tab.read(cx).path.clone())
+                .or_else(|| self.active_diff_index().and_then(|i| self.tabs.get(i)).map(|tab| tab.read(cx).target.change().path.clone()));
+            if let Some(view) = &self.project_view { view.update(cx, |v, cx| v.set_current_source(source, cx)); }
             return div().size_full().children(self.project_view.clone()).into_any_element();
         }
         v_flex().size_full().min_h_0().bg(rgb(PANEL))

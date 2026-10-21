@@ -1,0 +1,170 @@
+//! Explicit Project-tree navigation; never opens an editor or scans closed siblings.
+use super::*;
+impl ProjectView {
+    pub(crate) fn set_current_source(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
+        if self.current_source != path {
+            self.cancel_reveal();
+            self.current_source = path;
+            cx.notify();
+        }
+    }
+    pub(super) fn cancel_reveal(&mut self) {
+        if self.revealing {
+            self.revealing = false;
+            self.token.cancel();
+            self.generation += 1;
+            self.task = Task::ready(());
+            self.loading = None;
+        }
+    }
+    pub(super) fn collapse_all(&mut self, cx: &mut Context<Self>) {
+        self.cancel_reveal();
+        self.cancel_preview();
+        self.token.cancel();
+        self.generation += 1;
+        self.task = Task::ready(());
+        self.loading = None;
+        self.refresh_restore = None;
+        self.restore_selection = None;
+        self.error = None;
+        // Keep the project root open, retaining its paging continuation.
+        self.directories
+            .retain(|path, _| path.as_os_str().is_empty());
+        self.cursors.retain(|path, _| path.as_os_str().is_empty());
+        self.rebuild();
+        self.scroll.scroll_to_item(self.active, ScrollStrategy::Top);
+        cx.notify();
+    }
+    pub(super) fn reveal_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.current_source.clone() else {
+            return;
+        };
+        self.cancel_preview();
+        self.token.cancel();
+        self.generation += 1;
+        self.token = Cancel::default();
+        self.revealing = true;
+        self.refresh_restore = None;
+        self.restore_selection = None;
+        self.loading = Some(path.clone());
+        self.error = None;
+        self.focus.focus(window, cx);
+        let (root, token, generation) = (self.root.clone(), self.token.clone(), self.generation);
+        self.task = cx.spawn(async move |this, cx| {
+            let query = path.clone();
+            let result = cx
+                .background_spawn(async move { Project::new(root)?.reveal_file(&query, &token) })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                if generation != s.generation {
+                    return;
+                }
+                s.revealing = false;
+                s.loading = None;
+                match result {
+                    Ok(mut tree) => {
+                        // Preserve an already longer cached page when it contains
+                        // the required child; locating must not shrink that directory.
+                        tree.directories.retain(|parent, entries| {
+                            let keep_old = s.directories.get(parent).is_some_and(|old| {
+                                old.len() > entries.len()
+                                    && old.iter().any(|e| {
+                                        e.path == path
+                                            || (e.kind == Kind::Directory
+                                                && path.starts_with(&e.path))
+                                    })
+                            });
+                            !keep_old
+                        });
+                        let size: usize = s
+                            .directories
+                            .iter()
+                            .filter(|(p, _)| !tree.directories.contains_key(*p))
+                            .map(|(_, e)| e.len())
+                            .sum::<usize>()
+                            + tree.directories.values().map(Vec::len).sum::<usize>();
+                        if size > project_files::DISPLAY_NODE_LIMIT {
+                            s.error = Some("Collapse folders before opening more files".into());
+                        } else {
+                            for (parent, entries) in tree.directories {
+                                s.cursors.remove(&parent);
+                                if let Some(cursor) = tree.cursors.remove(&parent) {
+                                    s.cursors.insert(parent.clone(), cursor);
+                                }
+                                s.directories.insert(parent, entries);
+                            }
+                            s.rebuild();
+                            s.restore_path(Some((path, false)));
+                            s.scroll.scroll_to_item(s.active, ScrollStrategy::Center);
+                        }
+                    }
+                    Err(project_files::Error::InvalidPath | project_files::Error::NotFile) => {
+                        s.error = Some("File is not available in the project tree".into());
+                    }
+                    Err(error) => s.error = Some(directory_error_text(error)),
+                }
+                if std::mem::take(&mut s.external_refresh_pending) {
+                    s.refresh(cx);
+                }
+                cx.notify();
+            });
+        });
+        cx.notify();
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+    #[gpui::test]
+    fn collapse_and_manual_selection_cancel_pending_reveal(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let project = cx.new(|cx| ProjectView::new(PathBuf::from("/missing-test-project"), cx));
+            view = Some(project.clone());
+            gpui::component::Root::new(project, window, cx)
+        });
+        cx.update(|window, cx| {
+            view.as_ref().unwrap().update(cx, |s, cx| {
+                s.token.cancel();
+                s.task = Task::ready(());
+                s.loading = None;
+                s.directories.insert(
+                    PathBuf::new(),
+                    vec![Entry {
+                        path: "src".into(),
+                        kind: Kind::Directory,
+                    }],
+                );
+                s.directories.insert(
+                    "src".into(),
+                    vec![Entry {
+                        path: "src/file.rs".into(),
+                        kind: Kind::File,
+                    }],
+                );
+                s.rebuild();
+                s.active = 2;
+                s.set_current_source(Some("src/file.rs".into()), cx);
+                s.reveal_current(window, cx);
+                let old = s.token.clone();
+                s.collapse_all(cx);
+                assert!(old.cancelled());
+                assert!(!s.revealing);
+                assert_eq!(s.directories.len(), 1);
+                assert_eq!(s.rows[s.active].0.path, Path::new("src"));
+                s.reveal_current(window, cx);
+                let generation = s.generation;
+                s.select(0);
+                assert!(s.generation > generation);
+                assert!(!s.revealing);
+                assert!(s.loading.is_none());
+            })
+        });
+        cx.run_until_parked();
+        view.unwrap().read_with(cx, |s, _| assert_eq!(s.active, 0));
+    }
+}

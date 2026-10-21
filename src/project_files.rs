@@ -112,6 +112,28 @@ impl Project {
         Ok(tree)
     }
 
+    /// Read only the ancestor chain needed to reveal a file, including pages
+    /// before it. Existing UI expansion is not scanned or mutated here.
+    pub fn reveal_file(&self, relative: &Path, cancel: &Cancel) -> Result<RefreshedTree> {
+        if !fs::metadata(self.resolve(relative, cancel)?)?.is_file() { return Err(Error::NotFile); }
+        let mut expanded = ExpansionState::new();
+        let mut child = relative.to_path_buf();
+        let mut kind = Kind::File;
+        while let Some(parent) = child.parent() {
+            expanded.insert(parent.to_path_buf(), Some(Entry { path: child.clone(), kind }));
+            child = parent.to_path_buf();
+            kind = Kind::Directory;
+        }
+        let mut tree = self.refresh_expanded(&expanded, DISPLAY_NODE_LIMIT, cancel)?;
+        if tree.limited { return Err(Error::DirectoryTooLarge); }
+        if let Some(error) = tree.error.take() { return Err(error); }
+        if !relative.parent().and_then(|p| tree.directories.get(p))
+            .is_some_and(|entries| entries.iter().any(|e| e.path == relative && e.kind == Kind::File)) {
+            return Err(Error::InvalidPath);
+        }
+        Ok(tree)
+    }
+
     // Reject traversal, Git administrative paths, and existing linked ancestors.
     // This is a workspace browser, not a filesystem security boundary against a
     // concurrently hostile process replacing directories between OS calls.

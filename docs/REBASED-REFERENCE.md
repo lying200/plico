@@ -2397,3 +2397,26 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 - 验证：2 项排序模型测试通过，涵盖来回移动、隐藏项、未知/重复/缺失身份与身份唯一性；`cargo check --locked --bin plico` 和 Windows release 构建通过。Windows 独立配置原生验证 Project 从第二位移至第一位、拖动没有打开面板、Esc 取消、栏外取消及正常点击；截图位于 `artifacts/tool-rail-20261021/`。临时 Comparison 出现/隐藏由模型用例覆盖，未另做原生三图标场景；未进行滚动自动化或像素级验收。
 
 最终 Windows 构建重启验证通过：保存的 Project → Commit 可见顺序恢复，证据 `artifacts/tool-rail-20261021/restarted.png`。本轮自建测试进程已关闭，保留用户程序；未提交或发包。
+
+## Project 文件树：定位、全部折叠与复制路径（2026-10-21）
+
+继续对照 `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版 Rebased 1.1.20 与该快照不保证一致。已读源码：
+
+- `platform/platform-impl/resources/idea/PlatformActions.xml::ProjectViewToolbar`：标题工具栏放置 SelectInProjectView 与折叠动作；`platform/lang-impl/resources/intellij.platform.lang.impl.actions.xml` 为定位指定 `AllIcons.General.Locate`。
+- `platform/lang-impl/src/com/intellij/ide/projectView/actions/SelectFileAction.kt` 与 `platform/projectView/shared/src/actions/SelectFileActionServiceImpl.kt`：Project 工具窗内的入口定位已打开文件，由编辑器上下文提供目标；`platform/lang-impl/src/com/intellij/ide/projectView/impl/SelectInProjectViewImpl.kt::selectInCurrentTarget` / `ProjectViewImpl.java::MyAutoScrollFromSourceHandler`：定位与打开编辑器分离，手动请求和自动跟随的焦点策略不同。本轮只实现手动定位，不启用自动跟随。
+- `platform/lang-impl/src/com/intellij/ide/projectView/impl/AbstractProjectViewPane.java::createTreeExpander`、`platform/platform-api/src/com/intellij/ide/DefaultTreeExpander.kt`、同模块 `util/ui/tree/TreeUtil.java::collapseAll`：非 strict 折叠保留顶层根节点，选择归一化到可见祖先，并滚动到选择。
+- `platform/lang-impl/src/com/intellij/ide/actions/CopyPathProvider.kt`：绝对路径、内容根相对路径和文件名分别由 provider 提供，没有可复制值时禁用。多模块/源代码根与语义名称复制依赖 IDE 模型，不在本轮实现范围。
+
+本地位置：`src/project_view/navigation.rs` 封装定位/取消/全部折叠；`src/project_files.rs::Project::reveal_file` 复用分页读取，只读取祖先链，遵守原有目录页和总节点预算，保留链接/管理目录限制；目标超出第一页时自动读取后续页，受预算限制时明确报错，不能假装定位成功。UI 在后台结果成功且 generation 仍有效后合并祖先链，保留其他展开目录和较长的已有分页；手动选中其他节点、折叠或切换目标会使旧定位失效。定位不会发出 Open/预览事件。`src/ui/chrome.rs` 提供当前文件 Tab 或独立 Diff Tab 的路径，无编辑器目标时禁用定位按钮。历史删除文件不可恢复到工作区，只显示读取错误并保留原树。
+
+`src/project_view.rs` 标题新增定位/折叠按钮；右键 Copy Path 改为绝对路径、项目相对路径、文件名子菜单，并继续捕获右键时的路径而非可变行号。相对路径以仓库根为基准，使用 `/` 便于引用；根节点没有非空相对路径时禁用该项。中英文文案在 `src/i18n.rs`。
+
+保留差异：Plico 只建模一个仓库根，没有 IDE 模块/源码根/PSI；未加入自动定位、递归展开、删除/重命名/移动或全项目索引。现有刷新按钮保留；布局沿用 Project 标题工具栏，而非新建另一层工具栏。存量目录分页预算不变；本轮不声明全部像素对齐。
+
+功能阶段 UI 验收与验证：
+
+- 入口/布局：Windows 原生 Project 标题的定位/折叠按钮与已有刷新同排；无文件 Tab 时定位禁用，截图 `artifacts/project-tools-20261021/project.png`。右键复制子菜单的三项、层级及选中态见 `copy-menu.png`。
+- 信息/操作：在独立 fixture 浏览并打开 `src/nested/example.rs`，全部折叠后根目录保持展开、选择回到 `src`，中央文件 Tab 保留（`collapsed.png`）；点击定位重新展开 src/nested 并选中文件（`located.png`）。绝对路径、`src/nested/example.rs` 相对路径和 `example.rs` 文件名的剪贴板内容逐项断言通过，见 `copy-results.json`。
+- 状态/生命周期：桌面测试验证定位期间的折叠/主动选择会取消旧任务并使 generation 失效，后台结果不能抢回选择；复制菜单在目录刷新重排行后仍使用右键时路径。文件读取错误沿用现有错误区域，失败不清空原目录树。未新增自动跟随。
+- 检查：`cargo test --locked --test project_files` 13 项通过（新增跨分页祖先链及取消/缺失/过滤/越界/链接测试）；`cargo test --locked --features desktop-tests --bin plico project_view::` 3 项通过；最终 Windows release 构建通过。最后将相对路径拼接改为按平台路径组件连接，避免破坏 Unix 文件名内合法的反斜杠，Windows 输出规则保持不变。
+- 原生验证仅使用自建测试仓库和隔离配置；测试进程已关闭。中文文案已接入，中文截图、大目录 Windows/WSL 实测、完整像素对比仍未执行，不将它们计为本轮已验收。未提交、推送或发包。

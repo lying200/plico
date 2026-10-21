@@ -235,3 +235,34 @@ fn project_name_filters_are_distinct_from_git_ignore_and_dotfiles() {
     let expanded = std::collections::BTreeMap::from([(PathBuf::new(), full.last().cloned())]);
     assert_eq!(project.refresh_expanded(&expanded, 256, &Cancel::default()).unwrap().directories[Path::new("")], full);
 }
+
+#[test]
+fn reveal_loads_ancestor_pages_without_scanning_other_subtrees() {
+    let f = Fixture::new();
+    for i in 0..270 { fs::create_dir(f.0.join(format!("dir{i}"))).unwrap(); }
+    fs::create_dir_all(f.0.join("zzz/deep")).unwrap();
+    for i in 0..280 { f.write(&format!("zzz/deep/file{i}.txt"), b""); }
+    let target = Path::new("zzz/deep/file279.txt");
+    let tree = f.project().reveal_file(target, &Cancel::default()).unwrap();
+    assert_eq!(tree.directories.len(), 3);
+    assert!(tree.directories[Path::new("")].iter().any(|e| e.path == Path::new("zzz")));
+    assert!(tree.directories[Path::new("zzz/deep")].iter().any(|e| e.path == target));
+    assert!(!tree.directories.contains_key(Path::new("dir0")));
+}
+
+#[test]
+fn reveal_rejects_cancelled_missing_hidden_and_outside_targets() {
+    let f = Fixture::new();
+    f.write("visible.txt", b"");
+    f.write("hidden.pyc", b"");
+    let p = f.project();
+    let cancelled = Cancel::default(); cancelled.cancel();
+    assert!(matches!(p.reveal_file(Path::new("visible.txt"), &cancelled), Err(Error::Cancelled)));
+    for path in ["missing.txt", "hidden.pyc", "../outside.txt", "."] {
+        assert!(p.reveal_file(Path::new(path), &Cancel::default()).is_err(), "{path}");
+    }
+    #[cfg(unix)] {
+        std::os::unix::fs::symlink(f.0.join("visible.txt"), f.0.join("linked.txt")).unwrap();
+        assert!(matches!(p.reveal_file(Path::new("linked.txt"), &Cancel::default()), Err(Error::LinkedPath)));
+    }
+}

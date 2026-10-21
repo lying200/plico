@@ -1,14 +1,17 @@
+mod navigation;
 use std::{collections::BTreeMap, path::{Path, PathBuf}};
 use plico::{git::Cancel, i18n::t, project_files::{self, Entry, Kind, Project}};
 use gpui_kit::{prelude::FluentBuilder as _, *};
-use gpui_kit::component::{button::{Button, ButtonVariants as _}, input::{Editor, EditorState, Position, RopeExt as _}, Icon, menu::{ContextMenuExt as _, PopupMenuItem}, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{button::{Button, ButtonVariants as _}, input::{Editor, EditorState, Position, RopeExt as _}, Icon, menu::{ContextMenuExt as _, PopupMenuItem}, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 
-actions!(project_browser, [Up, Down, First, Last, OpenFile, Expand, Collapse, ShowFileHistory, ShowSelectionHistory, SaveFile]);
+actions!(project_browser, [Up, Down, First, Last, OpenFile, Expand, Collapse, ShowFileHistory, ShowSelectionHistory, SaveFile, CollapseAll]);
 pub struct FileSaved;
 pub struct HistoryRequested { pub path: PathBuf, pub selection: Option<plico::file_history::Selection> }
 pub struct Open(pub PathBuf, pub bool, pub u64);
 pub struct ProjectView {
     root: PathBuf,
+    current_source: Option<PathBuf>,
+    revealing: bool,
     preview_enabled: bool,
     preview_task: Task<()>,
     preview_generation: u64,
@@ -40,7 +43,7 @@ impl ProjectView {
             KeyBinding::new("enter", OpenFile, Some("ProjectBrowser")), KeyBinding::new("right", Expand, Some("ProjectBrowser")),
             KeyBinding::new("left", Collapse, Some("ProjectBrowser")),
         ]);
-        let mut s = Self { root, preview_enabled: plico::layout_preferences::load_file_preview(), preview_task: Task::ready(()), preview_generation: 0, directories: BTreeMap::new(), cursors: BTreeMap::new(), refresh_restore: None, external_refresh_pending: false, restore_selection: None, rows: vec![], active: 0, focus: cx.focus_handle(),
+        let mut s = Self { root, current_source: None, revealing: false, preview_enabled: plico::layout_preferences::load_file_preview(), preview_task: Task::ready(()), preview_generation: 0, directories: BTreeMap::new(), cursors: BTreeMap::new(), refresh_restore: None, external_refresh_pending: false, restore_selection: None, rows: vec![], active: 0, focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(), loading: None, error: None, token: Cancel::default(), generation: 0, task: Task::ready(()) };
         s.rebuild(); s.expand(PathBuf::new(), cx); s
     }
@@ -69,6 +72,7 @@ impl ProjectView {
         }).unwrap_or(0);
     }
     fn select(&mut self, index: usize) {
+        self.cancel_reveal();
         self.active = index;
         // A later explicit selection takes precedence over a failed refresh's
         // saved selection, even when it is the same visible fallback row.
@@ -79,6 +83,7 @@ impl ProjectView {
         else { self.refresh(cx); }
     }
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.revealing = false;
         self.external_refresh_pending = false;
         self.cancel_preview();
         self.token.cancel(); self.generation += 1; self.token = Cancel::default();
@@ -125,6 +130,7 @@ impl ProjectView {
         self.load_directory(path, false, cx);
     }
     fn load_directory(&mut self, path: PathBuf, more: bool, cx: &mut Context<Self>) {
+        self.cancel_reveal();
         if self.loading.as_ref() == Some(&path) { return; }
         let cursor = if more { let Some(cursor) = self.cursors.get(&path).cloned() else { return; }; Some(cursor) } else { None };
         self.refresh_restore = None; self.restore_selection = None;
@@ -165,6 +171,7 @@ impl ProjectView {
         }); cx.notify();
     }
     fn collapse(&mut self, path: &Path, cx: &mut Context<Self>) {
+        self.revealing = false;
         self.refresh_restore = None; self.restore_selection = None;
         self.cancel_preview();
         self.token.cancel(); self.generation += 1; self.task = Task::ready(()); self.loading = None;
@@ -216,7 +223,13 @@ impl Render for ProjectView {
         v_flex().size_full().bg(rgb(0x18191a)).rounded(px(10.)).overflow_hidden().key_context("ProjectBrowser").track_focus(&self.focus)
             .child(h_flex().h(px(36.)).px_3().child(t("Project")).child(div().flex_1())
                 .child(Button::new("project-refresh").ghost().icon(Icon::default().path("jb/refresh_dark.svg").size(px(16.)))
-                    .tooltip(t("Refresh")).on_click(cx.listener(|s, _, _, cx| s.refresh(cx)))))
+                    .tooltip(t("Refresh")).on_click(cx.listener(|s, _, _, cx| s.refresh(cx))))
+                .child(Button::new("project-locate").ghost().icon(Icon::default().path("jb/locate_dark.svg").size(px(16.)))
+                    .tooltip(t("Select Opened File")).disabled(self.current_source.is_none())
+                    .on_click(cx.listener(|s, _, w, cx| s.reveal_current(w, cx))))
+                .child(Button::new("project-collapse-all").ghost().icon(Icon::default().path("jb/collapseAll_dark.svg").size(px(16.)))
+                    .tooltip(t("Collapse All")).on_click(cx.listener(|s, _, _, cx| s.collapse_all(cx)))))
+            .on_action(cx.listener(|s, _: &CollapseAll, _, cx| s.collapse_all(cx)))
             .on_action(cx.listener(|s, _: &Up, w, cx| s.step(false, w, cx)))
             .on_action(cx.listener(|s, _: &Down, w, cx| s.step(true, w, cx)))
             .on_action(cx.listener(|s, _: &First, w, cx| { s.select(0); s.scroll.scroll_to_item(0, ScrollStrategy::Top); s.preview(true, w, cx); cx.notify(); }))
@@ -230,6 +243,8 @@ impl Render for ProjectView {
                     let expanded = s.directories.contains_key(&entry.path);
                     let path = s.root.join(&entry.path);
                     let copy_path = crate::ui_style::project_path_text(&path);
+                    let relative_path = entry.path.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join("/");
+                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
                     let name = if entry.path.as_os_str().is_empty() { s.root.file_name().unwrap_or_default() } else { entry.path.file_name().unwrap_or_default() }.to_string_lossy().into_owned();
                     let name = if more { t("Load more files…").to_owned() } else { name };
                     h_flex().id(("project-row", i)).w_full().h(px(26.)).pl(px(8. + depth as f32 * 14.)).gap_1().min_w_0()
@@ -245,14 +260,23 @@ impl Render for ProjectView {
                             if more { return row.into_any_element(); }
                             row.on_mouse_down(MouseButton::Right, cx.listener(move |s, _, w, cx| {
                                 s.cancel_preview(); s.select(i); s.focus.focus(w, cx); cx.notify();
-                            })).context_menu(move |menu, _, _| {
+                            })).context_menu(move |menu, window, cx| {
                                 // Capture the clicked path, not a row index: a filesystem
                                 // refresh may reorder the tree while this menu is open.
                                 let copy_path = copy_path.clone();
                                 let path = path.clone();
-                                menu.item(PopupMenuItem::new(t("Copy Path")).on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(copy_path.clone()));
-                                })).item(PopupMenuItem::new(t("Show in File Manager")).on_click(move |_, _, cx| {
+                                let relative_path = relative_path.clone();
+                                let file_name = file_name.clone();
+                                menu.submenu(t("Copy Path"), window, cx, move |menu, _, _| {
+                                    let (copy_path, relative_path, file_name) = (copy_path.clone(), relative_path.clone(), file_name.clone());
+                                    menu.item(PopupMenuItem::new(t("Absolute Path")).on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(copy_path.clone()));
+                                    })).item(PopupMenuItem::new(t("Path From Project Root")).disabled(relative_path.is_empty()).on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(relative_path.clone()));
+                                    })).item(PopupMenuItem::new(t("File Name")).on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(file_name.clone()));
+                                    }))
+                                }).item(PopupMenuItem::new(t("Show in File Manager")).on_click(move |_, _, cx| {
                                     if path.parent().is_some() { cx.reveal_path(&path); }
                                     else { cx.open_with_system(&path); }
                                 }))
@@ -593,6 +617,8 @@ mod context_menu_tests {
         let item = point(press.x + px(30.), press.y + px(17.));
         cx.simulate_mouse_move(item, None, Default::default());
         cx.simulate_click(item, Default::default());
+        cx.run_until_parked();
+        cx.simulate_keystrokes("right enter");
         cx.run_until_parked();
         cx.update(|_, cx| assert_eq!(cx.read_from_clipboard().unwrap().text().unwrap(),
             crate::ui_style::project_path_text(&std::path::absolute("/repo").unwrap().join("中文 folder"))));

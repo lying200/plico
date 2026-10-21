@@ -283,9 +283,9 @@ impl Render for LocalView {
             })).when(self.refresh.read(cx).loaded() && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
                 div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
-                .child(h_flex().min_w_0().gap_2().child(Checkbox::new("commit-amend").max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
+                .child(h_flex().min_w_0().flex_wrap().gap_2().child(Checkbox::new("commit-amend").max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
-                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(status::selection_status(self.scope.read(cx).inclusion.count(), cx)))
+                    .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(status::selection_status(self.scope.read(cx).inclusion.summary(), window, cx)))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))
                 .when_some(match self.draft.amend(){Amend::Failed(e)=>Some(e.clone()),_=>None},|v,e|v.child(v_flex().gap_1()
                     .child(div().text_size(rems(1.)).child(t("Could not load commit message")))

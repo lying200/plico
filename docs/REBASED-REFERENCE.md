@@ -2507,3 +2507,8 @@ Commit大字号文件行也已截图核对（large-commit.png），无文字垂�
 参考同一commit。读取`IslandsTabPainter.kt::paintTab`：普通内容高度28、最少垂直留白8，紧凑24/4，值经过用户缩放；`SettingsTreeView.java::setUI`使用主题SettingsTree.rowHeight，结合此前已读LafManagerImpl的缩放逻辑。保留差异：本地通过GPUI行盒+padding撑高，不引入全局缩放/紧凑模式，不宣称Swing度量逐像素一致。
 本地`ui_style::text_row_height/tab_height`共用字体计算，`islands_tab`与chrome内Log/编辑器/Commit/Stash的外层tab条同步增高；设置导航取消固定26，使用可容纳正文的行高。默认UI12仍保留28/36的tab高度和26导航高度。
 验证：cargo check与最终Windows构建通过；原生UI20下Commit/Stash/Log Tab、设置导航文字及选中区域截图核对正常（`tabs-adaptive.png`、`settings-adaptive.png`），一次全黑截图已弃用并重新采集。只关闭独立测试实例。未重复全套Git测试；最高32字号和所有设置页仍待完整验收。
+
+### 提交分类legend（2026-10-21）
+参考同一commit，读取`ChangeInfoCalculator.kt`、`CommitLegendPanel.kt::CommitLegendComponent/LegendChunk`与`CommitStatusPanel.kt`：只统计included；NEW、MODIFICATION/MOVED、DELETED分别计数；新增和未跟踪同时存在时显示a+b，零项隐藏，顺序新增/修改/删除，紧凑符号+/*/-，完整可访问文本保留。
+本地`commit_inclusion::Inclusion::summary`遍历已选身份，不读Git、不复制文件列表，before/after区分增删改，重命名归修改；部分选择身份仍计一个文件。`local_view/status.rs`分色绘制三段并提供中英文文字、完整tooltip/aria；按真实字体测量紧凑文本的最小宽度，空间不够时整段可换行，防止Amend吞掉计数。零项不绘制。保留差异：颜色沿用本地文件状态色；整数未做区域千分位格式；极窄窗口和很大计数仍受面板宽度限制。
+验证：新增身份计数测试覆盖未选择、重复勾选、重命名、删除、未跟踪和清空；57项桌面回归通过（排除既有基线失败），compact规则测试覆盖+1+2/*3/-4与零项。cargo check/Windows release通过。原生独立仓库勾选三项tracked及一项unversioned后显示绿色+1+1、蓝色*1、灰色-1；未选择时为空。截图`legend-*.png`已查看。未执行真实提交或推送；原生中文/大计数仍待进一步验收。

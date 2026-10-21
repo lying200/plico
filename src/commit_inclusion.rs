@@ -23,6 +23,13 @@ impl Identity {
         }
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Summary {
+    pub added: usize,
+    pub unversioned: usize,
+    pub modified: usize,
+    pub deleted: usize,
+}
 #[derive(Default)]
 pub struct Inclusion { available: HashSet<Identity>, included: HashSet<Identity>, head:Option<String> }
 impl Inclusion {
@@ -35,6 +42,20 @@ impl Inclusion {
     }
     pub fn clear(&mut self) {self.included.clear();}
     pub fn count(&self)->usize {self.included.len()}
+    /// Counts included file identities, so a partial hunk selection is one file.
+    pub fn summary(&self) -> Summary {
+        let mut summary = Summary::default();
+        for id in &self.included {
+            match (id.kind, id.before.is_some(), id.after.is_some()) {
+                (Kind::Unversioned, _, _) => summary.unversioned += 1,
+                (Kind::Tracked, false, true) => summary.added += 1,
+                (Kind::Tracked, true, false) => summary.deleted += 1,
+                (Kind::Tracked, true, true) => summary.modified += 1,
+                _ => {}
+            }
+        }
+        summary
+    }
     pub fn included(&self,id:&Identity)->bool {self.included.contains(id)}
     pub fn set(&mut self,id:&Identity,checked:bool) {
         if id.kind==Kind::Conflict || !self.available.contains(id) {return;}
@@ -57,5 +78,30 @@ impl Inclusion {
         remove.retain(|path|!add.contains(path));
         if add.is_empty() && remove.is_empty() && !amend {return Err("Select changes to commit".into());}
         Ok(Request{add:add.into_iter().collect(),remove:remove.into_iter().collect(),message,amend,expected_head:self.head.clone()})
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+    #[test]
+    fn summary_counts_included_identities_and_moves_only_once() {
+        let identity = |kind, before: Option<&str>, after: Option<&str>| Identity {
+            kind, path: after.or(before).unwrap().into(),
+            before: before.map(Into::into), after: after.map(Into::into),
+        };
+        let ids = [identity(Kind::Tracked, None, Some("added")),
+            identity(Kind::Unversioned, None, Some("new")),
+            identity(Kind::Tracked, Some("old"), Some("renamed")),
+            identity(Kind::Tracked, Some("deleted"), None),
+            identity(Kind::Tracked, Some("excluded"), Some("excluded"))];
+        let mut inclusion = Inclusion { available: ids.iter().cloned().collect(), ..Default::default() };
+        for id in &ids[..4] { inclusion.set(id, true); }
+        inclusion.set(&ids[2], true);
+        assert_eq!(inclusion.summary(), Summary { added: 1, unversioned: 1, modified: 1, deleted: 1 });
+        inclusion.set(&ids[2], false);
+        assert_eq!(inclusion.summary().modified, 0);
+        inclusion.clear();
+        assert_eq!(inclusion.summary(), Summary::default());
     }
 }

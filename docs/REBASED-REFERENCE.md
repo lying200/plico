@@ -2375,3 +2375,25 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 验证记录：`cargo check --locked --bin plico` 无警告；桌面回归52项通过，新增“文件选择不取消详情、相同路径不同 revision 不复用预览”测试单独通过。既有 `releasing_diff_clears_padding_from_retained_source` 基线失败项继续排除，未宣称全套测试通过。Windows release 构建及独立 profile 原生验证覆盖普通提交替换、根提交新增、预览显隐；截图位于 `artifacts/bottom-preview-20261021/`。原生显隐验证发现 retained resizable state 会带回单面板高度，已在显隐时重建拆分状态并保留记录的比例；复验确认。未进行滚动自动化排查。
 
 补充原生拖拽验收：纵向分隔线拖动后保存比例 `0.588723`，`resized.png` 记录结果；此操作是面板调整，不是 Diff 滚动自动化。独立测试进程已关闭，用户的 Plico/Rebased 未关闭。
+
+## 左侧工具栏拖动排序（2026-10-21）
+
+参考快照仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，已安装 Rebased 为 1.1.20；不将源码快照等同于安装版本。本轮读取：
+
+- `platform/platform-impl/src/com/intellij/openapi/wm/impl/SquareStripeButton.kt`：按钮标记为可拖动，左键执行，拖动期间抑制提示；`resetDrop` 清理鼠标状态。
+- 同目录 `AbstractDroppableStripe.kt`：依据窗口 order 排序；拖动时计算插入位置并预留按钮大小的落点，绘制圆角反馈；`finishDrop` 才调用 `setSideToolAndAnchor`，`resetDrop` 清理临时布局。
+- `platform/platform-impl/src/com/intellij/toolWindow/ToolWindowDragHelper.kt` 的 drag start/move/finish/cancel/stop：拖动有启动阈值；移动与松手分离，取消恢复按钮并移除目标反馈；工具栏外还支持浮窗（不在本轮范围）。
+- `platform/platform-impl/src/com/intellij/openapi/wm/impl/DesktopLayout.kt` 的 `setAnchor` / `writeExternal`：以稳定窗口身份维护位置顺序，调整其他窗口 order，布局可持久化。
+
+本地映射：`src/tool_window_order.rs` 封装稳定工具身份、归一化及排序，隐藏的 Comparison 继续占用保存序列的位置；`src/ui/tool_rail.rs` 管理 GPUI 拖动会话、图标预览、圆角占位、落点与取消；`src/ui.rs` 仅组合工具栏并捕获 Esc；`src/layout_preferences.rs` 有界读取 `tool-window-order`，只在有效且顺序变化的松手操作保存，失败保留原顺序并使用既有错误区域。取消/栏外松手不写配置，拖动不触发面板开关；正常点击保留原功能。拖动视图释放时清理共享临时状态，不保留 Review 强引用。
+
+范围及保留差异：只在现有左栏内排序，未扩展左右停靠、上下工具组或浮窗；按当前 Plico 布局设置惯例保存为每用户顺序，不实现上游完整的项目布局配置系统。GPUI 原生启动阈值代替 Swing 的阈值；落点以单个按钮格计算；使用既有图标、选中底色及集中式边框色，未宣称像素完全一致。其他窗口的拖动物不接收。没有新增 Git 写操作。
+
+功能阶段验收：
+
+- 入口/布局：保持原左栏位置、32px 图标按钮和相邻面板关系；拖动时源按钮让出位置，目标处预留圆角格。
+- 信息/操作：普通点击仍打开/收起 Project；拖动松手仅排序，Esc 和栏外松手取消。
+- 状态/生命周期：有效放置保存；取消不变；重启读取归一化顺序；未知/重复设置条目自动补齐；隐藏 Comparison 的位置不会丢失。
+- 验证：2 项排序模型测试通过，涵盖来回移动、隐藏项、未知/重复/缺失身份与身份唯一性；`cargo check --locked --bin plico` 和 Windows release 构建通过。Windows 独立配置原生验证 Project 从第二位移至第一位、拖动没有打开面板、Esc 取消、栏外取消及正常点击；截图位于 `artifacts/tool-rail-20261021/`。临时 Comparison 出现/隐藏由模型用例覆盖，未另做原生三图标场景；未进行滚动自动化或像素级验收。
+
+最终 Windows 构建重启验证通过：保存的 Project → Commit 可见顺序恢复，证据 `artifacts/tool-rail-20261021/restarted.png`。本轮自建测试进程已关闭，保留用户程序；未提交或发包。

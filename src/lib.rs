@@ -173,3 +173,5 @@ pub mod partial_selection;
 pub mod detail_cache;
 
 mod head_membership;
+
+pub mod tool_window_order;

@@ -39,6 +39,7 @@ pub(crate) const POPUP_BORDER: u32 = 0x33353b;
 pub(crate) const FG: u32 = 0xd1d3d9;
 pub(crate) const MUTED: u32 = 0x9fa2a8;
 pub(crate) const SELECT: u32 = 0x2e4d89;
+pub(crate) const TOOL_DROP_BORDER: u32 = 0x5374a6;
 pub(crate) fn project_path_text(path: &std::path::Path) -> String {
     let text = path.to_string_lossy();
     if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {

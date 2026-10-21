@@ -433,3 +433,17 @@ pub fn save_preview_fraction(value: f32) -> std::io::Result<()> {
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(path, format!("{value:.6}\n"))
 }
+
+
+pub fn load_tool_window_order() -> crate::tool_window_order::Order {
+    let mut text = String::new();
+    let loaded = settings_path().and_then(|p| std::fs::File::open(p.with_file_name("tool-window-order")).ok())
+        .and_then(|f| f.take(257).read_to_string(&mut text).ok());
+    if loaded.is_none() || text.len() > 256 { return Default::default(); }
+    crate::tool_window_order::Order::parse(&text)
+}
+pub fn save_tool_window_order(order: &crate::tool_window_order::Order) -> std::io::Result<()> {
+    let Some(path) = settings_path().map(|p| p.with_file_name("tool-window-order")) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, order.encode())
+}

@@ -2,6 +2,7 @@
 mod checkout;
 mod reference_checkout;
 mod chrome;
+mod tool_rail;
 mod editor_tabs;
 mod files;
 mod files_options;
@@ -202,6 +203,8 @@ pub struct Review {
     branches_visible: bool,
     local_navigation: Entity<ResizableState>,
     tool_windows_width: Entity<ResizableState>,
+    tool_order: plico::tool_window_order::Order,
+    tool_drag: Option<tool_rail::DragSession>,
     files_fraction: f32,
     branch_search: Entity<InputState>,
     filter_search: Entity<InputState>,
@@ -460,6 +463,8 @@ impl Review {
             branches_visible: false,
             local_navigation: cx.new(|_| ResizableState::default()),
             tool_windows_width: cx.new(|_| ResizableState::default()),
+            tool_order: layout_preferences::load_tool_window_order(),
+            tool_drag: None,
             files_fraction: layout_preferences::load_files_fraction(),
             text_filter: None,
             filter_regex: false,
@@ -764,6 +769,9 @@ impl Render for Review {
             .bg(rgb(SHELL))
             .track_focus(&self.focus)
             .key_context("Review")
+            .capture_key_down(cx.listener(|s, event: &KeyDownEvent, w, cx| {
+                if event.keystroke.key == "escape" && s.cancel_tool_drag(w, cx) { cx.stop_propagation(); }
+            }))
             .on_action(cx.listener(|s, _: &Open, w, cx| s.open(w, cx)))
             .on_action(cx.listener(|s, _: &OpenSettings, w, cx| s.open_settings(w, cx)))
             .on_action(cx.listener(|s, _: &JumpToSource, w, cx| s.jump_to_source(w, cx)))
@@ -849,22 +857,7 @@ impl Render for Review {
             ))
             .child(
                 h_flex().flex_1().min_h_0().items_stretch().px(px(8.)).gap(px(6.)).bg(rgb(SHELL))
-                    .child(v_flex().w(px(36.)).gap_1()
-                        .child(Button::new("local-tool-window").ghost().selected(self.local_visible || self.stash_open)
-                            .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-commit_dark.svg")).tooltip(t("Commit")).accessibility_label(t("Commit"))
-                            .on_click(cx.listener(|s, _, w, cx| { s.toggle_commit_window(w, cx); })))
-                        .when(self.comparison.is_some(), |v| v.child(Button::new("comparison-tool-window").ghost().selected(self.comparison_visible)
-                            .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-changes_dark.svg")).tooltip(t("Compare Versions"))
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.comparison_visible = !s.comparison_visible;
-                                if s.comparison_visible { s.cancel_project_preview(cx); s.local_visible = false; s.project_visible = false; s.stash_open = false; }
-                                cx.notify();
-                            }))))
-                        .child(Button::new("project-tool-window").ghost().selected(self.project_visible)
-                        .w(px(32.)).h(px(32.)).icon_size(px(20.)).icon(jb_icon("tool-project_dark.svg")).tooltip(t("Project"))
-                        .accessibility_label(t("Project"))
-                        .on_click(cx.listener(|s, _, w, cx| s.toggle_project(w, cx))))
-                    )
+                    .child(self.tool_rail(cx))
                     .child(div().flex_1().min_w_0().h_full().child(h_resizable("tool-windows-width").with_state(&self.tool_windows_width)
                     .child(resizable_panel().visible(self.local_visible || self.project_visible || self.stash_open || self.comparison_visible).flex_none().size(px(300.)).size_range(px(240.)..px(700.))
                         .child(div().size_full().pr(px(6.)).child(div().relative().size_full().overflow_hidden().child(self.left_tool_windows(cx)).children(island_corners(true)))))

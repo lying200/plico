@@ -49,264 +49,32 @@ impl Review {
             "Select a changed file to review its diff"
         }
     }
-    pub(super) fn preview_place(&self) -> layout_preferences::DiffPlace {
-        if self.local {
-            layout_preferences::DiffPlace::Changes
-        } else {
-            layout_preferences::DiffPlace::Log
+    pub(super) fn log_preview_target(&self, cx: &App) -> Option<(diff_target::Target, diff_target::Chain)> {
+        let index = self.selected_file?;
+        if let Some(mut chain) = self.aggregate_chain.clone() {
+            return chain.select(index).map(|target| (target, chain));
         }
+        let change = self.files.get(index)?.clone();
+        let commit = if self.local { None } else { Some(self.commits.get(self.selected?)?.clone()) };
+        let target = diff_target::Target::new(self.repo.clone(), commit, change).ok()?;
+        let chain = self.local_preview.as_ref().and_then(|preview| preview.read(cx).fork_chain(&target))
+            .or_else(|| diff_target::Chain::new(&target, &self.files).ok())?;
+        Some((target, chain))
     }
-    pub(super) fn set_preview_appearance(
-        &mut self,
-        value: layout_preferences::DiffAppearance,
-        cx: &mut Context<Self>,
-    ) {
-        if let Err(error) = layout_preferences::save_diff_appearance(self.preview_place(), value) {
-            self.preview_preference_error =
-                Some(format!("{}: {error}", t("Cannot save Diff settings")));
-            cx.notify();
-            return;
-        }
-        self.preview_preference_error = None;
-        self.preview_appearance = value;
-        self.diff.update(cx, |d, cx| {
-            d.set_inline_unit(crate::diff_settings::inline_unit(value.emphasis), cx)
-        });
-        cx.notify();
-    }
-    pub(super) fn set_preview_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
-        if let Err(error) =
-            layout_preferences::save_diff_unified(self.preview_place(), mode == DiffMode::Unified)
-        {
-            self.preview_preference_error =
-                Some(format!("{}: {error}", t("Cannot save Diff view")));
-            cx.notify();
-            return;
-        }
-        self.preview_preference_error = None;
-        self.preview_mode = mode;
-        self.diff.update(cx, |d, cx| {
-            d.set_mode(crate::diff_settings::effective_mode(d.files(), mode), cx)
-        });
-        cx.notify();
-    }
-    pub(super) fn preview_settings_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let owner = cx.entity().downgrade();
-        crate::diff_settings::appearance_button(self.preview_appearance, move |value, cx| {
-            let _ = owner.update(cx, |s, cx| s.set_preview_appearance(value, cx));
-        })
-    }
+
     pub(super) fn diff_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let side_titles = self
-            .selected_file
-            .and_then(|index| self.files.get(index))
-            .and_then(|file| {
-                let revisions = match file.area {
-                    Area::Commit => {
-                        let commit = self.selected.and_then(|index| self.commits.get(index))?;
-                        let before = commit
-                            .parents
-                            .first()
-                            .map(|id| {
-                                let short = &id[..8.min(id.len())];
-                                if commit.parents.len() > 1 {
-                                    format!("{} {short}", t("First parent"))
-                                } else {
-                                    short.to_owned()
-                                }
-                            })
-                            .unwrap_or_else(|| t("Empty tree").into());
-                        (before, commit.id[..8.min(commit.id.len())].to_owned())
-                    }
-                    Area::WorkingTree => ("HEAD".into(), t("Working tree").into()),
-                    Area::Staged => ("HEAD".into(), t("Staged").into()),
-                    Area::Unstaged => (t("Staged").into(), t("Working tree").into()),
-                    Area::Untracked => (t("Empty file").into(), t("Untracked working file").into()),
-                    Area::Conflict | Area::Ignored => return None,
-                };
-                let before = file
-                    .old_path
-                    .as_ref()
-                    .unwrap_or(&file.path)
-                    .to_string_lossy();
-                Some((
-                    format!("{before} · {}", revisions.0),
-                    format!("{} · {}", file.path.display(), revisions.1),
-                ))
-            });
-        let content = if let Some(error) = self.preview_error.clone() {
-            v_flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .p_4()
-                .child(t("Could not load the diff."))
-                .child(
-                    h_flex()
-                        .gap_3()
-                        .child(
-                            Button::new("reload-preview")
-                                .link()
-                                .small()
-                                .label(t("Reload diff"))
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    if let Some(index) = s.selected_file {
-                                        s.load_file(index, cx);
-                                    }
-                                })),
-                        )
-                        .child(
-                            Button::new("copy-preview-error")
-                                .link()
-                                .small()
-                                .label(t("Copy error details"))
-                                .on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(error.clone()))
-                                }),
-                        ),
-                )
-                .into_any_element()
-        } else if self.error.is_some() {
-            v_flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .p_4()
-                .child(t("Could not load changes. Refresh to retry."))
-                .child(
-                    Button::new("reload-changes")
-                        .link()
-                        .small()
-                        .label(t("Refresh"))
+        let error = self.preview_error.as_ref().or(self.error.as_ref()).cloned();
+        v_flex().size_full().min_h_0().bg(rgb(BG))
+            .child(div().h(px(LOG_TOOLBAR_HEIGHT)).flex_shrink_0().border_b_1().border_color(rgb(BORDER)))
+            .child(v_flex().flex_1().items_center().justify_center().gap_2().p_4().text_color(rgb(MUTED))
+                .child(t(if error.is_some() { "Could not load the diff." }
+                    else if self.busy { "Reading Git data…" } else { self.empty_diff_message() }))
+                .when_some(error, |panel, error| panel.child(h_flex().gap_3()
+                    .child(Button::new("reload-preview-changes").link().small().label(t("Refresh"))
                         .disabled(self.busy || self.history_loading)
-                        .on_click(cx.listener(|s, _, w, cx| s.refresh_current(w, cx))),
-                )
-                .into_any_element()
-        } else if self.busy || self.loading_patch {
-            div()
-                .p_5()
-                .text_color(rgb(MUTED))
-                .child(t("Reading Git data…"))
-                .into_any_element()
-        } else if self.diff.read(cx).files().is_empty() {
-            div()
-                .p_5()
-                .text_color(rgb(MUTED))
-                .child(t(self.empty_diff_message()))
-                .into_any_element()
-        } else {
-            Diff::new(&self.diff)
-                .size_full()
-                .soft_wrap(self.preview_appearance.soft_wrap)
-                .line_number(self.preview_appearance.line_numbers)
-                .change_indicator(DiffChangeIndicator::None)
-                .into_any_element()
-        };
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .min_w_0()
-            .bg(rgb(BG))
-            .rounded(px(10.))
-            .child(
-                h_flex()
-                    .h(px(40.)).flex_shrink_0().mx(px(6.)).mt(px(2.))
-                    .px_3()
-                    .gap_2()
-                    .bg(rgb(0x212326))
-                    .rounded(px(6.))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .child(
-                        div()
-                            .truncate()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .child(self.base.as_ref().map(|base| base.text()).unwrap_or_default()),
-                    )
-                    .child(
-                        Button::new("prev-change")
-                            .ghost()
-                            .small()
-                            .icon(jb_icon("up_dark.svg"))
-                            .tooltip(t("Previous change (Shift+F7)"))
-                            .disabled(self.preview_error.is_some() || self.error.is_some() || self.loading_patch || self.busy)
-                            .on_click(cx.listener(|s, _, w, cx| {
-                                if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(false, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(false, w, cx)); } else { s.diff.update(cx, |d, cx| d.previous_change(cx)); } }
-                            })),
-                    )
-                    .child(
-                        Button::new("next-change")
-                            .ghost()
-                            .small()
-                            .icon(jb_icon("down_dark.svg"))
-                            .tooltip(t("Next change (F7)"))
-                            .disabled(self.preview_error.is_some() || self.error.is_some() || self.loading_patch || self.busy)
-                            .on_click(cx.listener(|s, _, w, cx| {
-                                if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(true, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(true, w, cx)); } else { s.diff.update(cx, |d, cx| d.next_change(cx)); } }
-                            })),
-                    )
-                    .child(
-                        Button::new("preview-jump-source").ghost().small().icon(jb_icon("edit_dark.svg"))
-                            .tooltip(t("Jump to Source · F4")).disabled(self.loading_patch || self.busy || self.selected_file.is_none())
-                            .on_click(cx.listener(|s,_,w,cx|s.jump_to_source(w,cx)))
-                    )
-                    .child(
-                        Button::new("expand")
-                            .ghost()
-                            .small()
-                            .label(t(if self.expanded { "Restore" } else { "Expand" }))
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.expanded = !s.expanded;
-                                cx.notify();
-                            })),
-                    )
-                    .child({
-                        let owner = cx.entity().downgrade();
-                        crate::diff_settings::mode_selector(self.preview_mode, move |mode, cx| {
-                            let _ = owner.update(cx, |s, cx| s.set_preview_mode(mode, cx));
-                        })
-                    })
-                    .child(self.preview_settings_button(cx)),
-            )
-            .when_some(self.preview_preference_error.clone(), |panel, error| panel.child(
-                h_flex().px_3().py_1().gap_2()
-                    .child(div().text_color(rgb(0xf2a6a6)).child(t("Could not save Diff preferences. Try the setting again.")))
-                    .child(Button::new("copy-preview-preference-error").link().small().label(t("Copy error details"))
-                        .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(error.clone()))))))
-            .when(
-                self.error.is_none()
-                    && self.diff.read(cx).files().iter().any(|file| {
-                        file.extended_headers().iter().any(|header| {
-                            header.split_whitespace().last() == Some("160000")
-                        })
-                    }),
-                |panel| panel.child(
-                    div().px_3().py_2().text_size(px(12.)).text_color(rgb(MUTED))
-                        .child(t("Submodule reference changed · The diff shows commit IDs, not the files inside the submodule.")),
-                ),
-            )
-            .when_some(side_titles.filter(|_| self.preview_error.is_none() && self.error.is_none()), |panel, (before, after)| {
-                let status = self.diff.read(cx).files().first().map(|file| file.status());
-                let unified = self.preview_mode == DiffMode::Unified;
-                let titles = [(status != Some(DiffFileStatus::Added)).then_some(before),
-                    (status != Some(DiffFileStatus::Deleted)).then_some(after)];
-                panel.child(
-                    div().flex().when(unified, |row| row.flex_col()).w_full().flex_shrink_0()
-                        .border_b_1().border_color(rgb(BORDER))
-                        .text_size(px(12.)).text_color(rgb(MUTED))
-                        .children(titles.into_iter().flatten().enumerate().map(|(side, title)| {
-                            div().id(("diff-version", side)).when(unified, |cell| cell.w_full())
-                                .when(!unified, |cell| cell.flex_1()).min_w_0().px_3().py_1().truncate()
-                                .tooltip({ let title = title.clone(); move |window, cx| Tooltip::new(title.clone()).build(window, cx) })
-                                .child(title)
-                        })),
-                )
-            })
-            .child(div().flex_1().w_full().min_h_0().min_w_0().child(content))
-            .relative().children(island_corners(!self.expanded))
+                        .on_click(cx.listener(|s, _, w, cx| s.refresh_current(w, cx))))
+                    .child(Button::new("copy-preview-error").link().small().label(t("Copy error details"))
+                        .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(error.clone())))))))
     }
 }
 
@@ -316,6 +84,35 @@ mod ownership_tests {
     extern crate gpui_kit as gpui;
     use super::*;
     use gpui::component::Root;
+    #[gpui::test]
+    fn file_selection_keeps_details_job_and_preview_uses_selected_revision(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone()); Root::new(view, window, cx)
+        });
+        cx.update(|_, cx| review.unwrap().update(cx, |s, cx| {
+            s.commits = Arc::new(['a', 'b'].into_iter().map(|id| git::Commit {
+                id: id.to_string().repeat(40), parents: vec![], shallow_boundary: false,
+                author: String::new(), date: String::new(), subject: String::new(), refs: vec![],
+            }).collect());
+            s.local = false;
+            s.files = Arc::new(vec![git::Change { path: "same.txt".into(), old_path: None,
+                status: "M".into(), area: Area::Commit }]);
+            s.selected = Some(0);
+            let generation = s.generation;
+            s.load_file(0, cx);
+            assert_eq!(s.generation, generation, "file selection must not cancel details");
+            let (first, _) = s.log_preview_target(cx).unwrap();
+            s.selected = Some(1);
+            let (second, _) = s.log_preview_target(cx).unwrap();
+            assert_ne!(first.identity(), second.identity(), "same filename is not same revision");
+            s.selected_file = None;
+            assert!(s.log_preview_target(cx).is_none());
+        }));
+    }
+
     #[gpui::test]
     fn clicking_same_log_commit_reclaims_preview_without_closing_commit_sidebar(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

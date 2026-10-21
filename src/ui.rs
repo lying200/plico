@@ -30,7 +30,6 @@ use gpui_kit::component::{
     WindowExt as _,
     button::{Button, ButtonCustomVariant, ButtonVariants as _, DropdownButton},
     dialog::{DialogAction, DialogFooter},
-    diff::{Diff, DiffChangeIndicator, DiffFile, DiffFileStatus, DiffMode, DiffState},
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
@@ -140,7 +139,6 @@ pub struct Review {
     source_task: Task<()>,
     source_token: Cancel,
     source_generation: u64,
-    preview_source_position: Option<(bool, usize)>,
     adjacent_task: Task<()>,
     adjacent_token: Cancel,
     adjacent_menu: Option<Entity<gpui_kit::component::menu::PopupMenu>>,
@@ -149,7 +147,6 @@ pub struct Review {
     branch_rows: Arc<Vec<branches::Row>>,
     collapsed_branches: HashSet<String>,
     local: bool,
-    expanded: bool,
     tabs: Vec<Entity<DiffTab>>,
     local_preview: Option<Entity<DiffTab>>,
     local_preview_requested: bool,
@@ -163,9 +160,6 @@ pub struct Review {
     bottom_preview: bool,
     log_files_options: layout_preferences::LogFilesOptions,
     file_preview: bool,
-    preview_mode: DiffMode,
-    preview_appearance: layout_preferences::DiffAppearance,
-    preview_preference_error: Option<String>,
     saved_changes_available: bool,
     stash_open: bool,
     commit_stash_selected: bool,
@@ -182,7 +176,6 @@ pub struct Review {
     details_cache: plico::detail_cache::Cache,
     busy: bool,
     history_loading: bool,
-    loading_patch: bool,
     limit: usize,
     history_offset: usize,
     window_start: graph::Layout,
@@ -190,7 +183,6 @@ pub struct Review {
     generation: u64,
     token: Cancel,
     task: Task<()>,
-    diff: Entity<DiffState>,
     focus: FocusHandle,
     history_focus: FocusHandle,
     tree_focus: FocusHandle,
@@ -201,6 +193,8 @@ pub struct Review {
     files_scroll: UniformListScrollHandle,
     details_scroll: ScrollHandle,
     details_split: Entity<ResizableState>,
+    preview_split: Entity<ResizableState>,
+    preview_fraction: f32,
     log_navigation: Entity<ResizableState>,
     compact_log_navigation: Entity<ResizableState>,
     navigation_width: Pixels,
@@ -396,7 +390,6 @@ impl Review {
             source_task: Task::ready(()),
             source_token: Cancel::default(),
             source_generation: 0,
-            preview_source_position: None,
             adjacent_task: Task::ready(()),
             adjacent_token: Cancel::default(),
             adjacent_menu: None,
@@ -405,7 +398,6 @@ impl Review {
             branch_rows: Arc::default(),
             collapsed_branches: HashSet::new(),
             local: false,
-            expanded: false,
             tabs: Vec::new(),
             local_preview: None,
             local_preview_requested: false,
@@ -423,9 +415,6 @@ impl Review {
             bottom_preview: layout_preferences::load_bottom_preview(),
             log_files_options: layout_preferences::load_log_files_options(),
             file_preview: layout_preferences::load_file_preview(),
-            preview_mode: DiffMode::Split,
-            preview_appearance: Default::default(),
-            preview_preference_error: None,
             settings_open: false,
             settings_session: 0,
             settings_draft: None,
@@ -439,7 +428,6 @@ impl Review {
             details_cache: Default::default(),
             busy: false,
             history_loading: false,
-            loading_patch: false,
             operation: Default::default(),
             operation_task: Task::ready(()),
             status_message: None,
@@ -453,7 +441,6 @@ impl Review {
             generation: 0,
             token: Cancel::default(),
             task: Task::ready(()),
-            diff: cx.new(|cx| DiffState::new([], cx).with_mode(DiffMode::Split)),
             focus,
             history_focus,
             tree_focus: cx.focus_handle().tab_stop(true),
@@ -464,6 +451,8 @@ impl Review {
             files_scroll: UniformListScrollHandle::new(),
             details_scroll: ScrollHandle::new(),
             details_split: cx.new(|_| ResizableState::default()),
+            preview_split: cx.new(|_| ResizableState::default()),
+            preview_fraction: layout_preferences::load_preview_fraction(),
             log_navigation: cx.new(|_| ResizableState::default()),
             compact_log_navigation: cx.new(|_| ResizableState::default()),
             navigation_width: px(1000.),
@@ -551,22 +540,6 @@ impl Review {
             },
         )
         .detach();
-        // Diff is a RenderOnce element: its owner must redraw when retained
-        // state changes (initial viewport measurement, syntax and selection).
-        cx.observe(&this.diff, |_, _, cx| cx.notify()).detach();
-        cx.subscribe(
-            &this.diff,
-            |s, _, event: &gpui_kit::component::diff::DiffEvent, cx| {
-                if let gpui_kit::component::diff::DiffEvent::SelectionChanged(Some(range)) = event {
-                    s.preview_source_position = Some((
-                        range.end_side() == gpui_kit::component::diff::DiffSide::Original,
-                        range.end().saturating_sub(1),
-                    ));
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
         cx.subscribe(&this.filter_search, |s, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 s.apply_text_filter(cx);
@@ -610,11 +583,10 @@ impl Render for Review {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_language(_window, cx);
         let show_local_preview = self.bottom_preview
-            && (self.uses_local_changes_preview() || self.stash_open || self.aggregate_chain.is_some())
             && self.active_diff_index().is_none()
             && self.active_file_index().is_none();
         if !show_local_preview {
-            self.local_preview = None;
+            if let Some(preview) = self.local_preview.take() { preview.update(cx, |p, cx| p.deactivate(cx)); }
         } else if self.stash_open {
             if let Some(view) = &self.stash_view {
                 if !view.read(cx).preview_loading() {
@@ -635,7 +607,7 @@ impl Render for Review {
                     let callback = self.diff_source_callback(cx);
                                 preview.update(cx, |p, cx| {
                                     p.source_callback = Some(callback);
-                                    p.activate(_window, cx);
+                                    p.activate_with_focus(false, _window, cx);
                                 });
                                 self.local_preview = Some(preview);
                             } else if let Some(preview) = &self.local_preview {
@@ -646,12 +618,8 @@ impl Render for Review {
                     }
                 }
             }
-        } else if !self.uses_local_changes_preview() && self.aggregate_chain.is_some() {
-            let pair = self.aggregate_chain.clone().and_then(|mut chain| {
-                chain
-                    .select(self.selected_file?)
-                    .map(|target| (target, chain))
-            });
+        } else if !self.uses_local_changes_preview() {
+            let pair = if self.busy { None } else { self.log_preview_target(cx) };
             if let Some((target, chain)) = pair {
                 if !self
                     .local_preview
@@ -667,7 +635,7 @@ impl Render for Review {
                     let callback = self.diff_source_callback(cx);
                     preview.update(cx, |p, cx| {
                         p.source_callback = Some(callback);
-                        p.activate(_window, cx);
+                        p.activate_with_focus(false, _window, cx);
                     });
                     self.local_preview = Some(preview);
                 }
@@ -831,17 +799,16 @@ impl Render for Review {
                     if let Some(view) = &s.comparison { view.update(cx, |v, cx| v.focus_files(w, cx)); }
                     cx.notify(); return;
                 }
-                s.expanded = false;
                 s.focus_after_diff(w, cx);
                 cx.notify();
             }))
             .on_action(
                 cx.listener(|s, _: &NextChange, w, cx| {
-                    if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(true, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(true, w, cx)); } else { s.diff.update(cx, |d, cx| d.next_change(cx)); } }
+                    if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(true, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(true, w, cx)); } }
                 }),
             )
             .on_action(cx.listener(|s, _: &PreviousChange, w, cx| {
-                if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(false, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(false, w, cx)); } else { s.diff.update(cx, |d, cx| d.previous_change(cx)); } }
+                if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(false, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(false, w, cx)); } }
             }))
             .on_action(cx.listener(|s, _: &crate::project_view::SaveFile, _, cx| { s.documents.save_all(cx); }))
             .on_action(cx.listener(|s, _: &Find, w, cx| {
@@ -852,7 +819,6 @@ impl Render for Review {
                     cx.stop_propagation(); cx.notify(); return;
                 }
                 s.leave_diff_tab(cx);
-                s.expanded = false;
                 if s.local {
                     s.local = false;
                     s.refresh(false, cx);
@@ -907,18 +873,27 @@ impl Render for Review {
                         div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(tab.clone()).children(island_corners(false)).into_any_element()
                     } else if let Some(tab) = self.active_diff_index().and_then(|i| self.tabs.get(i)) {
                         div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(tab.clone()).children(island_corners(false)).into_any_element()
-                    } else if self.expanded {
-                        div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(self.diff_panel(cx)).children(island_corners(false)).into_any_element()
                     } else {
-                        v_resizable("vertical")
+                        v_resizable("vertical").with_state(&self.preview_split)
+                            .on_resize(cx.listener(|s, state: &Entity<ResizableState>, _, cx| {
+                                if let [main, preview] = state.read(cx).sizes().as_slice() {
+                                    let total = main.as_f32() + preview.as_f32();
+                                    if total > 0. {
+                                        s.preview_fraction = (main.as_f32() / total).clamp(0.1, 0.9);
+                                        if let Err(error) = layout_preferences::save_preview_fraction(s.preview_fraction) {
+                                            eprintln!("Cannot save preview split: {error}");
+                                        }
+                                    }
+                                }
+                            }))
                             .child(
                                 resizable_panel()
-                                    .size(px(380.))
+                                    .flex_basis(relative(self.preview_fraction))
                                     .size_range(px(160.)..px(1800.))
                                     .child(
                                         v_flex()
                                             .relative().size_full()
-                                            .rounded_b(px(10.))
+                                            .when(!self.bottom_preview, |pane| pane.rounded_b(px(10.)))
                                             .overflow_hidden()
                                             .bg(rgb(BG))
                                             .child(
@@ -968,21 +943,21 @@ impl Render for Review {
                                                     ),
                                                 )),
                                             )
-                                            .children(island_corners(false)),
+                                            .when(!self.bottom_preview, |pane| pane.children(island_corners(false))),
                                     ),
                             )
                             .when(self.bottom_preview && !(self.commits.is_empty() && self.error.is_some() && !self.local_visible && !self.stash_open), |layout| layout.child(
-                                resizable_panel().size_range(px(150.)..px(2400.)).child(
-                                    div().size_full().pt(px(8.)).child(
+                                resizable_panel().flex_basis(relative(1. - self.preview_fraction)).size_range(px(60.)..px(4000.)).child(
+                                    div().size_full().child(
                                         div()
                                             .relative().size_full()
-                                            .rounded(px(10.))
+                                            .rounded_b(px(10.))
                                             .overflow_hidden()
-                                            .child(if self.uses_local_changes_preview() || self.stash_open || self.aggregate_chain.is_some() {
+                                            .child(if self.local_preview.is_some() {
                                                 div().size_full().children(self.local_preview.clone())
                                                     .when(self.local_preview.is_none(), |v| v.child(div().p_3().child(t("Select a file to view its diff")))).into_any_element()
                                             } else { self.diff_panel(cx).into_any_element() })
-                                            .children(island_corners(true)),
+                                            .children(island_corners(false)),
                                     ),
                                 ),
                             ))

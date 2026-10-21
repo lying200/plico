@@ -2344,3 +2344,34 @@ Windows 原生收尾：reword 7 项通过（另 1 项是 Unix hook fixture），
 保留差异：本轮对齐展示选项和文件／详情布局；未添加反向应用历史变更与指定版本文件历史两个入口，它们需要独立的历史目标／写操作流程，不能用现有近似操作代替。预览仍沿用应用现有共享的底部模式，不新增右侧预览位置；多父提交分组没有在本轮扩展。未宣称整个右侧面板已像素级对齐。
 
 验证：配置默认值／独立值／异常输入测试、分组切换保持选中项与折叠状态的桌面测试通过；Windows release 编译通过。原生测试使用独立 profile，文件区菜单、详情隐藏、Diff 预览、平铺及重启持久化截图存放 `artifacts/log-files-20261021/`。未执行 Git 写操作；滚动不做自动化验收。
+
+### 预览入口去重（2026-10-21）
+
+用户确认以右侧眼睛菜单管理底部 Diff 预览。依据同一快照 `ShowDiffPreviewAction.java` 的 SHOW_DIFF_PREVIEW 展示属性入口，移除设置中的 Diff 页面及其底部／Tab 单选项，删除 SettingsDraft 中重复的预览状态和 Apply 写回路径。`set_bottom_preview` 移至 `ui/files_options.rs`；保留原 `diff-location` 持久化文件，因此已有偏好无需迁移。独立 Diff Tab、编辑器文件预览设置、Diff 自身显示选项均保留。该变更不新增设置，而是去除重复入口，也避免旧设置草稿覆盖眼睛菜单的即时选择。
+
+去重验证：`cargo check --locked --bin plico`、Windows release 构建通过；Windows 独立测试进程截图 `artifacts/settings-preview-20261021/settings.png` 确认版本控制下仅保留 Git 设置，编辑器 Tab 等页面仍在。本轮仅删除重复入口，未增加镜像实现的测试。
+
+## 底部 Diff 预览共用处理器与生命周期（2026-10-21）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，宿主机安装版 1.1.20 仍单独看待。本轮实读：
+
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/FrameDiffPreview.kt`：OnePixelSplitter，默认主区域比例 0.7；预览开启时创建 viewer，关闭时拆除并 dispose；不是永久保留一个隐藏 viewer。
+- `MainFrame.java` 的 createViewer：底部 viewer 来自同一个 changes browser 的 `createChangeProcessor(false)`，工具栏高度引用 Log 工具栏。
+- `VcsLogChangesBrowser.kt::createChangeProcessor`：editor 与底部选择不同 Diff place，但共享处理器／树 handler；底部监听可见性。
+- `VcsLogChangeProcessor.kt`：从选中／所有 changes 构造 wrapper；预览换文件回选 changes tree；监听树模型变化。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/TreeHandlerDiffRequestProcessor.kt`：区分 selection/model/full 更新，默认 100ms 合并队列，可见时刷新、隐藏时清理；生命周期绑定 disposable。
+
+发现的本地差异：普通单提交底部模式仍通过 `Review::load_file` 独立读 patch，用早期 DiffState／工具栏渲染；多选和 Commit 预览已走 DiffTab。旧路径还复用详情加载的取消令牌，文件选择可能影响详情任务。
+
+本地调整：
+
+- `ui/files.rs` 的 load_file 只更新选择；`ui/preview.rs::log_preview_target` 按仓库、提交、文件身份选择 Target/Chain，已打开的不可变链可复用。`ui.rs` 普通 Log、多选与 Commit/Stash 的底部预览统一使用 `DiffTab::preview`。单提交不再执行第二套 patch reader；移除旧 DiffState、监听器、源位置状态和旧面板工具栏。
+- 隐藏底部／切独立编辑器时 deactivate 并释放预览，异步读取取消；显示时从当前树选择重建；选择同一目标不反复读 Git。自动激活不抢文件树／Log 焦点。F7 跨文件事件沿用 subscribe_diff_navigation，回选并展开对应树路径。
+- `diff_tab.rs` 对 embedded toolbar 使用 LOG_TOOLBAR_HEIGHT、平面背景及底部分隔线；保留独立 Tab 的工具栏样式。底部去除 Compared with 总标题、额外圆角卡片及 Expand 模式，保留版本标题、只读标志、差异导航、跳转源文件、视图／显示设置。大文件显示、首处差异定位、中线拖动和差异高亮沿用同一个 viewer。
+- 主预览拆分默认70/30，持久化拖动比例到 log-preview-ratio；上下区域直接相接，只有外部底角圆角。空／加载／错误状态不显示旧内容，错误保留刷新与复制详情。
+
+保留差异：本地仍是单文件按需预览，不实现 upstream Combined Diff 多文件堆叠；暂保留底部位置，不增右侧位置。本地使用取消令牌＋generation 丢弃旧结果，未加入 upstream 的100ms合并延迟；细分更新队列并非完全复刻。工具栏非所有上游高级选项均已实现，未声称像素级全量对齐。
+
+验证记录：`cargo check --locked --bin plico` 无警告；桌面回归52项通过，新增“文件选择不取消详情、相同路径不同 revision 不复用预览”测试单独通过。既有 `releasing_diff_clears_padding_from_retained_source` 基线失败项继续排除，未宣称全套测试通过。Windows release 构建及独立 profile 原生验证覆盖普通提交替换、根提交新增、预览显隐；截图位于 `artifacts/bottom-preview-20261021/`。原生显隐验证发现 retained resizable state 会带回单面板高度，已在显隐时重建拆分状态并保留记录的比例；复验确认。未进行滚动自动化排查。
+
+补充原生拖拽验收：纵向分隔线拖动后保存比例 `0.588723`，`resized.png` 记录结果；此操作是面板调整，不是 Diff 滚动自动化。独立测试进程已关闭，用户的 Plico/Rebased 未关闭。

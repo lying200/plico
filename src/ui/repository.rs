@@ -3,7 +3,7 @@
 use super::*;
 
 impl Review {
-    pub(super) fn reset_job(&mut self, cx: &mut Context<Self>) -> (u64, Cancel) {
+    pub(super) fn reset_job(&mut self, _cx: &mut Context<Self>) -> (u64, Cancel) {
         self.graph_hover = None;
         self.graph_print_token.cancel();
         self.graph_print_generation += 1;
@@ -19,8 +19,6 @@ impl Review {
         self.preview_error = None;
         self.navigation_loading = None;
         self.navigation_notice = None;
-        self.loading_patch = false;
-        self.diff.update(cx, |d, cx| d.set_files([], cx));
         (self.generation, self.token.clone())
     }
     pub(super) fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -214,7 +212,6 @@ impl Review {
         self.selected_file = None;
         self.pending_preview_file = None;
         self.local = false;
-        self.expanded = false;
         self.saved_changes_available = false;
         self.stash_open = false;
         self.stash_view = None;

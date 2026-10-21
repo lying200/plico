@@ -261,7 +261,6 @@ impl Review {
         let generation = self.generation;
         let token = self.token.clone();
         self.busy = false;
-        self.loading_patch = false;
         self.error = None;
         self.navigation_notice = None;
         self.navigation_loading = Some(name.clone());

@@ -5,103 +5,15 @@ use super::files_options::log_file_count;
 
 impl Review {
     pub(super) fn load_file(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.preview_source_position = None;
-        self.preview_mode = if layout_preferences::load_diff_unified(self.preview_place()) {
-            DiffMode::Unified
-        } else {
-            DiffMode::Split
-        };
-        self.preview_appearance = layout_preferences::load_diff_appearance(self.preview_place());
-        self.preview_preference_error = None;
-        let Some(change) = self.files.get(index).cloned() else {
-            return;
-        };
-        let (generation, token) = self.reset_job(cx);
+        if index >= self.files.len() { return; }
         self.selected_file = Some(index);
         self.pending_preview_file = None;
-        // Clearing rows while loading can clamp the virtual list back to zero.
-        // Reveal the restored selection after the new rows arrive as well.
-        if let Some(row) = self
-            .file_rows
-            .iter()
-            .position(|row| matches!(row, FileRow::File(i, _) if *i == index))
-        {
+        self.preview_error = None;
+        if let Some(row) = self.file_rows.iter().position(|row| matches!(row, FileRow::File(i, _) if *i == index)) {
             self.files_scroll.scroll_to_item(row, ScrollStrategy::Top);
         }
-        if self.aggregate_chain.is_some() {
-            cx.notify();
-            return;
-        }
-        if !self.bottom_preview {
-            self.loading_patch = false;
-            cx.notify();
-            return;
-        }
-        self.diff.update(cx, |d, cx| {
-            d.set_inline_unit(
-                crate::diff_settings::inline_unit(self.preview_appearance.emphasis),
-                cx,
-            )
-        });
-        self.loading_patch = true;
-        if self.local {
-            self.base = Some(i18n::ComparisonTitle::Label(match change.area {
-                Area::Unstaged => "Unstaged · Index → Working tree",
-                Area::WorkingTree => "Changes · HEAD → Working tree",
-                Area::Staged => "Staged · HEAD → Index",
-                Area::Untracked => "Untracked · New file preview",
-                Area::Conflict => "Conflict · Unmerged index entries",
-                Area::Commit => "Committed change",
-                Area::Ignored => "Ignored Files",
-            }));
-        }
-        let repo = self.repo.clone();
-        let commit = if self.local {
-            None
-        } else {
-            self.selected.and_then(|i| self.commits.get(i).cloned())
-        };
-        let target = match diff_target::Target::new(repo, commit, change) {
-            Ok(target) => target,
-            Err(error) => {
-                self.loading_patch = false;
-                self.preview_error = Some(error);
-                cx.notify();
-                return;
-            }
-        };
-        self.task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let text = target.read(&token)?;
-                    if token.cancelled() {
-                        return Err("Cancelled".into());
-                    }
-                    if target.change().area == Area::Untracked {
-                        Ok(vec![DiffFile::added(target.change().label(), &text)])
-                    } else {
-                        DiffFile::parse(&text).map_err(|e| e.to_string())
-                    }
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.loading_patch = false;
-                match result {
-                    Ok(files) => this.diff.update(cx, |d, cx| {
-                        d.set_mode(
-                            crate::diff_settings::effective_mode(&files, this.preview_mode),
-                            cx,
-                        );
-                        d.set_files(files, cx);
-                    }),
-                    Err(e) => this.preview_error = Some(e),
-                }
-                cx.notify();
-            });
-        });
+        // The visible preview owns its asynchronous reader, just like an editor Diff.
+        // Selecting a file must not cancel the commit-details request.
         cx.notify();
     }
     pub(super) fn move_commit(&mut self, delta: isize, cx: &mut Context<Self>) {

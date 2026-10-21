@@ -423,3 +423,13 @@ fn changes_option_file(root:&Path,option:ChangesOption)->Option<(PathBuf,String)
 }
 pub fn load_changes_option(root:&Path,option:ChangesOption)->bool{changes_option_file(root,option).and_then(|(path,key)|read_history_details(&path,&key)).unwrap_or(false)}
 pub fn save_changes_option(root:&Path,option:ChangesOption,value:bool)->std::io::Result<()>{let Some((path,key))=changes_option_file(root,option)else{return Ok(());};save_project_boolean(&path,&key,value)}
+
+pub fn load_preview_fraction() -> f32 {
+    settings_path().and_then(|p| read(&p.with_file_name("log-preview-ratio"))).unwrap_or(0.7)
+}
+pub fn save_preview_fraction(value: f32) -> std::io::Result<()> {
+    if !valid(value) { return Ok(()); }
+    let Some(path) = settings_path().map(|p| p.with_file_name("log-preview-ratio")) else { return Ok(()); };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, format!("{value:.6}\n"))
+}

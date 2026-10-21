@@ -91,8 +91,3 @@ impl RenderOnce for ModeSelector {
         group
     }
 }
-
-pub fn effective_mode(files: &[gpui_kit::component::diff::DiffFile], preferred: gpui_kit::component::diff::DiffMode) -> gpui_kit::component::diff::DiffMode {
-    use gpui_kit::component::diff::{DiffFileStatus, DiffMode};
-    if files.len() == 1 && matches!(files[0].status(), DiffFileStatus::Added | DiffFileStatus::Deleted) { DiffMode::Unified } else { preferred }
-}

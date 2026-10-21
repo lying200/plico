@@ -6,7 +6,6 @@ use super::*;
 enum Page {
     Language = 0,
     Git = 1,
-    Diff = 2,
     EditorTabs = 3,
     Appearance = 4,
     EditorFont = 5,
@@ -16,7 +15,6 @@ pub(super) struct SettingsDraft {
     fonts: crate::ui_font::Preferences,
     section: Page,
     language: Language,
-    bottom_preview: bool,
     file_preview: bool,
     git: Option<Entity<crate::update_settings::Settings>>,
     loading: bool,
@@ -24,26 +22,6 @@ pub(super) struct SettingsDraft {
 }
 
 impl Review {
-    pub(super) fn set_bottom_preview(&mut self, bottom: bool, cx: &mut Context<Self>) -> bool {
-        if let Err(error) = layout_preferences::save_bottom_preview(bottom) {
-            if let Some(draft) = &mut self.settings_draft {
-                draft.section = Page::Diff;
-                draft.error = Some(format!("{}: {error}", t("Settings could not be saved")));
-            } else {
-                self.error = Some(format!("{}: {error}", t("Settings could not be saved")));
-            }
-            cx.notify();
-            return false;
-        }
-        self.bottom_preview = bottom;
-        if !self.busy {
-            if let Some(index) = self.selected_file {
-                self.load_file(index, cx);
-            }
-        }
-        cx.notify();
-        true
-    }
     pub(super) fn set_language(
         &mut self,
         language: Language,
@@ -96,7 +74,6 @@ impl Review {
             fonts: crate::ui_font::Preferences::current(cx),
             section: Page::Language,
             language: i18n::preference(),
-            bottom_preview: self.bottom_preview,
             file_preview: self.file_preview,
             git: None,
             loading: false,
@@ -181,9 +158,8 @@ impl Review {
             return;
         }
         let fonts = draft.fonts.clone();
-        let (language, bottom, file_preview, git) = (
+        let (language, file_preview, git) = (
             draft.language,
-            draft.bottom_preview,
             draft.file_preview,
             draft.git.clone(),
         );
@@ -200,9 +176,6 @@ impl Review {
             }
         }
         if language != i18n::preference() && !self.set_language(language, window, cx) {
-            return;
-        }
-        if bottom != self.bottom_preview && !self.set_bottom_preview(bottom, cx) {
             return;
         }
         if file_preview != self.file_preview {
@@ -298,7 +271,6 @@ impl Review {
             .expect("Open settings have a draft");
         let modified = draft.fonts != crate::ui_font::Preferences::current(cx)
             || draft.language != i18n::preference()
-            || draft.bottom_preview != self.bottom_preview
             || draft.file_preview != self.file_preview
             || draft
                 .git
@@ -311,7 +283,6 @@ impl Review {
             (Page::EditorFont, "Editor Font"),
             (Page::EditorTabs, "Editor Tabs"),
             (Page::Git, "Git"),
-            (Page::Diff, "Diff"),
         ] {
             if section == Page::Git {
                 navigation = navigation.child(
@@ -357,7 +328,6 @@ impl Review {
             Page::EditorFont => t("Editor Font").to_owned(),
             Page::EditorTabs => t("Editor Tabs").to_owned(),
             Page::Git => format!("{}  ›  Git", t("Version Control")),
-            Page::Diff => format!("{}  ›  {}", t("Version Control"), t("Diff")),
             Page::Language => t("Language").to_owned(),
         };
         let mut content = v_flex()
@@ -518,29 +488,6 @@ impl Review {
                     }))
                 }
             }
-            Page::Diff => content.child(t("Open file differences in")).child(
-                v_flex().gap_3().children(
-                    [(false, "Editor tab (default)"), (true, "Bottom preview")]
-                        .into_iter()
-                        .map(|(bottom, label)| {
-                            gpui_kit::component::radio::Radio::new(if bottom {
-                                "diff-location-bottom"
-                            } else {
-                                "diff-location-tab"
-                            })
-                            .label(t(label))
-                            .checked(draft.bottom_preview == bottom)
-                            .on_change(cx.listener(
-                                move |s, _, _, cx| {
-                                    if let Some(d) = &mut s.settings_draft {
-                                        d.bottom_preview = bottom;
-                                    }
-                                    cx.notify();
-                                },
-                            ))
-                        }),
-                ),
-            ),
             Page::Language => content.child(
                 v_flex().gap_3().children(
                     [

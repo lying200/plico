@@ -293,27 +293,7 @@ impl Review {
                         )
                         .ok()
                     }?;
-                    let selection = self.diff.read(cx).selected_lines();
-                    let (original, line) = self
-                        .diff
-                        .read(cx)
-                        .source_position()
-                        .map(|p| {
-                            (
-                                p.side() == gpui_kit::component::diff::DiffSide::Original,
-                                p.line().saturating_sub(1),
-                            )
-                        })
-                        .or_else(|| {
-                            selection.map(|r| {
-                                (
-                                    r.end_side() == gpui_kit::component::diff::DiffSide::Original,
-                                    r.end().saturating_sub(1),
-                                )
-                            })
-                        })
-                        .or(self.preview_source_position)
-                        .unwrap_or((change.status.starts_with('D'), 0));
+                    let (original, line) = (change.status.starts_with('D'), 0);
                     Some((target, original, line))
                 })
         };

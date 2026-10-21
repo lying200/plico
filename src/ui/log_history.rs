@@ -298,6 +298,7 @@ impl Review {
                                         .child(
                                             div()
                                                 .w(px(145.)).flex_shrink_0()
+                                                .truncate()
                                                 .text_color(rgb(MUTED))
                                                 .child(plico::commit_date::format(&c.date)),
                                         )

@@ -2520,3 +2520,7 @@ Commit大字号文件行也已截图核对（large-commit.png），无文字垂�
 保留差异：本地消息编辑框固定180逻辑像素、使用UI字体和圆角输入框，参考版采用commit editor并有历史入口；Reset仍缺Help且目标整段semibold；Push右侧toolbar项目组织与分隔线仍有差异。原生20号检查不是Rebased相同字号/相同窗口的逐像素对比，极窄窗口、32字号和多DPI尚未完整验收。Log空提交说明横向溢出另记后续，不混入本轮弹窗修改。
 验证：cargo check和Windows release构建通过；本轮仅布局修改，沿用此前57项桌面回归结果（已知diff padding基线失败仍排除），未宣称重跑全部写操作测试。
 补充原生验收：UI20且窗口缩小至1100×1000物理像素时，Push标签选项、帮助与确认/取消均完整可见（narrow-push.png）；帮助符号随控件高度修正后恢复显示。该尺寸仍为单行底栏，不作为极窄换行已验证的声明。
+
+### Log相对日期单行显示补修（2026-10-21）
+UI20原生检查发现“23 minutes ago”在145px日期列中换行，行盒居中后上下被截断。对照同commit的 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogStringCellRenderer.kt`（按字体度量估计列宽）、`platform/platform-api/src/com/intellij/ui/ColoredTableCellRenderer.java`及`SimpleColoredComponent.java`绘制循环（共用baseline水平绘制fragment、按宽度裁剪）。本地`ui/log_history.rs`给日期单元格加入单行省略，与作者列一致，防止换行影响行内对齐；完整提交日期仍可从提交详情读取。保留固定145px列宽，不在本轮引入上游可调列宽与样本文字测量机制。
+验证：最终Windows release构建通过，原生UI20截图log-date-single-line.png确认相对日期单行省略并与提交正文居中对齐；此纯布局补修未增加重复单测。

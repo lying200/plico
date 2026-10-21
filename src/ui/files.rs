@@ -456,7 +456,7 @@ impl Review {
                         .track_scroll(&self.files_scroll),
                     )
                     .child(Scrollbar::vertical(&self.files_scroll))
-                    .when(self.files.is_empty() && !self.busy, |pane| pane.child(div().absolute().inset_0().flex().items_center().justify_center().text_color(rgb(MUTED)).child(t(self.empty_diff_message()))))
+                    .when(self.files.is_empty() && !self.busy, |pane| pane.child(div().absolute().inset_0().flex().items_center().justify_center().p_4().overflow_hidden().text_color(rgb(MUTED)).child(div().w_full().min_w_0().whitespace_normal().text_center().child(t(self.empty_diff_message())))))
                     // Selection clears the previous tree immediately; keep visible
                     // feedback in the changes pane even when the Diff lives in a tab.
                     .when(self.busy, |pane| {

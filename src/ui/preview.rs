@@ -64,11 +64,11 @@ impl Review {
 
     pub(super) fn diff_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let error = self.preview_error.as_ref().or(self.error.as_ref()).cloned();
-        v_flex().size_full().min_h_0().bg(rgb(BG))
+        v_flex().size_full().min_w_0().min_h_0().overflow_hidden().bg(rgb(BG))
             .child(div().h(px(LOG_TOOLBAR_HEIGHT)).flex_shrink_0().border_b_1().border_color(rgb(BORDER)))
-            .child(v_flex().flex_1().items_center().justify_center().gap_2().p_4().text_color(rgb(MUTED))
-                .child(t(if error.is_some() { "Could not load the diff." }
-                    else if self.busy { "Reading Git data…" } else { self.empty_diff_message() }))
+            .child(v_flex().flex_1().w_full().min_w_0().min_h_0().overflow_hidden().items_center().justify_center().gap_2().p_4().text_color(rgb(MUTED))
+                .child(div().w_full().min_w_0().whitespace_normal().text_center().child(t(if error.is_some() { "Could not load the diff." }
+                    else if self.busy { "Reading Git data…" } else { self.empty_diff_message() })))
                 .when_some(error, |panel, error| panel.child(h_flex().gap_3()
                     .child(Button::new("reload-preview-changes").link().small().label(t("Refresh"))
                         .disabled(self.busy || self.history_loading)

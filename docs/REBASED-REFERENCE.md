@@ -2524,3 +2524,9 @@ Commit大字号文件行也已截图核对（large-commit.png），无文字垂�
 ### Log相对日期单行显示补修（2026-10-21）
 UI20原生检查发现“23 minutes ago”在145px日期列中换行，行盒居中后上下被截断。对照同commit的 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogStringCellRenderer.kt`（按字体度量估计列宽）、`platform/platform-api/src/com/intellij/ui/ColoredTableCellRenderer.java`及`SimpleColoredComponent.java`绘制循环（共用baseline水平绘制fragment、按宽度裁剪）。本地`ui/log_history.rs`给日期单元格加入单行省略，与作者列一致，防止换行影响行内对齐；完整提交日期仍可从提交详情读取。保留固定145px列宽，不在本轮引入上游可调列宽与样本文字测量机制。
 验证：最终Windows release构建通过，原生UI20截图log-date-single-line.png确认相对日期单行省略并与提交正文居中对齐；此纯布局补修未增加重复单测。
+
+### 空提交说明限制在面板内（2026-10-21）
+参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版Rebased 1.1.20。读取 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangesBrowser.kt`、`VcsLogChangesTreeComponents.kt::updateStatusText` 和 `platform/platform-api/src/com/intellij/util/ui/StatusText.java::getTextComponentBound/paintComponentInBounds`：空状态属于changes viewer，随model状态更新，在owner/fragment绘制范围内居中显示。上游普通空提交changes状态会清空提示，不等同于本地长说明。
+原生UI20、空提交、右侧窄面板截图稳定复现文字跨过左右边界。原因是`ui/files.rs`绝对定位居中层直接放置未限宽的文本；`ui/preview.rs`有同类排版。本地给文本独立的满宽、可收缩、居中换行容器，外层加padding及绘制裁剪，底部空Diff容器也限制最小宽高，避免内容撑大面板。保留本地对空提交/浅克隆/过滤无结果的解释文字，采用换行而不是上游短提示/空白，是明确的可读性差异。Git查询和选择生命周期不变。
+此修正是纯布局，使用同一原生测试仓库截图回归，不添加只断言样式属性的单测。
+验证：Windows release构建通过；原生UI20下普通窗口、底部预览开启和1100×1000物理像素窗口均确认提示在各自边界内换行，截图empty-fixed.png、empty-bottom.png、empty-narrow.png。右侧最窄约300物理像素时说明仍完整可见。此次未执行Git写操作，仅关闭自有测试实例。

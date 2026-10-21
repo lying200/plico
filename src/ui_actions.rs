@@ -8,6 +8,7 @@ actions!(
         ToggleLogDirectory,
         Open,
         OpenSettings,
+        CreateBranch,
         Older,
         Newer,
         ExtendOlder,

@@ -320,6 +320,7 @@ impl Review {
                                             }).unwrap_or_default();
                                             let reword_owner = checkout_owner.clone();
                                             let reword_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).can_reword(&target, cx));
+                                            let create_owner=checkout_owner.clone(); let create_target=target.clone(); let create_path=path.clone();
                                             let reset_owner=checkout_owner.clone(); let reset_target=target.clone(); let reset_path=path.clone();
                                             let reset_enabled=checkout_owner.upgrade().is_some_and(|e|{let s=e.read(cx);!s.operation.busy() && !s.operation.saving_documents() && s.log_selection.ordered(&s.commit_ids()).len()==1});
                                             let parent_owner = checkout_owner.clone(); let child_owner = checkout_owner.clone();
@@ -369,6 +370,9 @@ impl Review {
                                                     }
                                                 })
                                                 .separator()
+                                                .item(PopupMenuItem::new(t("New Branch…")).disabled(!reset_enabled).on_click(move |_,w,cx| {
+                                                    let _=create_owner.update(cx,|s,cx|if s.repo.path==create_path {s.new_branch_dialog(create_target.clone(),w,cx);});
+                                                }))
                                                 .item(PopupMenuItem::new(t("Reset Current Branch to Here…")).disabled(!reset_enabled).on_click(move|_,w,cx| {
                                                     let _=reset_owner.update(cx,|s,cx|{if s.repo.path==reset_path{s.prepare_reset(reset_target.clone(),w,cx);}});
                                                 })).separator()

@@ -2536,3 +2536,88 @@ UI20原生检查发现“23 minutes ago”在145px日期列中换行，行盒居
 本地`src/diff_tab.rs`：加载时旧DiffState未挂载，但原先把焦点给了它；工作区EditableDiff创建后没有交接，F7离开有效事件路径。现在使用挂载在DiffTab根容器的稳定loading_focus承接异步加载，完成后仅当此容器仍持有焦点才交给真实编辑器。显式跨文件/文件选择在嵌入预览中也承接焦点，后台预览加载仍不主动抢焦点。保留差异：上游同步runPreservingFocus，本地异步Git加载通过持久焦点句柄衔接，不照搬Swing生命周期。
 验证：新增回归先红后绿，覆盖工作区/历史、split/unified、独立Tab/嵌入预览、前后文件、加载时主动移开焦点。完整toolbar渲染触发上游GPUI重复hover的debug_assert，因此该测试在debug配置下显式ignore，使用`cargo test --locked --config 'profile.test.debug-assertions=false' --features desktop-tests --bin plico cross_file_navigation_retains_editor_focus_after_loading`运行通过（普通assert仍有效）。该配置跑全套时local-tree debug_bounds为空；默认debug配置重跑其余57项全通过，既有padding基线失败仍排除。未修改生产依赖来绕过断言。
 Windows release构建通过；独立三文件、每文件两处变更的仓库，原生split工作区Diff从a到b，再不点击鼠标按F7定位b的第二处；Shift+F7返回a后继续定位a的第一处，左侧选择同步。截图`artifacts/f7-focus-20261021/focus-{cross,next,back,back-next}-fixed.png`已查看。嵌入模式与unified的焦点交接由自动回归覆盖，此轮未做完整原生矩阵。只关闭自有验证实例，未修改用户仓库。
+
+### 最小可用阶段1：分支创建执行层（2026-10-21，进行中）
+参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版仍为Rebased 1.1.20 / IC-262.10968.SNAPSHOT。本轮读取`plugins/git4idea/backend/src/branch/GitNewBranchDialog.kt`（默认checkout=true，名称和目录冲突校验、创建/切换选项）、`GitCheckoutNewBranchOperation.java`（创建并切换、未合并阻挡、结果刷新）及`GitDeleteBranchOperation.java`前半段（普通删除失败后区分未合并及其他错误）。删除后续流程及上游测试尚需继续读取，不据此宣称删除已对齐。
+本地新增`branch_create.rs`，Prepared封装显示起点与HEAD身份；执行前在仓库操作锁内复验名称、source、HEAD/OID及操作状态；checkout -b一次完成，避免先建后切失败留下分支；创建不切换不改变HEAD。所有命令结果后复查实际引用，不以取消推断完全未写入。当前明确差异：尚未做UI名称自动清洗、远端同名提醒、名称补全及smart checkout交互；不覆盖已有分支，不设置隐式tracking，UI尚未接入。阶段1尚未完成，不提交阶段完成记录。
+
+阶段1续进：读取同一commit的`validators/GitBranchValidator.kt`、`validators/GitRefNameValidator.java`、`ui/branch/GitBranchActionsUtil.kt::createOrCheckoutNewBranch`、`actions/branch/GitCheckoutAsNewBranch.kt`、`GitDeleteBranchOperation.java`删除/恢复/未合并部分及`plugins/git4idea/tests/git4idea/branch/GitBranchWorkerTest.kt`创建、非HEAD起点、删除/恢复跟踪测试。上游HEAD名称校验不区分大小写；远端引用全名冲突也禁止；createOrCheckoutNewBranch显示覆盖已有分支选项，上游名称输入有清洗和补全。本地新增HEAD大小写/远端名碰撞校验；覆盖、清洗、补全仍待对齐，不能声明阶段1完成。
+本地`ui/branch_management.rs`接入新建弹窗、默认切换、异步准备/取消及草稿保存，`repository_popup.rs`和`log_history.rs`加入从HEAD/引用/提交创建入口；提交前复验打开弹窗时显示的HEAD/目标。增加Ctrl+Alt+N（最新快捷键尚未包含在本次原生验证binary）。`branch_delete.rs`准备阶段检查worktree占用、HEAD/上游合并状态，确认未合并后才允许-D；复验tip、HEAD、上游base与branch config。恢复不切换、不覆盖现存名称，并恢复原分支配置；用最后一个点拆分config变量，避免把task.other配置当成task的配置。恢复入口当前放状态栏、只保存此窗口最近一次删除，与上游notification动作不同，后续统一恢复入口在阶段5。
+测试：9项真实临时仓库测试通过，覆盖旧提交创建/不切换、草稿保留、覆盖失败不留下新ref、名称和目录/远端冲突、来源变化、取消、未合并确认、上游未合并但HEAD已合并、其他worktree占用及恢复跟踪配置。cargo check通过；中间版本Windows release通过。原生独立fixture `Plico-validation/branch-mvp-20261021/repo` 已验证创建native-task并切换、未合并分支确认列出提交、删除unmerged后Log刷新、状态栏恢复unmerged；Git命令确认ref恢复且a.txt草稿始终保留。截图在`artifacts/branch-mvp-20261021/`，branch-create-dialog含系统IME候选浮层不作为纯净视觉验收；branch-delete-confirm是布局稳定前截图，branch-deleted.png显示稳定弹窗（该次点击未命中按钮），branch-deleted-result/branch-restored为操作中截图，最终refs已另行核验。仅关闭自有Plico PID36992，保留用户Rebased PID27100。待继续原生同条件Rebased对照、UI细节/错误翻译、创建取消/不切换/Log起点等验收后才能阶段提交。
+
+### 阶段 1：菜单禁用状态与恢复取消时序（2026-10-21）
+
+继续读取同一参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`：
+- `plugins/git4idea/backend/src/actions/ref/GitDeleteRefAction.kt`：当前 ref 禁用删除；本地映射 `src/ui/repository_popup.rs`，级联及右键菜单均禁用当前分支删除，写操作／保存文档期间禁用创建和删除。其他 worktree 占用继续由后端提交前复验。
+- `plugins/git4idea/backend/src/ui/branch/GitBranchCheckoutOperation.kt`：已有同名分支先检测额外提交，checkout 与 create 分别处理 reset/rebase/use-local；不能将它简化为直接 `-B`。当前还未实现该交互，阶段 1 不据此宣告完成。
+- `plugins/git4idea/backend/src/validators/GitRefNameValidator.java` 和 `branch/GitNewBranchDialog.kt`：输入时清理名称并调整 caret，提交时再清理末尾字符；当前输入清理仍待实现。
+
+本地修复 `src/branch_delete.rs::restore` 的取消窗口：子进程退出（含取消）后先独立查询真实引用；若已恢复到预期 tip，完成分支配置恢复，避免留下缺失 upstream 的半恢复状态。与 Rebased 的恢复意图一致，具体取消生命周期适配本地异步进程执行器。
+
+验证：`cargo test --locked --no-default-features --test branch_create` 10 项通过。新增真实临时仓库测试通过 `reference-transaction` 的 committed hook 在写入引用后触发取消，检查 tracking、tip 和当前 HEAD；该 hook 测试仅 Unix 执行。菜单改动尚未进行新一轮 Windows 原生验收，之前阶段截图不作为本次菜单状态的验收证据。
+
+### 阶段 1：分支名称输入清理（2026-10-21）
+
+重新读取 `GitRefNameValidator.java`，并确认同一参考 commit 的 `plugins/git4idea/backend/resources/intellij.vcs.git.backend.xml` 中 `git.branch.cleanup.symbol` 默认为 `-`。本地 `src/branch_create.rs::{clean_name_on_typing,clean_name}` 翻译 DROP／REPLACE／ENDPATTERNS 规则，保留 Unicode、输入时末尾目录分隔符，提交时移除末尾 `.lock`／`.`／`/`。后端仍执行 Git 名称校验，清理不能替代校验。
+
+`src/ui/branch_management.rs` 订阅名称输入变化及失焦，按清理前光标前缀换算 UTF-8 caret，避免统一跳到末尾；IME marked range 存在时不改写预编辑。确认时将最终名称回填输入框再检查，以免用户看到的名称与实际提交名不同。本地暂采用上游默认清理符，不新增高级设置。
+
+验证：名称规则单测通过（空格、控制字符、非法字符、目录、中文、末尾清理），`cargo check --locked` 通过。Windows 输入光标／IME 原生交互待验收；同名分支交互仍未完成，尚未提交阶段 1。
+
+### 阶段 1：同名分支显式覆盖（2026-10-21）
+
+再次读取同一版本 `GitBranchCheckoutOperation.kt::performCreate/performCheckout/create` 和 `GitNewBranchDialog.kt` 的 reset/conflict 条件。提取规则：覆盖默认关闭、存在本地同名分支时可选；额外提交以 `startPoint..existingBranch` 判断；覆盖当前分支使用 checkout -B，其他分支且不切换使用 branch -f。
+
+本地映射：`branch_create::Prepared::read_options` 保存已有 tip、起点、HEAD，并最多读取 101 条额外提交供确认；`execute_confirmed` 必须有显式丢弃授权才能移除额外提交，写入前复验 tip 与 worktree 占用，普通 execute 不自动授予该权限。`ui/branch_management.rs` 增加默认关闭的覆盖复选框（名称更改清除勾选），确认列表最多展示 100 条并提示截断；取消不执行写入。
+
+13 项真实 Git 分支集成测试通过，新增覆盖当前分支时脏文件保护、显式确认与过期确认拒绝、其他 worktree 占用拒绝。UI 编译通过（随后消除重复翻译 match 警告）；本轮 Windows 原生验收尚未执行。
+
+尚存差异：Rebased 在 checkout 同名分支并存在额外提交时还提供 Checkout and Rebase／Checkout Local 分支，当前覆盖确认仅接入 Drop Local Commits 与 Cancel，不能宣称完整对齐；接下来继续复用既有 checkout 的相关路径。分支名称补全尚未接入。阶段 1 仍未提交。
+
+### 阶段 1：已有分支选择与 rebase 状态（2026-10-21）
+
+再次读取 `GitBranchCheckoutOperation.kt::performCheckout/performCreate`：勾选 checkout 且已有额外提交时提供 Rebase；另一按钮随 overwrite 选择切换为 Drop Local Commits／Checkout Local。创建但不 checkout 时保留已有分支可为无写入操作。
+
+本地 `branch_create::Choice` 统一表示 Create、Discard、KeepLocal、Rebase；UI 按 prepared 条件构建选择按钮。复用已有 reference checkout 的 Git rebase 参数约定（`--no-autostash`）、操作锁、文档保存以及操作状态刷新；本地分支 tip 与起点仍于执行前复验。Report 新增真实 operation state，冲突或取消后的状态不因失败报告而丢失。
+
+已实际读取 `GitRebaseProcess.java` 的 dirty-root 保存、冲突 resolver、SUSPENDED 与 Continue／Abort 通知代码。确认差异：上游自动保存脏工作区并在冲突解决后继续，本地目前拒绝脏工作区启动 rebase，冲突仅传入已有 operation_state；统一解决闭环是阶段 2 的既定内容，但这不等于上游完整 rebase 生命周期已经实现。阶段 1 的原生验收尚待完成。
+
+验证：分支集成测试 15 项通过，新增 KeepLocal 保留 tip、Rebase 保留任务内容及基线、冲突产生 in-progress 状态且不误报成功；测试在临时仓库 abort 后检查原分支 tip。`cargo check --locked` 无警告通过。
+
+### 阶段 1：最新 Windows 原生交互验证（2026-10-21）
+
+上一轮 release Windows 交叉构建成功。仅启动本次自有 Plico PID 16588，使用 `Plico-validation/branch-mvp-20261021/repo`，结束后只关闭该进程。
+
+截图 `artifacts/branch-mvp-20261021/branch-new-final.png`：Ctrl+Alt+N 打开窗口，输入框聚焦，checkout 默认勾选，overwrite 在无同名分支时禁用。`branch-clean-name.png`：实际键入空格被清理，IME 仍显示预编辑候选（该图不证明所有中文输入边界）。`branch-existing-input.png`、`branch-choices-final.png`：输入 unmerged 后出现额外提交列表及 Checkout and Rebase、Keep Local Branch、Cancel。Esc 取消后只读 Git 核对 HEAD 仍为 native-task、unmerged tip 仍为 b5d9d2ad…，a.txt 的 draft remains 保留，无新增分支。
+
+验收发现选择弹窗按钮靠左，本轮调整为右对齐；该调整尚未重新构建截图。新增文件已 rustfmt 格式化。自动保存脏工作区与上游同条件截图仍待完成，不将本次部分原生验收视为整个阶段通过。
+
+### 阶段 1：分支 rebase 的本地修改保存恢复（2026-10-21）
+
+复读同一参考版本 `GitRebaseProcess.java::saveDirtyRootsInitially/notifyNotAllConflictsResolved`：启动前保存已跟踪修改，未解决冲突时保留保存内容并提供 Continue／Abort／View Stash。Rust 分支流程现在复用 `update_session::Session` 的仓库锁、不可中断保存、按 stash OID 检查的恢复。通过已有 `squash_saved` 工作区恢复记录衔接 `rebase_operation::execute` 的 Continue／Abort；为了与该恢复器的元数据核验一致，启动 rebase 显式使用 merge backend。
+
+行为：保存后再次复验 HEAD／已有分支 tip／起点；已有恢复记录时不启动另一轮 rebase；完整成功或确认尚未开始时尝试恢复 index 与工作区；冲突／不确定状态保留 stash 和记录，并在错误详情标出 stash OID。未跟踪文件不纳入保存，沿用上游已跟踪修改保存范围。
+
+验证：17 项真实临时 Git 仓库测试通过。新增暂存与未暂存两层修改分别恢复、未跟踪文件保留、成功后清理 stash／记录，以及冲突后经应用 Abort 恢复草稿和原分支 tip。`cargo check --locked` 通过。保存记录暂复用历史内部命名（gitui-squash-saved），避免改变现有记录格式；后续统一错误文案及命名仍需核对。最新保存逻辑尚未进行 Windows 原生验收。
+
+### 阶段 1：保存取消、恢复冲突及 Windows 写操作验收（2026-10-21）
+
+新增真实 Git 测试：reference-transaction hook 在 stash 已写入时触发取消，确认变基不启动、原 HEAD 和目标分支不动、草稿恢复且 stash／记录清理；另一测试让成功变基后的 stash 恢复产生冲突，确认不报成功且保留 stash 与记录。分支集成测试 19 项通过；核心 `cargo test --locked --no-default-features --lib` 222 项通过。
+
+最新 Windows release 构建成功。自有 Plico PID 20248 在独立测试仓库中，通过 Ctrl+Alt+N、输入 unmerged、选择 Checkout and Rebase 完成带草稿操作。只读核验：HEAD 为 refs/heads/unmerged，a.txt 仍为 draft remains，stash list 为空、gitui-squash-saved 不存在。截图保存为 `branch-save-input.png`、`branch-save-choice.png`、`branch-save-result.png`；右对齐按钮已实际确认。仅关闭此次 PID。
+
+进一步读取 `GitBranchWorker.java::checkoutNewBranchStartingFrom` 与 `GitImpl.java::checkout`：无 reset 时传 -b，有 reset 时传 -B。本地目前对没有额外提交的已存在同名分支默认保留并切换，而上游 TRY 会尝试 -b；该分支需继续核对并对齐。原生 Rebased 同条件对照仍未完成，阶段 1 不提交为已完成。
+
+### 阶段 1：原生 Rebased 新建弹窗对照（2026-10-21）
+
+用独立 REBASED_PROPERTIES 配置启动自有 Rebased 1.1.20 / IC-262.10968.SNAPSHOT（PID 7604），打开同一独立 fixture；未操作用户原有实例，未开启 Defender 排除项。Ctrl+Alt+N 截图 `artifacts/branch-mvp-20261021/rebased-new-branch.png` 确认：标题 Create New Branch 与应用图标；当前分支名预填并全选；Checkout 与 Overwrite 同行、左边缘跟输入框对齐。再次读取 `GitNewBranchDialog.kt` 对应 row(空标签) 与 selectAll 实现。本地已按该结构修正（540px 宽度预留中文及英文复选框），最新布局还需 Windows 重建核验。参考进程已关闭。
+
+另对照 `GitBranchCheckoutOperation.kt`、`GitBranchWorker.java`、`GitImpl.java` 修正无额外提交且未勾选 overwrite 的默认动作：checkout 情况尝试普通 -b，遇同名保留原状态并报错，不暗中切到已有分支；不 checkout 时保留已有分支。新增测试后分支集成 20 项通过。桌面回归 57 项通过，1 项既有 debug-hover 断言测试忽略、1 项既有 padding 失败测试过滤，未将这两项计为通过。
+
+### 阶段 1交付核对（2026-10-21）
+
+最新 Windows release 原生截图 `branch-layout-final.png` 已确认：Plico 标题图标、当前分支预填全选、两个复选框同行且与输入左缘对齐、右侧 Create／Cancel。测试仅使用自有 PID 31008，现已关闭；Rebased 原始用户实例未关闭。
+
+阶段要求对应证据：HEAD／历史提交／引用创建入口分别位于 Review快捷键和分支菜单、log_history、repository_popup；可选 checkout 及草稿保留通过分支集成与原生创建核验；删除的当前分支禁用、worktree占用复验、未合并显式确认、删除恢复通过临时 Git 测试与原生删除／恢复；取消、引用变化、保存和恢复冲突均有真实 Git 回归。20 项分支集成、222 项核心单元、57 项桌面以及27项相邻Git操作回归通过；既有桌面1项忽略与1项过滤如前文记录。阶段1功能交付完成，进入阶段2前单独提交。
+
+保留差异与范围：单仓库流程不做 Rebased 多仓库选择；删除未合并分支采用显式确认后 -D，以满足本阶段未合并保护要求；删除恢复入口在状态栏且只保留本窗口最后一次删除，持久恢复属于阶段5；不包含整个 Rebased 的补全建议／高级设置系统。输入框焦点描边、对话框尺寸和标题栏间距仍有像素差异，不宣称像素级一致。统一冲突文件编辑和解决闭环按已授权阶段2推进，现有 rebase 状态与恢复记录为其保留完整真实状态。

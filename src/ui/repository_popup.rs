@@ -162,6 +162,7 @@ impl Review {
             &mut groups,
             &[
                 ("commit", t("Commit…")),
+                ("new-branch", t("New Branch…")),
                 ("revision", t("Checkout Tag or Revision…")),
             ],
             true,
@@ -373,6 +374,7 @@ impl Review {
                     view.update(cx, |view, cx| view.focus_message(window, cx));
                 }
             }
+            "new-branch" => self.new_branch_dialog("HEAD".into(), window, cx),
             "revision" => self.open_checkout_input(window, cx),
             _ => {}
         }
@@ -614,7 +616,7 @@ impl Review {
             .children(self.repository_actions.iter().map(|id| {
                 let action = id.clone();
                 let hovered_action = id.clone();
-                let label = t(if id == "commit" { "Commit…" } else { "Checkout Tag or Revision…" });
+                let label = t(if id == "commit" { "Commit…" } else if id == "new-branch" { "New Branch…" } else { "Checkout Tag or Revision…" });
                 v_flex().w_full()
                     .child(Button::new(SharedString::from(format!("repository-action:{id}")))
                         .on_mouse_move(cx.listener(move |s,e,w,cx| s.repository_pointer_selection(e,plico::branch_search::Selection::Action(hovered_action.clone()),w,cx)))
@@ -688,14 +690,24 @@ impl Review {
                                 s.repository_selection=Some(plico::branch_search::Selection::Reference(section,full_ref.clone()));
                                 cx.notify();
                             });
+                            let disabled = owner.upgrade().is_none_or(|s| s.read(menu_cx).operation.busy() || s.read(menu_cx).operation.saving_documents());
                             let checkout = owner.upgrade().is_some_and(|s|s.read(menu_cx).reference_checkout_target(&full_ref).is_some());
                             if checkout {
-                                let disabled=owner.upgrade().is_none_or(|s|s.read(menu_cx).operation.busy());
                                 let owner=owner.clone();let reference=full_ref.clone();
                                 menu=menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
                                     let _=owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
                                 }));
                             }
+                            if full_ref.starts_with("refs/heads/") {
+                                let delete_owner=owner.clone();let delete_ref=full_ref.clone();
+                                menu=menu.item(PopupMenuItem::new(t("Delete…")).disabled(disabled || current).on_click(move |_,w,cx| {
+                                    let _=delete_owner.update(cx,|s,cx|s.prepare_delete_branch(delete_ref.clone(),w,cx));
+                                }));
+                            }
+                            let create_owner = owner.clone(); let create_ref = full_ref.clone();
+                            menu = menu.item(PopupMenuItem::new(t("New Branch…")).disabled(disabled).on_click(move |_, w, cx| {
+                                let _ = create_owner.update(cx, |s, cx| s.new_branch_dialog(create_ref.clone(), w, cx));
+                            }));
                             let full_ref = full_ref.clone();
                             menu.item(PopupMenuItem::new(t("Copy Reference Name")).on_click(move |_,_,cx| cx.write_to_clipboard(ClipboardItem::new_string(full_ref.clone()))))
                         }).side_start(true).open(child_open).on_open_change(move |open,_,cx| {
@@ -710,9 +722,19 @@ impl Review {
                         })))
                         .context_menu(move |menu,_,cx| {
                             let available=context_owner.upgrade().is_some_and(|s|s.read(cx).reference_checkout_target(&context_ref).is_some());
-                            let disabled=context_owner.upgrade().is_none_or(|s|s.read(cx).operation.busy());
+                            let disabled=context_owner.upgrade().is_none_or(|s|s.read(cx).operation.busy() || s.read(cx).operation.saving_documents());
                             let owner=context_owner.clone();let reference=context_ref.clone();
-                            menu.when(available,|menu|menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
+                            let mut menu=menu;
+                            if context_ref.starts_with("refs/heads/") {
+                                let delete_owner=context_owner.clone();let delete_ref=context_ref.clone();
+                                menu=menu.item(PopupMenuItem::new(t("Delete…")).disabled(disabled || current).on_click(move |_,w,cx| {
+                                    let _=delete_owner.update(cx,|s,cx|s.prepare_delete_branch(delete_ref.clone(),w,cx));
+                                }));
+                            }
+                            let create_owner=context_owner.clone(); let create_ref=context_ref.clone();
+                            menu.item(PopupMenuItem::new(t("New Branch…")).disabled(disabled).on_click(move |_,w,cx| {
+                                let _=create_owner.update(cx,|s,cx|s.new_branch_dialog(create_ref.clone(),w,cx));
+                            })).when(available,|menu|menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
                                 let _=owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
                             }))).item(PopupMenuItem::new(t("Copy Reference Name")).on_click({
                                 let reference=context_ref.clone();move |_,_,cx|cx.write_to_clipboard(ClipboardItem::new_string(reference.clone()))

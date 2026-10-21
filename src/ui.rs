@@ -1,5 +1,6 @@
 //! Application window, shared state, construction and top-level composition.
 mod checkout;
+mod branch_management;
 mod reference_checkout;
 mod chrome;
 mod tool_rail;
@@ -55,6 +56,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("f2", EditCommitMessage, Some("History")),
         KeyBinding::new("ctrl-o", Open, Some("Review")),
         KeyBinding::new("ctrl-alt-s", OpenSettings, Some("Review")),
+        KeyBinding::new("ctrl-alt-n", CreateBranch, Some("Review")),
         KeyBinding::new("ctrl-f5", Refresh, Some("Review")),
         KeyBinding::new("down", Older, Some("History")),
         KeyBinding::new("up", Newer, Some("History")),
@@ -96,6 +98,7 @@ pub struct Review {
     operation: plico::active_operation::Lifecycle,
     operation_task: Task<()>,
     status_message: Option<String>,
+    deleted_branch: Option<(PathBuf, Arc<plico::branch_delete::Prepared>)>,
     rebase_diagnostic: Option<String>,
     squash_undo: Option<Arc<plico::squash_undo::Undo>>,
     operation_state: Option<plico::operation_state::State>,
@@ -434,6 +437,7 @@ impl Review {
             operation: Default::default(),
             operation_task: Task::ready(()),
             status_message: None,
+            deleted_branch: None,
             rebase_diagnostic: None,
             squash_undo: None,
             operation_state: None,
@@ -479,7 +483,7 @@ impl Review {
             repository_applied_query: String::new(),
             repository_search_task: Task::ready(()),
             repository_selection: None,
-            repository_actions: vec!["commit".into(), "revision".into()],
+            repository_actions: vec!["commit".into(), "new-branch".into(), "revision".into()],
             repository_pointer: None,
             repository_child_selection: None,
             repository_child_menu: None,
@@ -727,6 +731,7 @@ impl Render for Review {
                 .key_context("Review")
                 .on_action(cx.listener(|s, _: &Open, w, cx| s.open(w, cx)))
                 .on_action(cx.listener(|s, _: &OpenSettings, w, cx| s.open_settings(w, cx)))
+            .on_action(cx.listener(|s, _: &CreateBranch, w, cx| s.new_branch_dialog("HEAD".into(),w,cx)))
                 .on_action(cx.listener(|s, _: &Back, _, cx| { s.close_settings(cx); cx.notify(); }))
                 .child(TitleBar::new().bg(rgb(PANEL)).border_color(rgb(PANEL)).child(
                     h_flex().w_full().px_2().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(20.))).child("Plico").child(div().flex_1())
@@ -774,6 +779,7 @@ impl Render for Review {
             }))
             .on_action(cx.listener(|s, _: &Open, w, cx| s.open(w, cx)))
             .on_action(cx.listener(|s, _: &OpenSettings, w, cx| s.open_settings(w, cx)))
+            .on_action(cx.listener(|s, _: &CreateBranch, w, cx| s.new_branch_dialog("HEAD".into(),w,cx)))
             .on_action(cx.listener(|s, _: &JumpToSource, w, cx| s.jump_to_source(w, cx)))
             .on_action(cx.listener(|s, _: &Refresh, w, cx| s.refresh_current(w, cx)))
             .on_action(cx.listener(|s, _: &Older, _, cx| s.move_commit(1, cx)))
@@ -978,6 +984,9 @@ impl Render for Review {
                     .on_click(cx.listener(|s, _, _, cx| { s.error = None; cx.notify(); })))))
             .when(self.operation.busy() || self.busy || self.history_loading, |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
             .when_some(self.status_message.clone(), |v, text| v.child(div().max_w_full().min_w_0().truncate().child(text)))
+            .when(self.deleted_branch.as_ref().is_some_and(|(path,_)|path==&self.repo.path), |v| v.child(
+                Button::new("restore-deleted-branch").link().xsmall().label(t("Restore deleted branch"))
+                    .disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.restore_deleted_branch(w,cx)))))
             .when(self.squash_undo.is_some(), |v| v.child(Button::new("squash-undo").ghost().xsmall().label(t("Undo Squash"))
                 .disabled(self.operation.busy()).on_click(cx.listener(|s, _, w, cx| s.undo_squash(w, cx)))))
             .when(self.rebase_diagnostic.is_some(), |v| v.child(Button::new("rebase-details").ghost().xsmall().label(t("Rebase details"))

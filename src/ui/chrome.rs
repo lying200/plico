@@ -311,10 +311,10 @@ impl Review {
             return div().size_full().children(self.project_view.clone()).into_any_element();
         }
         v_flex().size_full().min_h_0().bg(rgb(PANEL))
-            .child(h_flex().h(px(36.)).flex_shrink_0().px_2().gap_1().border_b_1().border_color(rgb(BORDER))
-                .child(islands_tab("commit-content-tab",self.local_visible).child(t("Commit"))
+            .child(h_flex().h(tab_height(cx) + px(8.)).flex_shrink_0().px_2().gap_1().border_b_1().border_color(rgb(BORDER))
+                .child(islands_tab("commit-content-tab",self.local_visible,cx).child(t("Commit"))
                     .on_click(cx.listener(|s,_,w,cx|s.open_local(w,cx))))
-                .child(islands_tab("stash-content-tab",self.stash_open).child(t("Stash"))
+                .child(islands_tab("stash-content-tab",self.stash_open,cx).child(t("Stash"))
                     .on_click(cx.listener(|s,_,w,cx|s.open_stashes(w,cx))))
                 .child(div().flex_1())
                 .child(Button::new("commit-window-hide").ghost().small().icon(jb_icon("hideToolWindow_dark.svg"))
@@ -329,7 +329,7 @@ impl Review {
     pub(super) fn git_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let log_menu_owner = cx.entity().downgrade();
         h_flex()
-            .h(px(36.))
+            .h(tab_height(cx) + px(8.))
             .flex_shrink_0()
             .px(px(11.))
             .gap(px(8.))
@@ -343,6 +343,7 @@ impl Review {
                     !self.local
                         && self.active_diff_index().is_none()
                         && self.active_file_index().is_none(),
+                    cx,
                 )
                 .child(jb_icon("vcs_dark.svg"))
                 .child(t("Log"))
@@ -389,7 +390,7 @@ impl Review {
                         name
                     };
                     Some(
-                        islands_tab(("file-tab", index), self.active_file_index() == Some(index))
+                        islands_tab(("file-tab", index), self.active_file_index() == Some(index), cx)
                             .child(
                                 img(file_icon(&tab.read(cx).path))
                                     .size(px(16.))
@@ -457,7 +458,7 @@ impl Review {
                     let menu_owner = cx.entity().downgrade();
                     let tab_id = tab.entity_id();
                     Some(
-                        islands_tab(("diff-tab", index), self.active_diff_index() == Some(index))
+                        islands_tab(("diff-tab", index), self.active_diff_index() == Some(index), cx)
                             .child(jb_icon("diff_dark.svg"))
                             .child(div().max_w(px(280.)).truncate().child(caption))
                             .on_click(cx.listener(move |s, _, w, cx| {

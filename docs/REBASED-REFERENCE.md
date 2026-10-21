@@ -2502,3 +2502,8 @@ Commit大字号文件行也已截图核对（large-commit.png），无文字垂�
 参考commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，安装版1.1.20。读取`GraphCommitCellRenderer.kt::calculateRowContentHeight/preferredHeight`（字体或DPI变化重算，字体度量+垂直padding，与refs高度取max）、`JBUI.java::VersionControl.Log`（默认最小26、padding7）及`SimpleGraphCellPainter.kt`（paint与hit共用rowHeight和rowCenter）。
 本地`ui_style::log_row_height`使用GPUI 1.5em行盒+7、最小26；Log/文件历史行与表头、graph端点/节点/箭头命中、键盘相邻提交弹窗锚点和刷新滚动恢复共用高度。`graph::arrow_at_height`保留原有节点优先/边顺序规则；默认28入口保留用于旧调用和原测试。保留差异：GPUI行盒不是Java FontMetrics；横向lane宽度、节点直径和线宽保持现有值，未整体按字号放大。字体变化时不保证保留当前行的精确像素锚点；异步刷新使用当时行高恢复。
 验证：16项graph相关单测、56项桌面回归通过（排除既有diff padding基线失败）；新增26/37/55高度的箭头命中边界和37高度的部分可见行刷新恢复检查。cargo check及Windows release通过，原生UI20的3提交测试图线连接与节点居中截图已查看（`artifacts/tree-ui-20261021/log-adaptive.png`）。不自动化滚动；复杂图形/文件历史原生全状态尚待用户验收。
+
+### Tab和设置导航大字号适配（2026-10-21）
+参考同一commit。读取`IslandsTabPainter.kt::paintTab`：普通内容高度28、最少垂直留白8，紧凑24/4，值经过用户缩放；`SettingsTreeView.java::setUI`使用主题SettingsTree.rowHeight，结合此前已读LafManagerImpl的缩放逻辑。保留差异：本地通过GPUI行盒+padding撑高，不引入全局缩放/紧凑模式，不宣称Swing度量逐像素一致。
+本地`ui_style::text_row_height/tab_height`共用字体计算，`islands_tab`与chrome内Log/编辑器/Commit/Stash的外层tab条同步增高；设置导航取消固定26，使用可容纳正文的行高。默认UI12仍保留28/36的tab高度和26导航高度。
+验证：cargo check与最终Windows构建通过；原生UI20下Commit/Stash/Log Tab、设置导航文字及选中区域截图核对正常（`tabs-adaptive.png`、`settings-adaptive.png`），一次全黑截图已弃用并重新采集。只关闭独立测试实例。未重复全套Git测试；最高32字号和所有设置页仍待完整验收。

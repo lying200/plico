@@ -169,8 +169,7 @@ pub(crate) fn tree_row_height(cx: &App) -> Pixels {
 // Rebased GraphCommitCellRenderer: content line box + 7px padding,
 // with the modern Log theme's 26px minimum. GPUI's line box is 1.5em.
 pub(crate) fn log_row_height(cx: &App) -> f32 {
-    use gpui_kit::component::ActiveTheme;
-    (f32::from(cx.theme().font_size) * 1.5 + 7.).ceil().max(26.)
+    text_row_height(26., 7., cx).as_f32()
 }
 pub(crate) const TREE_INDENT: f32 = 19.;
 pub(crate) const TREE_INSET: f32 = 12.;
@@ -374,10 +373,17 @@ pub(crate) fn commit_refs(references: &[git::RefLabel]) -> AnyElement {
         .into_any_element()
 }
 // IslandsTabPainter: rounded selected fill/border, no underline, 28 px content.
-pub(crate) fn islands_tab(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
+pub(crate) fn text_row_height(minimum: f32, padding: f32, cx: &App) -> Pixels {
+    use gpui_kit::component::ActiveTheme;
+    px((f32::from(cx.theme().font_size) * 1.5 + padding).ceil().max(minimum))
+}
+pub(crate) fn tab_height(cx: &App) -> Pixels {
+    text_row_height(28., 10., cx)
+}
+pub(crate) fn islands_tab(id: impl Into<ElementId>, selected: bool, cx: &App) -> Stateful<Div> {
     h_flex()
         .id(id)
-        .h(px(28.))
+        .h(tab_height(cx))
         .flex_shrink_0()
         .px(px(8.))
         .gap(px(6.))

@@ -297,7 +297,7 @@ impl Review {
             navigation = navigation.child(
                 Button::new(("settings-section", section as usize))
                     .ghost()
-                    .h(px(26.))
+                    .h(text_row_height(26., 7., cx))
                     .rounded(px(0.))
                     .accessibility_label(t(label))
                     .child(

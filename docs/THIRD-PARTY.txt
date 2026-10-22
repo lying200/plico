@@ -360,3 +360,9 @@ Copyright JetBrains s.r.o. and contributors. Apache License 2.0.
 Reference snapshot: 4aec35256d765c217aa0d662b82ac4e860c396fd.
 The Rust adaptation validates saved content and range identity before staging,
 reuses the existing commit executor and does not rewrite the worktree.
+
+Native three-way merge block actions are adapted from MergeConflictModel.kt,
+TextMergeChange.kt and ThreesideMergeHighlighters.kt in Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd.
+Merge gutter SVG icons are copied from platform/icons/src/expui/diff; exact paths
+are recorded in assets/icons/SOURCE.txt. Copyright JetBrains s.r.o. and contributors,
+Apache-2.0 (licenses/assets/icons/LICENSE.txt).

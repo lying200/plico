@@ -3179,3 +3179,68 @@ History／Details 控制读取反馈，Navigation 保留旧比较并使用既有
 在读取中切换 Diff 后返回日志可再次刷新，加载状态正常结束；同一新构建外部删除
 文件后错误 Diff 可关闭且不重建文件。截图与时序见 ARCHITECTURE.md 的原生补测记录
 及 `artifacts/log-query-acceptance-20261022/`。此前黑屏导致的相关交互待验收已补齐。
+
+### 现有行为核对第一轮：内置文本三方合并（2026-10-22）
+
+本轮范围：用户要求修正既有行为，而非继续扩展功能；内置三方合并是明确例外。先收敛冲突处理这一条完整路径，未将此轮记作全产品行为对齐完成。
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；已安装 Rebased 1.1.20 / IC-262.10968.SNAPSHOT，与源码快照版本不同。实际读取：
+
+- `platform/diff-impl/src/com/intellij/diff/merge/TextMergeViewer.kt`：左右原始内容只读，中间替换为输出；关闭有编辑结果须确认。
+- 同目录 `MergeConflictModel.kt::rediff/setInitialOutputContent/replaceChange`、`MergeThreesideViewer.java::handleResolvedCase/handleCancelCase`：输出从共同祖先初始化；逐块选择／保留、应用非冲突更改；存在未解决块时应用须确认，取消不作为解决。
+- `platform/diff-impl/src/com/intellij/diff/requests/TextMergeRequestImpl.java::applyResult`：取消恢复原始输出，接受侧／结果仅在明确确认后提交。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/merge/MultipleFileMergeDialog.kt`、`flow/OneShotMergeFlowDelegate.kt`：双击文件进入合并，Merge 为默认合并入口；取消返回文件列表，非取消结果才保存并标记解决。
+- `plugins/git4idea/backend/src/merge/GitMergeProvider.java::MyMergeSession`：展示侧经反转语义映射后解析；Merged 最终走 markConflictResolved。已有 rebase／自动恢复 stash 反转实现保留，未改为固定 stage2=Yours。
+
+本地实现：`text_merge.rs` 持有共同祖先差异块及结果范围，`ui/text_merge.rs` 持有一次合并草稿，`external_merge::Prepared` 复用隔离输入／输出和工作区字节基线；`ui/external_conflicts.rs::apply_merge_result` 共用写回、标记、失败保留和刷新流程。两侧只读，中间独立编辑；自动应用不覆盖已手工修改块，逐块动作进入编辑器撤销栈。全范围手工改写跨越多个块时禁用有歧义的块替换，仍可手工编辑并标记完成；未解决直接应用和放弃修改各有明确确认。写回期间禁止退出／修改合并结果，失败保留编辑窗口及恢复文件。取消完全不写工作区，原文件被外部修改或 index 身份变化均拒绝旧结果。
+
+本轮已有行为修正：冲突列表双击进入合并，合并取消回到列表；失败不因关闭窗口丢掉结果。解决成功共用工作树、Log 和冲突列表刷新，未自动继续整个 merge/rebase。
+
+明确差异：本地仅文本 UTF-8（包括 BOM），沿用既有 5 MiB 文档限额，过大／二进制明确报错，可继续接受整侧或用已有外部工具；符号链接及 gitlink 不进入文本合并。保留原工作区 EOL/BOM。没有复制 IDE 语言专用自动合并、迭代解决模型、多文件自动推进；三栏块高亮／工具栏选择代替中缝逐块箭头，尚无三栏连线及滚动映射；下一处定位同时移动三栏。相邻改动无法可靠分离时保守合并为冲突块，不猜测解决。布局及交互做结构核对，不宣称像素级还原。外部工具作为可选入口保留。
+
+验证：新增纯模型测试涵盖双方重建、Unicode、插入／删除、add/add、无尾换行、手工编辑后范围变动、自动应用不覆盖手写；8种输入的三方组合全部验证选择每侧能还原该侧。真实 Git conflicts 集成7项通过，包括新增隔离取消、CRLF/BOM、外部修改拒绝、写回不等于 stage、stage 后旧快照拒绝。既有21项 UI 回归通过。本轮新增界面 Windows 原生验收记录待补。
+
+原生验收补记：Windows 独立 fixture `Temp/plico-native-merge-8a50f740468f4a1a87272a77dc62f915`，自有 PID12440 验证基线结果、单块接受、放弃确认及返回冲突列表，文件未变。原生验收发现 F7 在工具栏操作后因焦点留在弹窗层未生效；修正为打开合并和逐块操作后聚焦结果编辑器，并在合并视图接收 F7／Shift+F7，避免调用主窗口 Diff 导航。自有 PID38872 复验“首块接受你的版本 → F7 → 第二块接受对方版本 → 应用”，工作区精确得到 `title\nyours-first\nseparator\ntheirs-second\nend\n`，Git `ls-files -u` 为空、`status --short` 为 `M  review.txt`；冲突列表为空态，顶部显示完成合并，不自动创建合并提交。截图位于 `artifacts/native-merge-20261022/`。取消截图来自修正漏译前的版本，后续版本已补全 Modified、Deleted、Merge、Discard 和导航标签的中英文映射。
+
+继续补读同一 commit 的 `MergeModelBase.kt::appendChange`：按行追加而不是无换行的字符串粘接。本地接受双方对相同／单侧改动只保留一次，对双方无尾换行内容插入行分隔；新增回归通过。范围构造改为有序遍历编辑及预计算行偏移，避免每个冲突块重扫整份文件；改后全部6项模型测试通过，包括三方组合重建。完整核心测试607项通过，随后新增“接受双方”测试单独通过；21项现有UI回归通过；最终Windows release构建通过（56.89秒）。最后的内部范围构造优化由模型测试覆盖，未重复完整原生点击流程。滚动联动未实施／未自动验收。只关闭自有测试进程，用户Rebased／IDEA未动。
+
+
+## 三方合并块操作：实现前实机核对（2026-10-22）
+
+参考源码仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，宿主机安装版 Rebased 1.1.20 / IC-262.10968.SNAPSHOT，二者不是同一版本。使用独立配置 rebased-branch-profile，通过已读 `platform/diff-impl/src/com/intellij/diff/applications/MergeApplication.kt` 的 `merge yours theirs base result` 入口打开独立文件夹 reference-merge-fixture；未操作用户 PID 27100 的仓库。三个输入含两个分离的同位冲突。该轮验证的是共享文本三方合并 viewer，Git 冲突列表入口沿用上一轮源码核对，尚未作本轮 Rebased Git 入口截图验收。
+
+截图在 `artifacts/merge-alignment-20261022/`：`reference-merge-initial.png`、`reference-merge-left.png`、`reference-merge-both.png`、`reference-merge-ignore-left.png`、`reference-merge-ignore-both.png`、`reference-merge-right-first.png`、`reference-merge-cancel.png`。实际观察：左／中／右三列分别只读 Yours、可编辑 Result、只读 Theirs；左右行号与每块的叉号／箭头靠近结果区。左边叉号在箭头左边，右边镜像；初始结果为 base。采纳左侧后只隐藏左侧操作，右侧箭头变为追加；再采纳右侧，结果按点击顺序包含 yours-first、theirs-first。第二块两侧分别忽略后保留 base 的 second，直到两侧都处理才减少未解决数。Apply 写出的完整结果已检查为 title/yours-first/theirs-first/separator/second/end。反向先采纳右侧亦只改变右侧状态；取消弹出丢弃结果确认，确认后独立输出恢复原内容。
+
+已读同目录 `MergeConflictModel.kt::{replaceChange,ignoreChange}`、`TextMergeChange.kt`、`ThreesideMergeHighlighters.kt`：每块左右各有 resolved 状态；首个冲突采纳替换 base，后续采纳 append；忽略不改文本；普通非冲突或 Ctrl-click 直接解决整块；另一侧为空的采纳直接解决；单侧 resolved 后移除该侧按钮；图标对应 Diff.Arrow/ArrowRight、ArrowLeftDown/ArrowRightDown、Remove，Ctrl-click 提示由 renderer 提供。`MergeThreesideViewer.java` 保留取消确认与未解决 Apply 确认。此前整块 Accept Yours/Theirs/Both/Base 工具栏不能替代这些交互。
+
+实施映射：`src/text_merge.rs` 改为独立两侧决策；`src/ui/text_merge/` 承载同帧几何块操作和连接区，主视图保留生命周期与导航；外部工具专用配置／执行／入口移除，隔离输出与快照复验迁入内置合并模块。保留 UTF-8／大小限制及符号链接、子模块的专门处理边界。实现后的 Windows 对照、失败／取消及未验证差异继续记录，不将截图读取等同于完成实现。
+
+
+### 本地实现与验收
+
+`src/text_merge.rs` 管理独立的左右处理状态、首个替换／随后按操作顺序追加、忽略不修改文本、Ctrl 整块处理，以及删除侧为空时的终结规则。`src/ui/text_merge.rs` 管理三个编辑器、导航和确认；`src/ui/text_merge/gutter.rs` 在编辑器本帧布局后绘制靠近结果区的行号、曲线连接和左右镜像按钮；处理后该侧按钮消失，另一侧切换追加图标。导航改用紧凑上下箭头；没有可自动处理项时禁用应用非冲突更改。同步滚动复用已有双侧 diff 的行范围映射与 peer offset（不递归发送滚动事件）；本轮不做滚动自动化，长文件滚动体感留作手测。图标进一步核对 `DiffUtil.java::{getArrowIcon,getArrowDownIcon}`，对应原生 SVG，来源记录在 assets/icons/SOURCE.txt。
+
+外部工具入口、参数解析、设置读写、进程启动及确认界面已删除。`src/merge_result.rs` 仅保留隔离输入／结果、工作文件基线复验、编码与换行保存和失败结果保留；`src/ui/merge_result.rs` 承担写回后显式标记解决及刷新。历史遗留的用户配置文件不主动删除，也不再读取。符号链接、子模块、非文本及超限内容继续使用已有冲突列表的选边／编辑文件处理，不偷偷启动外部工具。
+
+Windows 原生测试仓库 `C:\Users\echoyn\AppData\Local\Temp\plico-native-merge-ef5009881a6244758927d8224a43c0c5`，测试进程 PID12380／41008。首次原生检查发现绝对定位的绘制层缺少 inset，修正后复验。截图同目录 `aligned-merge-list.png`（没有外部工具入口）、`aligned-merge-initial.png`、`aligned-merge-left.png`、`aligned-merge-both.png`、`aligned-merge-ignore-left.png`、`aligned-merge-ignore-both.png`、`aligned-merge-cancel.png`、`aligned-merge-cancelled.png`、`aligned-merge-right-first.png`、`aligned-merge-reverse-both.png`、`aligned-merge-f7.png`、`aligned-merge-ready.png`、`aligned-merge-complete.png`。
+
+实际点击通过：先左后右按顺序追加；两侧忽略第二块保留 base；取消二次确认后工作区仍为原始 Git 冲突标记内容；重新打开后先右后左，F7 保持在合并视图并选择第二块，再忽略两侧并应用。最终文件字节为 `title\ntheirs-first\nyours-first\nseparator\nsecond\nend\n`；异步写回／stage 完成后 `ls-files -u` 为空，`status --short` 为 `M  review.txt`，冲突列表显示全部解决，顶部出现完成合并入口，无自动合并提交。测试中的首次取消断言误将 Git 合并在一起的冲突标记预期成两个块；检查实际 Git 生成的单个标记块后修正验收预期，未为此修改产品逻辑。
+
+验证：核心回归 608 项、现有 UI 回归 21 项通过；其中 8 项三方模型测试覆盖采纳顺序、忽略、Ctrl、修改／删除、手工编辑与无尾换行；7 项真实 Git 冲突测试覆盖隔离输出、陈旧文件／快照、BOM／CRLF 和工作区未受影响。格式检查与 Windows release 构建通过。Clippy 完成，仓库既有警告仍存在；新增模型的 collapsible_if 警告已修正。
+
+保留差异／尚未验收：合并仍是应用内大弹窗而非独立系统窗口；本轮聚焦逐块采纳／忽略，不新增 Rebased 全套设置及底部整文件 Accept Left/Right 快捷入口（冲突列表已有选边）；已解决连接轮廓当时为实线（下文颜色与细线修正已替换）；块按钮尚无悬停说明；文本编辑撤销保留，但忽略状态尚未与编辑器 Undo 事务一起回放，不能宣称完整三方合并行为已逐项对齐。源码核对过的 Ctrl 操作通过模型测试，尚未作宿主机 Ctrl+点击截图；故本轮完成上述核心交互和外部工具移除，不宣称像素级完全一致。
+
+### 三方合并类型颜色与已解决细线：实现前核对（2026-10-22）
+
+同一参考 commit、安装版本。独立 reference-merge-colors fixture 包含左侧删除、左侧修改、右侧新增及双方冲突；在原生 Rebased 逐项采纳前三项。截图 reference-colors-initial/delete/modified/inserted.png 保存于 artifacts/merge-alignment-20261022。观察：新增绿色、删除灰色、修改蓝色、冲突棕色；未修改的源侧不绘制高亮。采纳后背景消失，同色点状上下边线贯穿文本、行号与连接曲线，空区间保留一条较粗的点线。
+
+源码依据：platform/util/diff/src/com/intellij/diff/util/MergeRangeUtil.kt::getMergeType 分类并标记实际变化侧；platform/diff-impl/src/com/intellij/diff/tools/simple/DiffViewerHighlighters.kt 仅高亮变化的源侧及结果，已解决侧不再内联高亮；util/DiffDrawUtil.java::LineHighlighterBuilder/ PaintMode.RESOLVED 明确 NONE 背景、DOTTED 边线，空范围 doubleLine。准备映射到 text_merge::Change 的语义类型及 ui/text_merge/gutter.rs 的当前帧绘制；修正现有全部非冲突绿色、未变化侧着色和仅连接区实线轮廓的问题。保留本地整行高亮，词级强调仍未复制。
+
+
+实现与原生复验：Change::kind/changed 按三方内容分类，已解决后保留原类型；编辑器不再为已解决／空范围／未修改源侧建立背景装饰。gutter 以当前帧范围画类型色连接、空区间细线与已解决点线，结果边线单独绘制，避免双方重复绘制。单侧已解决时仅该源侧和对应连接转为点线，中间继续高亮直至整个块完成。
+
+Windows 独立真实 Git fixture `Temp/plico-native-merge-71c48b9afa774230b41956f65089090b`、自有 PID29788：依次采纳删除、修改、新增，再采纳冲突左侧。已观察各类型颜色、空侧细线、完成后无填充而保留贯穿点线、未变化侧无高亮、半解决冲突仍保留结果及另一侧背景。截图 `artifacts/merge-alignment-20261022/colors-initial/delete/modified/inserted/half-conflict.png`。未点击应用，测试草稿不写回工作区。源码与实机对应规则已修正；本地仍为整行填充，Rebased 的词级强调、线条抗锯齿及精确像素粗细未宣称完全一致。
+
+9 项三方模型测试通过（新增分类覆盖单侧／双方新增删除、相同修改及删除-修改冲突，解决后类型不变）；Windows release 构建通过（53.81 秒），格式检查通过。原有本轮完整核心／写回回归结果见上文。
+
+颜色及边线调整后，21 项桌面 UI 回归通过。

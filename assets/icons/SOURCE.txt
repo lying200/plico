@@ -132,3 +132,11 @@ Remote toolbar icons (unmodified, Apache-2.0):
 Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
 platform/icons/src/expui/general/add_dark.svg
 platform/icons/src/expui/general/remove_dark.svg
+
+merge-accept-left.svg: platform/icons/src/expui/diff/arrow@14x14_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains Apache-2.0.
+
+merge-append-left.svg: platform/icons/src/expui/diff/arrowLeftDown@14x14_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains Apache-2.0.
+
+merge-append-right.svg: platform/icons/src/expui/diff/arrowRightDown@14x14_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains Apache-2.0.
+
+merge-ignore.svg: platform/icons/src/expui/diff/remove@14x14_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains Apache-2.0.

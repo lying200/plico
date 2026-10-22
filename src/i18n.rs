@@ -137,25 +137,11 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Remote changed; reopen the remote configuration" => "远端配置已变化，请重新打开配置窗口",
         "Enter a nonempty remote URL or path" => "请输入非空的远端地址或路径",
         "Could not validate the remote configuration" => "无法验证远端配置",
-        "External Merge Tool…" => "外部合并工具…",
-        "External Merge Tool" => "外部合并工具",
         "The file is still unresolved" => "文件仍处于冲突状态",
-        "The external merge result has been kept at the following path. Copy it before removing the recovery directory." => {
-            "外部合并结果已保留在以下路径。删除恢复目录前，请先复制需要保留的结果。"
-        }
-        "Program" => "程序",
-        "Arguments" => "参数",
-        "%1: yours, %2: theirs, %3: base, %4: result. Quote arguments containing spaces." => {
-            "%1：你的版本，%2：对方版本，%3：基线，%4：结果。含空格的参数请加引号。"
+        "The merge result has been kept at the following path. Copy it before removing the recovery directory." => {
+            "合并结果已保留在以下路径。删除恢复目录前，请先复制需要保留的结果。"
         }
         "Run" => "运行",
-        "Waiting for external merge tool…" => "正在等待外部合并工具…",
-        "External merge tool finished" => "外部合并工具已结束",
-        "Could not run external merge tool" => "无法运行外部合并工具",
-        "Merge in External Tool" => "外部工具合并结果",
-        "Apply the external tool result and mark this file as resolved? Cancel keeps the working file unchanged." => {
-            "采用外部工具的结果并将此文件标记为已解决？取消将保持工作区文件不变。"
-        }
         "Skip Commit" => "跳过提交",
         "Keep Empty Commit" => "保留空提交",
         "Empty Cherry-pick" => "空拣选提交",
@@ -224,6 +210,29 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Theirs" => "对方版本",
         "Accept Yours" => "接受你的版本",
         "Accept Theirs" => "接受对方版本",
+        "Merge…" => "合并…",
+        "Modified" => "已修改",
+        "Deleted" => "已删除",
+        "Previous Change" => "上一处更改",
+        "Next Change" => "下一处更改",
+        "Discard" => "放弃",
+        "Merge Conflicts" => "合并冲突",
+        "Merge Result" => "合并结果",
+        "Accept Both" => "接受双方",
+        "Keep Base" => "保留共同祖先版本",
+        "Mark Change Resolved" => "标记此处已解决",
+        "Apply Non-Conflicting Changes" => "应用非冲突更改",
+        "Apply and Mark Resolved" => "应用并标记已解决",
+        "unresolved" => "处未解决",
+        "Unresolved changes" => "尚有未解决的更改",
+        "Discard merge result?" => "放弃合并结果？",
+        "Some changes are unresolved. Apply the current result and mark this file as resolved?" => {
+            "尚有更改未解决。仍要应用当前结果并将此文件标记为已解决吗？"
+        }
+        "Discard your edits to the merge result? The working file will remain unchanged." => {
+            "放弃对合并结果的编辑吗？工作区文件将保持不变。"
+        }
+        "Could not open merge editor" => "无法打开合并编辑器",
         "Edit File" => "编辑文件",
         "Mark Resolved" => "标记为已解决",
         "All conflicts are resolved" => "所有冲突已解决",

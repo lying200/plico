@@ -208,8 +208,8 @@ fn resolves_binary_and_modify_delete_without_touching_other_paths() {
 
 #[cfg(unix)]
 #[test]
-fn external_tool_output_is_isolated_and_rejects_changed_worktree() {
-    use plico::external_merge::{Prepared, Tool};
+fn merge_output_is_isolated_and_rejects_changed_worktree() {
+    use plico::merge_result::Prepared;
     let f = Fixture::new();
     fs::write(f.0.join("a"), "base\n").unwrap();
     f.git(&["add", "a"], true);
@@ -227,18 +227,7 @@ fn external_tool_output_is_isolated_and_rejects_changed_worktree() {
     let original = fs::read(f.0.join("a")).unwrap();
     let prepared = Prepared::read(&repo, &snap, &snap.files[0], &token).unwrap();
     let directory = prepared.temporary_directory().to_owned();
-    let tool = Tool {
-        executable: "/bin/sh".into(),
-        arguments: vec![
-            "-c".into(),
-            "cat \"$1\" > \"$2\"".into(),
-            "merge-test".into(),
-            "%2".into(),
-            "%4".into(),
-        ],
-    };
-    let result = prepared.run(&tool, &token, &Default::default()).unwrap();
-    assert!(result.status.success());
+    prepared.write_text_result("task\n".into()).unwrap();
     assert_eq!(fs::read(f.0.join("a")).unwrap(), original);
     assert!(!Snapshot::read(&repo, &token).unwrap().files.is_empty());
     // A separate failed result must survive closing its owner, without staging
@@ -277,8 +266,8 @@ fn external_tool_output_is_isolated_and_rejects_changed_worktree() {
 }
 
 #[test]
-fn external_merge_streams_large_binary_versions_and_result() {
-    use plico::external_merge::Prepared;
+fn merge_result_streams_large_binary_versions_and_result() {
+    use plico::merge_result::Prepared;
     let f = Fixture::new();
     let size = 9 * 1024 * 1024 + 17;
     let mut bytes = vec![0u8; size];
@@ -425,4 +414,64 @@ fn explicit_stash_apply_keeps_current_worktree_on_yours_side() {
         b"current\n"
     );
     assert!(!f.0.join(".git/plico-conflict-saved-changes").exists());
+}
+
+#[test]
+fn native_merge_is_isolated_preserves_encoding_and_rejects_stale_worktree() {
+    use plico::merge_result::Prepared;
+    let f = Fixture::new();
+    f.git(&["config", "core.autocrlf", "false"], true);
+    fs::write(f.0.join("a"), "base\n").unwrap();
+    f.git(&["add", "a"], true);
+    f.git(&["commit", "-m", "base"], true);
+    f.git(&["checkout", "-b", "task"], true);
+    fs::write(f.0.join("a"), "task\n").unwrap();
+    f.git(&["commit", "-am", "task"], true);
+    f.git(&["checkout", "main"], true);
+    fs::write(f.0.join("a"), "main\n").unwrap();
+    f.git(&["commit", "-am", "main"], true);
+    f.git(&["merge", "task"], false);
+    let original = b"\xef\xbb\xbf<<<<<<< main\r\nmain\r\n=======\r\ntask\r\n>>>>>>> task\r\n";
+    fs::write(f.0.join("a"), original).unwrap();
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let snapshot = Snapshot::read(&repo, &token).unwrap();
+    let prepared = Prepared::read(&repo, &snapshot, &snapshot.files[0], &token).unwrap();
+    assert_eq!(
+        prepared.text_inputs().unwrap(),
+        ["main\n", "base\n", "task\n"]
+    );
+    prepared.write_text_result("合并\n完成\n".into()).unwrap();
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), original);
+    assert_eq!(Snapshot::read(&repo, &token).unwrap().files.len(), 1);
+    let temp = prepared.temporary_directory().to_owned();
+    drop(prepared);
+    assert!(!temp.exists());
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), original);
+    let prepared = Prepared::read(&repo, &snapshot, &snapshot.files[0], &token).unwrap();
+    prepared.write_text_result("合并\n完成\n".into()).unwrap();
+    fs::write(f.0.join("a"), "external edit\n").unwrap();
+    assert!(prepared.apply(&repo, &token).is_err());
+    assert_eq!(
+        fs::read_to_string(f.0.join("a")).unwrap(),
+        "external edit\n"
+    );
+    fs::write(f.0.join("a"), original).unwrap();
+    prepared.apply(&repo, &token).unwrap();
+    assert_eq!(
+        fs::read(f.0.join("a")).unwrap(),
+        "\u{feff}合并\r\n完成\r\n".as_bytes()
+    );
+    assert_eq!(Snapshot::read(&repo, &token).unwrap().files.len(), 1);
+    conflicts::resolve(
+        &repo,
+        &snapshot,
+        &snapshot.files[0],
+        conflicts::Resolution::MarkResolved,
+        &token,
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(Snapshot::read(&repo, &token).unwrap().files.is_empty());
+    assert!(prepared.apply(&repo, &token).is_err());
 }

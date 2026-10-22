@@ -10,6 +10,31 @@ struct ConflictList {
     selected: Option<usize>,
 }
 impl ConflictList {
+    fn merge(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file) = self
+            .selected
+            .and_then(|i| self.snapshot.files.get(i))
+            .cloned()
+        else {
+            return;
+        };
+        if file
+            .stages
+            .iter()
+            .flatten()
+            .any(|v| v.mode == "120000" || v.mode == "160000")
+        {
+            return;
+        }
+        let snapshot = self.snapshot.clone();
+        let _ = self.owner.update(cx, |owner, cx| {
+            if owner.repo.path == self.repository {
+                owner.with_saved_documents(window, cx, move |s, w, cx| {
+                    s.open_text_merge(snapshot, file, w, cx)
+                });
+            }
+        });
+    }
     fn act(&self, resolution: Option<Resolution>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(file) = self
             .selected
@@ -84,8 +109,11 @@ impl Render for ConflictList {
                             )
                             .child(div().w(px(76.)).child(status(Side::Yours)))
                             .child(div().w(px(76.)).child(status(Side::Theirs)))
-                            .on_click(cx.listener(move |s, _, _, cx| {
+                            .on_click(cx.listener(move |s, event: &ClickEvent, w, cx| {
                                 s.selected = Some(i);
+                                if event.click_count() == 2 {
+                                    s.merge(w, cx);
+                                }
                                 cx.notify();
                             }))
                     })),
@@ -114,15 +142,8 @@ impl Render for ConflictList {
                             })),
                     )
                     .child(
-                        Button::new("edit-conflict")
-                            .label(t("Edit File"))
-                            .w_full()
-                            .disabled(disabled)
-                            .on_click(cx.listener(|s, _, w, cx| s.act(None, w, cx))),
-                    )
-                    .child(
-                        Button::new("external-merge")
-                            .label(t("External Merge Tool…"))
+                        Button::new("native-merge")
+                            .label(t("Merge…"))
                             .w_full()
                             .disabled(
                                 disabled
@@ -130,20 +151,14 @@ impl Render for ConflictList {
                                         f.stages.iter().flatten().any(|v| v.mode == "120000")
                                     }),
                             )
-                            .on_click(cx.listener(|s, _, w, cx| {
-                                let Some(file) =
-                                    s.selected.and_then(|i| s.snapshot.files.get(i)).cloned()
-                                else {
-                                    return;
-                                };
-                                let snapshot = s.snapshot.clone();
-                                w.close_dialog(cx);
-                                let _ = s.owner.update(cx, |owner, cx| {
-                                    if owner.repo.path == s.repository {
-                                        owner.configure_external_merge(snapshot, file, w, cx);
-                                    }
-                                });
-                            })),
+                            .on_click(cx.listener(|s, _, w, cx| s.merge(w, cx))),
+                    )
+                    .child(
+                        Button::new("edit-conflict")
+                            .label(t("Edit File"))
+                            .w_full()
+                            .disabled(disabled)
+                            .on_click(cx.listener(|s, _, w, cx| s.act(None, w, cx))),
                     )
                     .child(
                         Button::new("mark-resolved")

@@ -183,7 +183,7 @@ pub mod conflicts;
 
 pub mod sequencer_operation;
 
-pub mod external_merge;
+pub mod merge_result;
 
 pub mod revert_operation;
 
@@ -197,3 +197,5 @@ pub mod remote_management;
 pub mod clone_repository;
 
 pub mod clone_destination;
+
+pub mod text_merge;

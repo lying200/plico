@@ -30,6 +30,16 @@ impl AssetSource for Assets {
             "jb/gutterCheckBox.svg" => Some(include_bytes!("../assets/icons/gutterCheckBox.svg")),
             "jb/incoming_dark.svg" => Some(include_bytes!("../assets/icons/incoming_dark.svg")),
             "jb/outgoing_dark.svg" => Some(include_bytes!("../assets/icons/outgoing_dark.svg")),
+            "jb/merge-accept-left.svg" => {
+                Some(include_bytes!("../assets/icons/merge-accept-left.svg"))
+            }
+            "jb/merge-append-left.svg" => {
+                Some(include_bytes!("../assets/icons/merge-append-left.svg"))
+            }
+            "jb/merge-append-right.svg" => {
+                Some(include_bytes!("../assets/icons/merge-append-right.svg"))
+            }
+            "jb/merge-ignore.svg" => Some(include_bytes!("../assets/icons/merge-ignore.svg")),
             "jb/diff-apply-right_dark.svg" => {
                 Some(include_bytes!("../assets/icons/diff-apply-right_dark.svg"))
             }

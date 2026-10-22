@@ -1,7 +1,7 @@
 //! GitConfigureRemotesDialog: single-repository name/URL table and nested
 //! Define Remote/removal confirmation. Git execution belongs to Review.
 use gpui_kit::component::{
-    Disableable as _, Sizable as _, Icon, WindowExt as _,
+    Disableable as _, Icon, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     dialog::{DialogClose, DialogFooter},
     h_flex, v_flex,
@@ -132,14 +132,20 @@ impl Render for Manager {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .min_w_0()
-            .border_1().border_color(rgb(0x2b2d30))
+            .border_1()
+            .border_color(rgb(0x2b2d30))
             .child(
                 h_flex()
-                    .gap_1().px_1().py_1().border_b_1().border_color(rgb(0x2b2d30))
+                    .gap_1()
+                    .px_1()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(rgb(0x2b2d30))
                     .child(
                         Button::new("remote-add")
                             .ghost()
-                            .icon(Icon::default().path("jb/add_dark.svg").size(px(16.))).small()
+                            .icon(Icon::default().path("jb/add_dark.svg").size(px(16.)))
+                            .small()
                             .tooltip(t("Add Remote"))
                             .disabled(self.busy)
                             .on_click(cx.listener(|s, _, w, cx| s.define(false, w, cx))),
@@ -147,7 +153,8 @@ impl Render for Manager {
                     .child(
                         Button::new("remote-remove")
                             .ghost()
-                            .icon(Icon::default().path("jb/remove_dark.svg").size(px(16.))).small()
+                            .icon(Icon::default().path("jb/remove_dark.svg").size(px(16.)))
+                            .small()
                             .tooltip(t("Remove Remote"))
                             .disabled(self.busy || self.selected.is_none())
                             .on_click(cx.listener(|s, _, w, cx| s.remove(w, cx))),
@@ -155,15 +162,27 @@ impl Render for Manager {
                     .child(
                         Button::new("remote-edit")
                             .ghost()
-                            .icon(Icon::default().path("jb/edit_dark.svg").size(px(16.))).small().tooltip(t("Edit Remote"))
+                            .icon(Icon::default().path("jb/edit_dark.svg").size(px(16.)))
+                            .small()
+                            .tooltip(t("Edit Remote"))
                             .disabled(self.busy || self.selected.is_none())
                             .on_click(cx.listener(|s, _, w, cx| s.define(true, w, cx))),
                     ),
             )
             .child(
                 h_flex()
-                    .px_2().py_1().border_b_1().border_color(rgb(0x2b2d30))
-                    .child(div().w(px(90.)).flex_shrink_0().border_r_1().border_color(rgb(0x2b2d30)).child(t("Remote name")))
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(rgb(0x2b2d30))
+                    .child(
+                        div()
+                            .w(px(90.))
+                            .flex_shrink_0()
+                            .border_r_1()
+                            .border_color(rgb(0x2b2d30))
+                            .child(t("Remote name")),
+                    )
                     .child(div().pl_2().flex_1().child("URL")),
             )
             .child(
@@ -238,6 +257,10 @@ pub fn show(
             .centered(true)
             .overlay_closable(false)
             .child(manager.clone())
-            .footer(DialogFooter::new().child(DialogClose::new().trigger(|b| b.primary().label(t("OK")).min_w(px(72.)))))
+            .footer(
+                DialogFooter::new().child(
+                    DialogClose::new().trigger(|b| b.primary().label(t("OK")).min_w(px(72.))),
+                ),
+            )
     });
 }

@@ -1,15 +1,21 @@
 //! Main-window files coordination.
 //! Private implementation; shared lifecycle state remains owned by Review.
-use super::*;
 use super::files_options::log_file_count;
+use super::*;
 
 impl Review {
     pub(super) fn load_file(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index >= self.files.len() { return; }
+        if index >= self.files.len() {
+            return;
+        }
         self.selected_file = Some(index);
         self.pending_preview_file = None;
         self.preview_error = None;
-        if let Some(row) = self.file_rows.iter().position(|row| matches!(row, FileRow::File(i, _) if *i == index)) {
+        if let Some(row) = self
+            .file_rows
+            .iter()
+            .position(|row| matches!(row, FileRow::File(i, _) if *i == index))
+        {
             self.files_scroll.scroll_to_item(row, ScrollStrategy::Top);
         }
         // The visible preview owns its asynchronous reader, just like an editor Diff.
@@ -44,12 +50,17 @@ impl Review {
     }
 
     pub(super) fn prune_directory_state(&mut self) {
-        let root_collapsed = self.collapsed_directories.contains(&(Area::Commit, PathBuf::new()));
+        let root_collapsed = self
+            .collapsed_directories
+            .contains(&(Area::Commit, PathBuf::new()));
         file_tree::retain_collapsed(
             &mut self.collapsed_directories,
             self.files.iter().map(|f| (f.area, f.path.as_path())),
         );
-        if root_collapsed { self.collapsed_directories.insert((Area::Commit, PathBuf::new())); }
+        if root_collapsed {
+            self.collapsed_directories
+                .insert((Area::Commit, PathBuf::new()));
+        }
     }
     pub(super) fn rebuild_files(&mut self) {
         let mut rows = Vec::new();
@@ -72,11 +83,26 @@ impl Review {
             }
         } else {
             if self.log_files_options.directory && !self.files.is_empty() {
-                let expanded = !self.collapsed_directories.contains(&(Area::Commit, PathBuf::new()));
-                rows.push(FileRow::Folder(Area::Commit, PathBuf::new(), 0, self.files.len(), expanded));
-                if expanded { rows.extend(self.directory_rows(Area::Commit)); }
+                let expanded = !self
+                    .collapsed_directories
+                    .contains(&(Area::Commit, PathBuf::new()));
+                rows.push(FileRow::Folder(
+                    Area::Commit,
+                    PathBuf::new(),
+                    0,
+                    self.files.len(),
+                    expanded,
+                ));
+                if expanded {
+                    rows.extend(self.directory_rows(Area::Commit));
+                }
             } else {
-                rows.extend(self.files.iter().enumerate().map(|(i, _)| FileRow::File(i, 0)));
+                rows.extend(
+                    self.files
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| FileRow::File(i, 0)),
+                );
             }
         }
         self.file_rows = Arc::new(rows);
@@ -95,13 +121,21 @@ impl Review {
         )
         .into_iter()
         .map(|row| match row {
-            file_tree::Row::File { index, depth } => FileRow::File(index, depth + usize::from(area == Area::Commit)),
+            file_tree::Row::File { index, depth } => {
+                FileRow::File(index, depth + usize::from(area == Area::Commit))
+            }
             file_tree::Row::Folder {
                 path,
                 depth,
                 count,
                 expanded,
-            } => FileRow::Folder(area, path, depth + usize::from(area == Area::Commit), count, expanded),
+            } => FileRow::Folder(
+                area,
+                path,
+                depth + usize::from(area == Area::Commit),
+                count,
+                expanded,
+            ),
         })
         .collect()
     }
@@ -137,7 +171,8 @@ impl Review {
         self.collapsed_directories.clear();
         if !expanded {
             if !self.local && self.log_files_options.directory {
-                self.collapsed_directories.insert((Area::Commit, PathBuf::new()));
+                self.collapsed_directories
+                    .insert((Area::Commit, PathBuf::new()));
             }
             for file in self.files.iter() {
                 if self.local && !self.collapsed_files.contains(&file.area) {
@@ -302,7 +337,9 @@ impl Review {
                     .min_h_0()
                     .track_focus(&self.files_focus)
                     .key_context("Files")
-                    .on_action(cx.listener(|s, _: &ToggleLogDirectory, _, cx| s.toggle_log_directory(cx)))
+                    .on_action(
+                        cx.listener(|s, _: &ToggleLogDirectory, _, cx| s.toggle_log_directory(cx)),
+                    )
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|s, _, w, cx| s.files_focus.focus(w, cx)),
@@ -340,11 +377,13 @@ impl Review {
                                                             .into_owned(),
                                                     ),
                                                 )
-                                                .child(
-                                                    div()
-                                                        .text_color(rgb(MUTED))
-                                                        .child(if path.as_os_str().is_empty() { log_file_count(*count) } else { count.to_string() }),
-                                                )
+                                                .child(div().text_color(rgb(MUTED)).child(
+                                                    if path.as_os_str().is_empty() {
+                                                        log_file_count(*count)
+                                                    } else {
+                                                        count.to_string()
+                                                    },
+                                                ))
                                                 .on_click(move |_, _, cx| {
                                                     let _ = owner.update(cx, |s, cx| {
                                                         let key = (area, path.clone());
@@ -405,7 +444,8 @@ impl Review {
                                         .h(row_height)
                                         .px_2()
                                         .gap(px(4.))
-                                        .pl(px(TREE_INSET + 20.
+                                        .pl(px(TREE_INSET
+                                            + 20.
                                             + depth as f32 * TREE_INDENT
                                             + if f.area == Area::Commit { 0. } else { 24. }))
                                         .when(selected == Some(i), |d| {
@@ -438,7 +478,17 @@ impl Review {
                                                         .into_owned(),
                                                 ),
                                         )
-                                        .when(flat, |row| row.child(div().truncate().text_color(rgb(MUTED)).child(f.path.parent().unwrap_or(std::path::Path::new("")).to_string_lossy().into_owned())))
+                                        .when(flat, |row| {
+                                            row.child(
+                                                div().truncate().text_color(rgb(MUTED)).child(
+                                                    f.path
+                                                        .parent()
+                                                        .unwrap_or(std::path::Path::new(""))
+                                                        .to_string_lossy()
+                                                        .into_owned(),
+                                                ),
+                                            )
+                                        })
                                         .on_click(move |event, window, cx| {
                                             let _ = owner.update(cx, |s, cx| {
                                                 s.activate_log_preview();
@@ -456,7 +506,27 @@ impl Review {
                         .track_scroll(&self.files_scroll),
                     )
                     .child(Scrollbar::vertical(&self.files_scroll))
-                    .when(self.files.is_empty() && !self.busy, |pane| pane.child(div().absolute().inset_0().flex().items_center().justify_center().p_4().overflow_hidden().text_color(rgb(MUTED)).child(div().w_full().min_w_0().whitespace_normal().text_center().child(t(self.empty_diff_message())))))
+                    .when(self.files.is_empty() && !self.busy, |pane| {
+                        pane.child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .p_4()
+                                .overflow_hidden()
+                                .text_color(rgb(MUTED))
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .whitespace_normal()
+                                        .text_center()
+                                        .child(t(self.empty_diff_message())),
+                                ),
+                        )
+                    })
                     // Selection clears the previous tree immediately; keep visible
                     // feedback in the changes pane even when the Diff lives in a tab.
                     .when(self.busy, |pane| {
@@ -606,7 +676,21 @@ impl Review {
                         menu
                     }),
             )
-            .when(self.selected.is_none() && self.selection_details.is_empty(), |pane| pane.child(div().absolute().inset_0().flex().items_center().justify_center().text_color(rgb(MUTED)).child(t("Commit details"))))
+            .when(
+                self.selected.is_none() && self.selection_details.is_empty(),
+                |pane| {
+                    pane.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(rgb(MUTED))
+                            .child(t("Commit details")),
+                    )
+                },
+            )
             .child(
                 Scrollbar::vertical(&self.details_scroll)
                     .mode(gpui_kit::component::scroll::ScrollbarMode::Always),

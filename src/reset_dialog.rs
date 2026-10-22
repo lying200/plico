@@ -38,7 +38,8 @@ impl Render for Options {
                             .text_size(rems(1.))
                             .line_height(relative(1.5))
                             .text_color(rgb(0x92949a))
-                            .whitespace_normal().child(t(mode.description())),
+                            .whitespace_normal()
+                            .child(t(mode.description())),
                     ),
             );
         }

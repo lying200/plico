@@ -157,8 +157,12 @@ fn git_local_path(path: &Path) -> String {
     let text = path.to_string_lossy().into_owned();
     #[cfg(windows)]
     {
-        if let Some(unc) = text.strip_prefix(r"\\?\UNC\") { return format!(r"\\{unc}"); }
-        if let Some(drive) = text.strip_prefix(r"\\?\") { return drive.to_owned(); }
+        if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{unc}");
+        }
+        if let Some(drive) = text.strip_prefix(r"\\?\") {
+            return drive.to_owned();
+        }
     }
     text
 }

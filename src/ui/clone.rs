@@ -40,7 +40,9 @@ impl Review {
                         "plico-askpass"
                     });
                     plico::clone_repository::validate(&request)?;
-                    if !token.cancelled() { let _ = plico::clone_destination::remember(&request.destination); }
+                    if !token.cancelled() {
+                        let _ = plico::clone_destination::remember(&request.destination);
+                    }
                     plico::clone_repository::execute(
                         &request,
                         &token,
@@ -100,15 +102,29 @@ impl Review {
                             let details = match &result {
                                 Ok(r) => r.diagnostic(),
                                 Err(e) => match e.as_str() {
-                                    "Enter a repository URL or directory" => t("Enter a repository URL or directory").into(),
-                                    "Source is not a directory" => t("Source is not a directory").into(),
-                                    "Choose an absolute destination directory" => t("Choose an absolute destination directory").into(),
-                                    "Destination is not a directory" => t("Destination is not a directory").into(),
-                                    "Destination directory is not empty" => t("Destination directory is not empty").into(),
-                                    "Clone depth must be greater than zero" => t("Clone depth must be greater than zero").into(),
+                                    "Enter a repository URL or directory" => {
+                                        t("Enter a repository URL or directory").into()
+                                    }
+                                    "Source is not a directory" => {
+                                        t("Source is not a directory").into()
+                                    }
+                                    "Choose an absolute destination directory" => {
+                                        t("Choose an absolute destination directory").into()
+                                    }
+                                    "Destination is not a directory" => {
+                                        t("Destination is not a directory").into()
+                                    }
+                                    "Destination directory is not empty" => {
+                                        t("Destination directory is not empty").into()
+                                    }
+                                    "Clone depth must be greater than zero" => {
+                                        t("Clone depth must be greater than zero").into()
+                                    }
                                     "Clone worker ended" => t("Clone worker ended").into(),
                                     "Clone cancelled" => t("Clone cancelled").into(),
-                                    "Authentication helper is unavailable" => t("Authentication helper is unavailable").into(),
+                                    "Authentication helper is unavailable" => {
+                                        t("Authentication helper is unavailable").into()
+                                    }
                                     _ => plico::remote_management::display_url(e),
                                 },
                             };

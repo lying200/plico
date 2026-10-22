@@ -69,7 +69,9 @@ impl Review {
         let fetch_name = if fetch {
             match &edit {
                 plico::remote_management::Edit::Add { name, url }
-                | plico::remote_management::Edit::Change { name, url, .. } => Some((name.clone(),url.clone())),
+                | plico::remote_management::Edit::Change { name, url, .. } => {
+                    Some((name.clone(), url.clone()))
+                }
                 _ => None,
             }
         } else {

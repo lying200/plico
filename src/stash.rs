@@ -13,7 +13,10 @@ pub struct Entry {
     pub branch: Option<String>,
     pub message: String,
 }
-pub struct Stack { pub entries: Vec<Entry>, pub more: bool }
+pub struct Stack {
+    pub entries: Vec<Entry>,
+    pub more: bool,
+}
 pub struct Contents {
     pub commit: Commit,
     pub working: Details,
@@ -32,35 +35,76 @@ pub struct FileIdentity {
 }
 impl Contents {
     pub fn file_identity(&self, group: usize, index: usize) -> Option<FileIdentity> {
-        let (commit, details) = if group == 0 { (&self.commit, &self.working) }
-            else { let (c, d) = self.parents.get(group - 1)?; (c, d) };
+        let (commit, details) = if group == 0 {
+            (&self.commit, &self.working)
+        } else {
+            let (c, d) = self.parents.get(group - 1)?;
+            (c, d)
+        };
         let file = details.files.get(index)?;
-        Some(FileIdentity { group, revision: commit.id.clone(), path: file.path.clone(), old_path: file.old_path.clone() })
+        Some(FileIdentity {
+            group,
+            revision: commit.id.clone(),
+            path: file.path.clone(),
+            old_path: file.old_path.clone(),
+        })
     }
 }
 
 pub fn list(repo: &Repository, limit: usize, token: &Cancel) -> Result<Stack> {
-    if !(1..=MAX_ENTRIES).contains(&limit) { return Err("Invalid stash list limit".into()); }
+    if !(1..=MAX_ENTRIES).contains(&limit) {
+        return Err("Invalid stash list limit".into());
+    }
     let count = format!("--max-count={}", limit + 1);
-    let output = repo.text(&["stash", "list", "-z", &count, "--encoding=UTF-8",
-        "--format=%H%x00%P%x00%at%x00%gd%x00%s"], token)?;
+    let output = repo.text(
+        &[
+            "stash",
+            "list",
+            "-z",
+            &count,
+            "--encoding=UTF-8",
+            "--format=%H%x00%P%x00%at%x00%gd%x00%s",
+        ],
+        token,
+    )?;
     let mut fields = output.split_terminator('\0');
     let mut entries = Vec::new();
     while let Some(oid) = fields.next() {
-        if token.cancelled() { return Err("Cancelled".into()); }
-        let parents = fields.next().ok_or("Missing stash parents")?.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        let author_time = fields.next().ok_or("Missing stash time")?.parse().map_err(|_| "Invalid stash time")?;
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        let parents = fields
+            .next()
+            .ok_or("Missing stash parents")?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let author_time = fields
+            .next()
+            .ok_or("Missing stash time")?
+            .parse()
+            .map_err(|_| "Invalid stash time")?;
         let selector = fields.next().ok_or("Missing stash selector")?.to_owned();
         let subject = fields.next().ok_or("Missing stash subject")?;
-        if !is_oid(oid) || !(2..=3).contains(&parents.len()) || parents.iter().any(|id| !is_oid(id)) {
+        if !is_oid(oid) || !(2..=3).contains(&parents.len()) || parents.iter().any(|id| !is_oid(id))
+        {
             return Err("Invalid stash commit identity or parents".into());
         }
         let (branch, message) = match subject.split_once(':') {
             Some((branch, message)) => (Some(branch.trim().to_owned()), message.trim().to_owned()),
             None => (None, subject.trim().to_owned()),
         };
-        entries.push(Entry { oid: oid.into(), parents, author_time, selector, branch, message });
-        if entries.len() > limit { break; }
+        entries.push(Entry {
+            oid: oid.into(),
+            parents,
+            author_time,
+            selector,
+            branch,
+            message,
+        });
+        if entries.len() > limit {
+            break;
+        }
     }
     let more = entries.len() > limit;
     entries.truncate(limit);
@@ -69,13 +113,33 @@ pub fn list(repo: &Repository, limit: usize, token: &Cancel) -> Result<Stack> {
 
 /// Use immutable identity, never the position-dependent stash@{n} selector.
 pub fn contents(repo: &Repository, entry: &Entry, token: &Cancel) -> Result<Contents> {
-    let snapshot = repo.snapshot_commits(std::slice::from_ref(&entry.oid), std::slice::from_ref(&entry.oid), token)?;
-    let commit = snapshot.commits.into_iter().next().ok_or("Saved stash commit is unavailable")?;
-    if !(2..=3).contains(&commit.parents.len()) { return Err("Not a stash commit".into()); }
+    let snapshot = repo.snapshot_commits(
+        std::slice::from_ref(&entry.oid),
+        std::slice::from_ref(&entry.oid),
+        token,
+    )?;
+    let commit = snapshot
+        .commits
+        .into_iter()
+        .next()
+        .ok_or("Saved stash commit is unavailable")?;
+    if !(2..=3).contains(&commit.parents.len()) {
+        return Err("Not a stash commit".into());
+    }
     let working = repo.details(&commit, token)?;
     let parent_ids = &commit.parents[1..];
-    let parents = repo.snapshot_commits(parent_ids, parent_ids, token)?.commits.into_iter()
-        .map(|parent| repo.details(&parent, token).map(|details| (parent, details)))
+    let parents = repo
+        .snapshot_commits(parent_ids, parent_ids, token)?
+        .commits
+        .into_iter()
+        .map(|parent| {
+            repo.details(&parent, token)
+                .map(|details| (parent, details))
+        })
         .collect::<Result<Vec<_>>>()?;
-    Ok(Contents { commit, working, parents })
+    Ok(Contents {
+        commit,
+        working,
+        parents,
+    })
 }

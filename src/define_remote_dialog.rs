@@ -165,14 +165,16 @@ impl Render for Form {
             .gap_3()
             .child(
                 h_flex()
-                    .gap_3().items_center()
+                    .gap_3()
+                    .items_center()
                     .items_center()
                     .child(div().w(px(70.)).child(t("Remote name")))
                     .child(Input::new(&self.name).disabled(self.busy).flex_1()),
             )
             .child(
                 h_flex()
-                    .gap_3().items_center()
+                    .gap_3()
+                    .items_center()
                     .items_center()
                     .child(div().w(px(70.)).child("URL"))
                     .child(Input::new(&self.url).disabled(self.busy).flex_1()),

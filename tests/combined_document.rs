@@ -14,8 +14,10 @@ fn complete_sources_preserve_endings_paths_and_file_existence() {
     assert_eq!(same.status(), DiffFileStatus::Renamed);
     assert_eq!((same.additions(), same.deletions()), (0, 0));
     assert_eq!(same.source(DiffSide::Original), old);
-    for (before, after, status) in [(None, Some(("empty", "")), DiffFileStatus::Added),
-        (Some(("empty", "")), None, DiffFileStatus::Deleted)] {
+    for (before, after, status) in [
+        (None, Some(("empty", "")), DiffFileStatus::Added),
+        (Some(("empty", "")), None, DiffFileStatus::Deleted),
+    ] {
         let file = DiffFile::from_sources(before, after).unwrap();
         assert_eq!(file.status(), status);
         assert_eq!(file.original_path().is_some(), before.is_some());

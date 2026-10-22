@@ -167,22 +167,45 @@ impl GraphNode for crate::git::TopologyCommit {
 
 /// Adjacent *visible* graph nodes, in row order, including dotted edges.
 /// Rebased GoToParentOrChildAction uses the compiled graph, not Git parents.
-pub fn adjacent<T: GraphNode>(commits: &[T], matching_ids: &std::collections::HashSet<String>,
-    selected: &str, parent: bool, max_edges: usize) -> Result<Vec<String>, String> {
+pub fn adjacent<T: GraphNode>(
+    commits: &[T],
+    matching_ids: &std::collections::HashSet<String>,
+    selected: &str,
+    parent: bool,
+    max_edges: usize,
+) -> Result<Vec<String>, String> {
     let (visible, edges) = snapshot_edges(commits, matching_ids, max_edges)?;
-    let Some(index) = commits.iter().position(|c| c.id() == selected) else { return Ok(Vec::new()); };
-    if !visible[index] { return Ok(Vec::new()); }
-    let mut rows = edges.into_iter().filter_map(|edge| {
-        if parent && edge.child == index { Some(edge.parent) }
-        else if !parent && edge.parent == index { Some(edge.child) }
-        else { None }
-    }).collect::<Vec<_>>();
-    rows.sort_unstable(); rows.dedup();
-    Ok(rows.into_iter().map(|i| commits[i].id().to_owned()).collect())
+    let Some(index) = commits.iter().position(|c| c.id() == selected) else {
+        return Ok(Vec::new());
+    };
+    if !visible[index] {
+        return Ok(Vec::new());
+    }
+    let mut rows = edges
+        .into_iter()
+        .filter_map(|edge| {
+            if parent && edge.child == index {
+                Some(edge.parent)
+            } else if !parent && edge.parent == index {
+                Some(edge.child)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    rows.dedup();
+    Ok(rows
+        .into_iter()
+        .map(|i| commits[i].id().to_owned())
+        .collect())
 }
 
-fn snapshot_edges<T: GraphNode>(commits: &[T], matching_ids: &std::collections::HashSet<String>,
-    max_edges: usize) -> Result<(Vec<bool>, Vec<Edge>), String> {
+fn snapshot_edges<T: GraphNode>(
+    commits: &[T],
+    matching_ids: &std::collections::HashSet<String>,
+    max_edges: usize,
+) -> Result<(Vec<bool>, Vec<Edge>), String> {
     if commits.len() > 100_000 {
         return Err("Filtered graph snapshot exceeds node budget".into());
     }
@@ -290,15 +313,37 @@ mod tests {
     fn navigation_orders_merge_and_fork_choices_and_rejects_partial_graph() {
         use crate::git::TopologyCommit;
         let graph = vec![
-            TopologyCommit { id: "merge".into(), parents: vec!["right".into(), "left".into()] },
-            TopologyCommit { id: "left".into(), parents: vec!["base".into()] },
-            TopologyCommit { id: "right".into(), parents: vec!["base".into()] },
-            TopologyCommit { id: "base".into(), parents: vec![] },
+            TopologyCommit {
+                id: "merge".into(),
+                parents: vec!["right".into(), "left".into()],
+            },
+            TopologyCommit {
+                id: "left".into(),
+                parents: vec!["base".into()],
+            },
+            TopologyCommit {
+                id: "right".into(),
+                parents: vec!["base".into()],
+            },
+            TopologyCommit {
+                id: "base".into(),
+                parents: vec![],
+            },
         ];
         let visible = graph.iter().map(|c| c.id.clone()).collect();
-        assert_eq!(adjacent(&graph, &visible, "merge", true, 8).unwrap(), ["left", "right"]);
-        assert_eq!(adjacent(&graph, &visible, "base", false, 8).unwrap(), ["left", "right"]);
-        assert!(adjacent(&graph, &visible, "merge", false, 8).unwrap().is_empty());
+        assert_eq!(
+            adjacent(&graph, &visible, "merge", true, 8).unwrap(),
+            ["left", "right"]
+        );
+        assert_eq!(
+            adjacent(&graph, &visible, "base", false, 8).unwrap(),
+            ["left", "right"]
+        );
+        assert!(
+            adjacent(&graph, &visible, "merge", false, 8)
+                .unwrap()
+                .is_empty()
+        );
         assert!(adjacent(&graph, &visible, "merge", true, 1).is_err());
         let partial = graph[..3].to_vec();
         let visible = partial.iter().map(|c| c.id.clone()).collect();

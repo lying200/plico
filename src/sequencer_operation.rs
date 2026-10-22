@@ -136,9 +136,7 @@ pub(crate) fn execute_locked(
             // MERGE_MSG was generated using the repository's comment marker.
             // Changing it only on Continue commits the previous marker's
             // conflict annotations as literal message text (also without an editor).
-            command
-                .args([name, "--continue"])
-                .env("GIT_EDITOR", editor);
+            command.args([name, "--continue"]).env("GIT_EDITOR", editor);
             if let Some(server) = &server {
                 server.configure(&mut command);
             }

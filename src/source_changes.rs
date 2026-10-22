@@ -68,7 +68,10 @@ impl SourceChanges {
         language: String,
         cx: &mut Context<Self>,
     ) -> Self {
-        cx.subscribe(editing, |s, _, _: &crate::editing::Reloaded, cx| s.recompute(cx)).detach();
+        cx.subscribe(editing, |s, _, _: &crate::editing::Reloaded, cx| {
+            s.recompute(cx)
+        })
+        .detach();
         let editor = editing.read(cx).editor.clone();
         let scroll = editor.read(cx).scroll_offset();
         cx.subscribe(&editor, |s, _, event: &InputEvent, cx| {
@@ -237,8 +240,9 @@ impl SourceChanges {
         });
         self.error = None;
         if self.commit_message.is_none() {
-            let input = cx.new(|cx| TextareaState::new(window, cx).placeholder(t("Commit this change")));
-            cx.observe(&input, |_,_,cx|cx.notify()).detach();
+            let input =
+                cx.new(|cx| TextareaState::new(window, cx).placeholder(t("Commit this change")));
+            cx.observe(&input, |_, _, cx| cx.notify()).detach();
             self.commit_message = Some(input);
         }
         self.popup = Some(Popup {
@@ -301,21 +305,55 @@ impl SourceChanges {
         cx.notify();
     }
     fn commit_chunk(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.documents.locked() { return; }
-        let Some(snapshot) = self.snapshot.as_ref() else { return; };
-        let Some(block) = self.popup.as_ref().and_then(|p|snapshot.blocks.get(p.index)).cloned() else { return; };
-        let Some(oid) = self.oid.clone() else { return; };
-        let Some(message) = self.commit_message.as_ref().map(|m|m.read(cx).value().to_string()).filter(|m|!m.trim().is_empty()) else { return; };
-        if self.editor.read(cx).text().to_string() != snapshot.current.as_ref() { self.recompute(cx); return; }
-        cx.emit(CommitChunk { chunk: plico::partial_commit::Chunk {
-            path: self.path.clone(), base_oid: oid, current: snapshot.current.clone(), block, message,
-        }, source: cx.entity().downgrade() });
+        if self.busy || self.documents.locked() {
+            return;
+        }
+        let Some(snapshot) = self.snapshot.as_ref() else {
+            return;
+        };
+        let Some(block) = self
+            .popup
+            .as_ref()
+            .and_then(|p| snapshot.blocks.get(p.index))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(oid) = self.oid.clone() else {
+            return;
+        };
+        let Some(message) = self
+            .commit_message
+            .as_ref()
+            .map(|m| m.read(cx).value().to_string())
+            .filter(|m| !m.trim().is_empty())
+        else {
+            return;
+        };
+        if self.editor.read(cx).text().to_string() != snapshot.current.as_ref() {
+            self.recompute(cx);
+            return;
+        }
+        cx.emit(CommitChunk {
+            chunk: plico::partial_commit::Chunk {
+                path: self.path.clone(),
+                base_oid: oid,
+                current: snapshot.current.clone(),
+                block,
+                message,
+            },
+            source: cx.entity().downgrade(),
+        });
         self.popup = None;
         cx.notify();
     }
     pub fn committed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(input) = &self.commit_message { input.update(cx, |i,cx|i.set_value("",window,cx)); }
-        self.oid = None; self.original = None; self.recompute(cx);
+        if let Some(input) = &self.commit_message {
+            input.update(cx, |i, cx| i.set_value("", window, cx));
+        }
+        self.oid = None;
+        self.original = None;
+        self.recompute(cx);
     }
     fn revert(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy || self.documents.locked() {
@@ -509,10 +547,16 @@ impl Render for SourceChanges {
                 .unwrap_or_default();
             let panel = v_flex()
                 .id("source-change-popup")
-                .capture_action(cx.listener(|s, event: &gpui_kit::component::input::Enter, _, cx| {
-                    if event.secondary { s.commit_chunk(cx); cx.stop_propagation(); }
-                    else { cx.propagate(); }
-                }))
+                .capture_action(cx.listener(
+                    |s, event: &gpui_kit::component::input::Enter, _, cx| {
+                        if event.secondary {
+                            s.commit_chunk(cx);
+                            cx.stop_propagation();
+                        } else {
+                            cx.propagate();
+                        }
+                    },
+                ))
                 .absolute()
                 .left(popup.position.x)
                 .top(popup.position.y)
@@ -569,14 +613,33 @@ impl Render for SourceChanges {
                                     cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                                 }),
                         )
-                        .when_some(self.commit_message.clone(), |v, input| v.child(div().flex_1().min_w_0().child(
-                            Textarea::new(&input).h(px(28.)).external_focus_ring(false)
-                                .disabled(self.documents.locked()).aria_label(t("Commit this change")))))
-                        .child(Button::new("marker-commit").ghost().small()
-                            .icon(Icon::default().path("jb/CommitInline_dark.svg"))
-                            .tooltip(t("Commit this change"))
-                            .disabled(self.busy || self.documents.locked() || self.commit_message.as_ref().is_none_or(|m|m.read(cx).value().trim().is_empty()))
-                            .on_click(cx.listener(|s,_,_,cx|s.commit_chunk(cx))))
+                        .when_some(self.commit_message.clone(), |v, input| {
+                            v.child(
+                                div().flex_1().min_w_0().child(
+                                    Textarea::new(&input)
+                                        .h(px(28.))
+                                        .external_focus_ring(false)
+                                        .disabled(self.documents.locked())
+                                        .aria_label(t("Commit this change")),
+                                ),
+                            )
+                        })
+                        .child(
+                            Button::new("marker-commit")
+                                .ghost()
+                                .small()
+                                .icon(Icon::default().path("jb/CommitInline_dark.svg"))
+                                .tooltip(t("Commit this change"))
+                                .disabled(
+                                    self.busy
+                                        || self.documents.locked()
+                                        || self
+                                            .commit_message
+                                            .as_ref()
+                                            .is_none_or(|m| m.read(cx).value().trim().is_empty()),
+                                )
+                                .on_click(cx.listener(|s, _, _, cx| s.commit_chunk(cx))),
+                        )
                         .child(
                             Button::new("marker-close")
                                 .ghost()
@@ -693,86 +756,178 @@ mod tests {
         });
     }
     #[gpui::test]
-    fn chunk_submission_captures_only_selected_range_and_keeps_draft(cx: &mut gpui::TestAppContext) {
+    fn chunk_submission_captures_only_selected_range_and_keeps_draft(
+        cx: &mut gpui::TestAppContext,
+    ) {
         cx.update(gpui::component::init);
         let docs = Documents::default();
         let mut markers = None;
         let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let (_, cx) = cx.add_window_view(|window,cx| {
-            let editing = docs.get_or_create("fixture".into(), "sample.txt".into(),
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let editing = docs.get_or_create(
+                "fixture".into(),
+                "sample.txt".into(),
                 Document::new(b"X\nB\nZ".to_vec()).unwrap(),
-                |text,cx|cx.new(|cx|EditorState::new(window,cx).default_value(text.to_owned())),cx);
-            let entity = cx.new(|cx|SourceChanges::new("fixture".into(),"sample.txt".into(),&editing,docs.clone(),"text".into(),cx));
+                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())),
+                cx,
+            );
+            let entity = cx.new(|cx| {
+                SourceChanges::new(
+                    "fixture".into(),
+                    "sample.txt".into(),
+                    &editing,
+                    docs.clone(),
+                    "text".into(),
+                    cx,
+                )
+            });
             let captured = events.clone();
-            cx.subscribe(&entity,move|_,_,event:&super::CommitChunk,_|captured.borrow_mut().push(event.chunk.clone())).detach();
-            markers=Some(entity);
-            Root::new(cx.new(|_|Empty),window,cx)
+            cx.subscribe(&entity, move |_, _, event: &super::CommitChunk, _| {
+                captured.borrow_mut().push(event.chunk.clone())
+            })
+            .detach();
+            markers = Some(entity);
+            Root::new(cx.new(|_| Empty), window, cx)
         });
-        let markers=markers.unwrap();
-        cx.update(|w,cx|markers.update(cx,|s,cx| {
-            s.token.cancel();s._watching=Task::ready(());
-            s.oid=Some("1".repeat(40));
-            s.snapshot=Some(Arc::new(Snapshot{original:"A\nB\nC".into(),current:"X\nB\nZ".into(),blocks:plico::line_changes::blocks("A\nB\nC","X\nB\nZ")}));
-            s.show(1,gpui::point(gpui::px(0.),gpui::px(0.)),w,cx);
-            s.commit_chunk(cx);assert!(events.borrow().is_empty());
-            s.commit_message.as_ref().unwrap().update(cx,|input,cx|input.set_value("only last block",w,cx));
-            s.documents.set_locked(true,cx);s.commit_chunk(cx);assert!(events.borrow().is_empty());
-            s.documents.set_locked(false,cx);s.commit_chunk(cx);
-            assert!(s.popup.is_none());
-            assert_eq!(s.commit_message.as_ref().unwrap().read(cx).value(),"only last block");
-            assert_eq!(s.editor.read(cx).text().to_string(),"X\nB\nZ");
-        }));
+        let markers = markers.unwrap();
+        cx.update(|w, cx| {
+            markers.update(cx, |s, cx| {
+                s.token.cancel();
+                s._watching = Task::ready(());
+                s.oid = Some("1".repeat(40));
+                s.snapshot = Some(Arc::new(Snapshot {
+                    original: "A\nB\nC".into(),
+                    current: "X\nB\nZ".into(),
+                    blocks: plico::line_changes::blocks("A\nB\nC", "X\nB\nZ"),
+                }));
+                s.show(1, gpui::point(gpui::px(0.), gpui::px(0.)), w, cx);
+                s.commit_chunk(cx);
+                assert!(events.borrow().is_empty());
+                s.commit_message
+                    .as_ref()
+                    .unwrap()
+                    .update(cx, |input, cx| input.set_value("only last block", w, cx));
+                s.documents.set_locked(true, cx);
+                s.commit_chunk(cx);
+                assert!(events.borrow().is_empty());
+                s.documents.set_locked(false, cx);
+                s.commit_chunk(cx);
+                assert!(s.popup.is_none());
+                assert_eq!(
+                    s.commit_message.as_ref().unwrap().read(cx).value(),
+                    "only last block"
+                );
+                assert_eq!(s.editor.read(cx).text().to_string(), "X\nB\nZ");
+            })
+        });
         cx.run_until_parked();
-        let events=events.borrow();assert_eq!(events.len(),1);
-        assert_eq!(events[0].block.original,2..3);
-        assert_eq!(events[0].message,"only last block");
+        let events = events.borrow();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].block.original, 2..3);
+        assert_eq!(events[0].message, "only last block");
     }
 
-    struct MarkerProbe { editor: gpui::Entity<EditorState>, markers: gpui::Entity<SourceChanges> }
+    struct MarkerProbe {
+        editor: gpui::Entity<EditorState>,
+        markers: gpui::Entity<SourceChanges>,
+    }
     impl Render for MarkerProbe {
-        fn render(&mut self,_:&mut Window,_:&mut Context<Self>)->impl IntoElement {
-            use gpui::{Styled as _,ParentElement as _};
-            div().size_full().child(div().relative().size_full()
-                .child(gpui::component::input::Editor::new(&self.editor).appearance(false).bordered(false).h_full())
-                .child(self.markers.clone()))
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            use gpui::{ParentElement as _, Styled as _};
+            div().size_full().child(
+                div()
+                    .relative()
+                    .size_full()
+                    .child(
+                        gpui::component::input::Editor::new(&self.editor)
+                            .appearance(false)
+                            .bordered(false)
+                            .h_full(),
+                    )
+                    .child(self.markers.clone()),
+            )
         }
     }
     #[gpui::test]
-    fn clicking_painted_marker_opens_popup(cx:&mut gpui::TestAppContext) {
+    fn clicking_painted_marker_opens_popup(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
-        let mut marker=None;
-        let (_,cx)=cx.add_window_view(|w,cx| {
-            let docs=Documents::default();
-            let editing=docs.get_or_create("fixture".into(),"file".into(),Document::new(b"X\nB\nZ".to_vec()).unwrap(),
-                |text,cx|cx.new(|cx|EditorState::new(w,cx).default_value(text.to_owned()).line_number(true)),cx);
-            let editor=editing.read(cx).editor.clone();
-            let markers=cx.new(|cx|SourceChanges::new("fixture".into(),"file".into(),&editing,docs,"text".into(),cx));
-            markers.update(cx,|s,_| {
-                s.token.cancel();s._watching=Task::ready(());
-                s.oid=Some("1".repeat(40));s.snapshot=Some(Arc::new(Snapshot{original:"A\nB\nC".into(),current:"X\nB\nZ".into(),blocks:plico::line_changes::blocks("A\nB\nC","X\nB\nZ")}));
+        let mut marker = None;
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let docs = Documents::default();
+            let editing = docs.get_or_create(
+                "fixture".into(),
+                "file".into(),
+                Document::new(b"X\nB\nZ".to_vec()).unwrap(),
+                |text, cx| {
+                    cx.new(|cx| {
+                        EditorState::new(w, cx)
+                            .default_value(text.to_owned())
+                            .line_number(true)
+                    })
+                },
+                cx,
+            );
+            let editor = editing.read(cx).editor.clone();
+            let markers = cx.new(|cx| {
+                SourceChanges::new(
+                    "fixture".into(),
+                    "file".into(),
+                    &editing,
+                    docs,
+                    "text".into(),
+                    cx,
+                )
             });
-            marker=Some(markers.clone());
-            Root::new(cx.new(|_|MarkerProbe{editor,markers}),w,cx)
+            markers.update(cx, |s, _| {
+                s.token.cancel();
+                s._watching = Task::ready(());
+                s.oid = Some("1".repeat(40));
+                s.snapshot = Some(Arc::new(Snapshot {
+                    original: "A\nB\nC".into(),
+                    current: "X\nB\nZ".into(),
+                    blocks: plico::line_changes::blocks("A\nB\nC", "X\nB\nZ"),
+                }));
+            });
+            marker = Some(markers.clone());
+            Root::new(cx.new(|_| MarkerProbe { editor, markers }), w, cx)
         });
-        let markers=marker.unwrap();
-        cx.update(|w,cx|{let _=w.draw(cx);});
-        let position=cx.update(|_,cx| {
-            let editor=markers.read(cx).editor.read(cx);
-            let x=editor.source_gutter_right().unwrap()-gpui::px(4.);
-            let (top,bottom)=editor.source_line_extent(2..3).unwrap();
-            gpui::point(x,(top+bottom)/2.)
+        let markers = marker.unwrap();
+        cx.update(|w, cx| {
+            let _ = w.draw(cx);
         });
-        cx.simulate_mouse_move(position,None,Default::default());
-        cx.simulate_click(position,Default::default());
-        assert!(markers.read_with(cx,|s,_|s.popup.is_some()),"painted marker must be clickable at its exact location");
-        cx.update(|w,cx| {
-            let input=markers.read(cx).commit_message.clone().unwrap();
-            input.update(cx,|input,cx| {input.set_value("selected block",w,cx);input.focus(w,cx);});
-            let _=w.draw(cx);
+        let position = cx.update(|_, cx| {
+            let editor = markers.read(cx).editor.read(cx);
+            let x = editor.source_gutter_right().unwrap() - gpui::px(4.);
+            let (top, bottom) = editor.source_line_extent(2..3).unwrap();
+            gpui::point(x, (top + bottom) / 2.)
+        });
+        cx.simulate_mouse_move(position, None, Default::default());
+        cx.simulate_click(position, Default::default());
+        assert!(
+            markers.read_with(cx, |s, _| s.popup.is_some()),
+            "painted marker must be clickable at its exact location"
+        );
+        cx.update(|w, cx| {
+            let input = markers.read(cx).commit_message.clone().unwrap();
+            input.update(cx, |input, cx| {
+                input.set_value("selected block", w, cx);
+                input.focus(w, cx);
+            });
+            let _ = w.draw(cx);
         });
         cx.simulate_keystrokes("ctrl-enter");
-        assert!(markers.read_with(cx,|s,_|s.popup.is_none()),"Ctrl+Enter must submit instead of inserting a newline");
-        assert_eq!(markers.read_with(cx,|s,cx|s.commit_message.as_ref().unwrap().read(cx).value()),"selected block");
+        assert!(
+            markers.read_with(cx, |s, _| s.popup.is_none()),
+            "Ctrl+Enter must submit instead of inserting a newline"
+        );
+        assert_eq!(
+            markers.read_with(cx, |s, cx| s
+                .commit_message
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .value()),
+            "selected block"
+        );
     }
-
 }

@@ -90,8 +90,11 @@ pub fn read_filtered(
     let path_filter = !filter.paths.is_empty();
     // Path simplification may change traversal order and parent IDs. Select IDs
     // through Git's structure query, then use the complete graph for display.
-    let snapshot = if path_filter { repo.snapshot_at(branch, 0, 1, fixed, token)? }
-        else { repo.snapshot_filtered_at(branch, offset, limit, fixed, Some(filter), token)? };
+    let snapshot = if path_filter {
+        repo.snapshot_at(branch, 0, 1, fixed, token)?
+    } else {
+        repo.snapshot_filtered_at(branch, offset, limit, fixed, Some(filter), token)?
+    };
     if snapshot.commits.is_empty() {
         return Ok(Window {
             snapshot,
@@ -111,10 +114,19 @@ pub fn read_filtered(
         return Err("Cancelled".into());
     }
     if path_filter {
-        let ids = projected.indices.iter().map(|&i| topology[i].id.clone()).collect::<Vec<_>>();
+        let ids = projected
+            .indices
+            .iter()
+            .map(|&i| topology[i].id.clone())
+            .collect::<Vec<_>>();
         let mut snapshot = repo.snapshot_commits(&ids, &snapshot.tips, token)?;
         snapshot.more = projected.more;
-        return Ok(Window { snapshot, rows: projected.rows, start: Layout::default(), end: Layout::default() });
+        return Ok(Window {
+            snapshot,
+            rows: projected.rows,
+            start: Layout::default(),
+            end: Layout::default(),
+        });
     }
     if projected.indices.len() != snapshot.commits.len()
         || projected
@@ -134,18 +146,38 @@ pub fn read_filtered(
 }
 
 /// Hash matches take priority over other filters, as in Rebased applyHashFilter.
-fn read_hashes(repo: &Repository, hashes: &[String], offset: usize, limit: usize,
-    fixed: Option<&[String]>, token: &Cancel) -> Result<Option<Window>, String> {
+fn read_hashes(
+    repo: &Repository,
+    hashes: &[String],
+    offset: usize,
+    limit: usize,
+    fixed: Option<&[String]>,
+    token: &Cancel,
+) -> Result<Option<Window>, String> {
     let initial = repo.snapshot_at(None, 0, 1, fixed, token)?;
     let topology = read_topology(repo, &initial.tips, token)?;
     let matched = hash_matches(&topology, hashes, token)?;
-    if matched.is_empty() { return Ok(None); }
-    let projected = crate::filtered_graph::window(&topology, &matched, offset, limit, 500_000, 500_000)?;
-    if token.cancelled() { return Err("Cancelled".into()); }
-    let ids: Vec<_> = projected.indices.iter().map(|&i| topology[i].id.clone()).collect();
+    if matched.is_empty() {
+        return Ok(None);
+    }
+    let projected =
+        crate::filtered_graph::window(&topology, &matched, offset, limit, 500_000, 500_000)?;
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    let ids: Vec<_> = projected
+        .indices
+        .iter()
+        .map(|&i| topology[i].id.clone())
+        .collect();
     let mut snapshot = repo.snapshot_commits(&ids, &initial.tips, token)?;
     snapshot.more = projected.more;
-    Ok(Some(Window { snapshot, rows: projected.rows, start: Layout::default(), end: Layout::default() }))
+    Ok(Some(Window {
+        snapshot,
+        rows: projected.rows,
+        start: Layout::default(),
+        end: Layout::default(),
+    }))
 }
 
 /// A history window containing a navigation target and its selected row.
@@ -163,17 +195,27 @@ pub fn locate(
     limit: usize,
     token: &Cancel,
 ) -> Result<Option<Located>, String> {
-    let Some(position) = repo.commit_position(roots, target, token)? else { return Ok(None); };
+    let Some(position) = repo.commit_position(roots, target, token)? else {
+        return Ok(None);
+    };
     let limit = limit.clamp(1, crate::git::HISTORY_MAX);
     let offset = position / limit * limit;
     let window = read(repo, None, offset, limit, Some(roots), None, token)?;
     let selected = position - offset;
-    if !window.snapshot.commits.get(selected).is_some_and(|commit| commit.id.eq_ignore_ascii_case(target)) {
+    if !window
+        .snapshot
+        .commits
+        .get(selected)
+        .is_some_and(|commit| commit.id.eq_ignore_ascii_case(target))
+    {
         return Err("History changed while locating the commit; refresh and try again".into());
     }
-    Ok(Some(Located { window, offset, selected }))
+    Ok(Some(Located {
+        window,
+        offset,
+        selected,
+    }))
 }
-
 
 /// The distinction lets the UI offer an explicit filter reset only for hidden
 /// commits, without confusing a different page with a different filter scope.
@@ -191,7 +233,9 @@ pub fn locate_filtered(
     filter: &crate::git::LogFilter,
     token: &Cancel,
 ) -> Result<FilteredLocation, String> {
-    if token.cancelled() { return Err("Cancelled".into()); }
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
     if !crate::git::is_oid(target) || roots.iter().any(|id| !crate::git::is_oid(id)) {
         return Err("Commit navigation requires full commit IDs".into());
     }
@@ -202,31 +246,62 @@ pub fn locate_filtered(
     };
     // A successful hash query overrides the other filters, including paths.
     // When no hash matches, the normal text query is the fallback.
-    if matched.is_empty() { matched = read_matches(repo, roots, filter, token)?; }
-    let Some(target) = topology.iter().find(|commit| commit.id.eq_ignore_ascii_case(target)) else {
+    if matched.is_empty() {
+        matched = read_matches(repo, roots, filter, token)?;
+    }
+    let Some(target) = topology
+        .iter()
+        .find(|commit| commit.id.eq_ignore_ascii_case(target))
+    else {
         return Ok(FilteredLocation::OutsideRoots);
     };
-    if !matched.contains(&target.id) { return Ok(FilteredLocation::Hidden); }
-    let position = topology.iter().filter(|commit| matched.contains(&commit.id))
-        .position(|commit| commit.id == target.id).ok_or("Navigation target disappeared")?;
+    if !matched.contains(&target.id) {
+        return Ok(FilteredLocation::Hidden);
+    }
+    let position = topology
+        .iter()
+        .filter(|commit| matched.contains(&commit.id))
+        .position(|commit| commit.id == target.id)
+        .ok_or("Navigation target disappeared")?;
     let limit = limit.clamp(1, crate::git::HISTORY_MAX);
     let offset = position / limit * limit;
-    let projected = crate::filtered_graph::window(&topology, &matched, offset, limit, 500_000, 500_000)?;
-    if token.cancelled() { return Err("Cancelled".into()); }
-    let ids = projected.indices.iter().map(|&i| topology[i].id.clone()).collect::<Vec<_>>();
+    let projected =
+        crate::filtered_graph::window(&topology, &matched, offset, limit, 500_000, 500_000)?;
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    let ids = projected
+        .indices
+        .iter()
+        .map(|&i| topology[i].id.clone())
+        .collect::<Vec<_>>();
     let mut snapshot = repo.snapshot_commits(&ids, roots, token)?;
     snapshot.more = projected.more;
     let selected = position - offset;
-    if !snapshot.commits.get(selected).is_some_and(|commit| commit.id == target.id) {
+    if !snapshot
+        .commits
+        .get(selected)
+        .is_some_and(|commit| commit.id == target.id)
+    {
         return Err("History changed while locating the commit; refresh and try again".into());
     }
     Ok(FilteredLocation::Found(Located {
-        window: Window { snapshot, rows: projected.rows, start: Layout::default(), end: Layout::default() },
-        offset, selected,
+        window: Window {
+            snapshot,
+            rows: projected.rows,
+            start: Layout::default(),
+            end: Layout::default(),
+        },
+        offset,
+        selected,
     }))
 }
 
-fn read_topology(repo: &Repository, roots: &[String], token: &Cancel) -> Result<Vec<crate::git::TopologyCommit>, String> {
+fn read_topology(
+    repo: &Repository,
+    roots: &[String],
+    token: &Cancel,
+) -> Result<Vec<crate::git::TopologyCommit>, String> {
     let mut topology = Vec::new();
     let mut edges = 0usize;
     loop {
@@ -236,16 +311,26 @@ fn read_topology(repo: &Repository, roots: &[String], token: &Cancel) -> Result<
             return Err("Filtered graph exceeds the temporary 100,000-commit / 500,000-edge budget. Narrow the branch filter; no partial history is shown.".into());
         }
         topology.extend(page.commits);
-        if !page.more { break; }
+        if !page.more {
+            break;
+        }
     }
     Ok(topology)
 }
 
 /// Read the same bounded, filtered graph used by Log navigation. Only target
 /// identities are returned; messages and file contents remain unloaded.
-pub fn adjacent(repo: &Repository, roots: &[String], selected: &str, parent: bool,
-    filter: Option<&crate::git::LogFilter>, token: &Cancel) -> Result<Vec<String>, String> {
-    if token.cancelled() { return Err("Cancelled".into()); }
+pub fn adjacent(
+    repo: &Repository,
+    roots: &[String],
+    selected: &str,
+    parent: bool,
+    filter: Option<&crate::git::LogFilter>,
+    token: &Cancel,
+) -> Result<Vec<String>, String> {
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
     if !crate::git::is_oid(selected) || roots.iter().any(|id| !crate::git::is_oid(id)) {
         return Err("Commit navigation requires full commit IDs".into());
     }
@@ -256,35 +341,59 @@ pub fn adjacent(repo: &Repository, roots: &[String], selected: &str, parent: boo
             Some(hashes) => hash_matches(&topology, &hashes, token)?,
             None => std::collections::HashSet::new(),
         };
-        if matched.is_empty() { matched = read_matches(repo, roots, filter, token)?; }
+        if matched.is_empty() {
+            matched = read_matches(repo, roots, filter, token)?;
+        }
         matched
-    } else { topology.iter().map(|c| c.id.clone()).collect() };
-    if token.cancelled() { return Err("Cancelled".into()); }
+    } else {
+        topology.iter().map(|c| c.id.clone()).collect()
+    };
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
     let result = crate::filtered_graph::adjacent(&topology, &matched, selected, parent, 500_000)?;
-    if token.cancelled() { return Err("Cancelled".into()); }
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
     Ok(result)
 }
 
-fn read_matches(repo: &Repository, roots: &[String], filter: &crate::git::LogFilter, token: &Cancel)
-    -> Result<std::collections::HashSet<String>, String> {
+fn read_matches(
+    repo: &Repository,
+    roots: &[String],
+    filter: &crate::git::LogFilter,
+    token: &Cancel,
+) -> Result<std::collections::HashSet<String>, String> {
     let mut matched = std::collections::HashSet::new();
     let mut scanned = 0;
     loop {
-        let page = repo.topology_filtered_page(roots, scanned, HISTORY_PAGE, Some(filter), token)?;
+        let page =
+            repo.topology_filtered_page(roots, scanned, HISTORY_PAGE, Some(filter), token)?;
         scanned += page.commits.len();
-        if scanned > 100_000 { return Err("Filtered result exceeds graph budget".into()); }
+        if scanned > 100_000 {
+            return Err("Filtered result exceeds graph budget".into());
+        }
         matched.extend(page.commits.into_iter().map(|c| c.id));
-        if !page.more { break; }
+        if !page.more {
+            break;
+        }
     }
     Ok(matched)
 }
 
-fn hash_matches(topology: &[crate::git::TopologyCommit], hashes: &[String], token: &Cancel)
-    -> Result<std::collections::HashSet<String>, String> {
+fn hash_matches(
+    topology: &[crate::git::TopologyCommit],
+    hashes: &[String],
+    token: &Cancel,
+) -> Result<std::collections::HashSet<String>, String> {
     let mut matched = std::collections::HashSet::new();
     for commit in topology {
-        if token.cancelled() { return Err("Cancelled".into()); }
-        if hashes.iter().any(|h| commit.id.starts_with(h)) { matched.insert(commit.id.clone()); }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if hashes.iter().any(|h| commit.id.starts_with(h)) {
+            matched.insert(commit.id.clone());
+        }
     }
     Ok(matched)
 }

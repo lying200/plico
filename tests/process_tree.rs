@@ -1,44 +1,77 @@
 use plico::process_tree::ProcessTree;
-use std::{io::{Read, Write}, process::{Command, Stdio}, sync::mpsc, thread, time::{Duration, Instant}};
+use std::{
+    io::{Read, Write},
+    process::{Command, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
 
 // Invoked as a separate test process, never through a shell or a network endpoint.
 #[test]
 fn child_fixture() {
-    let Ok(mode) = std::env::var("GITUI_PROCESS_TREE_FIXTURE") else { return; };
-    if mode == "exit" { return; }
+    let Ok(mode) = std::env::var("GITUI_PROCESS_TREE_FIXTURE") else {
+        return;
+    };
+    if mode == "exit" {
+        return;
+    }
     if mode == "descendant" {
-        println!("descendant-ready"); std::io::stdout().flush().unwrap();
+        println!("descendant-ready");
+        std::io::stdout().flush().unwrap();
         thread::sleep(Duration::from_secs(20));
     } else {
-        let _child = fixture("descendant").stdout(Stdio::inherit()).stderr(Stdio::inherit()).spawn().unwrap();
-        if mode == "parent-exits" { return; }
-        println!("parent-ready"); std::io::stdout().flush().unwrap();
+        let _child = fixture("descendant")
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        if mode == "parent-exits" {
+            return;
+        }
+        println!("parent-ready");
+        std::io::stdout().flush().unwrap();
         thread::sleep(Duration::from_secs(20));
     }
 }
 fn fixture(mode: &str) -> Command {
     let mut c = Command::new(std::env::current_exe().unwrap());
-    c.args(["--exact", "child_fixture", "--nocapture"]).env("GITUI_PROCESS_TREE_FIXTURE", mode).stdin(Stdio::null());
+    c.args(["--exact", "child_fixture", "--nocapture"])
+        .env("GITUI_PROCESS_TREE_FIXTURE", mode)
+        .stdin(Stdio::null());
     c
 }
 fn verify_cleanup(mode: &str, explicit: bool) {
-    let mut unrelated = fixture("descendant").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
-    let mut tree = ProcessTree::spawn(fixture(mode).stdout(Stdio::piped()).stderr(Stdio::null())).unwrap();
+    let mut unrelated = fixture("descendant")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut tree =
+        ProcessTree::spawn(fixture(mode).stdout(Stdio::piped()).stderr(Stdio::null())).unwrap();
     let mut out = tree.child.stdout.take().unwrap();
     let (ready_tx, ready_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
     let reader = thread::spawn(move || {
-        let mut seen = Vec::new(); let mut buffer = [0; 1024]; let mut ready = false;
+        let mut seen = Vec::new();
+        let mut buffer = [0; 1024];
+        let mut ready = false;
         loop {
-            let n = out.read(&mut buffer).unwrap(); if n == 0 { break; }
+            let n = out.read(&mut buffer).unwrap();
+            if n == 0 {
+                break;
+            }
             seen.extend_from_slice(&buffer[..n]);
             if !ready && String::from_utf8_lossy(&seen).contains("descendant-ready") {
-                ready_tx.send(()).unwrap(); ready = true;
+                ready_tx.send(()).unwrap();
+                ready = true;
             }
         }
         done_tx.send(seen).unwrap();
     });
-    ready_rx.recv_timeout(Duration::from_secs(10)).expect("descendant started");
+    ready_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("descendant started");
     if mode == "parent-exits" {
         let deadline = Instant::now() + Duration::from_secs(5);
         while tree.child.try_wait().unwrap().is_none() {
@@ -47,24 +80,38 @@ fn verify_cleanup(mode: &str, explicit: bool) {
         }
     }
     let started = Instant::now();
-    if explicit { tree.terminate().unwrap(); tree.terminate().unwrap(); }
+    if explicit {
+        tree.terminate().unwrap();
+        tree.terminate().unwrap();
+    }
     drop(tree);
     let unrelated_alive = unrelated.try_wait().unwrap().is_none();
     let _ = unrelated.kill();
     let _ = unrelated.wait();
-    assert!(unrelated_alive, "operation cleanup killed an unrelated process");
-    let output = done_rx.recv_timeout(Duration::from_secs(5)).expect("tree cleanup closed inherited pipe");
+    assert!(
+        unrelated_alive,
+        "operation cleanup killed an unrelated process"
+    );
+    let output = done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("tree cleanup closed inherited pipe");
     reader.join().unwrap();
     assert!(started.elapsed() < Duration::from_secs(5));
     assert!(String::from_utf8_lossy(&output).contains("descendant-ready"));
 }
 #[test]
-fn terminate_closes_descendant_pipes_and_is_idempotent() { verify_cleanup("parent-waits", true); }
+fn terminate_closes_descendant_pipes_and_is_idempotent() {
+    verify_cleanup("parent-waits", true);
+}
 #[test]
-fn drop_cleans_descendants_even_after_leader_exits() { verify_cleanup("parent-exits", false); }
+fn drop_cleans_descendants_even_after_leader_exits() {
+    verify_cleanup("parent-exits", false);
+}
 #[test]
 fn spawn_failure_returns_without_a_child() {
-    assert!(ProcessTree::spawn(&mut Command::new("gitui-nonexistent-process-fixture-2026")).is_err());
+    assert!(
+        ProcessTree::spawn(&mut Command::new("gitui-nonexistent-process-fixture-2026")).is_err()
+    );
 }
 
 #[cfg(windows)]
@@ -73,14 +120,22 @@ fn repeated_spawns_release_snapshot_and_job_handles() {
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
     fn handles() -> u32 {
         let mut count = 0;
-        assert_ne!(unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) }, 0);
+        assert_ne!(
+            unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) },
+            0
+        );
         count
     }
     let before = handles();
     for _ in 0..32 {
-        let mut tree = ProcessTree::spawn(fixture("exit").stdout(Stdio::null()).stderr(Stdio::null())).unwrap();
+        let mut tree =
+            ProcessTree::spawn(fixture("exit").stdout(Stdio::null()).stderr(Stdio::null()))
+                .unwrap();
         assert!(tree.child.wait().unwrap().success());
         drop(tree);
     }
-    assert!(handles() <= before + 4, "process/snapshot/job handles leaked across repeated spawns");
+    assert!(
+        handles() <= before + 4,
+        "process/snapshot/job handles leaked across repeated spawns"
+    );
 }

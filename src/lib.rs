@@ -1,9 +1,9 @@
-pub mod branches;
-pub mod file_document;
-pub mod file_save;
 pub mod authors;
+pub mod branches;
 pub mod date_filter;
 pub mod diff_target;
+pub mod file_document;
+pub mod file_save;
 pub mod file_tree;
 pub mod filtered_graph;
 pub mod git;
@@ -70,8 +70,8 @@ pub mod checkout_files;
 pub mod push_recovery;
 
 pub mod merge_update;
-pub mod rebase_update;
 pub mod push_flow;
+pub mod rebase_update;
 pub mod update_decision;
 pub mod update_preferences;
 
@@ -101,25 +101,24 @@ pub mod project_update;
 
 pub mod project_update_preferences;
 
-
 pub mod project_files;
 
-pub mod local_changes;
+pub mod commit_draft;
+pub mod commit_feedback;
 pub mod commit_index;
 pub mod commit_operation;
-pub mod commit_feedback;
-pub mod commit_result;
 pub mod commit_recovery;
-pub mod commit_draft;
+pub mod commit_result;
 pub mod commit_selection;
+pub mod local_changes;
 
 pub mod commit_changes;
 
 pub mod commit_inclusion;
 
 pub mod combined_changes;
-pub mod push_preview;
 pub mod preview_selection;
+pub mod push_preview;
 
 pub mod log_changes;
 
@@ -149,8 +148,8 @@ pub mod three_way;
 
 pub mod commit_date;
 
-pub mod working_copy;
 pub mod reset_operation;
+pub mod working_copy;
 
 pub mod active_operation;
 pub mod editor_tabs_state;
@@ -192,8 +191,8 @@ pub mod branch_merge;
 
 pub mod merge_saved;
 
-pub mod remote_management;
 pub mod identity_config;
+pub mod remote_management;
 
 pub mod clone_repository;
 

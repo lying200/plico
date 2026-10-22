@@ -28,17 +28,26 @@ pub fn diagnostic(result: &Result<ResultState, String>) -> Option<String> {
             match &result.command {
                 Err(error) => messages.push(error.clone()),
                 Ok(output) => {
-                    if !output.status.success() || output.stopped.is_some() || output.input_error.is_some() {
+                    if !output.status.success()
+                        || output.stopped.is_some()
+                        || output.input_error.is_some()
+                    {
                         messages.push(crate::rebase_operation::collect_errors(
                             &String::from_utf8_lossy(&output.stdout.bytes()),
                             &String::from_utf8_lossy(&output.stderr.bytes()),
                         ));
                     }
-                    if let Some(error) = &output.input_error { messages.push(error.to_string()); }
+                    if let Some(error) = &output.input_error {
+                        messages.push(error.to_string());
+                    }
                 }
             }
-            if let Err(error) = &result.state { messages.push(error.clone()); }
-            if let Some(Err(error)) = &result.restore { messages.push(error.clone()); }
+            if let Err(error) = &result.state {
+                messages.push(error.clone());
+            }
+            if let Some(Err(error)) = &result.restore {
+                messages.push(error.clone());
+            }
         }
     }
     let text = crate::rebase_operation::display_text(&messages.join("\n"));

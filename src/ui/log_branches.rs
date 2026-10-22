@@ -92,7 +92,9 @@ impl Review {
             let scroll = self.history_scroll.0.borrow();
             let bounds = scroll.base_handle.bounds();
             let index = self.selected.unwrap_or(0);
-            let y = bounds.origin.y + scroll.base_handle.offset().y + px((index + 1) as f32 * log_row_height(cx));
+            let y = bounds.origin.y
+                + scroll.base_handle.offset().y
+                + px((index + 1) as f32 * log_row_height(cx));
             point(
                 bounds.origin.x + px(80.),
                 y.max(bounds.origin.y).min(bounds.bottom()),
@@ -881,19 +883,48 @@ impl Review {
                                     };
                                     let name = name.clone();
                                     let owner = menu_owner.clone();
-                                    if owner.upgrade().is_some_and(|s|s.read(cx).reference_checkout_target(&name).is_some()) {
-                                        let disabled=owner.upgrade().is_none_or(|s|s.read(cx).operation.busy());
-                                        let checkout_owner=owner.clone();let reference=name.clone();
-                                        menu=menu.item(PopupMenuItem::new(t("Checkout")).disabled(disabled).on_click(move |_,w,cx| {
-                                            let _=checkout_owner.update(cx,|s,cx|s.checkout_reference(reference.clone(),w,cx));
-                                        })).separator();
+                                    if owner.upgrade().is_some_and(|s| {
+                                        s.read(cx).reference_checkout_target(&name).is_some()
+                                    }) {
+                                        let disabled = owner
+                                            .upgrade()
+                                            .is_none_or(|s| s.read(cx).operation.busy());
+                                        let checkout_owner = owner.clone();
+                                        let reference = name.clone();
+                                        menu = menu
+                                            .item(
+                                                PopupMenuItem::new(t("Checkout"))
+                                                    .disabled(disabled)
+                                                    .on_click(move |_, w, cx| {
+                                                        let _ =
+                                                            checkout_owner.update(cx, |s, cx| {
+                                                                s.checkout_reference(
+                                                                    reference.clone(),
+                                                                    w,
+                                                                    cx,
+                                                                )
+                                                            });
+                                                    }),
+                                            )
+                                            .separator();
                                     }
-                                    if name.starts_with("refs/heads/") || name.starts_with("refs/remotes/") {
-                                        let merge_owner=owner.clone();let merge_ref=name.clone();
-                                        let enabled=owner.upgrade().is_some_and(|s|s.read(cx).can_merge_branch(&name));
-                                        menu=menu.item(PopupMenuItem::new(t("Merge into Current")).disabled(!enabled).on_click(move |_,w,cx| {
-                                            let _=merge_owner.update(cx,|s,cx|s.merge_branch(merge_ref.clone(),w,cx));
-                                        }));
+                                    if name.starts_with("refs/heads/")
+                                        || name.starts_with("refs/remotes/")
+                                    {
+                                        let merge_owner = owner.clone();
+                                        let merge_ref = name.clone();
+                                        let enabled = owner
+                                            .upgrade()
+                                            .is_some_and(|s| s.read(cx).can_merge_branch(&name));
+                                        menu = menu.item(
+                                            PopupMenuItem::new(t("Merge into Current"))
+                                                .disabled(!enabled)
+                                                .on_click(move |_, w, cx| {
+                                                    let _ = merge_owner.update(cx, |s, cx| {
+                                                        s.merge_branch(merge_ref.clone(), w, cx)
+                                                    });
+                                                }),
+                                        );
                                     }
                                     let filter_owner = owner.clone();
                                     let filter_name = name.clone();

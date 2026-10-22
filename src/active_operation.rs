@@ -42,7 +42,9 @@ pub struct Lifecycle {
 }
 impl Lifecycle {
     pub fn is_running(&self, kind: Kind) -> bool {
-        self.running.as_ref().is_some_and(|running| running.kind == kind)
+        self.running
+            .as_ref()
+            .is_some_and(|running| running.kind == kind)
     }
     pub fn busy(&self) -> bool {
         self.running.is_some()

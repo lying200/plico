@@ -371,10 +371,17 @@ impl Review {
             let result = cx
                 .background_spawn(async move {
                     let state = repo.operation_state(&token);
-                    let merge_recovery = repo.editor_directory(&token).and_then(|dir| plico::merge_saved::read(&dir))
-                        .map(|record| record.is_some()).unwrap_or(true);
-                    let revert_recovery = plico::revert_operation::Recovery::record_exists(&repo, &token).unwrap_or(true);
-                    let revert_saved = plico::revert_operation::SavedChanges::record_exists(&repo, &token).unwrap_or(true);
+                    let merge_recovery = repo
+                        .editor_directory(&token)
+                        .and_then(|dir| plico::merge_saved::read(&dir))
+                        .map(|record| record.is_some())
+                        .unwrap_or(true);
+                    let revert_recovery =
+                        plico::revert_operation::Recovery::record_exists(&repo, &token)
+                            .unwrap_or(true);
+                    let revert_saved =
+                        plico::revert_operation::SavedChanges::record_exists(&repo, &token)
+                            .unwrap_or(true);
                     let result = if local {
                         repo.local_changes(&token).map(|f| (None, Some(f)))
                     } else if let Some(filter) = &text_filter {
@@ -413,7 +420,12 @@ impl Review {
                             .transpose()?;
                         Ok((window, local))
                     });
-                    (result, state, graph_model, (merge_recovery, revert_recovery, revert_saved))
+                    (
+                        result,
+                        state,
+                        graph_model,
+                        (merge_recovery, revert_recovery, revert_saved),
+                    )
                 })
                 .await;
             let _ =
@@ -454,7 +466,11 @@ impl Review {
                             }
                             if preserve && offset == this.history_offset {
                                 super::log_viewport::restore(
-                                    &this.history_scroll, &this.commits, &s.commits, offset, log_row_height(cx),
+                                    &this.history_scroll,
+                                    &this.commits,
+                                    &s.commits,
+                                    offset,
+                                    log_row_height(cx),
                                 );
                             }
                             this.history_offset = offset;

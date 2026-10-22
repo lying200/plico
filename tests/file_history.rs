@@ -153,17 +153,32 @@ fn merged_rename_follows_the_parent_that_contains_the_original_file() {
     );
     let repo = Repository::new(&f.0);
     let token = Cancel::default();
-    let scoped = history::load_scoped(&repo, Path::new("b.txt"), Some("HEAD"), 100, &token).unwrap();
-    let ids: Vec<_> = scoped.history.revisions.iter().map(|r| r.id.clone()).collect();
+    let scoped =
+        history::load_scoped(&repo, Path::new("b.txt"), Some("HEAD"), 100, &token).unwrap();
+    let ids: Vec<_> = scoped
+        .history
+        .revisions
+        .iter()
+        .map(|r| r.id.clone())
+        .collect();
     let mut selection = plico::log_selection::Selection::default();
     selection.select(&ids, 0, false, false);
-    let c = history::selected_comparison(&scoped.history, &scoped.links, &selection).unwrap().unwrap();
+    let c = history::selected_comparison(&scoped.history, &scoped.links, &selection)
+        .unwrap()
+        .unwrap();
     let before = c.before.unwrap();
     assert_eq!(before.id, b);
     assert_eq!(before.path, Path::new("a.txt"));
-    assert_eq!(history::contents(&repo, &before, &token).unwrap(), "one\nTWO\nthree\n");
-    assert!(history::previous_revision(&repo, &scoped.history.revisions[0], &token).unwrap().is_none(),
-        "fixture must distinguish visible file parent from an addition against the actual first parent");
+    assert_eq!(
+        history::contents(&repo, &before, &token).unwrap(),
+        "one\nTWO\nthree\n"
+    );
+    assert!(
+        history::previous_revision(&repo, &scoped.history.revisions[0], &token)
+            .unwrap()
+            .is_none(),
+        "fixture must distinguish visible file parent from an addition against the actual first parent"
+    );
 }
 
 #[test]
@@ -406,32 +421,68 @@ fn multiselect_history_restore_reconciles_ids_not_old_row_numbers() {
 }
 
 fn revision(id: u8, path: &str, deleted: bool) -> history::Revision {
-    history::Revision { id: format!("{id:040x}"), parents: vec![], path: path.into(), deleted,
-        timestamp: 0, author: String::new(), message: String::new() }
+    history::Revision {
+        id: format!("{id:040x}"),
+        parents: vec![],
+        path: path.into(),
+        deleted,
+        timestamp: 0,
+        author: String::new(),
+        message: String::new(),
+    }
 }
 #[test]
 fn file_history_merges_parent_statuses_in_projected_row_order() {
     // FileHistoryUtil calls VcsChangesMerger.merge(path, changes), rather
     // than intersecting arbitrary change lists as the main Log does.
     let after = revision(1, "new.txt", false);
-    let parents = [revision(2, "old-a.txt", false), revision(3, "old-b.txt", false)];
-    let h = history::History { revisions: vec![after, parents[0].clone(), parents[1].clone()], more: false, older: None };
-    let links = vec![vec![(parents[0].id.clone(), false), (parents[1].id.clone(), false)], vec![], vec![]];
+    let parents = [
+        revision(2, "old-a.txt", false),
+        revision(3, "old-b.txt", false),
+    ];
+    let h = history::History {
+        revisions: vec![after, parents[0].clone(), parents[1].clone()],
+        more: false,
+        older: None,
+    };
+    let links = vec![
+        vec![
+            (parents[0].id.clone(), false),
+            (parents[1].id.clone(), false),
+        ],
+        vec![],
+        vec![],
+    ];
     let mut selected = plico::log_selection::Selection::default();
     let ids = h.revisions.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
     selected.select(&ids, 0, false, false);
-    let c = history::selected_comparison(&h, &links, &selected).unwrap().unwrap();
+    let c = history::selected_comparison(&h, &links, &selected)
+        .unwrap()
+        .unwrap();
     let before = c.before.unwrap();
     assert_eq!(before.id, parents[0].id);
-    assert_eq!(before.path, Path::new("new.txt"), "different rename sources must merge into a modification at the selected path");
+    assert_eq!(
+        before.path,
+        Path::new("new.txt"),
+        "different rename sources must merge into a modification at the selected path"
+    );
 }
 
 #[test]
 fn file_history_parent_merger_preserves_missing_empty_and_rename_states() {
     fn compare(path: &str, deleted: bool, parents: &[(&str, bool)]) -> Option<history::Comparison> {
-        let h = history::History { revisions: std::iter::once(revision(1, path, deleted))
-            .chain(parents.iter().enumerate().map(|(i, (p, d))| revision(i as u8 + 2, p, *d))).collect(),
-            more: false, older: None };
+        let h = history::History {
+            revisions: std::iter::once(revision(1, path, deleted))
+                .chain(
+                    parents
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (p, d))| revision(i as u8 + 2, p, *d)),
+                )
+                .collect(),
+            more: false,
+            older: None,
+        };
         let ids = h.revisions.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
         let mut selection = plico::log_selection::Selection::default();
         selection.select(&ids, 0, false, false);
@@ -471,11 +522,18 @@ fn real_merge_preview_uses_file_graph_parents_and_keeps_bounded_window_honest() 
     let repo = Repository::new(&f.0);
     let token = Cancel::default();
     let h = history::load_scoped(&repo, Path::new("f.txt"), Some("HEAD"), 100, &token).unwrap();
-    let ids = h.history.revisions.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+    let ids = h
+        .history
+        .revisions
+        .iter()
+        .map(|r| r.id.clone())
+        .collect::<Vec<_>>();
     let mut selection = plico::log_selection::Selection::default();
     selection.select(&ids, 0, false, false);
     assert_eq!(h.links[0].len(), 2);
-    let comparison = history::selected_comparison(&h.history, &h.links, &selection).unwrap().unwrap();
+    let comparison = history::selected_comparison(&h.history, &h.links, &selection)
+        .unwrap()
+        .unwrap();
     let request = history::preview_revisions(comparison.clone());
     assert_eq!(request.len(), 3);
     assert_eq!(request[0].as_ref().unwrap().id, h.links[0][0].0);
@@ -484,18 +542,51 @@ fn real_merge_preview_uses_file_graph_parents_and_keeps_bounded_window_honest() 
     let before = comparison.before.unwrap();
     assert_eq!(before.id, h.links[0][0].0);
     assert!([main, feature].contains(&before.id));
-    assert_eq!(history::contents(&repo, &before, &token).unwrap().trim(), f.git(&["show", &format!("{}:f.txt", before.id)]));
-    assert_eq!(history::contents(&repo, &comparison.after.unwrap(), &token).unwrap(), "ONE\ntwo\nTHREE\n");
+    assert_eq!(
+        history::contents(&repo, &before, &token).unwrap().trim(),
+        f.git(&["show", &format!("{}:f.txt", before.id)])
+    );
+    assert_eq!(
+        history::contents(&repo, &comparison.after.unwrap(), &token).unwrap(),
+        "ONE\ntwo\nTHREE\n"
+    );
     // A range compares the two selected versions, not their merged parents.
-    selection.select(&ids, ids.iter().position(|id| id == &base).unwrap(), true, false);
-    assert_eq!(history::selected_comparison(&h.history, &h.links, &selection).unwrap().unwrap().before.unwrap().id, base);
+    selection.select(
+        &ids,
+        ids.iter().position(|id| id == &base).unwrap(),
+        true,
+        false,
+    );
+    assert_eq!(
+        history::selected_comparison(&h.history, &h.links, &selection)
+            .unwrap()
+            .unwrap()
+            .before
+            .unwrap()
+            .id,
+        base
+    );
     let page = history::load_scoped(&repo, Path::new("f.txt"), Some("HEAD"), 1, &token).unwrap();
     selection.select(&[ids[0].clone()], 0, false, false);
-    assert!(history::selected_comparison(&page.history, &page.links, &selection).unwrap().unwrap().before.is_some());
+    assert!(
+        history::selected_comparison(&page.history, &page.links, &selection)
+            .unwrap()
+            .unwrap()
+            .before
+            .is_some()
+    );
     // If projection still names a parent beyond retained metadata, do not turn
     // its absent cache entry into an absent file (a fabricated file creation).
-    let clipped = history::History { revisions: vec![h.history.revisions[0].clone()], more: true, older: None };
-    assert!(history::selected_comparison(&clipped, &[h.links[0].clone()], &selection).unwrap_err().contains("Load more"));
+    let clipped = history::History {
+        revisions: vec![h.history.revisions[0].clone()],
+        more: true,
+        older: None,
+    };
+    assert!(
+        history::selected_comparison(&clipped, &[h.links[0].clone()], &selection)
+            .unwrap_err()
+            .contains("Load more")
+    );
 }
 
 #[test]
@@ -504,15 +595,39 @@ fn merge_request_keeps_both_parents_and_reduces_only_missing_sides() {
         let left = left.then(|| revision(2, "left", false));
         let center = center.then(|| revision(1, "merged", false));
         let right = right.then(|| revision(3, "right", false));
-        history::preview_revisions(history::Comparison { before: left.clone(), after: center,
-            source_before: vec![left, right] })
+        history::preview_revisions(history::Comparison {
+            before: left.clone(),
+            after: center,
+            source_before: vec![left, right],
+        })
     }
-    let ids = |s: Vec<Option<history::Revision>>| s.into_iter().map(|r| r.map(|r| r.id)).collect::<Vec<_>>();
-    assert_eq!(ids(request(true, true, true)), [Some(format!("{:040x}", 2)), Some(format!("{:040x}", 1)), Some(format!("{:040x}", 3))]);
-    assert_eq!(ids(request(false, true, true)), [Some(format!("{:040x}", 1)), Some(format!("{:040x}", 3))]);
-    assert_eq!(ids(request(true, true, false)), [Some(format!("{:040x}", 2)), Some(format!("{:040x}", 1))]);
-    assert_eq!(ids(request(true, false, true)), [Some(format!("{:040x}", 2)), Some(format!("{:040x}", 3))]);
-    assert_eq!(ids(request(false, true, false)), [Some(format!("{:040x}", 1)), None]);
+    let ids = |s: Vec<Option<history::Revision>>| {
+        s.into_iter().map(|r| r.map(|r| r.id)).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(request(true, true, true)),
+        [
+            Some(format!("{:040x}", 2)),
+            Some(format!("{:040x}", 1)),
+            Some(format!("{:040x}", 3))
+        ]
+    );
+    assert_eq!(
+        ids(request(false, true, true)),
+        [Some(format!("{:040x}", 1)), Some(format!("{:040x}", 3))]
+    );
+    assert_eq!(
+        ids(request(true, true, false)),
+        [Some(format!("{:040x}", 2)), Some(format!("{:040x}", 1))]
+    );
+    assert_eq!(
+        ids(request(true, false, true)),
+        [Some(format!("{:040x}", 2)), Some(format!("{:040x}", 3))]
+    );
+    assert_eq!(
+        ids(request(false, true, false)),
+        [Some(format!("{:040x}", 1)), None]
+    );
 }
 
 #[test]
@@ -520,16 +635,31 @@ fn file_history_uses_default_long_edge_projection_without_changing_comparison_pa
     use std::io::Write as _;
     use std::process::Stdio;
     let fixture = Fixture::new();
-    let mut import = Command::new("git").arg("-C").arg(&fixture.0)
-        .args(["fast-import", "--quiet"]).stdin(Stdio::piped()).spawn().unwrap();
+    let mut import = Command::new("git")
+        .arg("-C")
+        .arg(&fixture.0)
+        .args(["fast-import", "--quiet"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
     let mut input = import.stdin.take().unwrap();
     for i in 0..100 {
         let message = format!("Revision {i:03}");
         let content = format!("revision {i}\n");
         write!(input, "commit refs/heads/main\nmark :{}\ncommitter Reviewer <review@example.invalid> {} +0000\ndata {}\n{}\n", i + 1, 1700000000 + i, message.len(), message).unwrap();
-        if i > 0 { writeln!(input, "from :{i}").unwrap(); }
-        if i == 99 { writeln!(input, "merge :1").unwrap(); }
-        write!(input, "M 100644 inline history.txt\ndata {}\n{}\n", content.len(), content).unwrap();
+        if i > 0 {
+            writeln!(input, "from :{i}").unwrap();
+        }
+        if i == 99 {
+            writeln!(input, "merge :1").unwrap();
+        }
+        write!(
+            input,
+            "M 100644 inline history.txt\ndata {}\n{}\n",
+            content.len(),
+            content
+        )
+        .unwrap();
     }
     writeln!(input, "done").unwrap();
     drop(input);
@@ -540,23 +670,57 @@ fn file_history_uses_default_long_edge_projection_without_changing_comparison_pa
     let full = history::load_scoped(&repo, Path::new("history.txt"), None, 100, &token).unwrap();
     assert_eq!(full.history.revisions.len(), 100);
     let root = full.history.revisions[99].id.clone();
-    assert_eq!(full.history.revisions[0].parents, [full.history.revisions[1].id.clone(), root.clone()]);
-    assert_eq!(full.links[0], [(full.history.revisions[1].id.clone(), false), (root, false)]);
-    assert_eq!(full.graph[2].width, 1, "file history must hide long-edge interiors like the main Log");
-    let down = full.graph[1].segments.iter().position(|s| s.arrow() && !s.upper()).unwrap();
+    assert_eq!(
+        full.history.revisions[0].parents,
+        [full.history.revisions[1].id.clone(), root.clone()]
+    );
+    assert_eq!(
+        full.links[0],
+        [(full.history.revisions[1].id.clone(), false), (root, false)]
+    );
+    assert_eq!(
+        full.graph[2].width, 1,
+        "file history must hide long-edge interiors like the main Log"
+    );
+    let down = full.graph[1]
+        .segments
+        .iter()
+        .position(|s| s.arrow() && !s.upper())
+        .unwrap();
     assert_eq!(full.graph[1].arrow_target(down), Some(99));
-    let up = full.graph[98].segments.iter().position(|s| s.arrow() && s.upper()).unwrap();
+    let up = full.graph[98]
+        .segments
+        .iter()
+        .position(|s| s.arrow() && s.upper())
+        .unwrap();
     assert_eq!(full.graph[98].arrow_target(up), Some(0));
     let mut selected = plico::log_selection::Selection::default();
-    selected.select(&full.history.revisions.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), 0, false, false);
-    let comparison = history::selected_comparison(&full.history, &full.links, &selected).unwrap().unwrap();
+    selected.select(
+        &full
+            .history
+            .revisions
+            .iter()
+            .map(|r| r.id.clone())
+            .collect::<Vec<_>>(),
+        0,
+        false,
+        false,
+    );
+    let comparison = history::selected_comparison(&full.history, &full.links, &selected)
+        .unwrap()
+        .unwrap();
     assert_eq!(comparison.before.unwrap().id, full.history.revisions[1].id);
     let partial = history::load_scoped(&repo, Path::new("history.txt"), None, 40, &token).unwrap();
     assert!(partial.history.more);
     assert_eq!(partial.graph.len(), 40);
-    assert!(partial.graph.iter().all(|row| row.segments.iter().enumerate()
-        .all(|(index, _)| row.arrow_target(index).is_none_or(|target| target < 40))),
-        "partial history must never expose an index from the untruncated candidates");
+    assert!(
+        partial.graph.iter().all(|row| row
+            .segments
+            .iter()
+            .enumerate()
+            .all(|(index, _)| row.arrow_target(index).is_none_or(|target| target < 40))),
+        "partial history must never expose an index from the untruncated candidates"
+    );
 }
 
 #[test]
@@ -574,13 +738,22 @@ fn file_history_head_marker_tracks_checkout_not_first_file_revision() {
     let h = history::load_scoped(&repo, path, None, 100, &token).unwrap();
     assert_eq!(h.head_id, tip);
     assert_eq!(h.history.revisions[0].id, changed);
-    assert!(h.history.revisions.iter().all(|r| r.id != h.head_id),
-        "a newer unrelated commit must not give the first file revision a HEAD marker");
+    assert!(
+        h.history.revisions.iter().all(|r| r.id != h.head_id),
+        "a newer unrelated commit must not give the first file revision a HEAD marker"
+    );
     f.git(&["checkout", "--detach", &base]);
     let h = history::load_scoped(&repo, path, Some("refs/heads/main"), 100, &token).unwrap();
     assert_eq!(h.head_id, base);
     assert_eq!(h.history.revisions[0].id, changed);
-    assert_eq!(h.history.revisions.iter().filter(|r| r.id == h.head_id).count(), 1);
+    assert_eq!(
+        h.history
+            .revisions
+            .iter()
+            .filter(|r| r.id == h.head_id)
+            .count(),
+        1
+    );
     let h = history::load_scoped(&repo, path, Some("HEAD"), 100, &token).unwrap();
     assert_eq!(h.history.revisions.len(), 1);
     assert_eq!(h.history.revisions[0].id, h.head_id);

@@ -160,14 +160,31 @@ fn protected_remote_identity_is_not_confused_with_local_branch_names() {
     assert!(Prepared::prepare(&repo, selected.clone(), &Cancel::default()).is_ok());
     // A symbolic remote alias named master is not an independent remote branch.
     f.git(&["update-ref", "refs/remotes/team/nested/topic", &selected]);
-    f.git(&["symbolic-ref", "refs/remotes/team/nested/master", "refs/remotes/team/nested/topic"]);
+    f.git(&[
+        "symbolic-ref",
+        "refs/remotes/team/nested/master",
+        "refs/remotes/team/nested/topic",
+    ]);
     let prepared = Prepared::prepare(&repo, selected.clone(), &Cancel::default()).unwrap();
     // A real remote tip containing selected must still disable editing.
     f.git(&["update-ref", "refs/remotes/team/nested/main", &selected]);
-    assert!(Prepared::prepare(&repo, selected.clone(), &Cancel::default())
-        .unwrap_err().contains("protected branch: team/nested/main"));
-    assert!(prepared.execute(&repo, "must not rewrite", &Cancel::default(), &Default::default())
-        .err().unwrap().contains("protected branch: team/nested/main"));
+    assert!(
+        Prepared::prepare(&repo, selected.clone(), &Cancel::default())
+            .unwrap_err()
+            .contains("protected branch: team/nested/main")
+    );
+    assert!(
+        prepared
+            .execute(
+                &repo,
+                "must not rewrite",
+                &Cancel::default(),
+                &Default::default()
+            )
+            .err()
+            .unwrap()
+            .contains("protected branch: team/nested/main")
+    );
     assert_eq!(f.text(&["rev-parse", "HEAD"]), selected);
     assert_eq!(f.text(&["show", "-s", "--format=%s", "HEAD"]), "selected");
 }

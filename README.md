@@ -49,15 +49,20 @@ Plico 面向想快速看提交、同事的改动和 AI 生成代码的人：参�
 
 ## 开发与构建
 
-依赖 Rust、Windows SDK / MSVC 和 LLVM。GitHub Actions 使用 Windows runner 构建；也提供 Nix / devenv 配置，供 WSL 开发环境使用。
+依赖 Rust（版本见 `rust-toolchain.toml`）、Windows SDK / MSVC 和 LLVM。GitHub Actions 使用 Windows runner 构建；也提供 Nix / devenv 配置，供 WSL 开发环境使用。
 
 ```sh
+# 格式检查（仅项目自有代码）
+cargo fmt --package plico -- --check
+
 # 核心测试（不启动图形界面）
 cargo test --locked --no-default-features
 
 # Windows 原生构建
 cargo build --locked --release --target x86_64-pc-windows-msvc --bins
 ```
+
+代码约束与变更检查见 [贡献规范](docs/CONTRIBUTING.md)。
 
 WSL 中可使用 `devenv shell` 后运行 `cargo xwin build --locked --release --target x86_64-pc-windows-msvc --bins`。当前 WSL shader 编译需要宿主机 PowerShell。
 

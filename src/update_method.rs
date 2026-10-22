@@ -2,7 +2,10 @@
 //! Reference 4aec35256d765c217aa0d662b82ac4e860c396fd, plugins/git4idea/backend/src/.
 //! This resolves the updater's default, not the Pull dialog's explicit options.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Method { Merge, Rebase }
+pub enum Method {
+    Merge,
+    Rebase,
+}
 fn boolean(value: &str) -> Option<bool> {
     match value.to_ascii_lowercase().as_str() {
         "true" | "yes" | "on" | "1" => Some(true),
@@ -11,15 +14,25 @@ fn boolean(value: &str) -> Option<bool> {
     }
 }
 fn rebase(value: &str) -> bool {
-    boolean(value) == Some(true) || value.eq_ignore_ascii_case("interactive") || value.eq_ignore_ascii_case("preserve")
+    boolean(value) == Some(true)
+        || value.eq_ignore_ascii_case("interactive")
+        || value.eq_ignore_ascii_case("preserve")
 }
 pub fn resolve(branch_rebase: Option<&str>, pull_rebase: Option<&str>) -> Method {
     if let Some(value) = branch_rebase {
-        if rebase(value) { return Method::Rebase; }
-        if boolean(value) == Some(false) { return Method::Merge; }
+        if rebase(value) {
+            return Method::Rebase;
+        }
+        if boolean(value) == Some(false) {
+            return Method::Merge;
+        }
         // Unknown branch values fall through to pull.rebase, as upstream does.
     }
-    if pull_rebase.is_some_and(rebase) { Method::Rebase } else { Method::Merge }
+    if pull_rebase.is_some_and(rebase) {
+        Method::Rebase
+    } else {
+        Method::Merge
+    }
 }
 #[cfg(test)]
 mod tests {

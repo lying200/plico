@@ -375,7 +375,9 @@ pub(crate) fn commit_refs(references: &[git::RefLabel]) -> AnyElement {
 // IslandsTabPainter: rounded selected fill/border, no underline, 28 px content.
 pub(crate) fn text_row_height(minimum: f32, padding: f32, cx: &App) -> Pixels {
     use gpui_kit::component::ActiveTheme;
-    px((f32::from(cx.theme().font_size) * 1.5 + padding).ceil().max(minimum))
+    px((f32::from(cx.theme().font_size) * 1.5 + padding)
+        .ceil()
+        .max(minimum))
 }
 pub(crate) fn tab_height(cx: &App) -> Pixels {
     text_row_height(28., 10., cx)

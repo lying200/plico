@@ -6,26 +6,49 @@ impl Review {
     pub(super) fn subscribe_diff_navigation(&self, tab: &Entity<DiffTab>, cx: &mut Context<Self>) {
         cx.subscribe(tab, |s, _, event: &crate::diff_tab::FileChanged, cx| {
             let target = &event.0;
-            if let Some(view) = &s.local_view { view.update(cx, |v, cx| v.select_target(target, cx)); }
-            if let Some(view) = &s.stash_view { view.update(cx, |v, cx| v.select_target(target, cx)); }
-            let index = s.aggregate_chain.as_ref().and_then(|chain| chain.fork_for(target)).map(|chain| chain.index()).or_else(|| {
-                if s.aggregate_chain.is_some() || target.identity().combined.is_some() { return None; }
-                let commit = if s.local { None } else { s.selected.and_then(|i| s.commits.get(i)).cloned() };
-                s.files.iter().position(|change| diff_target::Target::new(s.repo.clone(), commit.clone(), change.clone())
-                    .is_ok_and(|candidate| candidate.identity() == target.identity()))
-            });
+            if let Some(view) = &s.local_view {
+                view.update(cx, |v, cx| v.select_target(target, cx));
+            }
+            if let Some(view) = &s.stash_view {
+                view.update(cx, |v, cx| v.select_target(target, cx));
+            }
+            let index = s
+                .aggregate_chain
+                .as_ref()
+                .and_then(|chain| chain.fork_for(target))
+                .map(|chain| chain.index())
+                .or_else(|| {
+                    if s.aggregate_chain.is_some() || target.identity().combined.is_some() {
+                        return None;
+                    }
+                    let commit = if s.local {
+                        None
+                    } else {
+                        s.selected.and_then(|i| s.commits.get(i)).cloned()
+                    };
+                    s.files.iter().position(|change| {
+                        diff_target::Target::new(s.repo.clone(), commit.clone(), change.clone())
+                            .is_ok_and(|candidate| candidate.identity() == target.identity())
+                    })
+                });
             if let Some(index) = index {
                 s.selected_file = Some(index);
                 for parent in target.change().path.ancestors().skip(1) {
-                    s.collapsed_directories.remove(&(target.change().area, parent.to_path_buf()));
+                    s.collapsed_directories
+                        .remove(&(target.change().area, parent.to_path_buf()));
                 }
                 s.rebuild_files();
-                if let Some(row) = s.file_rows.iter().position(|r| matches!(r, FileRow::File(i, _) if *i == index)) {
+                if let Some(row) = s
+                    .file_rows
+                    .iter()
+                    .position(|r| matches!(r, FileRow::File(i, _) if *i == index))
+                {
                     s.files_scroll.scroll_to_item(row, ScrollStrategy::Top);
                 }
             }
             cx.notify();
-        }).detach();
+        })
+        .detach();
     }
     pub(super) fn compare_versions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let ids = self.commit_ids();
@@ -156,7 +179,8 @@ impl Review {
                     s.local_preview_requested = true;
                 }
                 cx.notify();
-            }).detach();
+            })
+            .detach();
             cx.subscribe_in(
                 &view,
                 window,
@@ -166,15 +190,15 @@ impl Review {
                         .iter()
                         .position(|t| t.read(cx).target.identity() == event.0.identity())
                         .unwrap_or_else(|| {
-                            let scope=local.read(cx).scope.clone();
+                            let scope = local.read(cx).scope.clone();
                             let tab = cx.new(|_| {
                                 let mut tab = DiffTab::new(event.0.clone(), event.1.clone());
                                 tab.documents = s.documents.clone();
-                                tab.commit_scope=Some(scope);
+                                tab.commit_scope = Some(scope);
                                 tab
                             });
                             s.subscribe_diff_navigation(&tab, cx);
-                    cx.observe(&tab, |_, _, cx| cx.notify()).detach();
+                            cx.observe(&tab, |_, _, cx| cx.notify()).detach();
                             s.insert_editor_tab(tab.entity_id());
                             s.tabs.push(tab);
                             s.tabs.len() - 1
@@ -195,25 +219,58 @@ impl Review {
                             s.sync_document_lock(cx);
                         });
                     };
-                    if recover {submit(s,w,cx);} else {s.with_commit_identity(w,cx,submit);}
+                    if recover {
+                        submit(s, w, cx);
+                    } else {
+                        s.with_commit_identity(w, cx, submit);
+                    }
                 },
             )
             .detach();
-            cx.subscribe_in(&view, window, |s, view, _: &crate::local_view::RequestRollback, w, cx| {
-                let view=view.clone();
-                s.with_saved_documents(w,cx,move|s,w,cx|{view.update(cx,|v,cx|v.prepare_rollback_saved(w,cx));s.sync_document_lock(cx);});
-            }).detach();
-            cx.subscribe_in(&view, window, |s, view, event: &crate::local_view::ExecuteRollback, w, cx| {
-                let view=view.clone();
-                let event=crate::local_view::ExecuteRollback{prepared:event.prepared.clone(),selected:event.selected.clone(),delete_added:event.delete_added};
-                s.with_saved_documents(w,cx,move|s,w,cx|{view.update(cx,|v,cx|v.rollback_saved(&event,w,cx));s.sync_document_lock(cx);});
-            }).detach();
+            cx.subscribe_in(
+                &view,
+                window,
+                |s, view, _: &crate::local_view::RequestRollback, w, cx| {
+                    let view = view.clone();
+                    s.with_saved_documents(w, cx, move |s, w, cx| {
+                        view.update(cx, |v, cx| v.prepare_rollback_saved(w, cx));
+                        s.sync_document_lock(cx);
+                    });
+                },
+            )
+            .detach();
+            cx.subscribe_in(
+                &view,
+                window,
+                |s, view, event: &crate::local_view::ExecuteRollback, w, cx| {
+                    let view = view.clone();
+                    let event = crate::local_view::ExecuteRollback {
+                        prepared: event.prepared.clone(),
+                        selected: event.selected.clone(),
+                        delete_added: event.delete_added,
+                    };
+                    s.with_saved_documents(w, cx, move |s, w, cx| {
+                        view.update(cx, |v, cx| v.rollback_saved(&event, w, cx));
+                        s.sync_document_lock(cx);
+                    });
+                },
+            )
+            .detach();
             cx.subscribe_in(
                 &view,
                 window,
                 |s, _, event: &crate::local_view::Changed, w, cx| {
                     s.sync_document_lock(cx);
-                    s.sync_worktree(plico::worktree_events::Batch { all:true, index:true, ..Default::default() },true,w,cx);
+                    s.sync_worktree(
+                        plico::worktree_events::Batch {
+                            all: true,
+                            index: true,
+                            ..Default::default()
+                        },
+                        true,
+                        w,
+                        cx,
+                    );
                     s.refresh_impl(false, true, None, cx);
                     if event.push {
                         s.open_push(w, cx);
@@ -496,10 +553,15 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        cx.subscribe_in(tab, window, |s,_,event:&crate::source_changes::CommitChunk,w,cx| {
-            let event = event.clone();
-            s.with_saved_documents(w,cx,move|s,w,cx|s.commit_chunk(event,w,cx));
-        }).detach();
+        cx.subscribe_in(
+            tab,
+            window,
+            |s, _, event: &crate::source_changes::CommitChunk, w, cx| {
+                let event = event.clone();
+                s.with_saved_documents(w, cx, move |s, w, cx| s.commit_chunk(event, w, cx));
+            },
+        )
+        .detach();
         cx.subscribe_in(
             tab,
             window,
@@ -780,11 +842,16 @@ impl Review {
 
         cx.notify();
     }
-    pub(super) fn toggle_commit_window(&mut self,window:&mut Window,cx:&mut Context<Self>) {
+    pub(super) fn toggle_commit_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.local_visible || self.stash_open {
-            self.local_visible=false;self.stash_open=false;cx.notify();
-        } else if self.commit_stash_selected {self.open_stashes(window,cx);}
-        else {self.open_local(window,cx);}
+            self.local_visible = false;
+            self.stash_open = false;
+            cx.notify();
+        } else if self.commit_stash_selected {
+            self.open_stashes(window, cx);
+        } else {
+            self.open_local(window, cx);
+        }
     }
     pub(super) fn open_stashes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_project_preview(cx);
@@ -807,7 +874,7 @@ impl Review {
                                 tab
                             });
                             s.subscribe_diff_navigation(&tab, cx);
-                    cx.observe(&tab, |_, _, cx| cx.notify()).detach();
+                            cx.observe(&tab, |_, _, cx| cx.notify()).detach();
                             s.insert_editor_tab(tab.entity_id());
                             s.tabs.push(tab);
                             s.tabs.len() - 1
@@ -825,9 +892,14 @@ impl Review {
                 },
             )
             .detach();
-            cx.subscribe_in(&view,window,|s,_,event:&crate::stash_view::DropStash,w,cx| {
-                s.confirm_drop_stash(event.0.clone(),w,cx);
-            }).detach();
+            cx.subscribe_in(
+                &view,
+                window,
+                |s, _, event: &crate::stash_view::DropStash, w, cx| {
+                    s.confirm_drop_stash(event.0.clone(), w, cx);
+                },
+            )
+            .detach();
             cx.subscribe_in(
                 &view,
                 window,
@@ -1006,20 +1078,27 @@ mod tests {
                 s.open_local(window, cx);
                 let local = s.local_view.clone().unwrap();
                 let generation = s.generation;
-                local.update(cx, |_, cx| cx.emit(crate::local_view::Changed { push: false }));
+                local.update(cx, |_, cx| {
+                    cx.emit(crate::local_view::Changed { push: false })
+                });
                 // Emission is dispatched after the entity update, below.
                 assert_eq!(s.generation, generation);
             });
         });
-        cx.update(|_, cx| view.update(cx, |s, _| {
-            assert!(s.history_loading);
-            assert!(s.generation > 0);
-        }));
+        cx.update(|_, cx| {
+            view.update(cx, |s, _| {
+                assert!(s.history_loading);
+                assert!(s.generation > 0);
+            })
+        });
     }
     #[gpui::test]
     fn disk_read_error_does_not_trap_clean_diff_tabs(cx: &mut gpui::TestAppContext) {
         use gpui::component::input::EditorState;
-        use plico::{diff_target::{Target, Chain}, file_document::Document};
+        use plico::{
+            diff_target::{Chain, Target},
+            file_document::Document,
+        };
         cx.update(gpui::component::init);
         let mut review = None;
         let (_, cx) = cx.add_window_view(|window, cx| {
@@ -1028,30 +1107,52 @@ mod tests {
             Root::new(view, window, cx)
         });
         let view = review.unwrap();
-        cx.update(|window, cx| view.update(cx, |s, cx| {
-            let document = s.documents.get_or_create(PathBuf::new(), "deleted.txt".into(),
-                Document::new(b"unchanged".to_vec()).unwrap(),
-                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())), cx);
-            // The external disk observer retains this diagnostic when a file disappears.
-            document.update(cx, |d, cx| {
-                d.error = Some("File is unavailable on disk".into());
-                cx.notify();
-            });
-            for from_menu in [false, true] {
-                let change = git::Change { area: git::Area::Untracked, path: "deleted.txt".into(), old_path: None, status: "?".into() };
-                let target = Target::new(s.repo.clone(), None, change.clone()).unwrap();
-                let chain = Chain::new(&target, &[change]).unwrap();
-                let tab = cx.new(|_| DiffTab::new(target, chain));
-                let id = tab.entity_id();
-                s.insert_editor_tab(id);
-                s.tabs.push(tab);
-                if from_menu { s.close_editor_ids(vec![id], Some(id), window, cx); }
-                else { s.close_diff_tab_from_header(0, window, cx); }
-                assert!(s.tabs.is_empty(), "clean deleted-file diff must close through either entry point");
-                assert!(!s.editor_tabs.order().contains(&id));
-            }
-            assert_eq!(document.read(cx).editor.read(cx).text().to_string(), "unchanged");
-        }));
+        cx.update(|window, cx| {
+            view.update(cx, |s, cx| {
+                let document = s.documents.get_or_create(
+                    PathBuf::new(),
+                    "deleted.txt".into(),
+                    Document::new(b"unchanged".to_vec()).unwrap(),
+                    |text, cx| {
+                        cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned()))
+                    },
+                    cx,
+                );
+                // The external disk observer retains this diagnostic when a file disappears.
+                document.update(cx, |d, cx| {
+                    d.error = Some("File is unavailable on disk".into());
+                    cx.notify();
+                });
+                for from_menu in [false, true] {
+                    let change = git::Change {
+                        area: git::Area::Untracked,
+                        path: "deleted.txt".into(),
+                        old_path: None,
+                        status: "?".into(),
+                    };
+                    let target = Target::new(s.repo.clone(), None, change.clone()).unwrap();
+                    let chain = Chain::new(&target, &[change]).unwrap();
+                    let tab = cx.new(|_| DiffTab::new(target, chain));
+                    let id = tab.entity_id();
+                    s.insert_editor_tab(id);
+                    s.tabs.push(tab);
+                    if from_menu {
+                        s.close_editor_ids(vec![id], Some(id), window, cx);
+                    } else {
+                        s.close_diff_tab_from_header(0, window, cx);
+                    }
+                    assert!(
+                        s.tabs.is_empty(),
+                        "clean deleted-file diff must close through either entry point"
+                    );
+                    assert!(!s.editor_tabs.order().contains(&id));
+                }
+                assert_eq!(
+                    document.read(cx).editor.read(cx).text().to_string(),
+                    "unchanged"
+                );
+            })
+        });
     }
     #[gpui::test]
     fn closing_inactive_tab_keeps_active_entity_and_pending_close_uses_identity(

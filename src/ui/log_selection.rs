@@ -169,7 +169,8 @@ impl Review {
         let Some(commit) = self.commits.get(index).cloned() else {
             return;
         };
-        self.reword_gate = Some(cx.new(|cx| super::reword::Gate::new(self.repo.clone(), commit.id.clone(), cx)));
+        self.reword_gate =
+            Some(cx.new(|cx| super::reword::Gate::new(self.repo.clone(), commit.id.clone(), cx)));
         let (generation, token) = self.reset_job(cx);
         self.aggregate_chain = None;
         self.selection_details.clear();
@@ -210,7 +211,8 @@ impl Review {
                     Ok(d) => {
                         let d = Arc::new(d);
                         if let Some(commit) = this.selected.and_then(|i| this.commits.get(i)) {
-                            this.details_cache.insert(&this.repo.path, commit, d.clone());
+                            this.details_cache
+                                .insert(&this.repo.path, commit, d.clone());
                         }
                         this.apply_commit_details(&d, preferred.as_ref(), cx);
                     }
@@ -221,7 +223,12 @@ impl Review {
         });
         cx.notify();
     }
-    fn apply_commit_details(&mut self, d: &git::Details, preferred: Option<&Change>, cx: &mut Context<Self>) {
+    fn apply_commit_details(
+        &mut self,
+        d: &git::Details,
+        preferred: Option<&Change>,
+        cx: &mut Context<Self>,
+    ) {
         let commit = self.selected.and_then(|i| self.commits.get(i));
         let presentation = commit_presentation::build(d, commit);
         self.message = presentation.message;

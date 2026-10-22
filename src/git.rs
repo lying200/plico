@@ -50,30 +50,49 @@ pub struct LogFilter {
 impl LogFilter {
     /// Rebased fromHash: every token must be a 7–64 digit hex prefix.
     pub fn hashes(&self) -> Option<Vec<String>> {
-        let words: Vec<_> = self.text.split(|c: char| c.is_whitespace() || c == ',' || c == ';')
-            .filter(|s| !s.is_empty()).collect();
-        if words.is_empty() || words.iter().any(|s| !(7..=64).contains(&s.len()) || !s.bytes().all(|b| b.is_ascii_hexdigit())) {
+        let words: Vec<_> = self
+            .text
+            .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if words.is_empty()
+            || words
+                .iter()
+                .any(|s| !(7..=64).contains(&s.len()) || !s.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
             return None;
         }
         Some(words.into_iter().map(str::to_ascii_lowercase).collect())
     }
     fn arguments(&self) -> Vec<String> {
         let mut args = Vec::new();
-        if !self.paths.is_empty() { args.extend(["--full-history".into(), "--simplify-merges".into()]); }
-        if let Some(after) = self.after { args.push(format!("--after=@{after}")); }
-        if let Some(before) = self.before { args.push(format!("--before=@{before}")); }
+        if !self.paths.is_empty() {
+            args.extend(["--full-history".into(), "--simplify-merges".into()]);
+        }
+        if let Some(after) = self.after {
+            args.push(format!("--after=@{after}"));
+        }
+        if let Some(before) = self.before {
+            args.push(format!("--before=@{before}"));
+        }
         let has_text = !self.text.trim().is_empty();
-        if !has_text && self.authors.is_none() { return args; }
+        if !has_text && self.authors.is_none() {
+            return args;
+        }
         // Git shares regexp/case flags between --grep and --author, as does
         // Rebased GitLogProvider. Without TEXT_FILTER it uses extended regex.
         let regexp = !has_text || self.regex;
-        if has_text { args.push(format!("--grep={}", self.text)); }
-        args.push(if regexp {
+        if has_text {
+            args.push(format!("--grep={}", self.text));
+        }
+        args.push(
+            if regexp {
                 "--extended-regexp"
             } else {
                 "--fixed-strings"
             }
-            .into());
+            .into(),
+        );
         if !has_text || !self.match_case {
             args.push("--regexp-ignore-case".into());
         }
@@ -85,12 +104,16 @@ impl LogFilter {
                     // and escape user data, never interpret an author's regexp.
                     let mut pattern = String::from("^");
                     for ch in exact.chars() {
-                        if "\\.^$*+-?()[]{}|".contains(ch) { pattern.push('\\'); }
+                        if "\\.^$*+-?()[]{}|".contains(ch) {
+                            pattern.push('\\');
+                        }
                         pattern.push(ch);
                     }
                     pattern.push('$');
                     pattern
-                } else { exact };
+                } else {
+                    exact
+                };
                 args.push(format!("--author={pattern}"));
             }
         }
@@ -98,19 +121,35 @@ impl LogFilter {
     }
 
     pub(crate) fn validate_paths(&self) -> Result<()> {
-        if self.paths.len() > 128 || self.paths.iter().map(|p| p.encode_utf16().count() + 3).sum::<usize>() > 8192 {
+        if self.paths.len() > 128
+            || self
+                .paths
+                .iter()
+                .map(|p| p.encode_utf16().count() + 3)
+                .sum::<usize>()
+                > 8192
+        {
             return Err("Paths filter exceeds 128 paths / 8192 UTF-16 units".into());
         }
         for path in &self.paths {
-            if path == "." { continue; }
-            if path.is_empty() || path.contains(['\0', '\\', ':']) || path.starts_with('/')
-                || path.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
+            if path == "." {
+                continue;
+            }
+            if path.is_empty()
+                || path.contains(['\0', '\\', ':'])
+                || path.starts_with('/')
+                || path
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == "..")
+            {
                 return Err("Paths must be repository-relative paths separated by /".into());
             }
         }
         Ok(())
     }
-    fn matches_no_authors(&self) -> bool { self.authors.as_ref().is_some_and(Vec::is_empty) }
+    fn matches_no_authors(&self) -> bool {
+        self.authors.as_ref().is_some_and(Vec::is_empty)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -264,8 +303,14 @@ impl Repository {
     /// GitOutgoingCommitsProvider: existing target difference, or new target
     /// excluding this remote's refs with the upstream 1,000-commit ceiling.
     /// Existing targets are paged locally rather than retained in one large list.
-    pub fn outgoing_commits(&self, source_oid: &str, target: &crate::push_target::Target,
-        offset: usize, limit: usize, token: &Cancel) -> Result<crate::push_target::Outgoing> {
+    pub fn outgoing_commits(
+        &self,
+        source_oid: &str,
+        target: &crate::push_target::Target,
+        offset: usize,
+        limit: usize,
+        token: &Cancel,
+    ) -> Result<crate::push_target::Outgoing> {
         self.outgoing_commits_checked(source_oid, target, offset, limit, None, token)
     }
     /// Repository-level Push preview needs the entire outgoing range, not the
@@ -273,17 +318,31 @@ impl Repository {
     /// A local memory budget fails explicitly rather than returning a partial
     /// range disguised as complete. New-branch previews retain upstream's 1000
     /// commit ceiling, exposed through `capped`.
-    pub fn outgoing_preview_commits(&self, source_oid: &str, target: &crate::push_target::Target,
-        expected: Option<&str>, max_commits: usize, token: &Cancel) -> Result<crate::push_target::Outgoing> {
+    pub fn outgoing_preview_commits(
+        &self,
+        source_oid: &str,
+        target: &crate::push_target::Target,
+        expected: Option<&str>,
+        max_commits: usize,
+        token: &Cancel,
+    ) -> Result<crate::push_target::Outgoing> {
         let mut commits = Vec::new();
         let mut references: Option<std::sync::Arc<str>> = expected.map(Into::into);
         loop {
-            if token.cancelled() { return Err("Cancelled".into()); }
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
             let remaining = max_commits.saturating_sub(commits.len());
             // Even at the budget boundary query one item, distinguishing a
             // genuinely empty range from an omitted non-empty remainder.
-            let page = self.outgoing_commits_checked(source_oid, target, commits.len(),
-                remaining.clamp(1, 100), references.as_deref(), token)?;
+            let page = self.outgoing_commits_checked(
+                source_oid,
+                target,
+                commits.len(),
+                remaining.clamp(1, 100),
+                references.as_deref(),
+                token,
+            )?;
             if page.commits.len() > remaining {
                 return Err("Outgoing preview exceeds the commit limit".into());
             }
@@ -291,7 +350,10 @@ impl Repository {
             commits.extend(page.commits);
             if !page.more {
                 return Ok(crate::push_target::Outgoing {
-                    commits, more: false, capped: page.capped, references: page.references,
+                    commits,
+                    more: false,
+                    capped: page.capped,
+                    references: page.references,
                 });
             }
             if remaining == 0 || commits.len() >= max_commits {
@@ -301,14 +363,34 @@ impl Repository {
     }
     /// Reject pagination across changed remote refs, including changes during
     /// the log command. Retain only ref metadata, not the full outgoing history.
-    pub fn outgoing_commits_checked(&self, source_oid: &str, target: &crate::push_target::Target,
-        offset: usize, limit: usize, expected: Option<&str>, token: &Cancel) -> Result<crate::push_target::Outgoing> {
+    pub fn outgoing_commits_checked(
+        &self,
+        source_oid: &str,
+        target: &crate::push_target::Target,
+        offset: usize,
+        limit: usize,
+        expected: Option<&str>,
+        token: &Cancel,
+    ) -> Result<crate::push_target::Outgoing> {
         let inventory = || -> Result<String> {
-            let mut refs = self.text(&["for-each-ref", "--format=%(refname)%09%(objectname)%09%(symref)",
-                &format!("refs/remotes/{}/", target.remote)], token)?;
+            let mut refs = self.text(
+                &[
+                    "for-each-ref",
+                    "--format=%(refname)%09%(objectname)%09%(symref)",
+                    &format!("refs/remotes/{}/", target.remote),
+                ],
+                token,
+            )?;
             if target.special && !target.new_branch {
-                refs.push_str(&self.text(&["rev-parse", "--verify", "--end-of-options",
-                    &format!("{}^{{commit}}", target.branch)], token)?);
+                refs.push_str(&self.text(
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        "--end-of-options",
+                        &format!("{}^{{commit}}", target.branch),
+                    ],
+                    token,
+                )?);
             }
             Ok(refs)
         };
@@ -316,89 +398,203 @@ impl Repository {
         if expected.is_some_and(|previous| previous != references) {
             return Err("Push references changed; reopen the push dialog".into());
         }
-        if !is_oid(source_oid) { return Err("Invalid push source object ID".into()); }
-        if !self.fetch_specs(token)?.iter().any(|s| s.remote() == target.remote) {
+        if !is_oid(source_oid) {
+            return Err("Invalid push source object ID".into());
+        }
+        if !self
+            .fetch_specs(token)?
+            .iter()
+            .any(|s| s.remote() == target.remote)
+        {
             return Err("Push remote is no longer available".into());
         }
-        let resolved = self.text(&["rev-parse", "--verify", &format!("{source_oid}^{{commit}}")], token)?;
-        if resolved.trim() != source_oid { return Err("Push source is not a commit".into()); }
-        if target.new_branch && offset >= 1000 {
-            return Ok(crate::push_target::Outgoing { commits: Vec::new(), more: false, capped: true, references: references.into() });
+        let resolved = self.text(
+            &["rev-parse", "--verify", &format!("{source_oid}^{{commit}}")],
+            token,
+        )?;
+        if resolved.trim() != source_oid {
+            return Err("Push source is not a commit".into());
         }
-        let limit = limit.clamp(1, 1000).min(if target.new_branch { 1000-offset } else { 1000 });
-        let count = if target.new_branch { (limit+1).min(1000-offset) } else { limit+1 };
-        let mut args = vec!["-c".to_owned(), "log.mailmap=false".into(), "log".into(),
-            "--no-patch".into(), "--no-notes".into(), "--no-decorate".into(), "--no-show-signature".into(),
-            "--encoding=UTF-8".into(), "--date=iso-strict".into(), "-z".into(),
-            "--format=%H%x00%P%x00%an%x00%ad%x00%s".into(),
-            format!("--max-count={count}"), format!("--skip={offset}")];
-        if target.new_branch {
-            args.extend([source_oid.to_owned(), "--not".into(), format!("--remotes={}", target.remote)]);
+        if target.new_branch && offset >= 1000 {
+            return Ok(crate::push_target::Outgoing {
+                commits: Vec::new(),
+                more: false,
+                capped: true,
+                references: references.into(),
+            });
+        }
+        let limit = limit.clamp(1, 1000).min(if target.new_branch {
+            1000 - offset
         } else {
-            let reference = if target.special { target.branch.clone() }
-                else { format!("refs/remotes/{}/{}", target.remote, target.branch) };
+            1000
+        });
+        let count = if target.new_branch {
+            (limit + 1).min(1000 - offset)
+        } else {
+            limit + 1
+        };
+        let mut args = vec![
+            "-c".to_owned(),
+            "log.mailmap=false".into(),
+            "log".into(),
+            "--no-patch".into(),
+            "--no-notes".into(),
+            "--no-decorate".into(),
+            "--no-show-signature".into(),
+            "--encoding=UTF-8".into(),
+            "--date=iso-strict".into(),
+            "-z".into(),
+            "--format=%H%x00%P%x00%an%x00%ad%x00%s".into(),
+            format!("--max-count={count}"),
+            format!("--skip={offset}"),
+        ];
+        if target.new_branch {
+            args.extend([
+                source_oid.to_owned(),
+                "--not".into(),
+                format!("--remotes={}", target.remote),
+            ]);
+        } else {
+            let reference = if target.special {
+                target.branch.clone()
+            } else {
+                format!("refs/remotes/{}/{}", target.remote, target.branch)
+            };
             // Resolve names before constructing a revision expression. An invalid
             // or disappeared target is an error, never an empty outgoing list.
-            let base = self.text(&["rev-parse", "--verify", "--end-of-options", &format!("{reference}^{{commit}}")], token)?;
+            let base = self.text(
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{reference}^{{commit}}"),
+                ],
+                token,
+            )?;
             let base = base.trim();
-            if !is_oid(base) { return Err("Invalid push destination object ID".into()); }
+            if !is_oid(base) {
+                return Err("Invalid push destination object ID".into());
+            }
             args.push(format!("{base}..{source_oid}"));
         }
         args.push("--".into());
-        let mut commits = parse_history(&self.text(&args.iter().map(String::as_str).collect::<Vec<_>>(), token)?)?;
+        let mut commits = parse_history(
+            &self.text(&args.iter().map(String::as_str).collect::<Vec<_>>(), token)?,
+        )?;
         let more = commits.len() > limit;
         commits.truncate(limit);
         let capped = target.new_branch && offset + commits.len() >= 1000;
         if inventory()? != references {
             return Err("Push references changed; reopen the push dialog".into());
         }
-        Ok(crate::push_target::Outgoing { commits, more, capped, references: references.into() })
+        Ok(crate::push_target::Outgoing {
+            commits,
+            more,
+            capped,
+            references: references.into(),
+        })
     }
     pub fn pull_targets(&self, token: &Cancel) -> Result<crate::pull::Targets> {
-        let remotes = self.fetch_specs(token)?.into_iter().map(|s| s.remote().to_owned()).collect::<Vec<_>>();
-        let refs = self.text(&["for-each-ref", "--format=%(refname)%09%(symref)", "refs/remotes/"], token)?;
+        let remotes = self
+            .fetch_specs(token)?
+            .into_iter()
+            .map(|s| s.remote().to_owned())
+            .collect::<Vec<_>>();
+        let refs = self.text(
+            &[
+                "for-each-ref",
+                "--format=%(refname)%09%(symref)",
+                "refs/remotes/",
+            ],
+            token,
+        )?;
         let mut branches = Vec::new();
         let mut known_refs = HashSet::new();
         for line in refs.lines() {
-            let (name, symref) = line.split_once('\t').ok_or("Malformed remote branch record")?;
-            if !symref.is_empty() { continue; }
+            let (name, symref) = line
+                .split_once('\t')
+                .ok_or("Malformed remote branch record")?;
+            if !symref.is_empty() {
+                continue;
+            }
             if let Some(target) = crate::pull::parse_remote_ref(name, &remotes) {
                 known_refs.insert(name);
                 branches.push(target);
             }
         }
-        let current_branch = self.text(&["symbolic-ref", "--quiet", "--short", "HEAD"], token).ok()
+        let current_branch = self
+            .text(&["symbolic-ref", "--quiet", "--short", "HEAD"], token)
+            .ok()
             .map(|s| s.trim_end_matches(['\r', '\n']).to_owned());
         let tracked = if let Some(branch) = &current_branch {
             let reference = format!("refs/heads/{branch}");
-            let upstream = self.text(&["for-each-ref", "--format=%(refname)%09%(upstream)", &reference], token)?;
-            upstream.lines().filter_map(|line| line.split_once('\t'))
-                .find(|(name, _)| *name == reference).and_then(|(_, upstream)| {
-                    known_refs.contains(upstream).then(|| crate::pull::parse_remote_ref(upstream, &remotes)).flatten()
+            let upstream = self.text(
+                &[
+                    "for-each-ref",
+                    "--format=%(refname)%09%(upstream)",
+                    &reference,
+                ],
+                token,
+            )?;
+            upstream
+                .lines()
+                .filter_map(|line| line.split_once('\t'))
+                .find(|(name, _)| *name == reference)
+                .and_then(|(_, upstream)| {
+                    known_refs
+                        .contains(upstream)
+                        .then(|| crate::pull::parse_remote_ref(upstream, &remotes))
+                        .flatten()
                 })
-        } else { None };
-        if token.cancelled() { return Err("Cancelled".into()); }
-        Ok(crate::pull::Targets { remotes, branches, current_branch, tracked })
+        } else {
+            None
+        };
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        Ok(crate::pull::Targets {
+            remotes,
+            branches,
+            current_branch,
+            tracked,
+        })
     }
     /// Read per-worktree operation markers and unmerged index paths, without
     /// inferring conflict state from a failed command's translated stderr.
     pub fn operation_state(&self, token: &Cancel) -> Result<crate::operation_state::State> {
         let directory = self.editor_directory(token)?;
-        let detached = self.text(&["symbolic-ref", "--quiet", "HEAD"], token).is_err();
+        let detached = self
+            .text(&["symbolic-ref", "--quiet", "HEAD"], token)
+            .is_err();
         self.operation_state_at(&directory, detached, token)
     }
     /// Reuse identity freshly read by the caller within this same check, never
     /// a cached dialog snapshot. Markers and unmerged index entries are always
     /// read again, including for linked worktrees.
-    pub(crate) fn operation_state_at(&self, directory: &Path, detached: bool, token: &Cancel) -> Result<crate::operation_state::State> {
+    pub(crate) fn operation_state_at(
+        &self,
+        directory: &Path,
+        detached: bool,
+        token: &Cancel,
+    ) -> Result<crate::operation_state::State> {
         use crate::operation_state::{Operation, State};
         let mut operation = Operation::None;
         for (marker, state) in [
-            ("MERGE_HEAD", Operation::Merge), ("rebase-apply", Operation::RebaseApply),
-            ("rebase-merge", Operation::RebaseMerge), ("CHERRY_PICK_HEAD", Operation::CherryPick),
-            ("REVERT_HEAD", Operation::Revert), ("sequencer", Operation::Sequencer),
+            ("MERGE_HEAD", Operation::Merge),
+            ("rebase-apply", Operation::RebaseApply),
+            ("rebase-merge", Operation::RebaseMerge),
+            ("CHERRY_PICK_HEAD", Operation::CherryPick),
+            ("REVERT_HEAD", Operation::Revert),
+            ("sequencer", Operation::Sequencer),
         ] {
-            if directory.join(marker).try_exists().map_err(|e| e.to_string())? { operation = state; break; }
+            if directory
+                .join(marker)
+                .try_exists()
+                .map_err(|e| e.to_string())?
+            {
+                operation = state;
+                break;
+            }
         }
         // GitSequencerTodoReader: a manual commit after resolving a conflict
         // removes *_HEAD while a multi-commit sequence is still in progress.
@@ -406,50 +602,102 @@ impl Repository {
             match std::fs::File::open(directory.join("sequencer/todo")) {
                 Ok(file) => {
                     let mut prefix = Vec::new();
-                    file.take(7).read_to_end(&mut prefix).map_err(|e| e.to_string())?;
-                    if prefix.starts_with(b"pick ") { operation = Operation::CherryPick; }
-                    else if prefix.starts_with(b"revert ") { operation = Operation::Revert; }
+                    file.take(7)
+                        .read_to_end(&mut prefix)
+                        .map_err(|e| e.to_string())?;
+                    if prefix.starts_with(b"pick ") {
+                        operation = Operation::CherryPick;
+                    } else if prefix.starts_with(b"revert ") {
+                        operation = Operation::Revert;
+                    }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e.to_string()),
             }
         }
         let rebase_dir = match operation {
-            Operation::RebaseApply => Some("rebase-apply"), Operation::RebaseMerge => Some("rebase-merge"), _ => None,
+            Operation::RebaseApply => Some("rebase-apply"),
+            Operation::RebaseMerge => Some("rebase-merge"),
+            _ => None,
         };
         let rebase_branch = if let Some(rebase_dir) = rebase_dir {
             match std::fs::File::open(directory.join(rebase_dir).join("head-name")) {
                 Ok(file) => {
                     let mut value = String::new();
-                    file.take(4097).read_to_string(&mut value).map_err(|e| e.to_string())?;
-                    if value.len() > 4096 { return Err("Rebase branch name exceeds limit".into()); }
-                    value.trim_end_matches(['\r', '\n']).strip_prefix("refs/heads/").map(str::to_owned)
+                    file.take(4097)
+                        .read_to_string(&mut value)
+                        .map_err(|e| e.to_string())?;
+                    if value.len() > 4096 {
+                        return Err("Rebase branch name exceeds limit".into());
+                    }
+                    value
+                        .trim_end_matches(['\r', '\n'])
+                        .strip_prefix("refs/heads/")
+                        .map(str::to_owned)
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
                 Err(error) => return Err(error.to_string()),
             }
-        } else { None };
-        let unmerged = self.read(&[OsStr::new("ls-files"), OsStr::new("--unmerged"), OsStr::new("-z")], token)?;
+        } else {
+            None
+        };
+        let unmerged = self.read(
+            &[
+                OsStr::new("ls-files"),
+                OsStr::new("--unmerged"),
+                OsStr::new("-z"),
+            ],
+            token,
+        )?;
         let mut conflicts = std::collections::BTreeSet::new();
-        for record in unmerged.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
-            let separator = record.iter().position(|byte| *byte == b'\t').ok_or("Malformed unmerged index entry")?;
+        for record in unmerged
+            .split(|byte| *byte == 0)
+            .filter(|record| !record.is_empty())
+        {
+            let separator = record
+                .iter()
+                .position(|byte| *byte == b'\t')
+                .ok_or("Malformed unmerged index entry")?;
             conflicts.insert(path_from_bytes(&record[separator + 1..])?);
         }
-        if token.cancelled() { return Err("Cancelled".into()); }
-        Ok(State { operation, detached, rebase_branch, conflicts: conflicts.into_iter().collect() })
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        Ok(State {
+            operation,
+            detached,
+            rebase_branch,
+            conflicts: conflicts.into_iter().collect(),
+        })
     }
     /// Rebased updater default resolution; read errors fall back as upstream does,
     /// but cancellation must propagate instead of silently selecting merge.
     pub fn default_update_method(&self, token: &Cancel) -> Result<crate::update_method::Method> {
-        let branch = self.text(&["symbolic-ref", "--quiet", "--short", "HEAD"], token).ok();
+        let branch = self
+            .text(&["symbolic-ref", "--quiet", "--short", "HEAD"], token)
+            .ok();
         let branch_value = branch.as_ref().and_then(|branch| {
-            self.text(&["config", "--get", &format!("branch.{}.rebase", branch.trim_end_matches(['\r', '\n']))], token).ok()
+            self.text(
+                &[
+                    "config",
+                    "--get",
+                    &format!("branch.{}.rebase", branch.trim_end_matches(['\r', '\n'])),
+                ],
+                token,
+            )
+            .ok()
         });
         let pull_value = self.text(&["config", "--get", "pull.rebase"], token).ok();
-        if token.cancelled() { return Err("Cancelled".into()); }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
         Ok(crate::update_method::resolve(
-            branch_value.as_deref().map(|v| v.trim_end_matches(['\r', '\n'])),
-            pull_value.as_deref().map(|v| v.trim_end_matches(['\r', '\n'])),
+            branch_value
+                .as_deref()
+                .map(|v| v.trim_end_matches(['\r', '\n'])),
+            pull_value
+                .as_deref()
+                .map(|v| v.trim_end_matches(['\r', '\n'])),
         ))
     }
     /// Inventory for explicit remote operations. No URLs, authentication or network IO.
@@ -457,14 +705,17 @@ impl Repository {
         let text = self.text(&["remote"], token)?;
         let mut specs = Vec::new();
         for remote in text.lines().filter(|name| !name.is_empty()) {
-            if specs.len() >= 4096 { return Err("Remote count exceeds the 4096 limit".into()); }
+            if specs.len() >= 4096 {
+                return Err("Remote count exceeds the 4096 limit".into());
+            }
             specs.push(crate::fetch::Spec::new(remote.to_owned())?);
         }
         Ok(specs)
     }
     pub(crate) fn command(&self) -> Command {
         let mut c = self.operation_command();
-        c.env("GIT_NO_LAZY_FETCH", "1").env("GIT_OPTIONAL_LOCKS", "0");
+        c.env("GIT_NO_LAZY_FETCH", "1")
+            .env("GIT_OPTIONAL_LOCKS", "0");
         c
     }
     /// Explicit operation command. System credential helpers remain configured;
@@ -503,90 +754,157 @@ impl Repository {
     }
     /// Backend Fetch; callers must refresh real repository state on every outcome.
     /// This does not yet provide Rebased's app-owned HTTP/SSH authentication UI.
-    pub fn fetch(&self, spec: &crate::fetch::Spec, token: &Cancel,
-        progress: &crate::operation_process::Progress) -> Result<crate::operation_process::Outcome> {
+    pub fn fetch(
+        &self,
+        spec: &crate::fetch::Spec,
+        token: &Cancel,
+        progress: &crate::operation_process::Progress,
+    ) -> Result<crate::operation_process::Outcome> {
         self.fetch_inner(spec, token, progress, None)
     }
     /// Explicit HTTP AskPass path. `requests` must belong to this operation/token.
     /// SSH authentication and HTTP credential reuse/UI remain separate layers.
-    pub fn fetch_authenticated(&self, spec: &crate::fetch::Spec, token: &Cancel,
-        progress: &crate::operation_process::Progress, requests: &crate::auth_request::Requests,
-        helper: &std::path::Path) -> Result<crate::operation_process::Outcome> {
+    pub fn fetch_authenticated(
+        &self,
+        spec: &crate::fetch::Spec,
+        token: &Cancel,
+        progress: &crate::operation_process::Progress,
+        requests: &crate::auth_request::Requests,
+        helper: &std::path::Path,
+    ) -> Result<crate::operation_process::Outcome> {
         if !helper.is_absolute() || !helper.is_file() {
             return Err("Authentication helper is unavailable".into());
         }
         self.fetch_inner(spec, token, progress, Some((requests, helper)))
     }
-    fn fetch_inner(&self, spec: &crate::fetch::Spec, token: &Cancel,
+    fn fetch_inner(
+        &self,
+        spec: &crate::fetch::Spec,
+        token: &Cancel,
         progress: &crate::operation_process::Progress,
-        auth: Option<(&crate::auth_request::Requests, &std::path::Path)>) -> Result<crate::operation_process::Outcome> {
+        auth: Option<(&crate::auth_request::Requests, &std::path::Path)>,
+    ) -> Result<crate::operation_process::Outcome> {
         let _guard = self.operation_guard(token)?;
         // Only configured remote names are accepted, never a caller-provided URL.
-        if !self.fetch_specs(token)?.iter().any(|known| known.remote() == spec.remote()) {
+        if !self
+            .fetch_specs(token)?
+            .iter()
+            .any(|known| known.remote() == spec.remote())
+        {
             return Err("Fetch remote is no longer configured".into());
         }
         let mut command = self.operation_command();
         let server = if let Some((requests, helper)) = auth {
-            let server = crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
+            let server =
+                crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
             server.configure(&mut command);
-            command.env("GIT_ASKPASS", helper).env_remove("GITUI_ASKPASS_SSH");
+            command
+                .env("GIT_ASKPASS", helper)
+                .env_remove("GITUI_ASKPASS_SSH");
             Some(server)
-        } else { None };
-        let result = crate::operation_process::run(command.args(spec.args()?), token, progress, None)
-            .map_err(|e| e.to_string());
+        } else {
+            None
+        };
+        let result =
+            crate::operation_process::run(command.args(spec.args()?), token, progress, None)
+                .map_err(|e| e.to_string());
         drop(server);
         result
     }
     pub(crate) fn operation_guard(&self, token: &Cancel) -> Result<crate::operation_queue::Guard> {
-        let common = self.read(&[OsStr::new("rev-parse"), OsStr::new("--path-format=absolute"),
-            OsStr::new("--git-common-dir")], token)?;
+        let common = self.read(
+            &[
+                OsStr::new("rev-parse"),
+                OsStr::new("--path-format=absolute"),
+                OsStr::new("--git-common-dir"),
+            ],
+            token,
+        )?;
         let common = common.strip_suffix(b"\n").unwrap_or(&common);
         let common = common.strip_suffix(b"\r").unwrap_or(common);
-        let common = path_from_bytes(common)?.canonicalize().map_err(|e| e.to_string())?;
+        let common = path_from_bytes(common)?
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
         crate::operation_queue::acquire(common, token)
     }
     pub fn editor_directory(&self, token: &Cancel) -> Result<PathBuf> {
-        let bytes = self.read(&[OsStr::new("rev-parse"), OsStr::new("--absolute-git-dir")], token)?;
+        let bytes = self.read(
+            &[OsStr::new("rev-parse"), OsStr::new("--absolute-git-dir")],
+            token,
+        )?;
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(&bytes);
         path_from_bytes(bytes.strip_suffix(b"\r").unwrap_or(bytes))
     }
     pub(crate) fn stash_head(&self, token: &Cancel) -> Result<Option<String>> {
-        let bytes = self.read(&[OsStr::new("for-each-ref"), OsStr::new("--format=%(refname) %(objectname)"), OsStr::new("refs/stash")], token)?;
+        let bytes = self.read(
+            &[
+                OsStr::new("for-each-ref"),
+                OsStr::new("--format=%(refname) %(objectname)"),
+                OsStr::new("refs/stash"),
+            ],
+            token,
+        )?;
         for line in String::from_utf8_lossy(&bytes).lines() {
             if let Some(id) = line.strip_prefix("refs/stash ") {
-                if !is_oid(id) { return Err("Invalid stash object identity".into()); }
+                if !is_oid(id) {
+                    return Err("Invalid stash object identity".into());
+                }
                 return Ok(Some(id.into()));
             }
         }
         Ok(None)
     }
-    pub(crate) fn chooser_index_children(&self, prefix: &str, token: &Cancel) -> Result<std::collections::BTreeSet<String>> {
+    pub(crate) fn chooser_index_children(
+        &self,
+        prefix: &str,
+        token: &Cancel,
+    ) -> Result<std::collections::BTreeSet<String>> {
         let query = if prefix.is_empty() { "." } else { prefix };
         let owned_prefix = prefix.to_owned();
-        self.read_stream(&[OsStr::new("ls-files"), OsStr::new("--cached"), OsStr::new("-z"), OsStr::new("--"), OsStr::new(query)],
-            token, move |out, _| crate::path_tree::index_children(out, &owned_prefix))
+        self.read_stream(
+            &[
+                OsStr::new("ls-files"),
+                OsStr::new("--cached"),
+                OsStr::new("-z"),
+                OsStr::new("--"),
+                OsStr::new(query),
+            ],
+            token,
+            move |out, _| crate::path_tree::index_children(out, &owned_prefix),
+        )
     }
     pub(crate) fn read(&self, args: &[&OsStr], token: &Cancel) -> Result<Vec<u8>> {
         self.read_stream(args, token, |out, flag| drain(out, OUTPUT_LIMIT, flag))
     }
     fn read_stream<T: Send + 'static>(
-        &self, args: &[&OsStr], token: &Cancel,
-        consume: impl FnOnce(std::process::ChildStdout, Arc<AtomicBool>) -> std::io::Result<T> + Send + 'static,
+        &self,
+        args: &[&OsStr],
+        token: &Cancel,
+        consume: impl FnOnce(std::process::ChildStdout, Arc<AtomicBool>) -> std::io::Result<T>
+        + Send
+        + 'static,
     ) -> Result<T> {
         if token.cancelled() {
             return Err("Cancelled".into());
         }
         let mut command = self.command();
-        let mut tree = crate::process_tree::ProcessTree::spawn(command.args(args)
-            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()))
-            .map_err(|e| format!("Cannot start Git: {e}"))?;
+        let mut tree = crate::process_tree::ProcessTree::spawn(
+            command
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .map_err(|e| format!("Cannot start Git: {e}"))?;
         let out = tree.child.stdout.take().unwrap();
         let err = tree.child.stderr.take().unwrap();
         let overflow = Arc::new(AtomicBool::new(false));
         let flag = overflow.clone();
         let stdout = thread::spawn(move || {
             let result = consume(out, flag.clone());
-            if result.is_err() { flag.store(true, Ordering::Relaxed); }
+            if result.is_err() {
+                flag.store(true, Ordering::Relaxed);
+            }
             result
         });
         // Diagnostic chatter is not query data. Drain it to avoid blocking Git,
@@ -626,9 +944,15 @@ impl Repository {
         // completion or cancellation of the owning request.
         let output = stdout.join();
         let error = stderr.join();
-        if token.cancelled() { return Err("Cancelled".into()); }
-        let output = output.map_err(|_| "Output reader failed")?.map_err(|e| e.to_string())?;
-        let error = error.map_err(|_| "Error reader failed")?.map_err(|e| e.to_string())?;
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        let output = output
+            .map_err(|_| "Output reader failed")?
+            .map_err(|e| e.to_string())?;
+        let error = error
+            .map_err(|_| "Error reader failed")?
+            .map_err(|e| e.to_string())?;
         if let Some(message) = aborted {
             return Err(message.into());
         }
@@ -646,18 +970,41 @@ impl Repository {
     /// Complete raw author identities reachable from the supplied immutable
     /// history roots. Call with ALL log roots, not the selected branch's roots.
     /// Stream/deduplicate records rather than retaining per-commit output.
-    pub fn author_catalog(&self, roots: &[String], token: &Cancel) -> Result<crate::authors::Catalog> {
-        if token.cancelled() { return Err("Cancelled".into()); }
-        if roots.is_empty() { return Ok(crate::authors::Catalog::new([])); }
-        if roots.iter().any(|id| !matches!(id.len(), 40 | 64) || !id.bytes().all(|b| b.is_ascii_hexdigit())) {
+    pub fn author_catalog(
+        &self,
+        roots: &[String],
+        token: &Cancel,
+    ) -> Result<crate::authors::Catalog> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if roots.is_empty() {
+            return Ok(crate::authors::Catalog::new([]));
+        }
+        if roots
+            .iter()
+            .any(|id| !matches!(id.len(), 40 | 64) || !id.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
             return Err("Author catalogue requires full commit IDs".into());
         }
-        let mut args = vec!["-c", "log.mailmap=false", "log", "--no-patch", "--no-notes",
-            "--no-show-signature", "--encoding=UTF-8", "-z", "--format=%an%x00%ae"];
+        let mut args = vec![
+            "-c",
+            "log.mailmap=false",
+            "log",
+            "--no-patch",
+            "--no-notes",
+            "--no-show-signature",
+            "--encoding=UTF-8",
+            "-z",
+            "--format=%an%x00%ae",
+        ];
         args.extend(roots.iter().map(String::as_str));
         args.push("--");
-        self.read_stream(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token,
-            |out, _| crate::authors::read_catalog(out))
+        self.read_stream(
+            &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+            token,
+            |out, _| crate::authors::read_catalog(out),
+        )
     }
     /// GitUserRegistry uses effective Git config, not the process's author env.
     /// --default distinguishes missing values from command/read failures without
@@ -665,11 +1012,19 @@ impl Repository {
     pub fn current_author(&self, token: &Cancel) -> Result<Option<Author>> {
         let value = |key| -> Result<String> {
             let output = self.text(&["config", "--null", "--default=", "--get", key], token)?;
-            output.strip_suffix('\0').map(str::to_owned).ok_or_else(|| "Invalid Git configuration output".into())
+            output
+                .strip_suffix('\0')
+                .map(str::to_owned)
+                .ok_or_else(|| "Invalid Git configuration output".into())
         };
         let name = value("user.name")?;
-        if name.is_empty() { return Ok(None); }
-        Ok(Some(Author { name, email: value("user.email")? }))
+        if name.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Author {
+            name,
+            email: value("user.email")?,
+        }))
     }
     /// Read a bounded graph-only page from immutable root IDs. This avoids
     /// repeating ref discovery or loading hidden commits' presentation metadata.
@@ -679,16 +1034,38 @@ impl Repository {
     /// Immutable full-OID roots prevent ref movement from shifting the result.
     /// Reads the entire ID stream with bounded memory; the process supervisor
     /// retains its cancellation and timeout guarantees and reaps both readers.
-    pub fn commit_position(&self, roots: &[String], target: &str, token: &Cancel) -> Result<Option<usize>> {
-        if token.cancelled() { return Err("Cancelled".into()); }
-        if !is_oid(target) || roots.iter().any(|id| !is_oid(id)) { return Err("Commit navigation requires full commit IDs".into()); }
-        if roots.is_empty() { return Ok(None); }
-        let mut args = vec!["log", "--date-order", "--no-patch", "--no-notes", "--no-show-signature", "--no-decorate", "--format=%H"];
+    pub fn commit_position(
+        &self,
+        roots: &[String],
+        target: &str,
+        token: &Cancel,
+    ) -> Result<Option<usize>> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if !is_oid(target) || roots.iter().any(|id| !is_oid(id)) {
+            return Err("Commit navigation requires full commit IDs".into());
+        }
+        if roots.is_empty() {
+            return Ok(None);
+        }
+        let mut args = vec![
+            "log",
+            "--date-order",
+            "--no-patch",
+            "--no-notes",
+            "--no-show-signature",
+            "--no-decorate",
+            "--format=%H",
+        ];
         args.extend(roots.iter().map(String::as_str));
         args.push("--");
         let target = target.to_owned();
-        self.read_stream(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token,
-            move |out, _| crate::history_position::read_position(out, &target))
+        self.read_stream(
+            &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+            token,
+            move |out, _| crate::history_position::read_position(out, &target),
+        )
     }
     pub fn topology_page(
         &self,
@@ -716,7 +1093,9 @@ impl Repository {
         if roots.iter().any(|id| !is_oid(id)) {
             return Err("Invalid history root".into());
         }
-        if let Some(filter) = filter { filter.validate_paths()?; }
+        if let Some(filter) = filter {
+            filter.validate_paths()?;
+        }
         if roots.is_empty() || filter.is_some_and(LogFilter::matches_no_authors) {
             return Ok(TopologyPage {
                 commits: Vec::new(),
@@ -727,7 +1106,8 @@ impl Repository {
         let count = format!("--max-count={}", limit + 1);
         let skip = format!("--skip={offset}");
         let mut args = vec![
-            "-c", "log.mailmap=false",
+            "-c",
+            "log.mailmap=false",
             "log",
             "--date-order",
             "--no-show-signature",
@@ -740,7 +1120,9 @@ impl Repository {
         args.extend(filter_args.iter().map(String::as_str));
         args.extend(roots.iter().map(String::as_str));
         args.push("--");
-        if let Some(filter) = filter { args.extend(filter.paths.iter().map(String::as_str)); }
+        if let Some(filter) = filter {
+            args.extend(filter.paths.iter().map(String::as_str));
+        }
         let output = self.text(&args, token)?;
         let mut commits = Vec::with_capacity(limit + 1);
         for line in output.lines() {
@@ -809,27 +1191,54 @@ impl Repository {
         text_filter: Option<&LogFilter>,
         token: &Cancel,
     ) -> Result<Snapshot> {
-        let mut snapshot = self.snapshot_query(branch, offset, limit, fixed_tips, text_filter, None, token)?;
-        if text_filter.is_some_and(|filter| !filter.paths.is_empty()) && !snapshot.commits.is_empty() {
-            let ids = snapshot.commits.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let mut snapshot =
+            self.snapshot_query(branch, offset, limit, fixed_tips, text_filter, None, token)?;
+        if text_filter.is_some_and(|filter| !filter.paths.is_empty())
+            && !snapshot.commits.is_empty()
+        {
+            let ids = snapshot
+                .commits
+                .iter()
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>();
             let original = self.snapshot_commits(&ids, &snapshot.tips, token)?;
             snapshot.commits = original.commits;
         }
         Ok(snapshot)
     }
     /// Read a bounded set of full commit IDs, preserving its requested order.
-    pub fn snapshot_commits(&self, ids: &[String], roots: &[String], token: &Cancel) -> Result<Snapshot> {
+    pub fn snapshot_commits(
+        &self,
+        ids: &[String],
+        roots: &[String],
+        token: &Cancel,
+    ) -> Result<Snapshot> {
         if ids.len() > HISTORY_MAX || ids.iter().any(|id| !is_oid(id)) {
             return Err("Invalid selected history IDs".into());
         }
-        self.snapshot_query(None, 0, ids.len().max(1), Some(roots), None, Some(ids), token)
+        self.snapshot_query(
+            None,
+            0,
+            ids.len().max(1),
+            Some(roots),
+            None,
+            Some(ids),
+            token,
+        )
     }
     fn snapshot_query(
-        &self, branch: Option<&str>, offset: usize, limit: usize,
-        fixed_tips: Option<&[String]>, text_filter: Option<&LogFilter>,
-        selected: Option<&[String]>, token: &Cancel,
+        &self,
+        branch: Option<&str>,
+        offset: usize,
+        limit: usize,
+        fixed_tips: Option<&[String]>,
+        text_filter: Option<&LogFilter>,
+        selected: Option<&[String]>,
+        token: &Cancel,
     ) -> Result<Snapshot> {
-        if let Some(filter) = text_filter { filter.validate_paths()?; }
+        if let Some(filter) = text_filter {
+            filter.validate_paths()?;
+        }
         self.text(&["rev-parse", "--git-dir"], token)?;
         let refs = self.text(
             &[
@@ -901,7 +1310,10 @@ impl Repository {
                     _ => None,
                 };
                 if let Some(id) = id {
-                    tags.push(Tag { name: fields[0].into(), id: id.clone() });
+                    tags.push(Tag {
+                        name: fields[0].into(),
+                        id: id.clone(),
+                    });
                     decorations.entry(id.clone()).or_default().push(RefLabel {
                         kind: RefKind::Tag,
                         name: fields[0].strip_prefix("refs/tags/").unwrap().into(),
@@ -926,8 +1338,14 @@ impl Repository {
             tips = if name == "HEAD" {
                 head_id.iter().cloned().collect()
             } else {
-                vec![branches.iter().find(|b| b.name == name)
-                    .ok_or("Branch no longer exists; refresh")?.id.clone()]
+                vec![
+                    branches
+                        .iter()
+                        .find(|b| b.name == name)
+                        .ok_or("Branch no longer exists; refresh")?
+                        .id
+                        .clone(),
+                ]
             };
         }
 
@@ -945,7 +1363,8 @@ impl Repository {
             let count = format!("--max-count={}", limit.clamp(1, HISTORY_MAX) + 1);
             let skip = format!("--skip={offset}");
             let mut args = vec![
-                "-c", "log.mailmap=false",
+                "-c",
+                "log.mailmap=false",
                 "log",
                 // Rebased's default Normal graph uses date order while
                 // keeping children before parents (IntelliSort is separate).
@@ -970,12 +1389,22 @@ impl Repository {
                     query.push("--");
                     commits.extend(parse_history(&self.text(&query, token)?)?);
                 }
-                let mut by_id: HashMap<_, _> = commits.into_iter().map(|c| (c.id.clone(), c)).collect();
-                commits = ids.iter().map(|id| by_id.remove(id).ok_or_else(|| "Selected commit disappeared".to_owned())).collect::<Result<_>>()?;
+                let mut by_id: HashMap<_, _> =
+                    commits.into_iter().map(|c| (c.id.clone(), c)).collect();
+                commits = ids
+                    .iter()
+                    .map(|id| {
+                        by_id
+                            .remove(id)
+                            .ok_or_else(|| "Selected commit disappeared".to_owned())
+                    })
+                    .collect::<Result<_>>()?;
             } else {
                 args.extend(tips.iter().map(String::as_str));
                 args.push("--");
-                if let Some(filter) = text_filter { args.extend(filter.paths.iter().map(String::as_str)); }
+                if let Some(filter) = text_filter {
+                    args.extend(filter.paths.iter().map(String::as_str));
+                }
                 commits = parse_history(&self.text(&args, token)?)?;
             }
         }
@@ -1009,11 +1438,16 @@ impl Repository {
         for commit in &mut commits {
             commit.shallow_boundary = boundaries.contains(&commit.id);
             if let Some(mut labels) = decorations.remove(&commit.id) {
-                labels.sort_by(|a, b| crate::ref_labels::rank(a, current_branch.as_deref()).cmp(&crate::ref_labels::rank(b, current_branch.as_deref())).then_with(|| crate::natural_order::compare(&a.name, &b.name)));
+                labels.sort_by(|a, b| {
+                    crate::ref_labels::rank(a, current_branch.as_deref())
+                        .cmp(&crate::ref_labels::rank(b, current_branch.as_deref()))
+                        .then_with(|| crate::natural_order::compare(&a.name, &b.name))
+                });
                 commit.refs = labels;
             }
         }
-        let included_in_head = Arc::new(self.contained_in_head(head_id.as_deref(), &commits, token)?);
+        let included_in_head =
+            Arc::new(self.contained_in_head(head_id.as_deref(), &commits, token)?);
         Ok(Snapshot {
             head_id,
             included_in_head,
@@ -1029,30 +1463,69 @@ impl Repository {
     }
     /// One streaming walk, not repeated --skip queries through all of HEAD.
     /// A displayed commit from an unmerged branch may never be found.
-    fn contained_in_head(&self, head: Option<&str>, commits: &[Commit], token: &Cancel) -> Result<HashSet<String>> {
-        let Some(head) = head else { return Ok(HashSet::new()); };
-        if commits.is_empty() { return Ok(HashSet::new()); }
-        if !is_oid(head) { return Err("Invalid history root".into()); }
+    fn contained_in_head(
+        &self,
+        head: Option<&str>,
+        commits: &[Commit],
+        token: &Cancel,
+    ) -> Result<HashSet<String>> {
+        let Some(head) = head else {
+            return Ok(HashSet::new());
+        };
+        if commits.is_empty() {
+            return Ok(HashSet::new());
+        }
+        if !is_oid(head) {
+            return Err("Invalid history root".into());
+        }
         let remaining = commits.iter().map(|c| c.id.clone()).collect();
         let query = token.clone();
-        self.read_stream(&[OsStr::new("rev-list"), OsStr::new(head), OsStr::new("--")], token,
-            move |out, _| crate::head_membership::read(out, remaining, &query))
+        self.read_stream(
+            &[OsStr::new("rev-list"), OsStr::new(head), OsStr::new("--")],
+            token,
+            move |out, _| crate::head_membership::read(out, remaining, &query),
+        )
     }
     /// Fresh remote ancestry for history-editing policy. Unlike Pull inventory,
     /// this needs neither the current branch nor its configured upstream.
     /// Keep full ref identity until parsed: local "origin/main" is not remote.
-    pub(crate) fn remote_branches_containing(&self, id: &str, token: &Cancel) -> Result<Vec<crate::pull::Target>> {
-        if !is_oid(id) { return Err("Invalid commit ID".into()); }
-        let remotes = self.fetch_specs(token)?.into_iter().map(|s| s.remote().to_owned()).collect::<Vec<_>>();
-        let args = ["for-each-ref", "--contains", id, "--format=%(refname)%09%(symref)", "refs/remotes/"];
-        let output = self.read_stream(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token,
-            |out, flag| drain(out, 1024 * 1024, flag))?;
+    pub(crate) fn remote_branches_containing(
+        &self,
+        id: &str,
+        token: &Cancel,
+    ) -> Result<Vec<crate::pull::Target>> {
+        if !is_oid(id) {
+            return Err("Invalid commit ID".into());
+        }
+        let remotes = self
+            .fetch_specs(token)?
+            .into_iter()
+            .map(|s| s.remote().to_owned())
+            .collect::<Vec<_>>();
+        let args = [
+            "for-each-ref",
+            "--contains",
+            id,
+            "--format=%(refname)%09%(symref)",
+            "refs/remotes/",
+        ];
+        let output = self.read_stream(
+            &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+            token,
+            |out, flag| drain(out, 1024 * 1024, flag),
+        )?;
         let output = utf8(output)?;
         let mut branches = Vec::new();
         for record in output.lines() {
-            if token.cancelled() { return Err("Cancelled".into()); }
-            let (name, symref) = record.split_once('\t').ok_or("Malformed remote branch record")?;
-            if !symref.is_empty() { continue; }
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
+            let (name, symref) = record
+                .split_once('\t')
+                .ok_or("Malformed remote branch record")?;
+            if !symref.is_empty() {
+                continue;
+            }
             if let Some(target) = crate::pull::parse_remote_ref(name, &remotes) {
                 branches.push(target);
             }
@@ -1063,11 +1536,23 @@ impl Repository {
     /// loaded history window. Only query the selected commit; retain no cache.
     /// HEAD is included when reachable, matching Rebased's graph-backed list.
     pub fn containing_branches(&self, id: &str, token: &Cancel) -> Result<Vec<String>> {
-        if !is_oid(id) { return Err("Invalid commit ID".into()); }
-        let args = ["branch", "--all", "--no-color", "--no-column", "--contains", id,
-            "--format=%(HEAD)%00%(refname)%00%(symref)"];
-        let output = self.read_stream(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token,
-            |out, flag| drain(out, 1024 * 1024, flag))?;
+        if !is_oid(id) {
+            return Err("Invalid commit ID".into());
+        }
+        let args = [
+            "branch",
+            "--all",
+            "--no-color",
+            "--no-column",
+            "--contains",
+            id,
+            "--format=%(HEAD)%00%(refname)%00%(symref)",
+        ];
+        let output = self.read_stream(
+            &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+            token,
+            |out, flag| drain(out, 1024 * 1024, flag),
+        )?;
         let output = utf8(output)?;
         let mut branches = Vec::new();
         let mut head = false;
@@ -1079,10 +1564,28 @@ impl Repository {
             let current = fields[0] == "*";
             head |= current;
             let (rank, name) = if let Some(name) = fields[1].strip_prefix("refs/heads/") {
-                (if current { 1 } else if matches!(name, "main" | "master") { 2 } else { 4 }, name)
+                (
+                    if current {
+                        1
+                    } else if matches!(name, "main" | "master") {
+                        2
+                    } else {
+                        4
+                    },
+                    name,
+                )
             } else if let Some(name) = fields[1].strip_prefix("refs/remotes/") {
-                if !fields[2].is_empty() { continue; }
-                (if matches!(name, "origin/main" | "origin/master") { 3 } else { 5 }, name)
+                if !fields[2].is_empty() {
+                    continue;
+                }
+                (
+                    if matches!(name, "origin/main" | "origin/master") {
+                        3
+                    } else {
+                        5
+                    },
+                    name,
+                )
             } else if current {
                 // `git branch` emits a synthetic current entry for detached HEAD.
                 continue;
@@ -1091,9 +1594,14 @@ impl Repository {
             };
             branches.push((rank, name.to_owned()));
         }
-        branches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| crate::natural_order::compare(&a.1, &b.1)));
+        branches.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| crate::natural_order::compare(&a.1, &b.1))
+        });
         let mut names = Vec::with_capacity(branches.len() + usize::from(head));
-        if head { names.push("HEAD".into()); }
+        if head {
+            names.push("HEAD".into());
+        }
         names.extend(branches.into_iter().map(|(_, name)| name));
         Ok(names)
     }
@@ -1125,22 +1633,44 @@ impl Repository {
                 boundaries.insert(id.to_owned());
             }
         }
-        if token.cancelled() { return Err("Cancelled".into()); }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
         Ok((shallow, boundaries))
     }
 
     /// Push uses GitCommitRequirements.DEFAULT: root changes, rename detection,
     /// and combined merge statuses, rather than the Log's first-parent details.
-    pub fn push_commit_changes(&self, commit: &Commit, token: &Cancel) -> Result<Vec<crate::combined_changes::Change>> {
+    pub fn push_commit_changes(
+        &self,
+        commit: &Commit,
+        token: &Cancel,
+    ) -> Result<Vec<crate::combined_changes::Change>> {
         if !is_oid(&commit.id) || commit.parents.iter().any(|p| !is_oid(p)) {
             return Err("Invalid commit ID".into());
         }
         if commit.shallow_boundary {
             return Err("Push preview is unavailable at shallow history boundary".into());
         }
-        let bytes = self.read(&["diff-tree", "--root", "--no-commit-id", "-r", "-c",
-            "--name-status", "-z", "--find-renames", "--ignore-submodules=none",
-            "--no-ext-diff", "--no-textconv", &commit.id, "--"].map(OsStr::new), token)?;
+        let bytes = self.read(
+            &[
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "-r",
+                "-c",
+                "--name-status",
+                "-z",
+                "--find-renames",
+                "--ignore-submodules=none",
+                "--no-ext-diff",
+                "--no-textconv",
+                &commit.id,
+                "--",
+            ]
+            .map(OsStr::new),
+            token,
+        )?;
         let files = if commit.parents.len() <= 1 {
             parse_names(&bytes)?
         } else {
@@ -1151,46 +1681,104 @@ impl Repository {
             let mut files = Vec::new();
             while let Some(status) = fields.next() {
                 if status.is_empty() {
-                    if fields.next().is_some() { return Err("Malformed combined status".into()); }
+                    if fields.next().is_some() {
+                        return Err("Malformed combined status".into());
+                    }
                     break;
                 }
-                if status.len() != commit.parents.len() || !status.iter().all(|c| b"AMDTCR".contains(c)) {
+                if status.len() != commit.parents.len()
+                    || !status.iter().all(|c| b"AMDTCR".contains(c))
+                {
                     return Err("Unsupported combined status".into());
                 }
-                let path = path_from_bytes(fields.next().filter(|p| !p.is_empty()).ok_or("Missing combined path")?)?;
-                files.push(Change { old_path: matches!(status[0], b'R' | b'C').then(|| path.clone()),
-                    path, status: String::from_utf8(vec![status[0]]).unwrap(), area: Area::Commit });
+                let path = path_from_bytes(
+                    fields
+                        .next()
+                        .filter(|p| !p.is_empty())
+                        .ok_or("Missing combined path")?,
+                )?;
+                files.push(Change {
+                    old_path: matches!(status[0], b'R' | b'C').then(|| path.clone()),
+                    path,
+                    status: String::from_utf8(vec![status[0]]).unwrap(),
+                    area: Area::Commit,
+                });
             }
             files
         };
-        files.iter().map(|file| crate::combined_changes::from_file(file, &commit.id,
-            commit.parents.first().map(String::as_str))).collect()
+        files
+            .iter()
+            .map(|file| {
+                crate::combined_changes::from_file(
+                    file,
+                    &commit.id,
+                    commit.parents.first().map(String::as_str),
+                )
+            })
+            .collect()
     }
 
     /// Log details use per-parent diffs and VcsStatusMerger, not Push's -c parser.
-    pub fn log_commit_changes(&self, commit: &Commit, token: &Cancel) -> Result<Vec<crate::combined_changes::Change>> {
+    pub fn log_commit_changes(
+        &self,
+        commit: &Commit,
+        token: &Cancel,
+    ) -> Result<Vec<crate::combined_changes::Change>> {
         if !is_oid(&commit.id) || commit.parents.iter().any(|p| !is_oid(p)) {
             return Err("Invalid commit ID".into());
         }
-        if commit.shallow_boundary { return Err("Log preview is unavailable at shallow history boundary".into()); }
+        if commit.shallow_boundary {
+            return Err("Log preview is unavailable at shallow history boundary".into());
+        }
         let mut groups = Vec::new();
         let mut count = 0usize;
-        for parent in if commit.parents.is_empty() { vec![None] } else { commit.parents.iter().map(Some).collect() } {
-            if token.cancelled() { return Err("Cancelled".into()); }
-            let mut args = vec!["diff-tree", "--no-commit-id", "-r", "--name-status", "-z",
-                "--find-renames", "--ignore-submodules=none", "--no-ext-diff", "--no-textconv"];
-            if let Some(parent) = parent { args.push(parent); } else { args.push("--root"); }
+        for parent in if commit.parents.is_empty() {
+            vec![None]
+        } else {
+            commit.parents.iter().map(Some).collect()
+        } {
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
+            let mut args = vec![
+                "diff-tree",
+                "--no-commit-id",
+                "-r",
+                "--name-status",
+                "-z",
+                "--find-renames",
+                "--ignore-submodules=none",
+                "--no-ext-diff",
+                "--no-textconv",
+            ];
+            if let Some(parent) = parent {
+                args.push(parent);
+            } else {
+                args.push("--root");
+            }
             args.extend([commit.id.as_str(), "--"]);
-            let files = parse_names(&self.read(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token)?)?;
+            let files =
+                parse_names(&self.read(&args.iter().map(OsStr::new).collect::<Vec<_>>(), token)?)?;
             if files.len() > crate::combined_changes::MAX_INPUT_CHANGES.saturating_sub(count) {
                 return Err("Log preview exceeds the change limit".into());
             }
-            count += files.len(); groups.push(files);
+            count += files.len();
+            groups.push(files);
         }
         let files = crate::log_changes::merge_parents(&groups)?;
-        if token.cancelled() { return Err("Cancelled".into()); }
-        files.iter().map(|file| crate::combined_changes::from_file(file, &commit.id,
-            commit.parents.first().map(String::as_str))).collect()
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        files
+            .iter()
+            .map(|file| {
+                crate::combined_changes::from_file(
+                    file,
+                    &commit.id,
+                    commit.parents.first().map(String::as_str),
+                )
+            })
+            .collect()
     }
 
     /// Read commit text only. `files` is intentionally unloaded, not an empty diff.
@@ -1216,15 +1804,30 @@ impl Repository {
         let committer = fields.next().ok_or("Missing committer")?.to_owned();
         let committed = fields.next().ok_or("Missing commit date")?.to_owned();
         let message = fields.next().ok_or("Missing commit message")?.to_owned();
-        Ok(Details { message, author, authored, committer, committed,
-            base: if commit.shallow_boundary { "Unavailable at shallow history boundary".into() }
-                else { commit.parents.first().cloned().unwrap_or_else(|| "Empty tree".into()) },
-            files: Vec::new() })
+        Ok(Details {
+            message,
+            author,
+            authored,
+            committer,
+            committed,
+            base: if commit.shallow_boundary {
+                "Unavailable at shallow history boundary".into()
+            } else {
+                commit
+                    .parents
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "Empty tree".into())
+            },
+            files: Vec::new(),
+        })
     }
 
     pub fn details(&self, commit: &Commit, token: &Cancel) -> Result<Details> {
         let mut details = self.commit_metadata(commit, token)?;
-        if commit.shallow_boundary { return Ok(details); }
+        if commit.shallow_boundary {
+            return Ok(details);
+        }
         let base = commit.parents.first().cloned().unwrap_or_default();
         let args = if base.is_empty() {
             vec![
@@ -1259,64 +1862,149 @@ impl Repository {
     /// GitMergeUpdater.isSaveNeeded / GitUtil.getPathsDiffBetweenRefs.
     /// Read-only, after fetch. Failures conservatively require saving, except
     /// cancellation; the actual save/operation still validates repository state.
-    pub fn merge_update_save_needed(&self, target: &crate::pull::Target, token: &Cancel) -> Result<bool> {
+    pub fn merge_update_save_needed(
+        &self,
+        target: &crate::pull::Target,
+        token: &Cancel,
+    ) -> Result<bool> {
         let inspect = || -> Result<bool> {
             let targets = self.pull_targets(token)?;
-            let branch = targets.current_branch.as_ref().ok_or("Merge update requires an attached branch")?;
-            if !targets.contains(&target.remote, &target.branch) { return Err("Merge update target disappeared".into()); }
-            let staged = self.read(&[OsStr::new("diff"), OsStr::new("--cached"), OsStr::new("--name-only"),
-                OsStr::new("--no-renames"), OsStr::new("-z"), OsStr::new("--")], token)?;
-            if !staged.is_empty() { return Ok(true); }
+            let branch = targets
+                .current_branch
+                .as_ref()
+                .ok_or("Merge update requires an attached branch")?;
+            if !targets.contains(&target.remote, &target.branch) {
+                return Err("Merge update target disappeared".into());
+            }
+            let staged = self.read(
+                &[
+                    OsStr::new("diff"),
+                    OsStr::new("--cached"),
+                    OsStr::new("--name-only"),
+                    OsStr::new("--no-renames"),
+                    OsStr::new("-z"),
+                    OsStr::new("--"),
+                ],
+                token,
+            )?;
+            if !staged.is_empty() {
+                return Ok(true);
+            }
             // Untracked files are not part of ChangeListManager affected paths;
             // avoid enumerating them merely to decide whether to save tracked work.
-            let local = parse_status(&self.read(&[OsStr::new("status"), OsStr::new("--porcelain=v1"),
-                OsStr::new("-z"), OsStr::new("--untracked-files=no"), OsStr::new("--ignore-submodules=none")], token)?)?;
-            let changed: Vec<_> = local.iter().filter(|change| change.area != Area::Untracked)
-                .flat_map(|change| std::iter::once(&change.path).chain(change.old_path.iter())).collect();
-            if changed.is_empty() { return Ok(false); }
-            let range = format!("refs/heads/{branch}..refs/remotes/{}/{}", target.remote, target.branch);
-            let bytes = self.read(&[OsStr::new("diff"), OsStr::new("--no-ext-diff"), OsStr::new("--no-textconv"),
-                OsStr::new("--name-only"), OsStr::new("-z"), OsStr::new(&range), OsStr::new("--")], token)?;
-            if !bytes.is_empty() && !bytes.ends_with(&[0]) { return Err("Incomplete changed-path record".into()); }
+            let local = parse_status(&self.read(
+                &[
+                    OsStr::new("status"),
+                    OsStr::new("--porcelain=v1"),
+                    OsStr::new("-z"),
+                    OsStr::new("--untracked-files=no"),
+                    OsStr::new("--ignore-submodules=none"),
+                ],
+                token,
+            )?)?;
+            let changed: Vec<_> = local
+                .iter()
+                .filter(|change| change.area != Area::Untracked)
+                .flat_map(|change| std::iter::once(&change.path).chain(change.old_path.iter()))
+                .collect();
+            if changed.is_empty() {
+                return Ok(false);
+            }
+            let range = format!(
+                "refs/heads/{branch}..refs/remotes/{}/{}",
+                target.remote, target.branch
+            );
+            let bytes = self.read(
+                &[
+                    OsStr::new("diff"),
+                    OsStr::new("--no-ext-diff"),
+                    OsStr::new("--no-textconv"),
+                    OsStr::new("--name-only"),
+                    OsStr::new("-z"),
+                    OsStr::new(&range),
+                    OsStr::new("--"),
+                ],
+                token,
+            )?;
+            if !bytes.is_empty() && !bytes.ends_with(&[0]) {
+                return Err("Incomplete changed-path record".into());
+            }
             for raw in bytes.split(|b| *b == 0).filter(|s| !s.is_empty()) {
                 let remote = path_from_bytes(raw)?;
                 if changed.iter().any(|local| {
-                    #[cfg(windows)] { local.to_string_lossy().to_lowercase() == remote.to_string_lossy().to_lowercase() }
-                    #[cfg(not(windows))] { **local == remote }
-                }) { return Ok(true); }
+                    #[cfg(windows)]
+                    {
+                        local.to_string_lossy().to_lowercase()
+                            == remote.to_string_lossy().to_lowercase()
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        **local == remote
+                    }
+                }) {
+                    return Ok(true);
+                }
             }
             Ok(false)
         };
         let decision = inspect();
-        if token.cancelled() { return Err("Cancelled".into()); }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
         Ok(decision.unwrap_or(true))
     }
     /// GitRebaseOverMergeProblem: only merge commits with combined changes in
     /// base..HEAD trigger the warning. A merge node alone is insufficient.
     /// Read failures remain unknown; callers must not treat them as proof of safety.
-    pub fn rebase_over_merge_problem(&self, target: &crate::pull::Target, token: &Cancel) -> Result<bool> {
+    pub fn rebase_over_merge_problem(
+        &self,
+        target: &crate::pull::Target,
+        token: &Cancel,
+    ) -> Result<bool> {
         let known = self.pull_targets(token)?;
         if known.current_branch.is_none() || !known.contains(&target.remote, &target.branch) {
             return Err("Rebase requires an attached branch and an existing remote branch".into());
         }
-        let reference = format!("refs/remotes/{}/{}^{{commit}}", target.remote, target.branch);
+        let reference = format!(
+            "refs/remotes/{}/{}^{{commit}}",
+            target.remote, target.branch
+        );
         let base = self.text(&["rev-parse", "--verify", &reference], token)?;
         let head = self.text(&["rev-parse", "--verify", "HEAD^{commit}"], token)?;
         let range = format!("{}..{}", base.trim(), head.trim());
         // GitCommitRequirements.DEFAULT = -M -c. No commit messages or headers
         // are needed for the existence query; NUL output keeps path bytes opaque.
-        let bytes = self.read(&[OsStr::new("log"), OsStr::new("--format="),
-            OsStr::new("--name-only"), OsStr::new("-z"), OsStr::new("-c"), OsStr::new("-M"),
-            OsStr::new("--no-ext-diff"), OsStr::new("--no-textconv"),
-            OsStr::new("--merges"), OsStr::new(&range), OsStr::new("--")], token)?;
+        let bytes = self.read(
+            &[
+                OsStr::new("log"),
+                OsStr::new("--format="),
+                OsStr::new("--name-only"),
+                OsStr::new("-z"),
+                OsStr::new("-c"),
+                OsStr::new("-M"),
+                OsStr::new("--no-ext-diff"),
+                OsStr::new("--no-textconv"),
+                OsStr::new("--merges"),
+                OsStr::new(&range),
+                OsStr::new("--"),
+            ],
+            token,
+        )?;
         Ok(!bytes.is_empty())
     }
 
     /// Tracked changes only: Rebase updater save/fast-forward decision excludes untracked files.
     pub fn has_tracked_changes(&self, token: &Cancel) -> Result<bool> {
-        let bytes = self.read(&[OsStr::new("status"), OsStr::new("--porcelain=v1"),
-            OsStr::new("-z"), OsStr::new("--untracked-files=no"),
-            OsStr::new("--ignore-submodules=none")], token)?;
+        let bytes = self.read(
+            &[
+                OsStr::new("status"),
+                OsStr::new("--porcelain=v1"),
+                OsStr::new("-z"),
+                OsStr::new("--untracked-files=no"),
+                OsStr::new("--ignore-submodules=none"),
+            ],
+            token,
+        )?;
         Ok(!parse_status(&bytes)?.is_empty())
     }
 
@@ -1337,59 +2025,152 @@ impl Repository {
         match crate::commit_operation::head(self, token)? {
             Some(head) => Ok(head),
             // Compute the repository-format empty tree without writing an object.
-            None => Ok(utf8(self.read(&[OsStr::new("hash-object"), OsStr::new("-t"), OsStr::new("tree"), OsStr::new("--stdin")],token)?)?.trim().to_owned()),
+            None => Ok(utf8(self.read(
+                &[
+                    OsStr::new("hash-object"),
+                    OsStr::new("-t"),
+                    OsStr::new("tree"),
+                    OsStr::new("--stdin"),
+                ],
+                token,
+            )?)?
+            .trim()
+            .to_owned()),
         }
     }
     /// Compare two immutable revision trees (Rebased GitChangeUtils.getDiff,
     /// two-dot semantics). Neither ancestry nor the current HEAD is implied.
-    pub fn revision_changes(&self, before: &str, after: &str, paths: &[PathBuf], token: &Cancel)
-        -> Result<Vec<crate::combined_changes::Change>> {
+    pub fn revision_changes(
+        &self,
+        before: &str,
+        after: &str,
+        paths: &[PathBuf],
+        token: &Cancel,
+    ) -> Result<Vec<crate::combined_changes::Change>> {
         use std::path::Component;
-        if !is_oid(before) || !is_oid(after) { return Err("Version comparison requires full commit IDs".into()); }
-        if paths.len() > 10_000 || paths.iter().any(|p| p.as_os_str().is_empty()
-            || p.components().any(|part| !matches!(part, Component::Normal(_)))) {
+        if !is_oid(before) || !is_oid(after) {
+            return Err("Version comparison requires full commit IDs".into());
+        }
+        if paths.len() > 10_000
+            || paths.iter().any(|p| {
+                p.as_os_str().is_empty()
+                    || p.components()
+                        .any(|part| !matches!(part, Component::Normal(_)))
+            })
+        {
             return Err("Invalid comparison path filter".into());
         }
-        let mut args = vec![OsStr::new("--literal-pathspecs"), OsStr::new("diff"), OsStr::new("--name-status"),
-            OsStr::new("-z"), OsStr::new("--no-ext-diff"), OsStr::new("--no-textconv"),
-            OsStr::new("--find-renames"), OsStr::new("--ignore-submodules=none"),
-            OsStr::new(before), OsStr::new(after), OsStr::new("--")];
+        let mut args = vec![
+            OsStr::new("--literal-pathspecs"),
+            OsStr::new("diff"),
+            OsStr::new("--name-status"),
+            OsStr::new("-z"),
+            OsStr::new("--no-ext-diff"),
+            OsStr::new("--no-textconv"),
+            OsStr::new("--find-renames"),
+            OsStr::new("--ignore-submodules=none"),
+            OsStr::new(before),
+            OsStr::new(after),
+            OsStr::new("--"),
+        ];
         args.extend(paths.iter().map(|p| p.as_os_str()));
         let changes = parse_names(&self.read(&args, token)?)?;
-        if changes.len() > 100_000 { return Err("Version comparison exceeds the file limit".into()); }
-        if token.cancelled() { return Err("Cancelled".into()); }
-        changes.iter().map(|change| crate::combined_changes::from_file(change, after, Some(before))).collect()
+        if changes.len() > 100_000 {
+            return Err("Version comparison exceeds the file limit".into());
+        }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        changes
+            .iter()
+            .map(|change| crate::combined_changes::from_file(change, after, Some(before)))
+            .collect()
     }
 
     /// Net tracked changes, including staged and unstaged edits, with no index writes.
     /// Unversioned files and conflicts are obtained separately from local_changes.
     pub fn working_tree_changes(&self, token: &Cancel) -> Result<Vec<WorkingTreeChange>> {
-        let base=self.working_tree_base(token)?;
-        let bytes=self.read(&[OsStr::new("diff"),OsStr::new("--name-status"),OsStr::new("-z"),
-            OsStr::new("--no-ext-diff"),OsStr::new("--no-textconv"),OsStr::new("--find-renames"),
-            OsStr::new("--ignore-submodules=none"),OsStr::new(&base),OsStr::new("--")],token)?;
-        if self.working_tree_base(token)? != base { return Err("HEAD changed; refresh local changes".into()); }
-        Ok(parse_names(&bytes)?.into_iter().map(|c|WorkingTreeChange{path:c.path,old_path:c.old_path,status:c.status}).collect())
+        let base = self.working_tree_base(token)?;
+        let bytes = self.read(
+            &[
+                OsStr::new("diff"),
+                OsStr::new("--name-status"),
+                OsStr::new("-z"),
+                OsStr::new("--no-ext-diff"),
+                OsStr::new("--no-textconv"),
+                OsStr::new("--find-renames"),
+                OsStr::new("--ignore-submodules=none"),
+                OsStr::new(&base),
+                OsStr::new("--"),
+            ],
+            token,
+        )?;
+        if self.working_tree_base(token)? != base {
+            return Err("HEAD changed; refresh local changes".into());
+        }
+        Ok(parse_names(&bytes)?
+            .into_iter()
+            .map(|c| WorkingTreeChange {
+                path: c.path,
+                old_path: c.old_path,
+                status: c.status,
+            })
+            .collect())
     }
     /// Status collector only needs a net comparison for paths modified in both
     /// index and worktree. Caller owns the before/after HEAD consistency check.
-    pub(crate) fn working_tree_changes_for(&self,base:&str,paths:&[PathBuf],token:&Cancel)->Result<Vec<WorkingTreeChange>> {
-        if paths.is_empty() {return Ok(Vec::new());}
-        let mut changes=Vec::new();
+    pub(crate) fn working_tree_changes_for(
+        &self,
+        base: &str,
+        paths: &[PathBuf],
+        token: &Cancel,
+    ) -> Result<Vec<WorkingTreeChange>> {
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut changes = Vec::new();
         // Keep Windows command lines bounded; each literal path is queried once.
         for batch in paths.chunks(32) {
-            let mut args=vec![OsStr::new("diff"),OsStr::new("--name-status"),OsStr::new("-z"),
-                OsStr::new("--no-ext-diff"),OsStr::new("--no-textconv"),OsStr::new("--no-renames"),
-                OsStr::new("--ignore-submodules=none"),OsStr::new(base),OsStr::new("--")];
-            args.extend(batch.iter().map(|p|p.as_os_str()));
-            changes.extend(parse_names(&self.read(&args,token)?)?.into_iter().map(|c|WorkingTreeChange{path:c.path,old_path:c.old_path,status:c.status}));
+            let mut args = vec![
+                OsStr::new("diff"),
+                OsStr::new("--name-status"),
+                OsStr::new("-z"),
+                OsStr::new("--no-ext-diff"),
+                OsStr::new("--no-textconv"),
+                OsStr::new("--no-renames"),
+                OsStr::new("--ignore-submodules=none"),
+                OsStr::new(base),
+                OsStr::new("--"),
+            ];
+            args.extend(batch.iter().map(|p| p.as_os_str()));
+            changes.extend(
+                parse_names(&self.read(&args, token)?)?
+                    .into_iter()
+                    .map(|c| WorkingTreeChange {
+                        path: c.path,
+                        old_path: c.old_path,
+                        status: c.status,
+                    }),
+            );
         }
         Ok(changes)
     }
-    pub fn working_tree_patch(&self, change: &WorkingTreeChange, full: bool, token: &Cancel) -> Result<String> {
-        if change.status.starts_with('U') { return Err("Resolve conflicts before reviewing this change".into()); }
-        let c=Change{path:change.path.clone(),old_path:change.old_path.clone(),status:change.status.clone(),area:Area::Unstaged};
-        self.patch_context(None,&c,full,true,token)
+    pub fn working_tree_patch(
+        &self,
+        change: &WorkingTreeChange,
+        full: bool,
+        token: &Cancel,
+    ) -> Result<String> {
+        if change.status.starts_with('U') {
+            return Err("Resolve conflicts before reviewing this change".into());
+        }
+        let c = Change {
+            path: change.path.clone(),
+            old_path: change.old_path.clone(),
+            status: change.status.clone(),
+            area: Area::Unstaged,
+        };
+        self.patch_context(None, &c, full, true, token)
     }
     pub fn patch(
         &self,
@@ -1397,14 +2178,42 @@ impl Repository {
         change: &Change,
         token: &Cancel,
     ) -> Result<String> {
-        self.patch_context(commit, change, false, change.area == Area::WorkingTree, token)
+        self.patch_context(
+            commit,
+            change,
+            false,
+            change.area == Area::WorkingTree,
+            token,
+        )
     }
     /// Full-file context for the editor-tab viewer, with the same output bound.
-    pub fn full_patch(&self, commit: Option<&Commit>, change: &Change, token: &Cancel) -> Result<String> {
-        self.patch_context(commit, change, true, change.area == Area::WorkingTree, token)
+    pub fn full_patch(
+        &self,
+        commit: Option<&Commit>,
+        change: &Change,
+        token: &Cancel,
+    ) -> Result<String> {
+        self.patch_context(
+            commit,
+            change,
+            true,
+            change.area == Area::WorkingTree,
+            token,
+        )
     }
-    fn patch_context(&self, commit: Option<&Commit>, change: &Change, full: bool, whole_worktree: bool, token: &Cancel) -> Result<String> {
-        let context = if full { "--unified=2147483647" } else { "--unified=20" };
+    fn patch_context(
+        &self,
+        commit: Option<&Commit>,
+        change: &Change,
+        full: bool,
+        whole_worktree: bool,
+        token: &Cancel,
+    ) -> Result<String> {
+        let context = if full {
+            "--unified=2147483647"
+        } else {
+            "--unified=20"
+        };
         if commit.is_some_and(|c| c.shallow_boundary) {
             return Err("Parent history is unavailable at this shallow boundary. Deepen the clone with your Git tool, then refresh.".into());
         }
@@ -1460,7 +2269,11 @@ impl Repository {
             }
             return utf8(bytes);
         }
-        let working_base=if whole_worktree {Some(self.working_tree_base(token)?)} else {None};
+        let working_base = if whole_worktree {
+            Some(self.working_tree_base(token)?)
+        } else {
+            None
+        };
         let mut args = vec![
             "diff",
             "--no-color",
@@ -1497,7 +2310,9 @@ impl Repository {
         } else if change.area == Area::Staged {
             args.push("--cached");
         }
-        if let Some(base)=&working_base { args.push(base); }
+        if let Some(base) = &working_base {
+            args.push(base);
+        }
         args.push("--");
         let mut args = args.iter().map(OsStr::new).collect::<Vec<_>>();
         args.push(change.path.as_os_str());
@@ -1507,44 +2322,76 @@ impl Repository {
         let mut patch = utf8(self.read(&args, token)?)?;
         // Git omits text for identical blobs (rename or executable-bit change).
         // The editor still needs both complete sides, as Rebased revision content does.
-        let metadata_only = !patch.lines().any(|l| l.starts_with("@@") || l.starts_with("index ") || l.starts_with("Binary "))
+        let metadata_only = !patch
+            .lines()
+            .any(|l| l.starts_with("@@") || l.starts_with("index ") || l.starts_with("Binary "))
             && (patch.lines().any(|l| l == "similarity index 100%")
                 || patch.lines().any(|l| l.starts_with("old mode 100")));
         if full && metadata_only {
-            let mut spec = std::ffi::OsString::from(working_base.as_deref().unwrap_or_else(||commit.map(|c| c.id.as_str()).unwrap_or("")));
+            let mut spec = std::ffi::OsString::from(
+                working_base
+                    .as_deref()
+                    .unwrap_or_else(|| commit.map(|c| c.id.as_str()).unwrap_or("")),
+            );
             spec.push(":");
-            spec.push(if whole_worktree {change.old_path.as_ref().unwrap_or(&change.path)} else {&change.path});
+            spec.push(if whole_worktree {
+                change.old_path.as_ref().unwrap_or(&change.path)
+            } else {
+                &change.path
+            });
             // cat-file requires a blob: never interpret trees or gitlinks as text.
             let bytes = self.read(&[OsStr::new("cat-file"), OsStr::new("blob"), &spec], token)?;
-            if bytes.contains(&0) { return Err("Binary file — text preview unavailable".into()); }
+            if bytes.contains(&0) {
+                return Err("Binary file — text preview unavailable".into());
+            }
             let content = utf8(bytes)?;
             if !content.is_empty() {
                 let count = content.split_inclusive('\n').count();
-                let required = patch.len().saturating_add(content.len()).saturating_add(count).saturating_add(1024);
-                if required > OUTPUT_LIMIT { return Err("Full file exceeds the preview output limit".into()); }
+                let required = patch
+                    .len()
+                    .saturating_add(content.len())
+                    .saturating_add(count)
+                    .saturating_add(1024);
+                if required > OUTPUT_LIMIT {
+                    return Err("Full file exceeds the preview output limit".into());
+                }
                 fn quoted(prefix: &str, path: &std::path::Path) -> Result<String> {
                     let path = path.to_str().ok_or("File path is not UTF-8")?;
                     let mut out = format!("\"{prefix}");
                     for b in path.bytes() {
                         match b {
-                            b'"' | b'\\' => { out.push('\\'); out.push(b as char); }
+                            b'"' | b'\\' => {
+                                out.push('\\');
+                                out.push(b as char);
+                            }
                             32..=126 => out.push(b as char),
                             _ => out.push_str(&format!("\\{b:03o}")),
                         }
                     }
-                    out.push('"'); Ok(out)
+                    out.push('"');
+                    Ok(out)
                 }
-                patch.push_str(&format!("--- {}\n+++ {}\n@@ -1,{count} +1,{count} @@\n",
-                    quoted("a/", change.old_path.as_deref().unwrap_or(&change.path))?, quoted("b/", &change.path)?));
+                patch.push_str(&format!(
+                    "--- {}\n+++ {}\n@@ -1,{count} +1,{count} @@\n",
+                    quoted("a/", change.old_path.as_deref().unwrap_or(&change.path))?,
+                    quoted("b/", &change.path)?
+                ));
                 for line in content.split_inclusive('\n') {
-                    if token.cancelled() { return Err("Cancelled".into()); }
-                    patch.push(' '); patch.push_str(line);
+                    if token.cancelled() {
+                        return Err("Cancelled".into());
+                    }
+                    patch.push(' ');
+                    patch.push_str(line);
                 }
-                if !content.ends_with('\n') { patch.push_str("\n\\ No newline at end of file\n"); }
+                if !content.ends_with('\n') {
+                    patch.push_str("\n\\ No newline at end of file\n");
+                }
             }
         }
-        if let Some(base)=working_base {
-            if self.working_tree_base(token)? != base {return Err("HEAD changed; refresh local changes".into());}
+        if let Some(base) = working_base {
+            if self.working_tree_base(token)? != base {
+                return Err("HEAD changed; refresh local changes".into());
+            }
         }
         Ok(patch)
     }
@@ -1669,20 +2516,20 @@ fn drain_diagnostics(mut pipe: impl Read, limit: usize) -> std::io::Result<Vec<u
     let mut buffer = [0; 8192];
     loop {
         let n = pipe.read(&mut buffer)?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         let keep = n.min(limit.saturating_sub(result.len()));
         result.extend_from_slice(&buffer[..keep]);
         truncated |= keep < n;
     }
-    if truncated { result.extend_from_slice(b"\n[Git diagnostics truncated]\n"); }
+    if truncated {
+        result.extend_from_slice(b"\n[Git diagnostics truncated]\n");
+    }
     Ok(result)
 }
 
-fn drain(
-    mut pipe: impl Read,
-    limit: usize,
-    overflow: Arc<AtomicBool>,
-) -> std::io::Result<Vec<u8>> {
+fn drain(mut pipe: impl Read, limit: usize, overflow: Arc<AtomicBool>) -> std::io::Result<Vec<u8>> {
     let mut result = Vec::new();
     let mut buf = [0; 8192];
     loop {
@@ -1706,7 +2553,14 @@ mod output_tests {
     #[test]
     fn verbose_stderr_does_not_claim_eight_mib_stdout_overflow() {
         let repo = Repository::new(std::env::temp_dir());
-        let output = repo.text(&["-c", "alias.plico-output-test=!head -c 70000 /dev/zero >&2; printf ok", "plico-output-test"], &Cancel::default());
+        let output = repo.text(
+            &[
+                "-c",
+                "alias.plico-output-test=!head -c 70000 /dev/zero >&2; printf ok",
+                "plico-output-test",
+            ],
+            &Cancel::default(),
+        );
         assert_eq!(output.unwrap(), "ok");
     }
 
@@ -1722,7 +2576,17 @@ mod output_tests {
     #[test]
     fn excessive_stdout_still_fails() {
         let repo = Repository::new(std::env::temp_dir());
-        assert!(repo.text(&["-c", "alias.plico-output-test=!head -c 9000000 /dev/zero", "plico-output-test"], &Cancel::default()).is_err());
+        assert!(
+            repo.text(
+                &[
+                    "-c",
+                    "alias.plico-output-test=!head -c 9000000 /dev/zero",
+                    "plico-output-test"
+                ],
+                &Cancel::default()
+            )
+            .is_err()
+        );
     }
 }
 
@@ -1732,10 +2596,23 @@ mod query_cancellation_tests {
     #[test]
     fn cancelled_query_closes_descendant_pipes_promptly() {
         struct Fixture(PathBuf);
-        impl Drop for Fixture { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
-        let dir = Fixture(std::env::temp_dir().join(format!("plico-query-cancel-{}", std::process::id())));
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = Fixture(
+            std::env::temp_dir().join(format!("plico-query-cancel-{}", std::process::id())),
+        );
         std::fs::create_dir_all(&dir.0).unwrap();
-        assert!(Command::new("git").args(["init", "-q"]).arg(&dir.0).status().unwrap().success());
+        assert!(
+            Command::new("git")
+                .args(["init", "-q"])
+                .arg(&dir.0)
+                .status()
+                .unwrap()
+                .success()
+        );
         let repo = Repository::new(&dir.0);
         let token = Cancel::default();
         let worker_token = token.clone();
@@ -1748,9 +2625,16 @@ mod query_cancellation_tests {
             worker_token.cancel();
         });
         let start = Instant::now();
-        let result = repo.text(&["-c", "alias.slow=!echo ready > ready; sleep 3", "slow"], &token);
+        let result = repo.text(
+            &["-c", "alias.slow=!echo ready > ready; sleep 3", "slow"],
+            &token,
+        );
         cancel.join().unwrap();
         assert_eq!(result.unwrap_err(), "Cancelled");
-        assert!(start.elapsed() < Duration::from_secs(2), "descendant kept query pipes open: {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "descendant kept query pipes open: {:?}",
+            start.elapsed()
+        );
     }
 }

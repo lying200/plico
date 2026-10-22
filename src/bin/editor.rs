@@ -9,6 +9,9 @@ fn main() {
     };
     match result {
         Ok(code) => std::process::exit(code),
-        Err(_) => { eprintln!("Git editor request failed"); std::process::exit(1); }
+        Err(_) => {
+            eprintln!("Git editor request failed");
+            std::process::exit(1);
+        }
     }
 }

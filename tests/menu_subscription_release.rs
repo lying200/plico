@@ -19,20 +19,30 @@ fn closed_menu_releases_observer_without_another_owner_notification(cx: &mut gpu
     cx.update(|cx| {
         cx.open_window(Default::default(), |window, cx| {
             let lifetime = Lifetime(released.clone());
-            menu = Some(gpui::component::menu::PopupMenu::build(window, cx, |menu, _, cx| {
-                let subscription = cx.observe(&owner, move |_, _, _| {
-                    let _ = &lifetime;
-                });
-                menu.with_subscription(subscription)
-            }));
+            menu = Some(gpui::component::menu::PopupMenu::build(
+                window,
+                cx,
+                |menu, _, cx| {
+                    let subscription = cx.observe(&owner, move |_, _, _| {
+                        let _ = &lifetime;
+                    });
+                    menu.with_subscription(subscription)
+                },
+            ));
             cx.new(|_| gpui::Empty)
-        }).unwrap()
+        })
+        .unwrap()
     });
     assert!(!released.get());
     cx.update(|_| drop(menu.take()));
     cx.run_until_parked();
-    assert!(released.get(), "closed popup retained its observer callback");
+    assert!(
+        released.get(),
+        "closed popup retained its observer callback"
+    );
     // Keep the observed owner alive: its next notification must not be needed
     // to unregister the closed menu's callback.
-    cx.update(|cx| { owner.read(cx); });
+    cx.update(|cx| {
+        owner.read(cx);
+    });
 }

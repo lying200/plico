@@ -25,14 +25,38 @@ pub fn visible_rows(branches: &[Branch], collapsed: &HashSet<String>) -> Vec<Row
 /// Search full display paths without changing saved expansion state. Matching
 /// descendants remain visible even when their folders were previously closed.
 pub fn filtered_rows(branches: &[Branch], collapsed: &HashSet<String>, query: &str) -> Vec<Row> {
-    ref_rows(branches.iter().map(|r| r.name.as_str()), collapsed, query, None)
+    ref_rows(
+        branches.iter().map(|r| r.name.as_str()),
+        collapsed,
+        query,
+        None,
+    )
 }
 
-pub fn filtered_ref_rows(branches: &[Branch], tags: &[Tag], collapsed: &HashSet<String>, query: &str, current: Option<&str>) -> Vec<Row> {
-    ref_rows(branches.iter().map(|r| r.name.as_str()).chain(tags.iter().map(|r| r.name.as_str())), collapsed, query, current)
+pub fn filtered_ref_rows(
+    branches: &[Branch],
+    tags: &[Tag],
+    collapsed: &HashSet<String>,
+    query: &str,
+    current: Option<&str>,
+) -> Vec<Row> {
+    ref_rows(
+        branches
+            .iter()
+            .map(|r| r.name.as_str())
+            .chain(tags.iter().map(|r| r.name.as_str())),
+        collapsed,
+        query,
+        current,
+    )
 }
 
-fn ref_rows<'a>(refs: impl Iterator<Item = &'a str> + Clone, collapsed: &HashSet<String>, query: &str, current: Option<&str>) -> Vec<Row> {
+fn ref_rows<'a>(
+    refs: impl Iterator<Item = &'a str> + Clone,
+    collapsed: &HashSet<String>,
+    query: &str,
+    current: Option<&str>,
+) -> Vec<Row> {
     let query = query.trim().to_lowercase();
     let expanded = HashSet::new();
     let collapsed = if query.is_empty() {
@@ -41,7 +65,11 @@ fn ref_rows<'a>(refs: impl Iterator<Item = &'a str> + Clone, collapsed: &HashSet
         &expanded
     };
     let mut rows = Vec::new();
-    for (prefix, label) in [("refs/heads", "Local"), ("refs/remotes", "Remote"), ("refs/tags", "Tags")] {
+    for (prefix, label) in [
+        ("refs/heads", "Local"),
+        ("refs/remotes", "Remote"),
+        ("refs/tags", "Tags"),
+    ] {
         let mut root = Node::default();
         for name in refs.clone() {
             let Some(path) = name.strip_prefix(&format!("{prefix}/")) else {
@@ -83,10 +111,24 @@ fn flatten(
     if expanded {
         let mut children: Vec<_> = node.children.iter().collect();
         // Rebased: current ref, then folders, then other refs; natural names within each group.
-        let weight = |node: &Node| if node.branch.as_deref().is_some_and(|name| Some(name) == current) { 0 }
-            else if node.branch.is_none() { 3 } else { 4 };
-        children.sort_by(|(a, left), (b, right)| weight(left).cmp(&weight(right))
-            .then_with(|| crate::natural_order::compare(a, b)));
+        let weight = |node: &Node| {
+            if node
+                .branch
+                .as_deref()
+                .is_some_and(|name| Some(name) == current)
+            {
+                0
+            } else if node.branch.is_none() {
+                3
+            } else {
+                4
+            }
+        };
+        children.sort_by(|(a, left), (b, right)| {
+            weight(left)
+                .cmp(&weight(right))
+                .then_with(|| crate::natural_order::compare(a, b))
+        });
         for (name, child) in children {
             flatten(
                 child,
@@ -191,17 +233,49 @@ mod ref_tree_tests {
     use super::*;
     #[test]
     fn tags_and_current_branch_sort_without_empty_groups() {
-        let branches = ["refs/heads/z-current", "refs/heads/v10", "refs/heads/v2", "refs/heads/release/work"]
-            .map(|name| Branch { name: name.into(), id: String::new() });
-        let tags = ["refs/tags/release/v10", "refs/tags/release/v2"]
-            .map(|name| Tag { name: name.into(), id: String::new() });
+        let branches = [
+            "refs/heads/z-current",
+            "refs/heads/v10",
+            "refs/heads/v2",
+            "refs/heads/release/work",
+        ]
+        .map(|name| Branch {
+            name: name.into(),
+            id: String::new(),
+        });
+        let tags = ["refs/tags/release/v10", "refs/tags/release/v2"].map(|name| Tag {
+            name: name.into(),
+            id: String::new(),
+        });
         let collapsed = HashSet::from(["refs/heads/release".into()]);
-        let rows = filtered_ref_rows(&branches, &tags, &collapsed, "", Some("refs/heads/z-current"));
+        let rows = filtered_ref_rows(
+            &branches,
+            &tags,
+            &collapsed,
+            "",
+            Some("refs/heads/z-current"),
+        );
         assert!(!rows.iter().any(|r| r.key == "refs/remotes"));
-        assert_eq!(rows.iter().filter_map(|r| r.branch.as_deref()).collect::<Vec<_>>(),
-            ["refs/heads/z-current", "refs/heads/v2", "refs/heads/v10", "refs/tags/release/v2", "refs/tags/release/v10"]);
+        assert_eq!(
+            rows.iter()
+                .filter_map(|r| r.branch.as_deref())
+                .collect::<Vec<_>>(),
+            [
+                "refs/heads/z-current",
+                "refs/heads/v2",
+                "refs/heads/v10",
+                "refs/tags/release/v2",
+                "refs/tags/release/v10"
+            ]
+        );
         let searched = filtered_ref_rows(&branches, &tags, &collapsed, "release/v10", None);
-        assert_eq!(searched.iter().filter_map(|r| r.branch.as_deref()).collect::<Vec<_>>(), ["refs/tags/release/v10"]);
+        assert_eq!(
+            searched
+                .iter()
+                .filter_map(|r| r.branch.as_deref())
+                .collect::<Vec<_>>(),
+            ["refs/tags/release/v10"]
+        );
         assert!(filtered_ref_rows(&[], &[], &HashSet::new(), "", None).is_empty());
     }
 }

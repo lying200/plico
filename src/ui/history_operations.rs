@@ -744,14 +744,24 @@ impl Review {
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
-                    let candidate = pending.filter(|p| matches!(action, plico::merge_operation::Action::Commit)
-                        && p.matches_pending_merge(&repo, &token).unwrap_or(false));
-                    let result = plico::merge_operation::execute(&repo, action, &token, &Default::default());
-                    let completed = result.as_ref().is_ok_and(|r|
-                        r.command.as_ref().is_ok_and(|o| o.status.success() && o.stopped.is_none() && o.input_error.is_none())
-                        && r.state.as_ref().is_ok_and(|s| !s.in_progress() && s.conflicts.is_empty())
-                        && r.restore.as_ref().is_none_or(|r| r.is_ok()));
-                    let proposal = candidate.filter(|p| completed && p.prepare_deletion(&repo, &Cancel::default()).is_ok());
+                    let candidate = pending.filter(|p| {
+                        matches!(action, plico::merge_operation::Action::Commit)
+                            && p.matches_pending_merge(&repo, &token).unwrap_or(false)
+                    });
+                    let result =
+                        plico::merge_operation::execute(&repo, action, &token, &Default::default());
+                    let completed = result.as_ref().is_ok_and(|r| {
+                        r.command.as_ref().is_ok_and(|o| {
+                            o.status.success() && o.stopped.is_none() && o.input_error.is_none()
+                        }) && r
+                            .state
+                            .as_ref()
+                            .is_ok_and(|s| !s.in_progress() && s.conflicts.is_empty())
+                            && r.restore.as_ref().is_none_or(|r| r.is_ok())
+                    });
+                    let proposal = candidate.filter(|p| {
+                        completed && p.prepare_deletion(&repo, &Cancel::default()).is_ok()
+                    });
                     (result, proposal)
                 })
                 .await;
@@ -761,23 +771,36 @@ impl Review {
                         return;
                     };
                     let (result, proposal) = result;
-                    if !cancelled { s.merged_branch = proposal; }
-                    if result.as_ref().is_ok_and(|r| r.state.as_ref().is_ok_and(|s| !s.in_progress())) {
+                    if !cancelled {
+                        s.merged_branch = proposal;
+                    }
+                    if result
+                        .as_ref()
+                        .is_ok_and(|r| r.state.as_ref().is_ok_and(|s| !s.in_progress()))
+                    {
                         s.pending_branch_merge = None;
                     }
-                    let restore_error=result.as_ref().ok().and_then(|r|r.restore.as_ref()).and_then(|r|r.as_ref().err()).cloned();
-                    let command_error=plico::merge_operation::diagnostic(&result);
+                    let restore_error = result
+                        .as_ref()
+                        .ok()
+                        .and_then(|r| r.restore.as_ref())
+                        .and_then(|r| r.as_ref().err())
+                        .cloned();
+                    let command_error = plico::merge_operation::diagnostic(&result);
                     let message = if cancelled {
                         "Merge operation cancelled"
                     } else {
                         match result {
-                            Ok(_) if restore_error.is_some() => "Merge completed; saved changes require attention",
+                            Ok(_) if restore_error.is_some() => {
+                                "Merge completed; saved changes require attention"
+                            }
                             Ok(result) => match (result.command, result.state) {
                                 (Ok(outcome), Ok(state))
                                     if outcome.status.success()
                                         && outcome.stopped.is_none()
                                         && outcome.input_error.is_none()
-                                        && !state.in_progress() && state.conflicts.is_empty() =>
+                                        && !state.in_progress()
+                                        && state.conflicts.is_empty() =>
                                 {
                                     match action {
                                         plico::merge_operation::Action::Commit => "Merge completed",
@@ -791,9 +814,18 @@ impl Review {
                     };
                     s.operation_state = None;
                     s.status_message = Some(t(message).into());
-                    s.sync_worktree(plico::worktree_events::Batch {all:true,index:true,..Default::default()},true,w,cx);
-                    if let Some(error)=command_error {
-                        crate::error_ui::show_details(error,"Merge requires attention",w,cx);
+                    s.sync_worktree(
+                        plico::worktree_events::Batch {
+                            all: true,
+                            index: true,
+                            ..Default::default()
+                        },
+                        true,
+                        w,
+                        cx,
+                    );
+                    if let Some(error) = command_error {
+                        crate::error_ui::show_details(error, "Merge requires attention", w, cx);
                     }
                     s.user_menu.update(cx, |menu, cx| menu.refresh(cx));
                     s.refresh_impl(false, true, None, cx);

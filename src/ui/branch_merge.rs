@@ -156,8 +156,13 @@ impl Review {
                         match result {
                             Err(error) => {
                                 s.status_message = Some(t("Merge requires attention").into());
-                                crate::error_ui::show_details(error, "Merge requires attention", w, cx);
-                            },
+                                crate::error_ui::show_details(
+                                    error,
+                                    "Merge requires attention",
+                                    w,
+                                    cx,
+                                );
+                            }
                             Ok((prepared, report)) => {
                                 s.status_message = Some(
                                     t(if cancelled {
@@ -180,11 +185,19 @@ impl Review {
                                         &oid[..8]
                                     ));
                                 }
-                                if !cancelled && matches!(report.status, Status::Success | Status::AlreadyUpToDate)
-                                    && report.saved_oid.is_none() && prepared.may_propose_delete() {
+                                if !cancelled
+                                    && matches!(
+                                        report.status,
+                                        Status::Success | Status::AlreadyUpToDate
+                                    )
+                                    && report.saved_oid.is_none()
+                                    && prepared.may_propose_delete()
+                                {
                                     s.merged_branch = Some(prepared.clone());
                                 }
-                                if report.status == Status::Conflicts && prepared.may_propose_delete() {
+                                if report.status == Status::Conflicts
+                                    && prepared.may_propose_delete()
+                                {
                                     s.pending_branch_merge = Some(prepared.clone());
                                 }
                                 if !cancelled && report.status == Status::LocalChanges {

@@ -1,6 +1,5 @@
 //! Compact read-failure feedback; full diagnostics live in a bounded dialog.
 //! Rebased source rules and local adaptations: docs/REBASED-REFERENCE.md.
-use plico::{git_error, i18n::t};
 use gpui_kit::component::{
     Disableable as _, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
@@ -10,6 +9,7 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
+use plico::{git_error, i18n::t};
 
 pub fn details_button(id: &'static str, error: String) -> Button {
     Button::new(SharedString::from(format!("{id}-details")))

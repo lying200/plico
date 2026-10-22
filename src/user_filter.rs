@@ -1,6 +1,9 @@
 //! User filter values follow Rebased's MultilinePopupBuilder and
 //! VcsLogUserFilterImpl. Draft text is separate from committed selection.
-use crate::{authors::Catalog, git::{Author, Cancel, Repository, Result}};
+use crate::{
+    authors::Catalog,
+    git::{Author, Cancel, Repository, Result},
+};
 use std::collections::HashSet;
 
 /// Rebased TextCompletionProviderBase.getPrefix: start after the most recent
@@ -17,24 +20,39 @@ pub fn completion_range(text: &str, caret: usize) -> Option<std::ops::Range<usiz
 /// one character into multiple matching characters (ß must not match "ss").
 pub fn completion_matches(name: &str, prefix: &str) -> bool {
     fn upper(unit: u16) -> u16 {
-        let Some(ch) = char::from_u32(unit as u32) else { return unit; };
+        let Some(ch) = char::from_u32(unit as u32) else {
+            return unit;
+        };
         let mut mapped = ch.to_uppercase();
         let first = mapped.next().unwrap();
-        if mapped.next().is_none() && first.len_utf16() == 1 { first as u16 } else { unit }
+        if mapped.next().is_none() && first.len_utf16() == 1 {
+            first as u16
+        } else {
+            unit
+        }
     }
     fn lower(unit: u16) -> u16 {
-        let Some(ch) = char::from_u32(unit as u32) else { return unit; };
+        let Some(ch) = char::from_u32(unit as u32) else {
+            return unit;
+        };
         // Unicode simple lower mapping for U+0130 is 'i'; Rust's full lower
         // mapping additionally emits combining dot above.
-        ch.to_lowercase().next().filter(|c| c.len_utf16() == 1).map_or(unit, |c| c as u16)
+        ch.to_lowercase()
+            .next()
+            .filter(|c| c.len_utf16() == 1)
+            .map_or(unit, |c| c as u16)
     }
-    if prefix.is_empty() { return true; }
+    if prefix.is_empty() {
+        return true;
+    }
     name.char_indices().any(|(offset, _)| {
         let mut tail = name[offset..].encode_utf16();
-        prefix.encode_utf16().all(|b| tail.next().is_some_and(|a| {
-            let (a_upper, b_upper) = (upper(a), upper(b));
-            a == b || a_upper == b_upper || lower(a_upper) == lower(b_upper)
-        }))
+        prefix.encode_utf16().all(|b| {
+            tail.next().is_some_and(|a| {
+                let (a_upper, b_upper) = (upper(a), upper(b));
+                a == b || a_upper == b_upper || lower(a_upper) == lower(b_upper)
+            })
+        })
     })
 }
 
@@ -46,26 +64,47 @@ impl Selection {
     /// Empty confirmation clears the filter. Commas and spaces inside names
     /// are literal; only pipe and newline delimit values, as in Rebased.
     pub fn parse(text: &str) -> Result<Self> {
-        if text.len() > 64 * 1024 { return Err("User filter text exceeds 64 KiB".into()); }
-        let values = text.split(['|', '\n'])
+        if text.len() > 64 * 1024 {
+            return Err("User filter text exceeds 64 KiB".into());
+        }
+        let values = text
+            .split(['|', '\n'])
             .map(|value| value.trim_matches(|c: char| c <= '\u{20}'))
-            .filter(|value| !value.is_empty()).map(str::to_owned).collect::<Vec<_>>();
-        if values.len() > 256 { return Err("Select at most 256 user names".into()); }
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if values.len() > 256 {
+            return Err("Select at most 256 user names".into());
+        }
         Ok(Self { values })
     }
-    pub fn values(&self) -> &[String] { &self.values }
-    pub fn is_empty(&self) -> bool { self.values.is_empty() }
-    pub fn draft(&self) -> String { self.values.join("\n") }
+    pub fn values(&self) -> &[String] {
+        &self.values
+    }
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+    pub fn draft(&self) -> String {
+        self.values.join("\n")
+    }
     pub fn resolve(&self, directory: &Directory) -> Option<Vec<Author>> {
-        if self.is_empty() { return None; }
+        if self.is_empty() {
+            return None;
+        }
         let mut seen = HashSet::new();
         let mut result = Vec::new();
         for value in &self.values {
             let users = if value == "me" {
-                directory.catalog.resolve_current(directory.current.as_ref())
-            } else { directory.catalog.resolve_name(value) };
+                directory
+                    .catalog
+                    .resolve_current(directory.current.as_ref())
+            } else {
+                directory.catalog.resolve_name(value)
+            };
             for user in users {
-                if seen.insert(user.clone()) { result.push(user); }
+                if seen.insert(user.clone()) {
+                    result.push(user);
+                }
             }
         }
         // Some(empty) intentionally remains an active filter with no matches.
@@ -85,7 +124,11 @@ impl Directory {
         let roots = repo.snapshot(None, 1, None, token)?.tips;
         let current = repo.current_author(token)?;
         let catalog = repo.author_catalog(&roots, token)?;
-        Ok(Self { catalog, current, roots })
+        Ok(Self {
+            catalog,
+            current,
+            roots,
+        })
     }
 }
 
@@ -130,20 +173,39 @@ mod tests {
         assert_eq!(Selection::parse(&selection.draft()).unwrap(), selection);
         assert!(Selection::parse(" \n|\r\t").unwrap().is_empty());
         // Java String.trim does not remove non-breaking spaces.
-        assert_eq!(Selection::parse("\u{a0}Name\u{a0}").unwrap().values(), &["\u{a0}Name\u{a0}"]);
+        assert_eq!(
+            Selection::parse("\u{a0}Name\u{a0}").unwrap().values(),
+            &["\u{a0}Name\u{a0}"]
+        );
         assert!(Selection::parse(&"a|".repeat(257)).is_err());
         assert!(Selection::parse(&"a".repeat(65_537)).is_err());
     }
     #[test]
     fn union_me_and_names_deduplicates_without_clearing_unknown_names() {
-        let alice = Author { name: "Alice Chen".into(), email: "alice@example.invalid".into() };
-        let bob = Author { name: "Bob, Jr.".into(), email: "bob@example.invalid".into() };
-        let mut directory = Directory { catalog: Catalog::new([alice.clone(), bob.clone()]), current: Some(alice.clone()), roots: vec![] };
+        let alice = Author {
+            name: "Alice Chen".into(),
+            email: "alice@example.invalid".into(),
+        };
+        let bob = Author {
+            name: "Bob, Jr.".into(),
+            email: "bob@example.invalid".into(),
+        };
+        let mut directory = Directory {
+            catalog: Catalog::new([alice.clone(), bob.clone()]),
+            current: Some(alice.clone()),
+            roots: vec![],
+        };
         let selection = Selection::parse("me|Alice.Chen|Bob, Jr.|me").unwrap();
         assert_eq!(selection.resolve(&directory), Some(vec![alice, bob]));
-        assert_eq!(Selection::parse("Unknown").unwrap().resolve(&directory), Some(vec![]));
+        assert_eq!(
+            Selection::parse("Unknown").unwrap().resolve(&directory),
+            Some(vec![])
+        );
         assert_eq!(Selection::default().resolve(&directory), None);
         directory.current = None;
-        assert_eq!(Selection::parse("me").unwrap().resolve(&directory), Some(vec![]));
+        assert_eq!(
+            Selection::parse("me").unwrap().resolve(&directory),
+            Some(vec![])
+        );
     }
 }

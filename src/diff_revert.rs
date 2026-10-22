@@ -2,11 +2,18 @@
 //! separators belong to their preceding source line, just like DiffFile.
 use std::ops::Range;
 
-pub fn replacement(old: &str, current: &str, a: Range<usize>, b: Range<usize>) -> Option<(Range<usize>, String)> {
+pub fn replacement(
+    old: &str,
+    current: &str,
+    a: Range<usize>,
+    b: Range<usize>,
+) -> Option<(Range<usize>, String)> {
     fn offsets(text: &str) -> Vec<usize> {
         let mut offsets = vec![0];
         offsets.extend(text.match_indices('\n').map(|(i, _)| i + 1));
-        if offsets.last().copied() != Some(text.len()) { offsets.push(text.len()); }
+        if offsets.last().copied() != Some(text.len()) {
+            offsets.push(text.len());
+        }
         offsets
     }
     let old_offsets = offsets(old);
@@ -15,11 +22,20 @@ pub fn replacement(old: &str, current: &str, a: Range<usize>, b: Range<usize>) -
     let mut target = *current_offsets.get(b.start)?..*current_offsets.get(b.end)?;
     let mut text = old.get(source)?.to_owned();
     // Inserting after a last line without a separator must start a new line.
-    if target.is_empty() && target.start > 0 && !current[..target.start].ends_with('\n') && !text.is_empty() {
+    if target.is_empty()
+        && target.start > 0
+        && !current[..target.start].ends_with('\n')
+        && !text.is_empty()
+    {
         text.insert(0, '\n');
     }
-    if text.is_empty() && !target.is_empty() && target.end == current.len()
-        && target.start > 0 && !old.ends_with('\n') && current[..target.start].ends_with('\n') {
+    if text.is_empty()
+        && !target.is_empty()
+        && target.end == current.len()
+        && target.start > 0
+        && !old.ends_with('\n')
+        && current[..target.start].ends_with('\n')
+    {
         target.start -= 1;
     }
     Some((target, text))
@@ -41,7 +57,8 @@ mod tests {
             ("a\n", "a\nb\n", 1..1, 1..2, "a\n"),
         ] {
             let (range, text) = replacement(old, current, a, b).unwrap();
-            let mut result = current.to_owned(); result.replace_range(range, &text);
+            let mut result = current.to_owned();
+            result.replace_range(range, &text);
             assert_eq!(result, expected);
         }
         assert!(replacement("a", "b", 0..9, 0..1).is_none());

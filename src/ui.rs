@@ -1,37 +1,37 @@
 //! Application window, shared state, construction and top-level composition.
-mod checkout;
-mod conflicts;
-mod external_conflicts;
-mod sequencer;
+mod auto_refresh;
 mod branch_management;
 mod branch_merge;
-mod merge_recovery;
-mod revert_recovery;
-mod revert_saved;
-mod reference_checkout;
+mod checkout;
 mod chrome;
-mod tool_rail;
+mod clone;
+mod conflicts;
 mod editor_tabs;
+mod external_conflicts;
 mod files;
 mod files_options;
 mod history_operations;
+mod identity;
 mod log_branches;
 mod log_history;
-mod log_viewport;
 mod log_selection;
+mod log_viewport;
+mod merge_recovery;
 mod operation;
-mod identity;
-mod remote_management;
-mod clone;
 mod preview;
+mod reference_checkout;
 mod remote;
+mod remote_management;
 mod repository;
-mod auto_refresh;
-mod worktree_sync;
-mod reword;
 mod repository_popup;
+mod revert_recovery;
+mod revert_saved;
+mod reword;
 mod saved_changes;
+mod sequencer;
 mod settings;
+mod tool_rail;
+mod worktree_sync;
 
 use crate::diff_tab::DiffTab;
 use crate::{ui_actions::*, ui_graph::*, ui_style::*};
@@ -617,7 +617,9 @@ impl Render for Review {
             && self.active_diff_index().is_none()
             && self.active_file_index().is_none();
         if !show_local_preview {
-            if let Some(preview) = self.local_preview.take() { preview.update(cx, |p, cx| p.deactivate(cx)); }
+            if let Some(preview) = self.local_preview.take() {
+                preview.update(cx, |p, cx| p.deactivate(cx));
+            }
         } else if self.stash_open {
             if let Some(view) = &self.stash_view {
                 if !view.read(cx).preview_loading() {
@@ -635,7 +637,7 @@ impl Render for Review {
                                     p
                                 });
                                 self.subscribe_diff_navigation(&preview, cx);
-                    let callback = self.diff_source_callback(cx);
+                                let callback = self.diff_source_callback(cx);
                                 preview.update(cx, |p, cx| {
                                     p.source_callback = Some(callback);
                                     p.activate_with_focus(false, _window, cx);
@@ -650,7 +652,11 @@ impl Render for Review {
                 }
             }
         } else if !self.uses_local_changes_preview() {
-            let pair = if self.busy { None } else { self.log_preview_target(cx) };
+            let pair = if self.busy {
+                None
+            } else {
+                self.log_preview_target(cx)
+            };
             if let Some((target, chain)) = pair {
                 if !self
                     .local_preview
@@ -705,11 +711,11 @@ impl Render for Review {
                                 });
                                 preview
                             } else {
-                                let scope=view.scope.clone();
+                                let scope = view.scope.clone();
                                 let preview = cx.new(|_| {
                                     let mut p = DiffTab::preview(target, chain);
                                     p.documents = self.documents.clone();
-                                    p.commit_scope=Some(scope);
+                                    p.commit_scope = Some(scope);
                                     p.snapshot_revision = revision;
                                     p
                                 });

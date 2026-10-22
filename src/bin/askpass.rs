@@ -1,5 +1,6 @@
 fn main() {
-    let result = std::env::args().nth(1)
+    let result = std::env::args()
+        .nth(1)
         .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))
         .and_then(|prompt| plico::askpass::helper(&prompt));
     match result {

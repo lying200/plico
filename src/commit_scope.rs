@@ -16,10 +16,13 @@ pub struct Scope {
 }
 impl Scope {
     pub fn replace(&mut self, snapshot: &plico::commit_changes::Snapshot, cx: &mut Context<Self>) {
-        if self.head != snapshot.head { self.partial.clear(); }
-        self.head=snapshot.head.clone();
+        if self.head != snapshot.head {
+            self.partial.clear();
+        }
+        self.head = snapshot.head.clone();
         self.inclusion.replace(snapshot);
-        self.partial.retain(|path, _| snapshot.files.iter().any(|f| Identity::of(f).path == *path));
+        self.partial
+            .retain(|path, _| snapshot.files.iter().any(|f| Identity::of(f).path == *path));
         cx.notify();
     }
     pub fn set_scope(&mut self, ids: &HashSet<Identity>, checked: bool, cx: &mut Context<Self>) {
@@ -59,7 +62,10 @@ impl Scope {
     pub fn change(&mut self, id: &Identity, selection: Selection, cx: &mut Context<Self>) {
         let (n, t) = selection.counts();
         self.inclusion.set(id, n > 0);
-        let split=selection.included.iter().any(|s|matches!(s,plico::partial_selection::Included::Lines{..}));
+        let split = selection
+            .included
+            .iter()
+            .any(|s| matches!(s, plico::partial_selection::Included::Lines { .. }));
         if !split && (n == 0 || n == t) {
             self.partial.remove(&id.path);
         } else {
@@ -127,11 +133,14 @@ mod tests {
             scope.update(cx, |s, cx| s.change(&id, selected, cx));
             assert_eq!(scope.read(cx).counts(&[id.clone()].into()), (1, 2));
             assert_eq!(scope.read(cx).inclusion.count(), 1);
-            let mut none=scope.read(cx).partial[&id.path].selection.clone();
-            none.set_lines(true,0..1,false);
-            scope.update(cx,|s,cx|s.change(&id,none,cx));
-            assert_eq!(scope.read(cx).inclusion.count(),0);
-            assert!(scope.read(cx).partial.contains_key(&id.path),"unchecking the last line must keep split-line controls");
+            let mut none = scope.read(cx).partial[&id.path].selection.clone();
+            none.set_lines(true, 0..1, false);
+            scope.update(cx, |s, cx| s.change(&id, none, cx));
+            assert_eq!(scope.read(cx).inclusion.count(), 0);
+            assert!(
+                scope.read(cx).partial.contains_key(&id.path),
+                "unchecking the last line must keep split-line controls"
+            );
 
             scope.update(cx, |s, cx| {
                 s.invalidate(&id.path, "a\nkeep\nb\n", "new text", cx)

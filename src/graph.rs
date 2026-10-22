@@ -1,6 +1,10 @@
 //! Incremental lane layout: every edge connects a commit to an actual parent.
 use crate::git::Commit;
-use std::{collections::HashMap, hash::{Hash, Hasher}, sync::Arc};
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 /// Immutable geometry for one half-edge. Product layout is capped at 512
 /// lanes; compact coordinates are checked, never truncated. Color remains a
 /// full identity across paged windows, independent of the renderer's palette.
@@ -12,26 +16,51 @@ pub struct Segment {
     flags: u8,
 }
 impl Segment {
-    pub(crate) fn new(from: usize, to: usize, color: usize, upper: bool, full: bool, dotted: bool, adjacent: bool, arrow: bool) -> Self {
+    pub(crate) fn new(
+        from: usize,
+        to: usize,
+        color: usize,
+        upper: bool,
+        full: bool,
+        dotted: bool,
+        adjacent: bool,
+        arrow: bool,
+    ) -> Self {
         Self {
             from: u16::try_from(from).expect("graph coordinate exceeds compact storage"),
             to: u16::try_from(to).expect("graph coordinate exceeds compact storage"),
             color,
-            flags: (upper as u8) | ((full as u8) << 1) | ((dotted as u8) << 2)
-                | ((adjacent as u8) << 3) | ((arrow as u8) << 4),
+            flags: (upper as u8)
+                | ((full as u8) << 1)
+                | ((dotted as u8) << 2)
+                | ((adjacent as u8) << 3)
+                | ((arrow as u8) << 4),
         }
     }
-    pub fn from(&self) -> usize { self.from as usize }
-    pub fn to(&self) -> usize { self.to as usize }
-    pub fn upper(&self) -> bool { self.flags & 1 != 0 }
+    pub fn from(&self) -> usize {
+        self.from as usize
+    }
+    pub fn to(&self) -> usize {
+        self.to as usize
+    }
+    pub fn upper(&self) -> bool {
+        self.flags & 1 != 0
+    }
     /// Whole-row continuation, equivalent to both upper/lower halves.
-    pub fn full(&self) -> bool { self.flags & 2 != 0 }
-    pub fn dotted(&self) -> bool { self.flags & 4 != 0 }
+    pub fn full(&self) -> bool {
+        self.flags & 2 != 0
+    }
+    pub fn dotted(&self) -> bool {
+        self.flags & 4 != 0
+    }
     /// Adjacent row centers are joined, clipped to this row.
-    pub fn adjacent(&self) -> bool { self.flags & 8 != 0 }
+    pub fn adjacent(&self) -> bool {
+        self.flags & 8 != 0
+    }
     /// Arrow at the outer end of this half-edge, including terminal stubs.
-    pub fn arrow(&self) -> bool { self.flags & 16 != 0 }
-
+    pub fn arrow(&self) -> bool {
+        self.flags & 16 != 0
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Row {
@@ -46,7 +75,9 @@ pub struct Row {
 impl Row {
     pub fn arrow_target(&self, segment: usize) -> Option<usize> {
         let targets = self.arrow_targets.as_deref()?;
-        let index = targets.binary_search_by_key(&segment, |&(index, _)| index as usize).ok()?;
+        let index = targets
+            .binary_search_by_key(&segment, |&(index, _)| index as usize)
+            .ok()?;
         Some(targets[index].1 as usize)
     }
 }
@@ -66,20 +97,38 @@ pub fn arrow_at(row: &Row, x: f32, y: f32) -> Option<ArrowHit> {
 
 /// Hit geometry uses the same row height as the caller's graph painter.
 pub fn arrow_at_height(row: &Row, x: f32, y: f32, height: f32) -> Option<ArrowHit> {
-    if !height.is_finite() || height <= 0. { return None; }
+    if !height.is_finite() || height <= 0. {
+        return None;
+    }
     let center = height / 2.;
-    if !(0. ..height).contains(&y) || !x.is_finite() { return None; }
-    if (x - (8. + row.node as f32 * 16.)).hypot(y - center) <= 4. { return None; }
+    if !(0. ..height).contains(&y) || !x.is_finite() {
+        return None;
+    }
+    if (x - (8. + row.node as f32 * 16.)).hypot(y - center) <= 4. {
+        return None;
+    }
     for (index, edge) in row.segments.iter().enumerate() {
         let current = if edge.upper() { edge.to() } else { edge.from() };
         let other = if edge.upper() { edge.from() } else { edge.to() };
         let (x1, y1) = (8. + current as f32 * 16., center);
-        let (x2, y2) = (8. + other as f32 * 16., if edge.upper() { -center } else { height + center });
+        let (x2, y2) = (
+            8. + other as f32 * 16.,
+            if edge.upper() {
+                -center
+            } else {
+                height + center
+            },
+        );
         if (x1 - x).hypot(y1 - y) + (x2 - x).hypot(y2 - y) < (x1 - x2).hypot(y1 - y2) + 1.5 {
-            return edge.arrow().then(|| ArrowHit { segment: index, target: row.arrow_target(index) });
+            return edge.arrow().then(|| ArrowHit {
+                segment: index,
+                target: row.arrow_target(index),
+            });
         }
         // Raw full segments represent both halves, and are never arrows.
-        if edge.full() && (x - x1).abs() < 1.5 && y >= center { return None; }
+        if edge.full() && (x - x1).abs() < 1.5 && y >= center {
+            return None;
+        }
     }
     None
 }
@@ -91,7 +140,9 @@ pub fn text_offset_columns(row: &Row, recommended_width: usize) -> f32 {
     let mut last = row.node as f32;
     for edge in row.segments.iter() {
         let current = if edge.upper() { edge.to() } else { edge.from() } as f32;
-        last = last.max(current).max((edge.from() as f32 + edge.to() as f32) / 2.);
+        last = last
+            .max(current)
+            .max((edge.from() as f32 + edge.to() as f32) / 2.);
     }
     (last + 1.).max(recommended_width.min(6) as f32)
 }
@@ -114,7 +165,9 @@ impl GeometryPool {
             return true;
         }
         let stored = self.stored.saturating_add(row.segments.len());
-        if stored > max_segments { return false; }
+        if stored > max_segments {
+            return false;
+        }
         self.stored = stored;
         bucket.push(row.segments.clone());
         true
@@ -191,16 +244,29 @@ impl Layout {
                 // Preserve the exact two halves, but store/draw one path when
                 // their geometry and style form a continuous vertical edge.
                 if from == to && *dotted == self.lanes[to].2 {
-                    segments.push(Segment::new(from, to, *c, true, true, *dotted, false, false));
+                    segments.push(Segment::new(
+                        from, to, *c, true, true, *dotted, false, false,
+                    ));
                     continue;
                 }
             }
             if from != node || incoming {
-                segments.push(Segment::new(from, from, *c, true, false, *dotted, false, false));
+                segments.push(Segment::new(
+                    from, from, *c, true, false, *dotted, false, false,
+                ));
             }
             if from != node {
                 let to = self.lanes.iter().position(|(x, _, _)| x == id).unwrap();
-                segments.push(Segment::new(from, to, *c, false, false, self.lanes[to].2, false, false));
+                segments.push(Segment::new(
+                    from,
+                    to,
+                    *c,
+                    false,
+                    false,
+                    self.lanes[to].2,
+                    false,
+                    false,
+                ));
             }
         }
         for (parent, dotted) in parents {
@@ -209,7 +275,16 @@ impl Layout {
                 .iter()
                 .position(|(id, _, _)| id == parent)
                 .unwrap();
-            segments.push(Segment::new(node, to, self.lanes[to].1, false, false, dotted, false, false));
+            segments.push(Segment::new(
+                node,
+                to,
+                self.lanes[to].1,
+                false,
+                false,
+                dotted,
+                false,
+                false,
+            ));
         }
         Row {
             node,
@@ -263,45 +338,112 @@ mod tests {
     fn segment_storage_fits_two_machine_words() {
         // Up to 500,000 unique segments live in one history window. Their bounded coordinates
         // and boolean styles must not each consume a full machine word.
-        assert!(std::mem::size_of::<Segment>() <= 2 * std::mem::size_of::<usize>(),
-            "segment storage is {} bytes", std::mem::size_of::<Segment>());
+        assert!(
+            std::mem::size_of::<Segment>() <= 2 * std::mem::size_of::<usize>(),
+            "segment storage is {} bytes",
+            std::mem::size_of::<Segment>()
+        );
     }
     #[test]
     fn compact_segment_preserves_all_style_combinations_and_full_color_identity() {
         for flags in 0..32 {
             let values = [1, 2, 4, 8, 16].map(|mask| flags & mask != 0);
-            let segment = Segment::new(511, 0, usize::MAX, values[0], values[1], values[2], values[3], values[4]);
-            assert_eq!((segment.from(), segment.to(), segment.color), (511, 0, usize::MAX));
-            assert_eq!([segment.upper(), segment.full(), segment.dotted(), segment.adjacent(), segment.arrow()], values);
+            let segment = Segment::new(
+                511,
+                0,
+                usize::MAX,
+                values[0],
+                values[1],
+                values[2],
+                values[3],
+                values[4],
+            );
+            assert_eq!(
+                (segment.from(), segment.to(), segment.color),
+                (511, 0, usize::MAX)
+            );
+            assert_eq!(
+                [
+                    segment.upper(),
+                    segment.full(),
+                    segment.dotted(),
+                    segment.adjacent(),
+                    segment.arrow()
+                ],
+                values
+            );
         }
     }
     #[test]
     fn arrow_hit_testing_follows_edges_and_gives_nodes_and_earlier_edges_priority() {
         let arrow = Segment::new(1, 3, 17, false, false, false, true, true);
-        let mut row = Row { node: 0, color: 0, width: 4, segments: vec![arrow.clone()].into(), arrow_targets: Some(Arc::from([(0,39)])) };
+        let mut row = Row {
+            node: 0,
+            color: 0,
+            width: 4,
+            segments: vec![arrow.clone()].into(),
+            arrow_targets: Some(Arc::from([(0, 39)])),
+        };
         assert_eq!(arrow_at(&row, 32., 21.).unwrap().target, Some(39));
-        assert!(arrow_at(&row, 24., 27.).is_none(), "diagonal bounding box is not a clickable edge");
-        assert!(arrow_at(&row, 32., 28.).is_none(), "do not cross row boundaries");
+        assert!(
+            arrow_at(&row, 24., 27.).is_none(),
+            "diagonal bounding box is not a clickable edge"
+        );
+        assert!(
+            arrow_at(&row, 32., 28.).is_none(),
+            "do not cross row boundaries"
+        );
         assert!(arrow_at(&row, f32::NAN, 21.).is_none());
         for height in [26., 37., 55.] {
-            assert_eq!(arrow_at_height(&row, 32., height * 0.75, height).unwrap().target, Some(39));
+            assert_eq!(
+                arrow_at_height(&row, 32., height * 0.75, height)
+                    .unwrap()
+                    .target,
+                Some(39)
+            );
             assert!(arrow_at_height(&row, 32., height, height).is_none());
             assert!(arrow_at_height(&row, 24., height * 0.96, height).is_none());
         }
         row.node = 1;
-        assert!(arrow_at(&row, 24., 14.).is_none(), "node takes priority over arrow edge");
+        assert!(
+            arrow_at(&row, 24., 14.).is_none(),
+            "node takes priority over arrow edge"
+        );
         row.node = 0;
-        row.segments = vec![Segment::new(1, 3, 7, false, false, false, true, false), arrow].into();
-        assert!(arrow_at(&row, 32., 21.).is_none(), "first ordinary edge wins an overlap");
+        row.segments = vec![
+            Segment::new(1, 3, 7, false, false, false, true, false),
+            arrow,
+        ]
+        .into();
+        assert!(
+            arrow_at(&row, 32., 21.).is_none(),
+            "first ordinary edge wins an overlap"
+        );
         row.segments = vec![Segment::new(2, 2, 9, true, false, true, false, true)].into();
         row.arrow_targets = None;
-        assert!(arrow_at(&row, 40., 5.).unwrap().target.is_none(), "unknown frontier is a hit, never a fabricated target");
+        assert!(
+            arrow_at(&row, 40., 5.).unwrap().target.is_none(),
+            "unknown frontier is a hit, never a fabricated target"
+        );
     }
     #[test]
     fn shared_arrow_geometry_keeps_navigation_targets_owned_by_each_row() {
-        let segments: Arc<[Segment]> = vec![Segment::new(1, 1, 8, false, false, false, false, true)].into();
-        let mut first = Row { node: 0, color: 0, width: 2, segments: segments.clone(), arrow_targets: Some(Arc::from([(0, 39)])) };
-        let mut second = Row { node: 0, color: 0, width: 2, segments, arrow_targets: Some(Arc::from([(0, 79)])) };
+        let segments: Arc<[Segment]> =
+            vec![Segment::new(1, 1, 8, false, false, false, false, true)].into();
+        let mut first = Row {
+            node: 0,
+            color: 0,
+            width: 2,
+            segments: segments.clone(),
+            arrow_targets: Some(Arc::from([(0, 39)])),
+        };
+        let mut second = Row {
+            node: 0,
+            color: 0,
+            width: 2,
+            segments,
+            arrow_targets: Some(Arc::from([(0, 79)])),
+        };
         let mut pool = GeometryPool::default();
         assert!(pool.intern(&mut first, 1));
         assert!(pool.intern(&mut second, 1));
@@ -330,8 +472,18 @@ mod tests {
             let middle = layout.append(&c("unrelated", &[]));
             assert!(middle.segments.iter().all(|e| e.dotted()));
             let last = layout.append_projected("ancestor", &[("root".into(), false)]);
-            assert!(last.segments.iter().filter(|e| e.upper()).all(|e| e.dotted()));
-            assert!(last.segments.iter().filter(|e| !e.upper()).all(|e| !e.dotted()));
+            assert!(
+                last.segments
+                    .iter()
+                    .filter(|e| e.upper())
+                    .all(|e| e.dotted())
+            );
+            assert!(
+                last.segments
+                    .iter()
+                    .filter(|e| !e.upper())
+                    .all(|e| !e.dotted())
+            );
         }
         assert_eq!(format!("{state:?}"), format!("{resumed:?}"));
     }
@@ -402,11 +554,24 @@ mod tests {
         for commit in &commits {
             let before = state.lanes.clone();
             let row = state.append(commit);
-            assert!(row.segments.iter().filter(|e| e.full()).all(|e| e.from() == e.to() && e.from() != row.node));
+            assert!(
+                row.segments
+                    .iter()
+                    .filter(|e| e.full())
+                    .all(|e| e.from() == e.to() && e.from() != row.node)
+            );
             for (lane, (id, color, dotted)) in before.iter().enumerate() {
                 if id != &commit.id {
-                    let top = row.segments.iter().find(|e| (e.upper() || e.full()) && e.from() == lane).unwrap();
-                    assert_eq!((top.color, top.dotted()), (*color, *dotted), "upper continuation keeps its incoming style");
+                    let top = row
+                        .segments
+                        .iter()
+                        .find(|e| (e.upper() || e.full()) && e.from() == lane)
+                        .unwrap();
+                    assert_eq!(
+                        (top.color, top.dotted()),
+                        (*color, *dotted),
+                        "upper continuation keeps its incoming style"
+                    );
                 }
             }
             let outgoing = row
@@ -434,19 +599,28 @@ mod tests {
         assert!(layout_bounded(&commits, 1).is_err());
         let shared = layout_bounded(&commits, 500_000).unwrap();
         for (expected, actual) in layout(&commits).iter().zip(&shared) {
-            assert_eq!((expected.node, expected.color, expected.width),
-                (actual.node, actual.color, actual.width));
-            assert_eq!(expected.segments, actual.segments, "sharing must preserve every edge and its style");
+            assert_eq!(
+                (expected.node, expected.color, expected.width),
+                (actual.node, actual.color, actual.width)
+            );
+            assert_eq!(
+                expected.segments, actual.segments,
+                "sharing must preserve every edge and its style"
+            );
         }
     }
 
     #[test]
     fn repeated_rows_share_geometry_and_release_it_with_the_window() {
-        let commits = (0..1000).map(|i| {
-            let mut commit = c(&i.to_string(), &[]);
-            if i < 999 { commit.parents.push((i + 1).to_string()); }
-            commit
-        }).collect::<Vec<_>>();
+        let commits = (0..1000)
+            .map(|i| {
+                let mut commit = c(&i.to_string(), &[]);
+                if i < 999 {
+                    commit.parents.push((i + 1).to_string());
+                }
+                commit
+            })
+            .collect::<Vec<_>>();
         // First row: 1 half-edge; middle pattern: 2; last row: 1.
         // A fifth distinct stored segment still fails the caller's budget.
         assert!(layout_bounded(&commits, 3).is_err());
@@ -456,7 +630,10 @@ mod tests {
         assert_eq!(rows[998].segments.len(), 2);
         let weak = Arc::downgrade(&rows[1].segments);
         drop(rows);
-        assert!(weak.upgrade().is_none(), "no global cache may retain closed windows");
+        assert!(
+            weak.upgrade().is_none(),
+            "no global cache may retain closed windows"
+        );
     }
 }
 
@@ -464,61 +641,139 @@ mod tests {
 mod wide_regression {
     use super::*;
     fn commit(id: String, parents: Vec<String>) -> Commit {
-        Commit { id, parents, author: String::new(), date: String::new(), subject: String::new(), refs: vec![], shallow_boundary: false }
+        Commit {
+            id,
+            parents,
+            author: String::new(),
+            date: String::new(),
+            subject: String::new(),
+            refs: vec![],
+            shallow_boundary: false,
+        }
     }
     #[test]
     fn ten_thousand_commits_on_32_lanes_fit_existing_geometry_budget() {
         let mut commits = Vec::new();
-        for i in 0..14 { commits.push(commit(format!("post-{i}"), vec![if i==13 { "merge".into() } else { format!("post-{}",i+1) }])); }
-        commits.push(commit("merge".into(), (0..32).map(|b| format!("branch-{b}-311")).collect()));
+        for i in 0..14 {
+            commits.push(commit(
+                format!("post-{i}"),
+                vec![if i == 13 {
+                    "merge".into()
+                } else {
+                    format!("post-{}", i + 1)
+                }],
+            ));
+        }
+        commits.push(commit(
+            "merge".into(),
+            (0..32).map(|b| format!("branch-{b}-311")).collect(),
+        ));
         for step in (0..312).rev() {
             for branch in (0..32).rev() {
-                commits.push(commit(format!("branch-{branch}-{step}"), vec![if step==0 {"root".into()} else {format!("branch-{branch}-{}",step-1)}]));
+                commits.push(commit(
+                    format!("branch-{branch}-{step}"),
+                    vec![if step == 0 {
+                        "root".into()
+                    } else {
+                        format!("branch-{branch}-{}", step - 1)
+                    }],
+                ));
             }
         }
         commits.push(commit("root".into(), vec![]));
         assert_eq!(commits.len(), 10000);
-        let rows = layout_bounded(&commits, 500_000).expect("32-lane wide graph should fit without raising the existing budget");
+        let rows = layout_bounded(&commits, 500_000)
+            .expect("32-lane wide graph should fit without raising the existing budget");
         assert_eq!(rows.len(), 10000);
-        assert_eq!(rows.iter().map(|r|r.width).max(),Some(32));
-        assert_eq!(rows[14].segments.iter().filter(|e| !e.upper()).count(),32);
+        assert_eq!(rows.iter().map(|r| r.width).max(), Some(32));
+        assert_eq!(rows[14].segments.iter().filter(|e| !e.upper()).count(), 32);
     }
     #[test]
     fn ten_thousand_commits_on_256_lanes_fit_existing_geometry_budget() {
         let mut commits = Vec::new();
-        for i in 0..14 { commits.push(commit(format!("post-{i}"), vec![if i==13 { "merge".into() } else { format!("post-{}",i+1) }])); }
-        commits.push(commit("merge".into(), (0..256).map(|b| format!("branch-{b}-38")).collect()));
+        for i in 0..14 {
+            commits.push(commit(
+                format!("post-{i}"),
+                vec![if i == 13 {
+                    "merge".into()
+                } else {
+                    format!("post-{}", i + 1)
+                }],
+            ));
+        }
+        commits.push(commit(
+            "merge".into(),
+            (0..256).map(|b| format!("branch-{b}-38")).collect(),
+        ));
         for step in (0..39).rev() {
             for branch in (0..256).rev() {
-                commits.push(commit(format!("branch-{branch}-{step}"), vec![if step==0 {"root".into()} else {format!("branch-{branch}-{}",step-1)}]));
+                commits.push(commit(
+                    format!("branch-{branch}-{step}"),
+                    vec![if step == 0 {
+                        "root".into()
+                    } else {
+                        format!("branch-{branch}-{}", step - 1)
+                    }],
+                ));
             }
         }
         commits.push(commit("root".into(), vec![]));
         assert_eq!(commits.len(), 10000);
-        let rows = layout_bounded(&commits, 500_000).expect("256-lane wide graph should fit without raising the existing budget");
+        let rows = layout_bounded(&commits, 500_000)
+            .expect("256-lane wide graph should fit without raising the existing budget");
         assert_eq!(rows.len(), 10000);
-        assert_eq!(rows.iter().map(|r|r.width).max(),Some(256));
-        assert_eq!(rows[14].segments.iter().filter(|e| !e.upper()).count(),256);
+        assert_eq!(rows.iter().map(|r| r.width).max(), Some(256));
+        assert_eq!(rows[14].segments.iter().filter(|e| !e.upper()).count(), 256);
         assert!(Arc::ptr_eq(&rows[15].segments, &rows[15 + 256].segments));
-        assert_eq!(text_offset_columns(&rows[0], 256), 6.,
-            "linear commits above a wide merge must keep their subjects visible");
-        assert!(text_offset_columns(&rows[14], 256) > 6.,
-            "six is a recommended-space limit, never a hard graph clip");
-        assert!(rows.iter().all(|row| text_offset_columns(row, 256) > row.node as f32),
-            "text must follow the actual node in every row");
-        let printed = crate::graph_print::project(&rows, false, &crate::git::Cancel::default()).unwrap();
-        for (mode, printed) in [("default", printed.clone()), ("expanded", crate::graph_print::project(&rows, true, &crate::git::Cancel::default()).unwrap())] {
+        assert_eq!(
+            text_offset_columns(&rows[0], 256),
+            6.,
+            "linear commits above a wide merge must keep their subjects visible"
+        );
+        assert!(
+            text_offset_columns(&rows[14], 256) > 6.,
+            "six is a recommended-space limit, never a hard graph clip"
+        );
+        assert!(
+            rows.iter()
+                .all(|row| text_offset_columns(row, 256) > row.node as f32),
+            "text must follow the actual node in every row"
+        );
+        let printed =
+            crate::graph_print::project(&rows, false, &crate::git::Cancel::default()).unwrap();
+        for (mode, printed) in [
+            ("default", printed.clone()),
+            (
+                "expanded",
+                crate::graph_print::project(&rows, true, &crate::git::Cancel::default()).unwrap(),
+            ),
+        ] {
             let mut unique = std::collections::HashSet::new();
-            let segments: usize = printed.iter().filter(|row| unique.insert(Arc::as_ptr(&row.segments) as *const Segment)).map(|row| row.segments.len()).sum();
-            assert!(segments * std::mem::size_of::<Segment>() <= 5 * 1024 * 1024,
-                "{mode} print geometry exceeds the 5 MiB pressure-fixture storage budget");
+            let segments: usize = printed
+                .iter()
+                .filter(|row| unique.insert(Arc::as_ptr(&row.segments) as *const Segment))
+                .map(|row| row.segments.len())
+                .sum();
+            assert!(
+                segments * std::mem::size_of::<Segment>() <= 5 * 1024 * 1024,
+                "{mode} print geometry exceeds the 5 MiB pressure-fixture storage budget"
+            );
         }
         assert_eq!(printed.len(), 10000);
         assert_eq!(printed[0].width, 1);
-        assert!(printed[15].width >= 256,
-            "all merge endpoint arrows remain explicit, even on a wide row");
-        assert!(printed[16].width < 40 && printed[1000].width < 6,
-            "the long-edge interior must compact after the endpoint arrow row");
-        assert!(printed.iter().flat_map(|r| r.segments.iter()).any(|s| s.arrow()));
+        assert!(
+            printed[15].width >= 256,
+            "all merge endpoint arrows remain explicit, even on a wide row"
+        );
+        assert!(
+            printed[16].width < 40 && printed[1000].width < 6,
+            "the long-edge interior must compact after the endpoint arrow row"
+        );
+        assert!(
+            printed
+                .iter()
+                .flat_map(|r| r.segments.iter())
+                .any(|s| s.arrow())
+        );
     }
 }

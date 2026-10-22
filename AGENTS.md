@@ -23,3 +23,9 @@
 新增可见功能在提交阶段记录前，按 [PLAN.md 的功能阶段 UI 验收](PLAN.md#功能阶段-ui-验收) 核对结构与交互；尚未核对的项目明确标为待验收。
 
 界面改动用 Windows 原生程序验证并记录截图；可使用 devenv 构建和宿主机 Git。只关闭自己为测试启动的进程，保留用户打开的 Rebased／IDEA。滚动交互由用户手测，不继续投入滚动自动化排查。内存数据注明加载规模、采样方法和是否包含 Git 子进程／GPU。
+
+## 代码维护
+
+修改自有代码时遵守 [贡献规范](docs/CONTRIBUTING.md) 的模块所有权与验证要求。
+Rust 使用 `cargo fmt --package plico`，提交前通过 `cargo fmt --package plico -- --check`；
+第三方 vendor 保留上游格式。具体工具链与排版参数以根目录配置为准。

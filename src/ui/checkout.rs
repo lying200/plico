@@ -77,7 +77,8 @@ impl Review {
                         return;
                     };
                     if cancelled {
-                        s.status_message = Some(t("Checkout cancelled; repository refreshed").into());
+                        s.status_message =
+                            Some(t("Checkout cancelled; repository refreshed").into());
                     } else {
                         match result {
                             Ok(resolved) => s.start_checkout(

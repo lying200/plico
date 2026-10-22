@@ -376,15 +376,22 @@ impl Model {
                         let other = other.unwrap_or(position);
                         if terminal {
                             if let Some(target) = if upper { edge.up } else { edge.down } {
-                                arrow_targets.push((u16::try_from(segments.len()).expect("segment index exceeds lane budget"),
-                                    u16::try_from(target).expect("target exceeds history budget")));
+                                arrow_targets.push((
+                                    u16::try_from(segments.len())
+                                        .expect("segment index exceeds lane budget"),
+                                    u16::try_from(target).expect("target exceeds history budget"),
+                                ));
                             }
                         }
                         segments.push(Segment::new(
                             if upper { other } else { position },
                             if upper { position } else { other },
-                            edge.color, upper, false, edge.dotted,
-                            !terminal || map.contains_key(&Element::Edge(id)), terminal,
+                            edge.color,
+                            upper,
+                            false,
+                            edge.dotted,
+                            !terminal || map.contains_key(&Element::Edge(id)),
+                            terminal,
                         ));
                     }
                 }
@@ -559,8 +566,26 @@ mod tests {
         let printed = project(&raw, false, &Cancel::default()).unwrap();
         assert_eq!(printed.len(), commits.len());
         assert_eq!(printed[2].width, 1);
-        assert_eq!(printed[1].arrow_target(printed[1].segments.iter().position(|s| s.arrow() && !s.upper()).unwrap()), Some(39));
-        assert_eq!(printed[38].arrow_target(printed[38].segments.iter().position(|s| s.arrow() && s.upper()).unwrap()), Some(0));
+        assert_eq!(
+            printed[1].arrow_target(
+                printed[1]
+                    .segments
+                    .iter()
+                    .position(|s| s.arrow() && !s.upper())
+                    .unwrap()
+            ),
+            Some(39)
+        );
+        assert_eq!(
+            printed[38].arrow_target(
+                printed[38]
+                    .segments
+                    .iter()
+                    .position(|s| s.arrow() && s.upper())
+                    .unwrap()
+            ),
+            Some(0)
+        );
         assert!(
             printed[1]
                 .segments
@@ -575,7 +600,16 @@ mod tests {
         );
         let expanded = project(&raw, true, &Cancel::default()).unwrap();
         assert_eq!(expanded[2].width, 2);
-        assert_eq!(expanded[1].arrow_target(expanded[1].segments.iter().position(|s| s.arrow() && !s.upper()).unwrap()), Some(39));
+        assert_eq!(
+            expanded[1].arrow_target(
+                expanded[1]
+                    .segments
+                    .iter()
+                    .position(|s| s.arrow() && !s.upper())
+                    .unwrap()
+            ),
+            Some(39)
+        );
         assert!(
             expanded[1]
                 .segments
@@ -618,13 +652,35 @@ mod tests {
     #[test]
     fn filtered_arrow_targets_visible_projected_rows_not_original_parent_indices() {
         let commits = chain(81, true);
-        let matching = commits.iter().enumerate().filter(|(i, _)| i % 2 == 0).map(|(_, c)| c.id.clone()).collect();
-        let filtered = crate::filtered_graph::window(&commits, &matching, 0, 41, 500_000, 500_000).unwrap();
+        let matching = commits
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 0)
+            .map(|(_, c)| c.id.clone())
+            .collect();
+        let filtered =
+            crate::filtered_graph::window(&commits, &matching, 0, 41, 500_000, 500_000).unwrap();
         let printed = project(&filtered.rows, false, &Cancel::default()).unwrap();
-        let target = printed[1].arrow_target(printed[1].segments.iter().position(|s| s.arrow() && !s.upper()).unwrap());
+        let target = printed[1].arrow_target(
+            printed[1]
+                .segments
+                .iter()
+                .position(|s| s.arrow() && !s.upper())
+                .unwrap(),
+        );
         assert_eq!(target, Some(40));
-        assert_eq!(commits[0].parents, ["1", "80"], "source metadata stays untouched");
-        assert!(printed.iter().all(|r| r.segments.iter().enumerate().filter(|(_, s)| s.arrow()).all(|(index, _)| r.arrow_target(index).is_none_or(|i| i < printed.len()))));
+        assert_eq!(
+            commits[0].parents,
+            ["1", "80"],
+            "source metadata stays untouched"
+        );
+        assert!(printed.iter().all(|r| {
+            r.segments
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.arrow())
+                .all(|(index, _)| r.arrow_target(index).is_none_or(|i| i < printed.len()))
+        }));
     }
     #[test]
     fn recovered_endpoints_match_every_real_parent_on_generated_dags() {

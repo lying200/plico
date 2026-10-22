@@ -77,7 +77,8 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            0, 28.,
+            0,
+            28.,
         );
         assert_eq!(
             target(&scroll),
@@ -93,7 +94,8 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            0, 28.,
+            0,
+            28.,
         );
         assert_eq!(target(&scroll), 2);
     }
@@ -104,7 +106,8 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            1000, 28.,
+            1000,
+            28.,
         );
         assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-28.));
     }
@@ -120,7 +123,8 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["remote", "old", "base"]),
-            0, 28.,
+            0,
+            28.,
         );
         assert_eq!(
             scroll.0.borrow().base_handle.offset(),
@@ -130,8 +134,18 @@ mod tests {
     #[test]
     fn large_font_refresh_preserves_the_visible_commit_and_partial_row() {
         let scroll = UniformListScrollHandle::new();
-        scroll.0.borrow().base_handle.set_offset(gpui_kit::point(px(0.), px(-44.)));
-        restore(&scroll, &commits(&["old", "base"]), &commits(&["remote", "old", "base"]), 0, 37.);
+        scroll
+            .0
+            .borrow()
+            .base_handle
+            .set_offset(gpui_kit::point(px(0.), px(-44.)));
+        restore(
+            &scroll,
+            &commits(&["old", "base"]),
+            &commits(&["remote", "old", "base"]),
+            0,
+            37.,
+        );
         assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-81.));
     }
     #[test]
@@ -146,7 +160,8 @@ mod tests {
             &scroll,
             &commits(&["old", "base"]),
             &commits(&["old", "base"]),
-            0, 28.,
+            0,
+            28.,
         );
         assert!(scroll.0.borrow().deferred_scroll_to_item.is_none());
         assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-7.));

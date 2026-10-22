@@ -14,7 +14,6 @@ pub fn rank(r: &RefLabel, current: Option<&str>) -> u8 {
     }
 }
 
-
 pub fn compact_title(
     refs: &[RefLabel],
     current: Option<&str>,
@@ -25,7 +24,11 @@ pub fn compact_title(
         return "HEAD (detached)".into();
     }
     let mut sorted: Vec<_> = refs.iter().filter(|r| r.kind != RefKind::Head).collect();
-    sorted.sort_by(|a, b| rank(a, current).cmp(&rank(b, current)).then_with(|| crate::natural_order::compare(&a.name, &b.name)));
+    sorted.sort_by(|a, b| {
+        rank(a, current)
+            .cmp(&rank(b, current))
+            .then_with(|| crate::natural_order::compare(&a.name, &b.name))
+    });
     let has_remote = |name: &str| {
         refs.iter()
             .any(|r| r.kind == RefKind::Remote && r.name == name)

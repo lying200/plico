@@ -1,9 +1,4 @@
 //! File history tab and selection-history window, with on-demand revision previews.
-use plico::{
-    file_history::{self, History, Revision, Selection, Traced},
-    git::{Cancel, Repository},
-    i18n::{self, t},
-};
 use gpui_kit::component::{
     Disableable as _, Icon, Root, Sizable as _, TitleBar,
     button::{Button, ButtonVariants as _},
@@ -12,11 +7,16 @@ use gpui_kit::component::{
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     resizable::{resizable_panel, v_resizable},
-    text::TextView,
     scroll::{Scrollbar, ScrollbarMode},
+    text::TextView,
     v_flex,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
+use plico::{
+    file_history::{self, History, Revision, Selection, Traced},
+    git::{Cancel, Repository},
+    i18n::{self, t},
+};
 actions!(
     file_history_view,
     [
@@ -47,7 +47,12 @@ pub struct ReadingState {
 pub struct HistoryView {
     show_details: bool,
     revisions: plico::log_selection::Selection,
-    details: Vec<(String, Vec<plico::git::RefLabel>, plico::commit_presentation::Presentation, Entity<crate::containing_branches::ContainingBranches>)>,
+    details: Vec<(
+        String,
+        Vec<plico::git::RefLabel>,
+        plico::commit_presentation::Presentation,
+        Entity<crate::containing_branches::ContainingBranches>,
+    )>,
     details_token: Cancel,
     details_generation: u64,
     details_task: Task<()>,
@@ -134,7 +139,7 @@ impl HistoryView {
             .as_ref()
             .map(|s| s.revisions.clone())
             .unwrap_or_default();
-        let show_details=plico::layout_preferences::load_history_details(&repo.path);
+        let show_details = plico::layout_preferences::load_history_details(&repo.path);
         let mut s = Self {
             show_details,
             revisions,
@@ -238,7 +243,13 @@ impl HistoryView {
                             limit,
                             &token,
                         )?;
-                        (scoped.history, scoped.refs, scoped.graph, scoped.links, Some(scoped.head_id))
+                        (
+                            scoped.history,
+                            scoped.refs,
+                            scoped.graph,
+                            scoped.links,
+                            Some(scoped.head_id),
+                        )
                     };
                     let rows = selection
                         .as_ref()
@@ -362,18 +373,34 @@ impl HistoryView {
         self.details_error = None;
     }
     fn set_show_details(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if self.show_details==enabled{return;}
-        self.show_details=enabled;
-        let _=plico::layout_preferences::save_history_details(&self.repo.path,enabled);
-        if enabled {self.load_details(cx);} else {self.clear_details();}
+        if self.show_details == enabled {
+            return;
+        }
+        self.show_details = enabled;
+        let _ = plico::layout_preferences::save_history_details(&self.repo.path, enabled);
+        if enabled {
+            self.load_details(cx);
+        } else {
+            self.clear_details();
+        }
         cx.notify();
     }
     fn load_details(&mut self, cx: &mut Context<Self>) {
         self.clear_details();
-        if self.selection.is_some() || !self.show_details { return; }
-        let ids: Vec<_> = self.history.revisions.iter().filter(|r| self.revisions.contains(&r.id))
-            .take(50).map(|r| r.id.clone()).collect();
-        if ids.is_empty() { return; }
+        if self.selection.is_some() || !self.show_details {
+            return;
+        }
+        let ids: Vec<_> = self
+            .history
+            .revisions
+            .iter()
+            .filter(|r| self.revisions.contains(&r.id))
+            .take(50)
+            .map(|r| r.id.clone())
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
         self.details_token = Cancel::default();
         let token = self.details_token.clone();
         let generation = self.details_generation;
@@ -381,35 +408,52 @@ impl HistoryView {
         self.details_loading = true;
         self.details_task = cx.spawn(async move |this, cx| {
             let query_repo = repo.clone();
-            let result = cx.background_spawn(async move {
-                let snapshot = query_repo.snapshot_commits(&ids, &ids, &token)?;
-                let mut cards = Vec::new();
-                let mut bytes = 0usize;
-                for commit in snapshot.commits {
-                    let details = query_repo.commit_metadata(&commit, &token)?;
-                    let presentation = plico::commit_presentation::build(&details, Some(&commit));
-                    bytes = bytes.saturating_add(presentation.message.len())
-                        .saturating_add(presentation.metadata.iter().map(String::len).sum::<usize>())
-                        .saturating_add(commit.refs.iter().map(|r| r.name.len() + 64).sum::<usize>());
-                    if bytes > plico::git::OUTPUT_LIMIT {
-                        return Err("Commit details exceed the preview output limit".to_owned());
+            let result = cx
+                .background_spawn(async move {
+                    let snapshot = query_repo.snapshot_commits(&ids, &ids, &token)?;
+                    let mut cards = Vec::new();
+                    let mut bytes = 0usize;
+                    for commit in snapshot.commits {
+                        let details = query_repo.commit_metadata(&commit, &token)?;
+                        let presentation =
+                            plico::commit_presentation::build(&details, Some(&commit));
+                        bytes = bytes
+                            .saturating_add(presentation.message.len())
+                            .saturating_add(
+                                presentation.metadata.iter().map(String::len).sum::<usize>(),
+                            )
+                            .saturating_add(
+                                commit.refs.iter().map(|r| r.name.len() + 64).sum::<usize>(),
+                            );
+                        if bytes > plico::git::OUTPUT_LIMIT {
+                            return Err("Commit details exceed the preview output limit".to_owned());
+                        }
+                        cards.push((commit.id, commit.refs, presentation));
                     }
-                    cards.push((commit.id, commit.refs, presentation));
-                }
-                Ok::<_, String>(cards)
-            }).await;
+                    Ok::<_, String>(cards)
+                })
+                .await;
             let _ = this.update(cx, |s, cx| {
-                if s.details_generation != generation { return; }
+                if s.details_generation != generation {
+                    return;
+                }
                 s.details_loading = false;
                 match result {
                     Ok(cards) => {
                         let mut branches = Vec::new();
-                        s.details = cards.into_iter().map(|(id, refs, presentation)| {
-                            let card = cx.new(crate::containing_branches::ContainingBranches::pending);
-                            branches.push((id.clone(), card.downgrade()));
-                            (id, refs, presentation, card)
-                        }).collect();
-                        s.details_branches = Some(cx.new(|cx| crate::containing_branches::Batch::new(repo, branches, cx)));
+                        s.details = cards
+                            .into_iter()
+                            .map(|(id, refs, presentation)| {
+                                let card =
+                                    cx.new(crate::containing_branches::ContainingBranches::pending);
+                                branches.push((id.clone(), card.downgrade()));
+                                (id, refs, presentation, card)
+                            })
+                            .collect();
+                        s.details_branches =
+                            Some(cx.new(|cx| {
+                                crate::containing_branches::Batch::new(repo, branches, cx)
+                            }));
                     }
                     Err(error) => s.details_error = Some(error),
                 }
@@ -418,33 +462,105 @@ impl HistoryView {
         });
     }
     fn details_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let overflow = self.history.revisions.iter().filter(|r| self.revisions.contains(&r.id)).count() > 50;
-        div().relative().size_full().min_h_0().min_w_0().overflow_hidden()
-            .child(v_flex().id("file-history-details").size_full().min_h_0().min_w_0()
-                .overflow_y_scroll().track_scroll(&self.message_scroll).px(px(14.)).py(px(14.)).pr(px(24.))
-                .when(self.details_loading, |v| v.child(t("Loading commit details…")))
-                .when(!self.details_loading && self.details_error.is_none() && self.details.is_empty(), |v| v.child(t("Select commits to view changes")))
-                .when_some(self.details_error.clone(), |v, error| v.child(crate::error_ui::notice(
-                    "history-details-error", "Could not load commit details", error, self.details_loading,
-                    cx.listener(|s, _, _, cx| s.load_details(cx)))))
-                .children(self.details.iter().map(|(id, refs, presentation, branches)| {
-                    let hash = id.clone();
-                    v_flex().id(id.clone()).w_full().min_w_0().flex_shrink_0().gap_2().pb_3().mb_3()
-                        .border_b_1().border_color(rgb(0x2a2b2d))
-                        .child(TextView::html(format!("history-message-{id}"), presentation.message.clone())
-                            .font_family("JetBrains Mono").text_size(rems(1.)).selectable(true))
-                        .child(gpui_kit::base::TextView::html(format!("history-metadata-{id}"), presentation.metadata[usize::from(i18n::is_chinese())].clone())
-                            .text_size(rems(1.)).style(gpui_kit::base::TextViewStyle::default()
-                                .with_foreground(rgb(0xd1d3d9).into()).with_link(rgb(0x71a1fe).into())
-                                .with_selection(rgb(0x2e436e).into())).selectable(true))
-                        .child(crate::ui_style::commit_refs(refs)).child(branches.clone())
-                        .context_menu(move |menu, _, _| {
-                            let hash = hash.clone();
-                            menu.item(PopupMenuItem::new(t("Copy Revision Number"))
-                                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(hash.clone()))))
-                        })
-                }))
-                .when(overflow, |v| v.child(t("Showing the first 50 commits"))))
+        let overflow = self
+            .history
+            .revisions
+            .iter()
+            .filter(|r| self.revisions.contains(&r.id))
+            .count()
+            > 50;
+        div()
+            .relative()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(
+                v_flex()
+                    .id("file-history-details")
+                    .size_full()
+                    .min_h_0()
+                    .min_w_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.message_scroll)
+                    .px(px(14.))
+                    .py(px(14.))
+                    .pr(px(24.))
+                    .when(self.details_loading, |v| {
+                        v.child(t("Loading commit details…"))
+                    })
+                    .when(
+                        !self.details_loading
+                            && self.details_error.is_none()
+                            && self.details.is_empty(),
+                        |v| v.child(t("Select commits to view changes")),
+                    )
+                    .when_some(self.details_error.clone(), |v, error| {
+                        v.child(crate::error_ui::notice(
+                            "history-details-error",
+                            "Could not load commit details",
+                            error,
+                            self.details_loading,
+                            cx.listener(|s, _, _, cx| s.load_details(cx)),
+                        ))
+                    })
+                    .children(
+                        self.details
+                            .iter()
+                            .map(|(id, refs, presentation, branches)| {
+                                let hash = id.clone();
+                                v_flex()
+                                    .id(id.clone())
+                                    .w_full()
+                                    .min_w_0()
+                                    .flex_shrink_0()
+                                    .gap_2()
+                                    .pb_3()
+                                    .mb_3()
+                                    .border_b_1()
+                                    .border_color(rgb(0x2a2b2d))
+                                    .child(
+                                        TextView::html(
+                                            format!("history-message-{id}"),
+                                            presentation.message.clone(),
+                                        )
+                                        .font_family("JetBrains Mono")
+                                        .text_size(rems(1.))
+                                        .selectable(true),
+                                    )
+                                    .child(
+                                        gpui_kit::base::TextView::html(
+                                            format!("history-metadata-{id}"),
+                                            presentation.metadata[usize::from(i18n::is_chinese())]
+                                                .clone(),
+                                        )
+                                        .text_size(rems(1.))
+                                        .style(
+                                            gpui_kit::base::TextViewStyle::default()
+                                                .with_foreground(rgb(0xd1d3d9).into())
+                                                .with_link(rgb(0x71a1fe).into())
+                                                .with_selection(rgb(0x2e436e).into()),
+                                        )
+                                        .selectable(true),
+                                    )
+                                    .child(crate::ui_style::commit_refs(refs))
+                                    .child(branches.clone())
+                                    .context_menu(move |menu, _, _| {
+                                        let hash = hash.clone();
+                                        menu.item(
+                                            PopupMenuItem::new(t("Copy Revision Number")).on_click(
+                                                move |_, _, cx| {
+                                                    cx.write_to_clipboard(
+                                                        ClipboardItem::new_string(hash.clone()),
+                                                    )
+                                                },
+                                            ),
+                                        )
+                                    })
+                            }),
+                    )
+                    .when(overflow, |v| v.child(t("Showing the first 50 commits"))),
+            )
             .child(Scrollbar::vertical(&self.message_scroll).mode(ScrollbarMode::Always))
             .into_any_element()
     }
@@ -480,11 +596,19 @@ impl HistoryView {
             }
             return;
         }
-        let comparison = match file_history::selected_comparison(&self.history, &self.links, &self.revisions) {
-            Ok(Some(comparison)) => comparison,
-            Ok(None) => { cx.notify(); return; }
-            Err(error) => { self.error = Some(error); cx.notify(); return; }
-        };
+        let comparison =
+            match file_history::selected_comparison(&self.history, &self.links, &self.revisions) {
+                Ok(Some(comparison)) => comparison,
+                Ok(None) => {
+                    cx.notify();
+                    return;
+                }
+                Err(error) => {
+                    self.error = Some(error);
+                    cx.notify();
+                    return;
+                }
+            };
         let versions = file_history::preview_revisions(comparison);
         self.preview_loading = true;
         let token = self.preview_token.clone();
@@ -492,17 +616,26 @@ impl HistoryView {
         self.preview_task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let texts = versions.iter().map(|version| version.as_ref()
-                        .map(|r| file_history::contents(&repo, r, &token)).transpose())
+                    let texts = versions
+                        .iter()
+                        .map(|version| {
+                            version
+                                .as_ref()
+                                .map(|r| file_history::contents(&repo, r, &token))
+                                .transpose()
+                        })
                         .collect::<Result<Vec<_>, _>>()?;
                     let rows = if versions.len() == 3 {
-                        let texts: [&str; 3] = std::array::from_fn(|i| texts[i].as_deref().unwrap_or_default());
+                        let texts: [&str; 3] =
+                            std::array::from_fn(|i| texts[i].as_deref().unwrap_or_default());
                         {
                             let rows = plico::three_way::align(texts, &token)?;
                             let inner = plico::three_way::inner_ranges(texts, &rows, &token)?;
                             Some((rows, inner))
                         }
-                    } else { None };
+                    } else {
+                        None
+                    };
                     Ok::<_, String>((versions, texts, rows))
                 })
                 .await;
@@ -529,27 +662,57 @@ impl HistoryView {
         });
         cx.notify();
     }
-    fn set_three_diff(&mut self, versions: Vec<Option<Revision>>, texts: Vec<Option<String>>,
-        rows: Vec<plico::three_way::Row>, inner: plico::three_way::InnerRanges, cx: &mut Context<Self>) {
+    fn set_three_diff(
+        &mut self,
+        versions: Vec<Option<Revision>>,
+        texts: Vec<Option<String>>,
+        rows: Vec<plico::three_way::Row>,
+        inner: plico::three_way::InnerRanges,
+        cx: &mut Context<Self>,
+    ) {
         use gpui_kit::component::diff::{DiffTint, ThreeWayRow};
         let versions: Option<Vec<_>> = versions.into_iter().collect();
         let Some(versions) = versions.filter(|v| v.len() == 3) else {
-            self.error = Some("Invalid three-way revisions".into()); return;
+            self.error = Some("Invalid three-way revisions".into());
+            return;
         };
-        let files = versions.iter().enumerate().map(|(col, v)| DiffFile::unchanged(
-            format!(".gitreview-three-{col}/{}", v.path.display()), texts[col].as_deref().unwrap_or_default())).collect::<Vec<_>>();
-        let rows = rows.into_iter().map(|row| ThreeWayRow { lines: row.lines,
-            tints: row.tints.map(|t| t.map(|t| match t {
-                plico::three_way::Tint::Inserted => DiffTint::Inserted,
-                plico::three_way::Tint::Deleted => DiffTint::Deleted,
-                plico::three_way::Tint::Modified => DiffTint::Modified,
-                plico::three_way::Tint::Conflict => DiffTint::Conflict,
-            })) }).collect();
+        let files = versions
+            .iter()
+            .enumerate()
+            .map(|(col, v)| {
+                DiffFile::unchanged(
+                    format!(".gitreview-three-{col}/{}", v.path.display()),
+                    texts[col].as_deref().unwrap_or_default(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let rows = rows
+            .into_iter()
+            .map(|row| ThreeWayRow {
+                lines: row.lines,
+                tints: row.tints.map(|t| {
+                    t.map(|t| match t {
+                        plico::three_way::Tint::Inserted => DiffTint::Inserted,
+                        plico::three_way::Tint::Deleted => DiffTint::Deleted,
+                        plico::three_way::Tint::Modified => DiffTint::Modified,
+                        plico::three_way::Tint::Conflict => DiffTint::Conflict,
+                    })
+                }),
+            })
+            .collect();
         let viewer = cx.new(|cx| DiffState::new(files, cx));
-        let result = viewer.update(cx, |viewer, _| viewer.set_three_way(rows).and_then(|_| viewer.set_three_inner(inner)));
+        let result = viewer.update(cx, |viewer, _| {
+            viewer
+                .set_three_way(rows)
+                .and_then(|_| viewer.set_three_inner(inner))
+        });
         match result {
             Ok(()) => {
-                cx.subscribe(&viewer, |_, _, _: &gpui_kit::component::diff::DiffEvent, cx| cx.notify()).detach();
+                cx.subscribe(
+                    &viewer,
+                    |_, _, _: &gpui_kit::component::diff::DiffEvent, cx| cx.notify(),
+                )
+                .detach();
                 self.preview_versions = versions;
                 self.viewer = Some(viewer);
             }
@@ -610,10 +773,8 @@ impl HistoryView {
                 (
                     r.map(|r| r.id[..8].to_owned())
                         .unwrap_or_else(|| t("Local changes").into()),
-                    r.map(|r| {
-                        plico::commit_date::timestamp(r.timestamp)
-                    })
-                    .unwrap_or_default(),
+                    r.map(|r| plico::commit_date::timestamp(r.timestamp))
+                        .unwrap_or_default(),
                     r.map(|r| r.author.clone()).unwrap_or_default(),
                     r.map(|r| r.message.lines().next().unwrap_or_default().to_owned())
                         .unwrap_or_else(|| t("Local changes").into()),
@@ -635,7 +796,12 @@ impl HistoryView {
         let graph_width = recommended_width.min(6) as f32 * 16. + 12.;
         let graph_hover = self.graph_hover;
         let row_height = crate::ui_style::log_row_height(cx);
-        let head_rows: Vec<bool> = (0..self.visible.len()).map(|i| self.revision(i).is_some_and(|r| Some(&r.id) == self.head_id.as_ref())).collect();
+        let head_rows: Vec<bool> = (0..self.visible.len())
+            .map(|i| {
+                self.revision(i)
+                    .is_some_and(|r| Some(&r.id) == self.head_id.as_ref())
+            })
+            .collect();
         let selection = self.selection.is_some();
         v_flex()
             .size_full()
@@ -689,9 +855,21 @@ impl HistoryView {
                     .gap_2()
                     .border_b_1()
                     .border_color(rgb(0x393b40))
-                    .child(h_flex().flex_1().min_w_0().overflow_hidden().gap_2()
-                        .child(div().w(px(graph_width)).flex_shrink_0())
-                        .child(div().flex_1().min_w_0().truncate().child(t("Commit Message"))))
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .gap_2()
+                            .child(div().w(px(graph_width)).flex_shrink_0())
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(t("Commit Message")),
+                            ),
+                    )
                     .child(div().w(px(130.)).flex_shrink_0().child(t("Author")))
                     .child(div().w(px(145.)).flex_shrink_0().child(t("Date")))
                     .into_any_element()
@@ -716,35 +894,95 @@ impl HistoryView {
                                         .child(div().flex_1().min_w_0().truncate().child(d.clone()))
                                 })
                                 .when(!selection, |v| {
-                                    let mut commit = h_flex().flex_1().min_w_0().overflow_hidden().gap_2();
+                                    let mut commit =
+                                        h_flex().flex_1().min_w_0().overflow_hidden().gap_2();
                                     if let Some(r) = graph.get(row).cloned() {
-                                        let width = plico::graph::text_offset_columns(&r, recommended_width) * 16. + 12.;
-                                        let hovered = graph_hover.filter(|(i, _)| *i == row).map(|(_, index)| index);
+                                        let width = plico::graph::text_offset_columns(
+                                            &r,
+                                            recommended_width,
+                                        ) * 16.
+                                            + 12.;
+                                        let hovered = graph_hover
+                                            .filter(|(i, _)| *i == row)
+                                            .map(|(_, index)| index);
                                         let tooltip = hovered.map(|index| {
-                                            r.arrow_target(index).and_then(|target| cells.get(target)).map(|(id,date,author,subject)| {
-                                                crate::ui_graph::graph_arrow_tooltip(id, subject, author, date)
-                                            }).unwrap_or_else(|| t("Commit is outside the loaded history window").into())
+                                            r.arrow_target(index)
+                                                .and_then(|target| cells.get(target))
+                                                .map(|(id, date, author, subject)| {
+                                                    crate::ui_graph::graph_arrow_tooltip(
+                                                        id, subject, author, date,
+                                                    )
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    t("Commit is outside the loaded history window")
+                                                        .into()
+                                                })
                                         });
-                                        let hover_owner = owner.clone(); let click_owner = owner.clone();
-                                        let hover_graph = graph.clone(); let click_graph = graph.clone();
-                                        commit = commit.child(crate::ui_graph::graph_arrow_cell(r, width, row_height, row, crate::ui_graph::GraphNodeStyle { head: head_rows[row], background: if selected[row] { 0x2e4676 } else { 0x18191a } }, hovered, tooltip, move |segment,cx| {
-                                            let _ = hover_owner.update(cx, |s,cx| {
-                                                if s.loading || !std::sync::Arc::ptr_eq(&hover_graph,&s.graph) { return; }
-                                                if segment.is_none() && s.graph_hover.is_some_and(|(i,_)| i != row) { return; }
-                                                let hover = segment.map(|segment| (row,segment));
-                                                if s.graph_hover != hover { s.graph_hover = hover; cx.notify(); }
-                                            });
-                                        }, move |target,w,cx| {
-                                            let _ = click_owner.update(cx, |s,cx| {
-                                                if s.loading || s.selection.is_some() || !std::sync::Arc::ptr_eq(&click_graph,&s.graph) { return; }
-                                                s.select(target,cx);
-                                                s.focus.focus(w,cx);
-                                            });
-                                        }));
+                                        let hover_owner = owner.clone();
+                                        let click_owner = owner.clone();
+                                        let hover_graph = graph.clone();
+                                        let click_graph = graph.clone();
+                                        commit = commit.child(crate::ui_graph::graph_arrow_cell(
+                                            r,
+                                            width,
+                                            row_height,
+                                            row,
+                                            crate::ui_graph::GraphNodeStyle {
+                                                head: head_rows[row],
+                                                background: if selected[row] {
+                                                    0x2e4676
+                                                } else {
+                                                    0x18191a
+                                                },
+                                            },
+                                            hovered,
+                                            tooltip,
+                                            move |segment, cx| {
+                                                let _ = hover_owner.update(cx, |s, cx| {
+                                                    if s.loading
+                                                        || !std::sync::Arc::ptr_eq(
+                                                            &hover_graph,
+                                                            &s.graph,
+                                                        )
+                                                    {
+                                                        return;
+                                                    }
+                                                    if segment.is_none()
+                                                        && s.graph_hover
+                                                            .is_some_and(|(i, _)| i != row)
+                                                    {
+                                                        return;
+                                                    }
+                                                    let hover =
+                                                        segment.map(|segment| (row, segment));
+                                                    if s.graph_hover != hover {
+                                                        s.graph_hover = hover;
+                                                        cx.notify();
+                                                    }
+                                                });
+                                            },
+                                            move |target, w, cx| {
+                                                let _ = click_owner.update(cx, |s, cx| {
+                                                    if s.loading
+                                                        || s.selection.is_some()
+                                                        || !std::sync::Arc::ptr_eq(
+                                                            &click_graph,
+                                                            &s.graph,
+                                                        )
+                                                    {
+                                                        return;
+                                                    }
+                                                    s.select(target, cx);
+                                                    s.focus.focus(w, cx);
+                                                });
+                                            },
+                                        ));
                                     }
-                                    v.child(commit.child(div().flex_1().min_w_0().truncate().child(d)))
-                                        .child(div().w(px(130.)).flex_shrink_0().truncate().child(c))
-                                        .child(div().w(px(145.)).flex_shrink_0().truncate().child(b))
+                                    v.child(
+                                        commit.child(div().flex_1().min_w_0().truncate().child(d)),
+                                    )
+                                    .child(div().w(px(130.)).flex_shrink_0().truncate().child(c))
+                                    .child(div().w(px(145.)).flex_shrink_0().truncate().child(b))
                                 })
                                 .on_mouse_down(MouseButton::Left, move |event, w, cx| {
                                     let _ = owner.update(cx, |s, cx| {
@@ -793,19 +1031,35 @@ impl HistoryView {
         let viewer = self.viewer.as_ref()?.read(cx);
         if self.preview_versions.len() == 3 {
             let position = viewer.source_position();
-            let col = position.as_ref().and_then(|p| viewer.files().iter().position(|f| f.path() == p.path())).unwrap_or(1);
-            return Some(SourceRequest { repository: self.repo.path.clone(), path: self.path.clone(),
-                revision: self.preview_versions.get(col).cloned(), line: position.map(|p| p.line().saturating_sub(1)).unwrap_or(0) });
+            let col = position
+                .as_ref()
+                .and_then(|p| viewer.files().iter().position(|f| f.path() == p.path()))
+                .unwrap_or(1);
+            return Some(SourceRequest {
+                repository: self.repo.path.clone(),
+                path: self.path.clone(),
+                revision: self.preview_versions.get(col).cloned(),
+                line: position.map(|p| p.line().saturating_sub(1)).unwrap_or(0),
+            });
         }
         let selected = viewer.selected_lines();
-        let (original, line) = viewer.source_position().map(|p| (p.side() == gpui_kit::component::diff::DiffSide::Original, p.line().saturating_sub(1))).or_else(|| selected
-            .map(|r| {
+        let (original, line) = viewer
+            .source_position()
+            .map(|p| {
                 (
-                    r.end_side() == gpui_kit::component::diff::DiffSide::Original,
-                    r.end().saturating_sub(1),
+                    p.side() == gpui_kit::component::diff::DiffSide::Original,
+                    p.line().saturating_sub(1),
                 )
             })
-            ).or(self.last_source_position)
+            .or_else(|| {
+                selected.map(|r| {
+                    (
+                        r.end_side() == gpui_kit::component::diff::DiffSide::Original,
+                        r.end().saturating_sub(1),
+                    )
+                })
+            })
+            .or(self.last_source_position)
             .unwrap_or((false, 0));
         let index = *self.visible.get(self.selected)? + usize::from(original);
         if self.selection.is_some() {
@@ -982,16 +1236,32 @@ impl HistoryView {
                     .px_3()
                     .gap_2()
                     .bg(rgb(0x212326))
-                    .child(Button::new("history-previous-change").ghost().small()
-                        .icon(Icon::default().path("jb/up_dark.svg")).tooltip(t("Previous change (Shift+F7)"))
-                        .disabled(self.viewer.is_none()).on_click(cx.listener(|s, _, _, cx| {
-                            if let Some(viewer) = &s.viewer { viewer.update(cx, |v, cx| v.previous_change(cx)); }
-                        })))
-                    .child(Button::new("history-next-change").ghost().small()
-                        .icon(Icon::default().path("jb/down_dark.svg")).tooltip(t("Next change (F7)"))
-                        .disabled(self.viewer.is_none()).on_click(cx.listener(|s, _, _, cx| {
-                            if let Some(viewer) = &s.viewer { viewer.update(cx, |v, cx| v.next_change(cx)); }
-                        })))
+                    .child(
+                        Button::new("history-previous-change")
+                            .ghost()
+                            .small()
+                            .icon(Icon::default().path("jb/up_dark.svg"))
+                            .tooltip(t("Previous change (Shift+F7)"))
+                            .disabled(self.viewer.is_none())
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                if let Some(viewer) = &s.viewer {
+                                    viewer.update(cx, |v, cx| v.previous_change(cx));
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new("history-next-change")
+                            .ghost()
+                            .small()
+                            .icon(Icon::default().path("jb/down_dark.svg"))
+                            .tooltip(t("Next change (F7)"))
+                            .disabled(self.viewer.is_none())
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                if let Some(viewer) = &s.viewer {
+                                    viewer.update(cx, |v, cx| v.next_change(cx));
+                                }
+                            })),
+                    )
                     .child(
                         Button::new("history-jump-source")
                             .ghost()
@@ -1000,31 +1270,58 @@ impl HistoryView {
                             .tooltip(t("Jump to Source · F4"))
                             .disabled(self.source_request(cx).is_none())
                             .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(crate::ui_actions::JumpToSource), cx)
+                                window
+                                    .dispatch_action(Box::new(crate::ui_actions::JumpToSource), cx)
                             }),
                     )
                     .child(div().flex_1().truncate().child(title))
                     .children(selection_lines)
-                    .when(self.preview_versions.len() != 3, |v| v.child({
-                        let owner = cx.entity().downgrade();
-                        crate::diff_settings::mode_selector(self.mode, move |mode, cx| {
-                            let _ = owner.update(cx, |s, cx| {
-                                s.mode = mode;
-                                if let Some(v) = &s.viewer {
-                                    v.update(cx, |v, cx| v.set_mode(mode, cx));
-                                }
-                                cx.notify();
-                            });
+                    .when(self.preview_versions.len() != 3, |v| {
+                        v.child({
+                            let owner = cx.entity().downgrade();
+                            crate::diff_settings::mode_selector(self.mode, move |mode, cx| {
+                                let _ = owner.update(cx, |s, cx| {
+                                    s.mode = mode;
+                                    if let Some(v) = &s.viewer {
+                                        v.update(cx, |v, cx| v.set_mode(mode, cx));
+                                    }
+                                    cx.notify();
+                                });
+                            })
                         })
-                    })),
+                    }),
             )
-            .when(self.preview_versions.len() == 3, |v| v.child(
-                h_flex().w_full().flex_shrink_0().children(self.preview_versions.iter().enumerate().map(|(col, revision)|
-                    h_flex().w(relative(1. / 3.)).min_w_0().flex_shrink_0().h(px(28.)).px_2().gap_1()
-                        .border_b_1().border_color(rgb(0x2a2b2d))
-                        .child(Icon::default().path("jb/locked_dark.svg").size(px(14.)))
-                        .child(div().truncate().child(format!("{} {} · {}", t(if col == 1 { "Merge result" } else { "Parent revision" }), &revision.id[..8], revision.path.display())))
-                ))))
+            .when(self.preview_versions.len() == 3, |v| {
+                v.child(
+                    h_flex().w_full().flex_shrink_0().children(
+                        self.preview_versions
+                            .iter()
+                            .enumerate()
+                            .map(|(col, revision)| {
+                                h_flex()
+                                    .w(relative(1. / 3.))
+                                    .min_w_0()
+                                    .flex_shrink_0()
+                                    .h(px(28.))
+                                    .px_2()
+                                    .gap_1()
+                                    .border_b_1()
+                                    .border_color(rgb(0x2a2b2d))
+                                    .child(Icon::default().path("jb/locked_dark.svg").size(px(14.)))
+                                    .child(div().truncate().child(format!(
+                                        "{} {} · {}",
+                                        t(if col == 1 {
+                                            "Merge result"
+                                        } else {
+                                            "Parent revision"
+                                        }),
+                                        &revision.id[..8],
+                                        revision.path.display()
+                                    )))
+                            }),
+                    ),
+                )
+            })
             .when_some(self.viewer.clone(), |v, viewer| {
                 v.child(
                     Diff::new(&viewer)
@@ -1057,12 +1354,25 @@ impl Render for HistoryView {
         let content_height = (window.viewport_size().height - px(130.)).max(px(300.));
         let table = self.table(cx);
         let preview = self.preview(cx);
-        let message = self.revision(self.selected).map(|r| r.message.clone()).unwrap_or_default();
+        let message = self
+            .revision(self.selected)
+            .map(|r| r.message.clone())
+            .unwrap_or_default();
         let selection = self.selection.is_some();
         v_flex()
             .size_full()
-            .on_action(cx.listener(|s, _: &crate::ui_actions::NextChange, _, cx| { if let Some(v) = &s.viewer { v.update(cx, |v, cx| v.next_change(cx)); } }))
-            .on_action(cx.listener(|s, _: &crate::ui_actions::PreviousChange, _, cx| { if let Some(v) = &s.viewer { v.update(cx, |v, cx| v.previous_change(cx)); } }))
+            .on_action(cx.listener(|s, _: &crate::ui_actions::NextChange, _, cx| {
+                if let Some(v) = &s.viewer {
+                    v.update(cx, |v, cx| v.next_change(cx));
+                }
+            }))
+            .on_action(
+                cx.listener(|s, _: &crate::ui_actions::PreviousChange, _, cx| {
+                    if let Some(v) = &s.viewer {
+                        v.update(cx, |v, cx| v.previous_change(cx));
+                    }
+                }),
+            )
             .bg(rgb(0x18191a))
             .text_size(rems(1.))
             .child(
@@ -1077,16 +1387,28 @@ impl Render for HistoryView {
                             .truncate()
                             .child(self.path.display().to_string()),
                     )
-                    .when(!selection,|v| {
-                        let owner=cx.entity().downgrade();let shown=self.show_details;
-                        v.child(Button::new("file-history-view-options").ghost().small()
-                            .icon(Icon::default().path("jb/history-show_dark.svg"))
-                            .tooltip(t("View Options"))
-                            .dropdown_menu(move|menu,_,_|{
-                                let owner=owner.clone();
-                                menu.min_w(px(200.)).item(PopupMenuItem::new(t("Show Details")).checked(shown)
-                                    .on_click(move|_,_,cx|{let _=owner.update(cx,|s,cx|s.set_show_details(!shown,cx));}))
-                            }))
+                    .when(!selection, |v| {
+                        let owner = cx.entity().downgrade();
+                        let shown = self.show_details;
+                        v.child(
+                            Button::new("file-history-view-options")
+                                .ghost()
+                                .small()
+                                .icon(Icon::default().path("jb/history-show_dark.svg"))
+                                .tooltip(t("View Options"))
+                                .dropdown_menu(move |menu, _, _| {
+                                    let owner = owner.clone();
+                                    menu.min_w(px(200.)).item(
+                                        PopupMenuItem::new(t("Show Details"))
+                                            .checked(shown)
+                                            .on_click(move |_, _, cx| {
+                                                let _ = owner.update(cx, |s, cx| {
+                                                    s.set_show_details(!shown, cx)
+                                                });
+                                            }),
+                                    )
+                                }),
+                        )
                     })
                     .child(div().flex_1())
                     .child(
@@ -1101,20 +1423,43 @@ impl Render for HistoryView {
             .when(self.loading, |v| {
                 v.child(div().p_3().child(t("Loading file history…")))
             })
-            .when_some(self.error.clone(), |v, error| v.child(crate::error_ui::notice(
-                "file-history-error", "Could not load file history", error, self.loading,
-                cx.listener(|s, _, _, cx| s.load(cx)))))
+            .when_some(self.error.clone(), |v, error| {
+                v.child(crate::error_ui::notice(
+                    "file-history-error",
+                    "Could not load file history",
+                    error,
+                    self.loading,
+                    cx.listener(|s, _, _, cx| s.load(cx)),
+                ))
+            })
             .child(
                 div().flex_1().min_h_0().child(
                     v_resizable("file-history-layout")
                         .child(
                             resizable_panel()
-                                .size(if selection { px(330.) } else { content_height * 0.7 })
+                                .size(if selection {
+                                    px(330.)
+                                } else {
+                                    content_height * 0.7
+                                })
                                 .size_range(px(100.)..px(2000.))
-                                .child(if selection { preview } else if !self.show_details { table } else {
+                                .child(if selection {
+                                    preview
+                                } else if !self.show_details {
+                                    table
+                                } else {
                                     v_resizable("file-history-table-details")
-                                        .child(resizable_panel().size(content_height * 0.49).size_range(px(100.)..px(2000.)).child(table))
-                                        .child(resizable_panel().size_range(px(60.)..px(2000.)).child(self.details_panel(cx)))
+                                        .child(
+                                            resizable_panel()
+                                                .size(content_height * 0.49)
+                                                .size_range(px(100.)..px(2000.))
+                                                .child(table),
+                                        )
+                                        .child(
+                                            resizable_panel()
+                                                .size_range(px(60.)..px(2000.))
+                                                .child(self.details_panel(cx)),
+                                        )
                                         .into_any_element()
                                 }),
                         )
@@ -1127,34 +1472,36 @@ impl Render for HistoryView {
                         )),
                 ),
             )
-            .when(selection, |v| v.child(
-                v_flex()
-                    .h(px(90.))
-                    .flex_shrink_0()
-                    .px_3()
-                    .py_2()
-                    .gap_1()
-                    .child(t("Commit Message"))
-                    .child(
-                        div()
-                            .relative()
-                            .flex_1()
-                            .min_h_0()
-                            .child(
-                                div()
-                                    .id("history-message")
-                                    .size_full()
-                                    .overflow_y_scroll()
-                                    .track_scroll(&self.message_scroll)
-                                    .pr_3()
-                                    .child(message),
-                            )
-                            .child(
-                                Scrollbar::vertical(&self.message_scroll)
-                                    .mode(ScrollbarMode::Always),
-                            ),
-                    ),
-            ))
+            .when(selection, |v| {
+                v.child(
+                    v_flex()
+                        .h(px(90.))
+                        .flex_shrink_0()
+                        .px_3()
+                        .py_2()
+                        .gap_1()
+                        .child(t("Commit Message"))
+                        .child(
+                            div()
+                                .relative()
+                                .flex_1()
+                                .min_h_0()
+                                .child(
+                                    div()
+                                        .id("history-message")
+                                        .size_full()
+                                        .overflow_y_scroll()
+                                        .track_scroll(&self.message_scroll)
+                                        .pr_3()
+                                        .child(message),
+                                )
+                                .child(
+                                    Scrollbar::vertical(&self.message_scroll)
+                                        .mode(ScrollbarMode::Always),
+                                ),
+                        ),
+                )
+            })
     }
 }
 pub fn open_selection(
@@ -1194,11 +1541,13 @@ impl Render for HistoryWindow {
         v_flex()
             .key_context("SelectionHistoryWindow")
             .on_action(cx.listener(|_, _: &CloseHistory, w, _| w.remove_window()))
-            .on_action(cx.listener(|s, _: &crate::ui_actions::JumpToSource, _, cx| {
-                if let Some(request) = s.history.read(cx).source_request(cx) {
-                    (s.source_callback)(request, cx);
-                }
-            }))
+            .on_action(
+                cx.listener(|s, _: &crate::ui_actions::JumpToSource, _, cx| {
+                    if let Some(request) = s.history.read(cx).source_request(cx) {
+                        (s.source_callback)(request, cx);
+                    }
+                }),
+            )
             .size_full()
             .bg(rgb(0x18191a))
             .text_color(rgb(0xced0d6))

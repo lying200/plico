@@ -18,7 +18,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - run: rustup update stable --no-self-update && rustup default stable
+      - run: rustup show
+      - name: Check owned Rust formatting
+        run: cargo fmt --package plico -- --check
+      - name: Core lint checks
+        run: cargo clippy --locked --no-default-features --all-targets
       - run: cargo test --locked --no-default-features
   windows:
     runs-on: windows-2022
@@ -30,9 +34,7 @@ jobs:
       - name: Toolchain
         shell: pwsh
         run: |
-          rustup update stable --no-self-update
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          rustup default stable
+          rustup show
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           'C:\Program Files\LLVM\bin' >> $env:GITHUB_PATH
           rustc --version

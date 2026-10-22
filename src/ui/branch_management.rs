@@ -395,20 +395,37 @@ impl Review {
 
 impl Review {
     pub(super) fn delete_merged_branch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.operation.busy() || self.operation.saving_documents() { return; }
-        let Some(merged) = self.merged_branch.clone() else { return; };
-        let Some((id, token)) = self.begin_operation(plico::active_operation::Kind::Checkout,
-            plico::active_operation::Phase::Preparing, cx) else { return; };
+        if self.operation.busy() || self.operation.saving_documents() {
+            return;
+        }
+        let Some(merged) = self.merged_branch.clone() else {
+            return;
+        };
+        let Some((id, token)) = self.begin_operation(
+            plico::active_operation::Kind::Checkout,
+            plico::active_operation::Phase::Preparing,
+            cx,
+        ) else {
+            return;
+        };
         let repo = self.repo.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
-            let result = wx.background_spawn(async move { merged.prepare_deletion(&repo, &token) }).await;
+            let result = wx
+                .background_spawn(async move { merged.prepare_deletion(&repo, &token) })
+                .await;
             let _ = this.update_in(wx, |s, w, cx| {
-                let Some(cancelled) = s.finish_operation(id, cx) else { return; };
-                if cancelled { return; }
+                let Some(cancelled) = s.finish_operation(id, cx) else {
+                    return;
+                };
+                if cancelled {
+                    return;
+                }
                 s.merged_branch = None;
                 match result {
                     Ok(prepared) => s.confirm_delete_branch(Arc::new(prepared), w, cx),
-                    Err(error) => crate::error_ui::show_details(error, "Could not delete branch", w, cx),
+                    Err(error) => {
+                        crate::error_ui::show_details(error, "Could not delete branch", w, cx)
+                    }
                 }
             });
         });

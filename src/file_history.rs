@@ -70,10 +70,15 @@ pub fn preview_revisions(comparison: Comparison) -> Vec<Option<Revision>> {
     let left = sides.next().unwrap();
     let right = sides.next().unwrap();
     let center = comparison.after;
-    if left.is_none() { vec![center, right] }
-    else if right.is_none() { vec![left, center] }
-    else if center.is_none() { vec![left, right] }
-    else { vec![left, center, right] }
+    if left.is_none() {
+        vec![center, right]
+    } else if right.is_none() {
+        vec![left, center]
+    } else if center.is_none() {
+        vec![left, right]
+    } else {
+        vec![left, center, right]
+    }
 }
 
 pub fn selected_comparison(
@@ -81,7 +86,9 @@ pub fn selected_comparison(
     links: &[Vec<(String, bool)>],
     selection: &crate::log_selection::Selection,
 ) -> Result<Option<Comparison>> {
-    let Some((row, last)) = comparison_rows(history, selection) else { return Ok(None); };
+    let Some((row, last)) = comparison_rows(history, selection) else {
+        return Ok(None);
+    };
     let after = &history.revisions[row];
     if let Some(last) = last {
         return Ok(comparison_to_parents(after, &[&history.revisions[last]]));
@@ -89,32 +96,55 @@ pub fn selected_comparison(
     if links.len() != history.revisions.len() {
         return Err("Invalid file history graph".into());
     }
-    let parents = links[row].iter().map(|(id, _)| {
-        history.revisions.iter().chain(history.older.iter()).find(|r| &r.id == id)
-            .ok_or_else(|| "Load more file history to compare this version".to_owned())
-    }).collect::<Result<Vec<_>>>()?;
+    let parents = links[row]
+        .iter()
+        .map(|(id, _)| {
+            history
+                .revisions
+                .iter()
+                .chain(history.older.iter())
+                .find(|r| &r.id == id)
+                .ok_or_else(|| "Load more file history to compare this version".to_owned())
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(comparison_to_parents(after, &parents))
 }
 
 // Comparison endpoints only need immutable content identity, not repeated
 // copies of commit messages, authors or ancestry for every merge parent.
 fn content_revision(revision: &Revision) -> Revision {
-    Revision { id: revision.id.clone(), path: revision.path.clone(), deleted: false,
-        parents: vec![], timestamp: 0, author: String::new(), message: String::new() }
+    Revision {
+        id: revision.id.clone(),
+        path: revision.path.clone(),
+        deleted: false,
+        parents: vec![],
+        timestamp: 0,
+        author: String::new(),
+        message: String::new(),
+    }
 }
 fn comparison_to_parents(selected: &Revision, parents: &[&Revision]) -> Option<Comparison> {
     let after = (!selected.deleted).then_some(selected);
     if parents.is_empty() {
-        return after.map(|after| Comparison { before: None, after: Some(content_revision(after)), source_before: vec![] });
+        return after.map(|after| Comparison {
+            before: None,
+            after: Some(content_revision(after)),
+            source_before: vec![],
+        });
     }
-    let changes: Vec<_> = parents.iter().filter_map(|parent| {
-        let before = (!parent.deleted).then_some(*parent);
-        (before.is_some() || after.is_some()).then_some((before, after))
-    }).collect();
+    let changes: Vec<_> = parents
+        .iter()
+        .filter_map(|parent| {
+            let before = (!parent.deleted).then_some(*parent);
+            (before.is_some() || after.is_some()).then_some((before, after))
+        })
+        .collect();
     let &(first_before, first_after) = changes.first()?;
     let source_before = if changes.len() > 1 {
         changes.iter().map(|c| c.0.map(content_revision)).collect()
-    } else { vec![] };
+    } else {
+        vec![]
+    };
     let kind = |c: &(Option<&Revision>, Option<&Revision>)| match c {
         (None, Some(_)) => b'A',
         (Some(_), None) => b'D',
@@ -123,9 +153,15 @@ fn comparison_to_parents(selected: &Revision, parents: &[&Revision]) -> Option<C
     };
     let first_kind = kind(&changes[0]);
     let same_kind = changes.iter().all(|c| kind(c) == first_kind);
-    let same_source = changes.iter().all(|c| c.0.map(|r| &r.path) == first_before.map(|r| &r.path));
+    let same_source = changes
+        .iter()
+        .all(|c| c.0.map(|r| &r.path) == first_before.map(|r| &r.path));
     if changes.len() == 1 || (same_kind && (first_kind != b'R' || same_source)) {
-        return Some(Comparison { before: first_before.map(content_revision), after: first_after.map(content_revision), source_before });
+        return Some(Comparison {
+            before: first_before.map(content_revision),
+            after: first_after.map(content_revision),
+            source_before,
+        });
     }
     // MyVcsChangesMerger constructs a new revision at the first graph parent
     // and selected path for mixed types or differing rename sources. Do not
@@ -133,7 +169,15 @@ fn comparison_to_parents(selected: &Revision, parents: &[&Revision]) -> Option<C
     let mut before = content_revision(parents[0]);
     before.path = selected.path.clone();
     let deleted = changes.iter().any(|c| kind(c) == b'D');
-    Some(Comparison { before: Some(before), after: if deleted { None } else { after.map(content_revision) }, source_before })
+    Some(Comparison {
+        before: Some(before),
+        after: if deleted {
+            None
+        } else {
+            after.map(content_revision)
+        },
+        source_before,
+    })
 }
 
 fn validate(path: &Path) -> Result<()> {
@@ -433,7 +477,11 @@ pub fn load_scoped(
                 .id
                 .clone(),
         ],
-        None => refs.iter().map(|r| r.id.clone()).chain([head.clone()]).collect(),
+        None => refs
+            .iter()
+            .map(|r| r.id.clone())
+            .chain([head.clone()])
+            .collect(),
     };
     roots.sort();
     roots.dedup();
@@ -529,9 +577,13 @@ pub fn load_scoped(
     let mut geometry = crate::graph::GeometryPool::default();
     let mut raw = Vec::with_capacity(ordered.len());
     for (revision, parents) in ordered.iter().zip(&links) {
-        if token.cancelled() { return Err("Cancelled".into()); }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
         let mut row = layout.append_projected_bounded(&revision.id, parents)?;
-        if !geometry.intern(&mut row, 500_000) { return Err("File history graph exceeds geometry budget".into()); }
+        if !geometry.intern(&mut row, 500_000) {
+            return Err("File history graph exceeds geometry budget".into());
+        }
         raw.push(row);
     }
     let graph = crate::graph_print::project(&raw, false, token)?;

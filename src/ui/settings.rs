@@ -158,11 +158,7 @@ impl Review {
             return;
         }
         let fonts = draft.fonts.clone();
-        let (language, file_preview, git) = (
-            draft.language,
-            draft.file_preview,
-            draft.git.clone(),
-        );
+        let (language, file_preview, git) = (draft.language, draft.file_preview, draft.git.clone());
         if let Some(draft) = &mut self.settings_draft {
             draft.error = None;
         }

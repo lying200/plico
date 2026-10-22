@@ -36,7 +36,15 @@ mod tests {
     #[test]
     fn flips_without_covering_the_input_line_and_clamps_horizontal_edges() {
         let p = place([460., 350., 370.], [200., 218.], [500., 400.]);
-        assert_eq!(p, Placement { x: 292., y: 132., width: 200., height: 218. });
+        assert_eq!(
+            p,
+            Placement {
+                x: 292.,
+                y: 132.,
+                width: 200.,
+                height: 218.
+            }
+        );
         assert!(p.y + p.height <= 350.);
         let p = place([20., 50., 70.], [200., 218.], [500., 400.]);
         assert_eq!(p.y, 70.);
@@ -46,11 +54,27 @@ mod tests {
     #[test]
     fn crops_to_the_larger_side_instead_of_covering_the_input_line() {
         let p = place([-10., 160., 180.], [200., 218.], [150., 300.]);
-        assert_eq!(p, Placement { x: 8., y: 8., width: 134., height: 152. });
+        assert_eq!(
+            p,
+            Placement {
+                x: 8.,
+                y: 8.,
+                width: 134.,
+                height: 152.
+            }
+        );
         let p = place([10., 90., 110.], [200., 218.], [500., 300.]);
         assert_eq!(p.y, 110.);
         assert_eq!(p.height, 182.);
         let p = place([0., 0., 0.], [200., 218.], [0., 0.]);
-        assert_eq!(p, Placement { x: 0., y: 0., width: 0., height: 0. });
+        assert_eq!(
+            p,
+            Placement {
+                x: 0.,
+                y: 0.,
+                width: 0.,
+                height: 0.
+            }
+        );
     }
 }

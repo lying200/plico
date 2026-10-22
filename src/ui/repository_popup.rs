@@ -207,7 +207,7 @@ impl Review {
     }
     pub(super) fn repository_branch_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
-        let (incoming,outgoing,unfetched)=self.branch_update_counts();
+        let (incoming, outgoing, unfetched) = self.branch_update_counts();
         let head = self.snapshot.as_ref().and_then(|s| s.head_id.as_ref());
         let label = self
             .snapshot
@@ -233,7 +233,14 @@ impl Review {
                 titlebar_menu_button("repository-branch-menu")
                     .tooltip(self.branch_update_tooltip())
                     .ghost()
-                    .disabled((self.operation.busy() && !self.operation.is_running(plico::active_operation::Kind::Fetch)) || self.settings_open || head.is_none())
+                    .disabled(
+                        (self.operation.busy()
+                            && !self
+                                .operation
+                                .is_running(plico::active_operation::Kind::Fetch))
+                            || self.settings_open
+                            || head.is_none(),
+                    )
                     .child(
                         h_flex()
                             .items_center()
@@ -273,8 +280,20 @@ impl Review {
                                     .font_weight(FontWeight::NORMAL)
                                     .child(label),
                             )
-                            .when(incoming>0 || unfetched,|v|v.child(jb_icon("incoming_dark.svg").size(px(12.)).text_color(rgb(0x548af7))))
-                            .when(outgoing>0,|v|v.child(jb_icon("outgoing_dark.svg").size(px(12.)).text_color(rgb(0x57965c))))
+                            .when(incoming > 0 || unfetched, |v| {
+                                v.child(
+                                    jb_icon("incoming_dark.svg")
+                                        .size(px(12.))
+                                        .text_color(rgb(0x548af7)),
+                                )
+                            })
+                            .when(outgoing > 0, |v| {
+                                v.child(
+                                    jb_icon("outgoing_dark.svg")
+                                        .size(px(12.))
+                                        .text_color(rgb(0x57965c)),
+                                )
+                            })
                             .child(jb_icon("chevronDown_dark.svg")),
                     ),
             )

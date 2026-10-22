@@ -512,21 +512,36 @@ impl Review {
             plico::active_operation::Kind::Recovery,
             plico::active_operation::Phase::Preparing,
             cx,
-        ) else { return; };
+        ) else {
+            return;
+        };
         let repo = self.repo.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
-            let result = wx.background_spawn(async move {
-                repo.local_changes(&token).map(|changes| changes.into_iter()
-                    .filter(|c| c.area != plico::git::Area::Untracked)
-                    .map(|c| c.path.to_string_lossy().into_owned())
-                    .collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>())
-            }).await;
+            let result = wx
+                .background_spawn(async move {
+                    repo.local_changes(&token).map(|changes| {
+                        changes
+                            .into_iter()
+                            .filter(|c| c.area != plico::git::Area::Untracked)
+                            .map(|c| c.path.to_string_lossy().into_owned())
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .await;
             let _ = this.update_in(wx, |s, w, cx| {
-                let Some(cancelled) = s.finish_operation(id, cx) else { return; };
-                if cancelled { return; }
+                let Some(cancelled) = s.finish_operation(id, cx) else {
+                    return;
+                };
+                if cancelled {
+                    return;
+                }
                 match result {
                     Ok(files) => s.revert_retry_dialog(retry, Some(files), w, cx),
-                    Err(error) => crate::error_ui::show_details(error, "Operation requires attention", w, cx),
+                    Err(error) => {
+                        crate::error_ui::show_details(error, "Operation requires attention", w, cx)
+                    }
                 }
             });
         });

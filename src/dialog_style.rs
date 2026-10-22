@@ -1,8 +1,11 @@
 //! Windows DialogWrapper default action order and content-sized button group.
 //! Reference: Rebased 4aec352, DialogWrapper.createActions and JBUI.Button.minimumSize.
-use plico::i18n::t;
+use gpui_kit::component::{
+    button::Button,
+    dialog::{DialogAction, DialogClose, DialogFooter},
+};
 use gpui_kit::{ParentElement as _, Styled as _, px};
-use gpui_kit::component::{button::Button, dialog::{DialogAction, DialogClose, DialogFooter}};
+use plico::i18n::t;
 
 /// For standard OK/Cancel dialogs only; custom risk decisions keep their own order.
 /// 72 is JBUI's logical minimum fallback, not a claim about installed theme pixels.

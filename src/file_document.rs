@@ -33,11 +33,15 @@ pub struct Save {
 }
 
 fn decode(bytes: &[u8]) -> Result<(&str, bool), Error> {
-    if bytes.len() > FILE_LIMIT { return Err(Error::TooLarge); }
+    if bytes.len() > FILE_LIMIT {
+        return Err(Error::TooLarge);
+    }
     if bytes.starts_with(b"\xff\xfe") || bytes.starts_with(b"\xfe\xff") {
         return Err(Error::UnsupportedEncoding);
     }
-    if bytes.contains(&0) { return Err(Error::Binary); }
+    if bytes.contains(&0) {
+        return Err(Error::Binary);
+    }
     let bom = bytes.starts_with(BOM);
     let text = std::str::from_utf8(if bom { &bytes[3..] } else { bytes })
         .map_err(|_| Error::UnsupportedEncoding)?;
@@ -59,29 +63,50 @@ impl Document {
             _ => "\n",
         };
         let text = normalized(text);
-        Ok(Self { disk: bytes.into(), text, separator, bom, saving: None })
+        Ok(Self {
+            disk: bytes.into(),
+            text,
+            separator,
+            bom,
+            saving: None,
+        })
     }
 
-    pub fn disk(&self) -> Arc<[u8]> { self.disk.clone() }
+    pub fn disk(&self) -> Arc<[u8]> {
+        self.disk.clone()
+    }
 
-    pub fn text(&self) -> &str { &self.text }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
 
     /// Compare physical text without BOM. Keep exact mixed separators for an
     /// untouched document; edited text uses the same separator as saving.
     pub fn comparison_text(&self, editor_text: &str) -> String {
         if editor_text == self.text && !self.dirty() {
-            decode(&self.disk).expect("validated disk baseline").0.to_owned()
-        } else { editor_text.replace('\n', self.separator) }
+            decode(&self.disk)
+                .expect("validated disk baseline")
+                .0
+                .to_owned()
+        } else {
+            editor_text.replace('\n', self.separator)
+        }
     }
 
     pub fn edit(&mut self, text: String) -> Result<(), Error> {
-        if text.len() > FILE_LIMIT { return Err(Error::TooLarge); }
-        if text.contains('\0') { return Err(Error::Binary); }
+        if text.len() > FILE_LIMIT {
+            return Err(Error::TooLarge);
+        }
+        if text.contains('\0') {
+            return Err(Error::Binary);
+        }
         let text = normalized(&text);
         let encoded_len = text.len()
             + text.bytes().filter(|b| *b == b'\n').count() * (self.separator.len() - 1)
             + if self.bom { BOM.len() } else { 0 };
-        if encoded_len > FILE_LIMIT { return Err(Error::TooLarge); }
+        if encoded_len > FILE_LIMIT {
+            return Err(Error::TooLarge);
+        }
         self.text = text;
         Ok(())
     }
@@ -93,35 +118,56 @@ impl Document {
         let normalized = std::iter::from_fn(move || {
             bytes.next().map(|b| {
                 if b == b'\r' {
-                    if bytes.peek() == Some(&b'\n') { bytes.next(); }
+                    if bytes.peek() == Some(&b'\n') {
+                        bytes.next();
+                    }
                     b'\n'
-                } else { b }
+                } else {
+                    b
+                }
             })
         });
         !self.text.bytes().eq(normalized)
     }
 
-    pub fn saving(&self) -> bool { self.saving.is_some() }
+    pub fn saving(&self) -> bool {
+        self.saving.is_some()
+    }
 
     /// No-op saves do not rewrite bytes, preserving mixed endings and timestamps.
     pub fn begin_save(&mut self) -> Result<Option<Save>, Error> {
-        if self.saving() { return Err(Error::SaveInProgress); }
-        if !self.dirty() { return Ok(None); }
+        if self.saving() {
+            return Err(Error::SaveInProgress);
+        }
+        if !self.dirty() {
+            return Ok(None);
+        }
         let mut bytes = Vec::with_capacity(self.text.len() + 3);
-        if self.bom { bytes.extend_from_slice(BOM); }
+        if self.bom {
+            bytes.extend_from_slice(BOM);
+        }
         bytes.extend_from_slice(self.text.replace('\n', self.separator).as_bytes());
         let bytes: Arc<[u8]> = bytes.into();
         self.saving = Some(bytes.clone());
-        Ok(Some(Save { expected: self.disk.clone(), bytes }))
+        Ok(Some(Save {
+            expected: self.disk.clone(),
+            bytes,
+        }))
     }
 
     /// An acknowledgement belongs only to its originating save allocation.
     /// A stale acknowledgement cannot clear a newer save or another document.
     pub fn finish_save(&mut self, save: Save, succeeded: bool) -> bool {
-        if !self.saving.as_ref().is_some_and(|bytes| Arc::ptr_eq(bytes, &save.bytes)) {
+        if !self
+            .saving
+            .as_ref()
+            .is_some_and(|bytes| Arc::ptr_eq(bytes, &save.bytes))
+        {
             return false;
         }
-        if succeeded { self.disk = save.bytes; }
+        if succeeded {
+            self.disk = save.bytes;
+        }
         self.saving = None;
         true
     }
@@ -194,11 +240,20 @@ mod tests {
 
     #[test]
     fn unsupported_inputs_and_oversized_edits_preserve_content() {
-        assert!(matches!(Document::new(vec![0xff]), Err(Error::UnsupportedEncoding)));
-        assert!(matches!(Document::new(vec![0xff, 0xfe, 0, 0]), Err(Error::UnsupportedEncoding)));
+        assert!(matches!(
+            Document::new(vec![0xff]),
+            Err(Error::UnsupportedEncoding)
+        ));
+        assert!(matches!(
+            Document::new(vec![0xff, 0xfe, 0, 0]),
+            Err(Error::UnsupportedEncoding)
+        ));
         assert!(matches!(Document::new(vec![0]), Err(Error::Binary)));
         let mut d = Document::new(b"a\r\n".to_vec()).unwrap();
-        assert_eq!(d.edit("\n".repeat(FILE_LIMIT / 2 + 1)), Err(Error::TooLarge));
+        assert_eq!(
+            d.edit("\n".repeat(FILE_LIMIT / 2 + 1)),
+            Err(Error::TooLarge)
+        );
         assert_eq!(d.text(), "a\n");
         assert!(!d.dirty());
     }

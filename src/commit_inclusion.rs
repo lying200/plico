@@ -1,11 +1,21 @@
 //! Inclusion for the Rebased-style non-staging Commit tree. Before/after paths
 //! drive staging; excluded index paths are preserved by commit_operation.
-use crate::{commit_changes::{File,Snapshot},commit_operation::Request};
-use std::{collections::{BTreeSet,HashSet},path::PathBuf};
+use crate::{
+    commit_changes::{File, Snapshot},
+    commit_operation::Request,
+};
+use std::{
+    collections::{BTreeSet, HashSet},
+    path::PathBuf,
+};
 
-#[derive(Clone,Copy,Debug,PartialEq,Eq,Hash)]
-pub enum Kind { Tracked, Unversioned, Conflict }
-#[derive(Clone,Debug,PartialEq,Eq,Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Tracked,
+    Unversioned,
+    Conflict,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Identity {
     pub kind: Kind,
     pub path: PathBuf,
@@ -13,13 +23,34 @@ pub struct Identity {
     pub after: Option<PathBuf>,
 }
 impl Identity {
-    pub fn of(file:&File)->Self {
+    pub fn of(file: &File) -> Self {
         match file {
-            File::Tracked(c)=>Self{kind:Kind::Tracked,path:c.path.clone(),
-                before:if c.status.starts_with('A'){None}else{Some(c.old_path.clone().unwrap_or_else(||c.path.clone()))},
-                after:if c.status.starts_with('D'){None}else{Some(c.path.clone())}},
-            File::Unversioned(c)=>Self{kind:Kind::Unversioned,path:c.path.clone(),before:None,after:Some(c.path.clone())},
-            File::Conflict(c)=>Self{kind:Kind::Conflict,path:c.path.clone(),before:None,after:None},
+            File::Tracked(c) => Self {
+                kind: Kind::Tracked,
+                path: c.path.clone(),
+                before: if c.status.starts_with('A') {
+                    None
+                } else {
+                    Some(c.old_path.clone().unwrap_or_else(|| c.path.clone()))
+                },
+                after: if c.status.starts_with('D') {
+                    None
+                } else {
+                    Some(c.path.clone())
+                },
+            },
+            File::Unversioned(c) => Self {
+                kind: Kind::Unversioned,
+                path: c.path.clone(),
+                before: None,
+                after: Some(c.path.clone()),
+            },
+            File::Conflict(c) => Self {
+                kind: Kind::Conflict,
+                path: c.path.clone(),
+                before: None,
+                after: None,
+            },
         }
     }
 }
@@ -31,17 +62,29 @@ pub struct Summary {
     pub deleted: usize,
 }
 #[derive(Default)]
-pub struct Inclusion { available: HashSet<Identity>, included: HashSet<Identity>, head:Option<String> }
+pub struct Inclusion {
+    available: HashSet<Identity>,
+    included: HashSet<Identity>,
+    head: Option<String>,
+}
 impl Inclusion {
-    pub fn replace(&mut self,snapshot:&Snapshot) {
-        let head_changed=self.head!=snapshot.head;
-        self.head=snapshot.head.clone();
-        self.available=snapshot.files.iter().map(Identity::of).collect();
-        if head_changed {self.included.clear();}
-        else {self.included.retain(|id|self.available.contains(id) && id.kind!=Kind::Conflict);}
+    pub fn replace(&mut self, snapshot: &Snapshot) {
+        let head_changed = self.head != snapshot.head;
+        self.head = snapshot.head.clone();
+        self.available = snapshot.files.iter().map(Identity::of).collect();
+        if head_changed {
+            self.included.clear();
+        } else {
+            self.included
+                .retain(|id| self.available.contains(id) && id.kind != Kind::Conflict);
+        }
     }
-    pub fn clear(&mut self) {self.included.clear();}
-    pub fn count(&self)->usize {self.included.len()}
+    pub fn clear(&mut self) {
+        self.included.clear();
+    }
+    pub fn count(&self) -> usize {
+        self.included.len()
+    }
     /// Counts included file identities, so a partial hunk selection is one file.
     pub fn summary(&self) -> Summary {
         let mut summary = Summary::default();
@@ -56,28 +99,56 @@ impl Inclusion {
         }
         summary
     }
-    pub fn included(&self,id:&Identity)->bool {self.included.contains(id)}
-    pub fn set(&mut self,id:&Identity,checked:bool) {
-        if id.kind==Kind::Conflict || !self.available.contains(id) {return;}
-        if checked {self.included.insert(id.clone());} else {self.included.remove(id);}
+    pub fn included(&self, id: &Identity) -> bool {
+        self.included.contains(id)
     }
-    pub fn set_scope(&mut self,ids:&HashSet<Identity>,checked:bool) {
-        for id in ids {self.set(id,checked);}
+    pub fn set(&mut self, id: &Identity, checked: bool) {
+        if id.kind == Kind::Conflict || !self.available.contains(id) {
+            return;
+        }
+        if checked {
+            self.included.insert(id.clone());
+        } else {
+            self.included.remove(id);
+        }
     }
-    pub fn scope_counts(&self,ids:&HashSet<Identity>)->(usize,usize) {
-        ids.iter().filter(|id|id.kind!=Kind::Conflict && self.available.contains(*id))
-            .fold((0,0),|(included,total),id|(included+usize::from(self.included.contains(id)),total+1))
+    pub fn set_scope(&mut self, ids: &HashSet<Identity>, checked: bool) {
+        for id in ids {
+            self.set(id, checked);
+        }
     }
-    pub fn request(&self,message:String,amend:bool)->Result<Request,String> {
-        if self.available.iter().any(|id|id.kind==Kind::Conflict) {return Err("Resolve conflicts before committing".into());}
-        let mut add=BTreeSet::new();let mut remove=BTreeSet::new();
+    pub fn scope_counts(&self, ids: &HashSet<Identity>) -> (usize, usize) {
+        ids.iter()
+            .filter(|id| id.kind != Kind::Conflict && self.available.contains(*id))
+            .fold((0, 0), |(included, total), id| {
+                (
+                    included + usize::from(self.included.contains(id)),
+                    total + 1,
+                )
+            })
+    }
+    pub fn request(&self, message: String, amend: bool) -> Result<Request, String> {
+        if self.available.iter().any(|id| id.kind == Kind::Conflict) {
+            return Err("Resolve conflicts before committing".into());
+        }
+        let mut add = BTreeSet::new();
+        let mut remove = BTreeSet::new();
         for id in &self.included {
-            add.extend(id.after.iter().cloned());remove.extend(id.before.iter().cloned());
+            add.extend(id.after.iter().cloned());
+            remove.extend(id.before.iter().cloned());
         }
         // Same rule as GitCheckinEnvironment.stageAndCommit: added paths win.
-        remove.retain(|path|!add.contains(path));
-        if add.is_empty() && remove.is_empty() && !amend {return Err("Select changes to commit".into());}
-        Ok(Request{add:add.into_iter().collect(),remove:remove.into_iter().collect(),message,amend,expected_head:self.head.clone()})
+        remove.retain(|path| !add.contains(path));
+        if add.is_empty() && remove.is_empty() && !amend {
+            return Err("Select changes to commit".into());
+        }
+        Ok(Request {
+            add: add.into_iter().collect(),
+            remove: remove.into_iter().collect(),
+            message,
+            amend,
+            expected_head: self.head.clone(),
+        })
     }
 }
 
@@ -87,18 +158,35 @@ mod summary_tests {
     #[test]
     fn summary_counts_included_identities_and_moves_only_once() {
         let identity = |kind, before: Option<&str>, after: Option<&str>| Identity {
-            kind, path: after.or(before).unwrap().into(),
-            before: before.map(Into::into), after: after.map(Into::into),
+            kind,
+            path: after.or(before).unwrap().into(),
+            before: before.map(Into::into),
+            after: after.map(Into::into),
         };
-        let ids = [identity(Kind::Tracked, None, Some("added")),
+        let ids = [
+            identity(Kind::Tracked, None, Some("added")),
             identity(Kind::Unversioned, None, Some("new")),
             identity(Kind::Tracked, Some("old"), Some("renamed")),
             identity(Kind::Tracked, Some("deleted"), None),
-            identity(Kind::Tracked, Some("excluded"), Some("excluded"))];
-        let mut inclusion = Inclusion { available: ids.iter().cloned().collect(), ..Default::default() };
-        for id in &ids[..4] { inclusion.set(id, true); }
+            identity(Kind::Tracked, Some("excluded"), Some("excluded")),
+        ];
+        let mut inclusion = Inclusion {
+            available: ids.iter().cloned().collect(),
+            ..Default::default()
+        };
+        for id in &ids[..4] {
+            inclusion.set(id, true);
+        }
         inclusion.set(&ids[2], true);
-        assert_eq!(inclusion.summary(), Summary { added: 1, unversioned: 1, modified: 1, deleted: 1 });
+        assert_eq!(
+            inclusion.summary(),
+            Summary {
+                added: 1,
+                unversioned: 1,
+                modified: 1,
+                deleted: 1
+            }
+        );
         inclusion.set(&ids[2], false);
         assert_eq!(inclusion.summary().modified, 0);
         inclusion.clear();

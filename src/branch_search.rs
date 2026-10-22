@@ -38,15 +38,26 @@ pub fn byte_ranges(text: &str, ranges: &[Range<usize>]) -> Vec<Range<usize>> {
     let mut result: Vec<Range<usize>> = Vec::new();
     let mut utf16 = 0;
     let mut range_index = 0;
-    for (byte,c) in text.char_indices() {
-        let end = utf16+c.len_utf16();
-        while ranges.get(range_index).is_some_and(|range| range.end<=utf16) { range_index+=1; }
-        if ranges.get(range_index).is_some_and(|range| range.start<end && range.end>utf16) {
-            let byte_end=byte+c.len_utf8();
-            if let Some(last)=result.last_mut().filter(|r| r.end==byte) { last.end=byte_end; }
-            else { result.push(byte..byte_end); }
+    for (byte, c) in text.char_indices() {
+        let end = utf16 + c.len_utf16();
+        while ranges
+            .get(range_index)
+            .is_some_and(|range| range.end <= utf16)
+        {
+            range_index += 1;
         }
-        utf16=end;
+        if ranges
+            .get(range_index)
+            .is_some_and(|range| range.start < end && range.end > utf16)
+        {
+            let byte_end = byte + c.len_utf8();
+            if let Some(last) = result.last_mut().filter(|r| r.end == byte) {
+                last.end = byte_end;
+            } else {
+                result.push(byte..byte_end);
+            }
+        }
+        utf16 = end;
     }
     result
 }
@@ -235,14 +246,20 @@ mod tests {
 
     #[test]
     fn displayed_highlights_convert_unicode_without_slicing_full_ref_offsets() {
-        let query=search("topic");
-        let label="topic";
-        assert_eq!(byte_ranges(label,&query.find(label).unwrap().fragments),vec![0..5]);
+        let query = search("topic");
+        let label = "topic";
+        assert_eq!(
+            byte_ranges(label, &query.find(label).unwrap().fragments),
+            vec![0..5]
+        );
         assert!(query.find("feature").is_none());
-        assert_eq!(byte_ranges("😀中文/修复",&[2..3,5..7]),vec![4..7,11..17]);
-        assert_eq!(byte_ranges("a😀b",&[2..3]),vec![1..5]);
-        assert_eq!(byte_ranges("a😀b",&[1..2,2..4]),vec![1..6]);
-        assert_eq!(byte_ranges("你好",&[]),Vec::<Range<usize>>::new());
+        assert_eq!(
+            byte_ranges("😀中文/修复", &[2..3, 5..7]),
+            vec![4..7, 11..17]
+        );
+        assert_eq!(byte_ranges("a😀b", &[2..3]), vec![1..5]);
+        assert_eq!(byte_ranges("a😀b", &[1..2, 2..4]), vec![1..6]);
+        assert_eq!(byte_ranges("你好", &[]), Vec::<Range<usize>>::new());
     }
     #[test]
     fn popup_selection_actions_expansion_and_clear_follow_single_repo_policy() {

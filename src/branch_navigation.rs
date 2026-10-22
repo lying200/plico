@@ -72,18 +72,27 @@ pub fn navigate(
     let last = leaves.len() - 1;
     let index = current.and_then(|selected| leaves.iter().position(|leaf| leaf.selected(selected)));
     // A parent can become selected through Left even while filtering.
-    if let Some(Selection::Folder(key))=current {
-        let first=leaves.iter().position(|leaf| match leaf {
-            Leaf::Reference(section,name) if *section==key.section => groups.iter().filter(|g|g.section==*section)
-                .flat_map(|g|&g.references).any(|r|r.full_name==*name && (key.prefix.is_empty() || r.name.strip_prefix(&key.prefix).is_some_and(|tail|tail.starts_with('/')))),
-            _=>false,
+    if let Some(Selection::Folder(key)) = current {
+        let first = leaves.iter().position(|leaf| match leaf {
+            Leaf::Reference(section, name) if *section == key.section => groups
+                .iter()
+                .filter(|g| g.section == *section)
+                .flat_map(|g| &g.references)
+                .any(|r| {
+                    r.full_name == *name
+                        && (key.prefix.is_empty()
+                            || r.name
+                                .strip_prefix(&key.prefix)
+                                .is_some_and(|tail| tail.starts_with('/')))
+                }),
+            _ => false,
         });
-        if let Some(first)=first {
+        if let Some(first) = first {
             match direction {
-                Move::Next=>return Some(leaves[first].owned()),
-                Move::Previous if first>0=>return Some(leaves[first-1].owned()),
-                Move::Previous=>return cycle.then(||leaves[last].owned()),
-                _=>{},
+                Move::Next => return Some(leaves[first].owned()),
+                Move::Previous if first > 0 => return Some(leaves[first - 1].owned()),
+                Move::Previous => return cycle.then(|| leaves[last].owned()),
+                _ => {}
             }
         }
     }
@@ -107,40 +116,77 @@ pub fn navigate(
 
 /// A visible tree row has a stable identity even when its children are collapsed.
 pub fn row_selection(row: &crate::branch_popup::VisibleRow<'_>) -> Selection {
-    use crate::branch_popup::{VisibleNode, FolderKey};
+    use crate::branch_popup::{FolderKey, VisibleNode};
     match &row.node {
-        VisibleNode::Section(section) => Selection::Folder(FolderKey { section:*section, prefix:String::new() }),
-        VisibleNode::Entry(Node::Folder {key,..}) => Selection::Folder(key.clone()),
-        VisibleNode::Entry(Node::Ref {reference,..}) => Selection::Reference(row.section,reference.full_name.into()),
+        VisibleNode::Section(section) => Selection::Folder(FolderKey {
+            section: *section,
+            prefix: String::new(),
+        }),
+        VisibleNode::Entry(Node::Folder { key, .. }) => Selection::Folder(key.clone()),
+        VisibleNode::Entry(Node::Ref { reference, .. }) => {
+            Selection::Reference(row.section, reference.full_name.into())
+        }
     }
 }
 
 pub fn row_matches(row: &crate::branch_popup::VisibleRow<'_>, selected: &Selection) -> bool {
     use crate::branch_popup::VisibleNode;
-    match (&row.node,selected) {
-        (VisibleNode::Section(section),Selection::Folder(key)) => *section==key.section && key.prefix.is_empty(),
-        (VisibleNode::Entry(Node::Folder {key,..}),Selection::Folder(other)) => key==other,
-        (VisibleNode::Entry(Node::Ref {reference,..}),Selection::Reference(section,name)) => *section==row.section && name==reference.full_name,
+    match (&row.node, selected) {
+        (VisibleNode::Section(section), Selection::Folder(key)) => {
+            *section == key.section && key.prefix.is_empty()
+        }
+        (VisibleNode::Entry(Node::Folder { key, .. }), Selection::Folder(other)) => key == other,
+        (VisibleNode::Entry(Node::Ref { reference, .. }), Selection::Reference(section, name)) => {
+            *section == row.section && name == reference.full_name
+        }
         _ => false,
     }
 }
 
 /// Unfiltered TreeAction line movement includes groups/directories, but only
 /// visible rows. Separators are not included in either input sequence.
-pub fn navigate_visible(rows: &[crate::branch_popup::VisibleRow<'_>], actions: &[&str], current: Option<&Selection>, direction: Move, cycle: bool) -> Option<Selection> {
-    let count=actions.len()+rows.len();
-    if count==0 { return None; }
-    let index=current.and_then(|selected| {
-        actions.iter().position(|id| matches!(selected,Selection::Action(name) if name==id))
-            .or_else(||rows.iter().position(|row|row_matches(row,selected)).map(|i|i+actions.len()))
+pub fn navigate_visible(
+    rows: &[crate::branch_popup::VisibleRow<'_>],
+    actions: &[&str],
+    current: Option<&Selection>,
+    direction: Move,
+    cycle: bool,
+) -> Option<Selection> {
+    let count = actions.len() + rows.len();
+    if count == 0 {
+        return None;
+    }
+    let index = current.and_then(|selected| {
+        actions
+            .iter()
+            .position(|id| matches!(selected,Selection::Action(name) if name==id))
+            .or_else(|| {
+                rows.iter()
+                    .position(|row| row_matches(row, selected))
+                    .map(|i| i + actions.len())
+            })
     });
-    let target=match direction {
-        Move::First=>0, Move::Last=>count-1,
-        Move::Next=>match index { None=>0,Some(i) if i+1<count=>i+1,Some(_) if cycle=>0,_=>return None },
-        Move::Previous=>match index { None=>0,Some(i) if i>0=>i-1,Some(_) if cycle=>count-1,_=>return None },
+    let target = match direction {
+        Move::First => 0,
+        Move::Last => count - 1,
+        Move::Next => match index {
+            None => 0,
+            Some(i) if i + 1 < count => i + 1,
+            Some(_) if cycle => 0,
+            _ => return None,
+        },
+        Move::Previous => match index {
+            None => 0,
+            Some(i) if i > 0 => i - 1,
+            Some(_) if cycle => count - 1,
+            _ => return None,
+        },
     };
-    if target<actions.len() { Some(Selection::Action(actions[target].into())) }
-    else { Some(row_selection(&rows[target-actions.len()])) }
+    if target < actions.len() {
+        Some(Selection::Action(actions[target].into()))
+    } else {
+        Some(row_selection(&rows[target - actions.len()]))
+    }
 }
 
 #[cfg(test)]
@@ -149,22 +195,65 @@ mod tests {
     use crate::branch_popup::{Expansion, Reference, VisibleNode, visible_rows};
     #[test]
     fn visible_navigation_includes_collapsed_groups_and_respects_parent_identity() {
-        use crate::branch_popup::{FolderKey,Group};
-        let reference=Reference { full_name:"refs/heads/feature/topic",name:"feature/topic",id:"oid",current:false,favorite:false };
-        let groups=vec![Group {section:Section::Local,references:vec![reference]}];
-        let mut expansion=Expansion::default();
-        let root=Selection::Folder(FolderKey{section:Section::Local,prefix:String::new()});
-        let action=Selection::Action("revision".into());
-        let rows=visible_rows(&groups,&expansion,true);
-        assert_eq!(navigate_visible(&rows,&["revision"],Some(&action),Move::Next,false),Some(root.clone()));
-        assert_eq!(navigate_visible(&rows,&["revision"],Some(&root),Move::Next,false),None);
-        assert_eq!(navigate_visible(&rows,&["revision"],None,Move::Previous,false),Some(action));
-        expansion.reveal(Section::Local,"feature/topic",true);
-        let rows=visible_rows(&groups,&expansion,true);
-        let folder=Selection::Folder(FolderKey{section:Section::Local,prefix:"feature".into()});
-        assert_eq!(navigate_visible(&rows,&[],Some(&root),Move::Next,false),Some(folder.clone()));
-        assert_eq!(navigate(&groups,&[],Some(&folder),Move::Next,true,false),Some(Selection::Reference(Section::Local,"refs/heads/feature/topic".into())));
-        assert_eq!(navigate(&groups,&["revision"],Some(&folder),Move::Previous,true,false),Some(Selection::Action("revision".into())));
+        use crate::branch_popup::{FolderKey, Group};
+        let reference = Reference {
+            full_name: "refs/heads/feature/topic",
+            name: "feature/topic",
+            id: "oid",
+            current: false,
+            favorite: false,
+        };
+        let groups = vec![Group {
+            section: Section::Local,
+            references: vec![reference],
+        }];
+        let mut expansion = Expansion::default();
+        let root = Selection::Folder(FolderKey {
+            section: Section::Local,
+            prefix: String::new(),
+        });
+        let action = Selection::Action("revision".into());
+        let rows = visible_rows(&groups, &expansion, true);
+        assert_eq!(
+            navigate_visible(&rows, &["revision"], Some(&action), Move::Next, false),
+            Some(root.clone())
+        );
+        assert_eq!(
+            navigate_visible(&rows, &["revision"], Some(&root), Move::Next, false),
+            None
+        );
+        assert_eq!(
+            navigate_visible(&rows, &["revision"], None, Move::Previous, false),
+            Some(action)
+        );
+        expansion.reveal(Section::Local, "feature/topic", true);
+        let rows = visible_rows(&groups, &expansion, true);
+        let folder = Selection::Folder(FolderKey {
+            section: Section::Local,
+            prefix: "feature".into(),
+        });
+        assert_eq!(
+            navigate_visible(&rows, &[], Some(&root), Move::Next, false),
+            Some(folder.clone())
+        );
+        assert_eq!(
+            navigate(&groups, &[], Some(&folder), Move::Next, true, false),
+            Some(Selection::Reference(
+                Section::Local,
+                "refs/heads/feature/topic".into()
+            ))
+        );
+        assert_eq!(
+            navigate(
+                &groups,
+                &["revision"],
+                Some(&folder),
+                Move::Previous,
+                true,
+                false
+            ),
+            Some(Selection::Action("revision".into()))
+        );
     }
     #[test]
     fn filtered_traversal_preserves_subtree_order_and_reveals_hidden_descendants() {

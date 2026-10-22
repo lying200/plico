@@ -439,15 +439,27 @@ fn merge_recovery_diagnostic_keeps_git_failure_details() {
     f.commit("base\n", "base");
     let repo = f.repo();
     let output = plico::operation_process::run(
-        Command::new("git").arg("-C").arg(&f.0).env("LC_ALL", "C").args(["rev-parse", "--verify", "refs/heads/missing-merge-test"]),
-        &Cancel::default(), &Default::default(), None,
-    ).unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&f.0)
+            .env("LC_ALL", "C")
+            .args(["rev-parse", "--verify", "refs/heads/missing-merge-test"]),
+        &Cancel::default(),
+        &Default::default(),
+        None,
+    )
+    .unwrap();
     assert!(!output.status.success());
     let result = Ok(plico::merge_operation::ResultState {
-        command: Ok(output), state: repo.operation_state(&Cancel::default()), restore: None,
+        command: Ok(output),
+        state: repo.operation_state(&Cancel::default()),
+        restore: None,
     });
     let diagnostic = plico::merge_operation::diagnostic(&result).unwrap_or_default();
-    assert!(diagnostic.contains("fatal:"), "Git error lost: {diagnostic:?}");
+    assert!(
+        diagnostic.contains("fatal:"),
+        "Git error lost: {diagnostic:?}"
+    );
 }
 
 #[test]
@@ -455,14 +467,23 @@ fn merge_recovery_diagnostic_includes_transport_state_and_restore_errors() {
     let f = Fixture::new();
     f.commit("base\n", "base");
     let mut output = plico::operation_process::run(
-        Command::new("git").arg("-C").arg(&f.0).args(["rev-parse", "HEAD"]),
-        &Cancel::default(), &Default::default(), None,
-    ).unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&f.0)
+            .args(["rev-parse", "HEAD"]),
+        &Cancel::default(),
+        &Default::default(),
+        None,
+    )
+    .unwrap();
     assert!(output.status.success());
     output.input_error = Some(std::io::Error::other("input bridge failed"));
     let result = Ok(plico::merge_operation::ResultState {
-        command: Ok(output), state: Err("state read failed".into()),
-        restore: Some(Err("restore https://user:secret@example.invalid/path?token=private failed".into())),
+        command: Ok(output),
+        state: Err("state read failed".into()),
+        restore: Some(Err(
+            "restore https://user:secret@example.invalid/path?token=private failed".into(),
+        )),
     });
     let diagnostic = plico::merge_operation::diagnostic(&result).unwrap();
     assert!(diagnostic.contains("input bridge failed"));

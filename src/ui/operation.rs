@@ -2,30 +2,62 @@
 use super::*;
 use plico::active_operation::{Id, Kind, Phase};
 impl Review {
-    pub(super) fn commit_chunk(&mut self, event: crate::source_changes::CommitChunk, window: &mut Window, cx: &mut Context<Self>) {
-        self.with_commit_identity(window,cx,move |s,w,cx|s.commit_chunk_with_identity(event,w,cx));
+    pub(super) fn commit_chunk(
+        &mut self,
+        event: crate::source_changes::CommitChunk,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.with_commit_identity(window, cx, move |s, w, cx| {
+            s.commit_chunk_with_identity(event, w, cx)
+        });
     }
-    fn commit_chunk_with_identity(&mut self, event: crate::source_changes::CommitChunk, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((id, token)) = self.begin_operation(Kind::Commit, Phase::Executing, cx) else { return; };
+    fn commit_chunk_with_identity(
+        &mut self,
+        event: crate::source_changes::CommitChunk,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((id, token)) = self.begin_operation(Kind::Commit, Phase::Executing, cx) else {
+            return;
+        };
         let repo = self.repo.clone();
         self.status_message = Some(t("Committing…").into());
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
-            let result = wx.background_spawn(async move {
-                plico::partial_commit::execute(&repo, &event.chunk, &token, &Default::default())
-                    .map_err(plico::commit_feedback::Failure::commit)
-                    .and_then(|r|plico::commit_feedback::from_report(&r))
-            }).await;
-            let _ = this.update_in(wx, |s,w,cx| {
-                if s.finish_operation(id,cx).is_none() { return; }
+            let result = wx
+                .background_spawn(async move {
+                    plico::partial_commit::execute(&repo, &event.chunk, &token, &Default::default())
+                        .map_err(plico::commit_feedback::Failure::commit)
+                        .and_then(|r| plico::commit_feedback::from_report(&r))
+                })
+                .await;
+            let _ = this.update_in(wx, |s, w, cx| {
+                if s.finish_operation(id, cx).is_none() {
+                    return;
+                }
                 match result {
                     Ok(()) => {
                         s.status_message = Some(t("Committed").into());
-                        let _ = event.source.update(cx, |source,cx|source.committed(w,cx));
-                    },
-                    Err(error) => {s.status_message=Some(t(error.summary).into());s.error=Some(error.details);}
+                        let _ = event
+                            .source
+                            .update(cx, |source, cx| source.committed(w, cx));
+                    }
+                    Err(error) => {
+                        s.status_message = Some(t(error.summary).into());
+                        s.error = Some(error.details);
+                    }
                 }
-                s.sync_worktree(plico::worktree_events::Batch{all:true,index:true,..Default::default()},true,w,cx);
-                s.refresh_impl(false,true,None,cx);
+                s.sync_worktree(
+                    plico::worktree_events::Batch {
+                        all: true,
+                        index: true,
+                        ..Default::default()
+                    },
+                    true,
+                    w,
+                    cx,
+                );
+                s.refresh_impl(false, true, None, cx);
                 cx.notify();
             });
         });
@@ -89,7 +121,10 @@ impl Review {
                             return false;
                         }
                         s.operation.finish_save();
-                        if let Some(error) = documents.iter().filter(|d| d.read(cx).pending(cx)).find_map(|d| d.read(cx).error.clone())
+                        if let Some(error) = documents
+                            .iter()
+                            .filter(|d| d.read(cx).pending(cx))
+                            .find_map(|d| d.read(cx).error.clone())
                         {
                             s.error = Some(error);
                             s.status_message = Some(t("Could not save file").into());
@@ -176,20 +211,33 @@ mod tests {
         let mut review = None;
         let (_, cx) = cx.add_window_view(|window, cx| {
             let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
-            review = Some(view.clone()); Root::new(view, window, cx)
+            review = Some(view.clone());
+            Root::new(view, window, cx)
         });
         let view = review.unwrap();
-        let called = Rc::new(Cell::new(false)); let result = called.clone();
+        let called = Rc::new(Cell::new(false));
+        let result = called.clone();
         let mut document = None;
-        cx.update(|window, cx| view.update(cx, |s, cx| {
-            let doc = s.documents.get_or_create("fixture".into(), "missing.txt".into(),
-                plico::file_document::Document::new(b"old".to_vec()).unwrap(),
-                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())), cx);
-            s.with_saved_documents(window, cx, move |_, _, _| result.set(true));
-            // A disk observation can report failure while the save barrier is active.
-            doc.update(cx, |d, cx| { d.error = Some("File is unavailable on disk".into()); cx.notify(); });
-            document = Some(doc);
-        }));
+        cx.update(|window, cx| {
+            view.update(cx, |s, cx| {
+                let doc = s.documents.get_or_create(
+                    "fixture".into(),
+                    "missing.txt".into(),
+                    plico::file_document::Document::new(b"old".to_vec()).unwrap(),
+                    |text, cx| {
+                        cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned()))
+                    },
+                    cx,
+                );
+                s.with_saved_documents(window, cx, move |_, _, _| result.set(true));
+                // A disk observation can report failure while the save barrier is active.
+                doc.update(cx, |d, cx| {
+                    d.error = Some("File is unavailable on disk".into());
+                    cx.notify();
+                });
+                document = Some(doc);
+            })
+        });
         cx.run_until_parked();
         assert!(called.get());
         view.read_with(cx, |s, _| {

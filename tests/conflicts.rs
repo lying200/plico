@@ -475,3 +475,77 @@ fn native_merge_is_isolated_preserves_encoding_and_rejects_stale_worktree() {
     assert!(Snapshot::read(&repo, &token).unwrap().files.is_empty());
     assert!(prepared.apply(&repo, &token).is_err());
 }
+
+#[test]
+fn native_merge_retry_after_staging_failure_keeps_external_edit_guard() {
+    use plico::merge_result::Prepared;
+    let f = Fixture::new();
+    fs::write(f.0.join("a"), "base\n").unwrap();
+    f.git(&["add", "a"], true);
+    f.git(&["commit", "-m", "base"], true);
+    f.git(&["checkout", "-b", "task"], true);
+    fs::write(f.0.join("a"), "task\n").unwrap();
+    f.git(&["commit", "-am", "task"], true);
+    f.git(&["checkout", "main"], true);
+    fs::write(f.0.join("a"), "main\n").unwrap();
+    f.git(&["commit", "-am", "main"], true);
+    f.git(&["merge", "task"], false);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let snap = Snapshot::read(&repo, &token).unwrap();
+    let prepared = Prepared::read(&repo, &snap, &snap.files[0], &token).unwrap();
+
+    prepared.write_text_result("resolved\n".into()).unwrap();
+    prepared.apply(&repo, &token).unwrap();
+    fs::write(f.0.join(".git/index.lock"), "audit").unwrap();
+    let report = conflicts::resolve(
+        &repo,
+        &snap,
+        &snap.files[0],
+        conflicts::Resolution::MarkResolved,
+        &token,
+        &Default::default(),
+    );
+    let failed = match report {
+        Err(_) => true,
+        Ok(r) => r
+            .commands
+            .into_iter()
+            .any(|r| r.map_or(true, |c| !c.status.success())),
+    };
+    assert!(failed);
+    fs::remove_file(f.0.join(".git/index.lock")).unwrap();
+    prepared.apply(&repo, &token).unwrap();
+    prepared
+        .write_text_result("revised result\n".into())
+        .unwrap();
+    prepared.apply(&repo, &token).unwrap();
+    assert_eq!(
+        fs::read_to_string(f.0.join("a")).unwrap(),
+        "revised result\n"
+    );
+    fs::write(f.0.join("a"), "external edit\n").unwrap();
+    assert!(prepared.apply(&repo, &token).is_err());
+    assert_eq!(
+        fs::read_to_string(f.0.join("a")).unwrap(),
+        "external edit\n"
+    );
+    fs::write(f.0.join("a"), "revised result\n").unwrap();
+    prepared.apply(&repo, &token).unwrap();
+    let report = conflicts::resolve(
+        &repo,
+        &snap,
+        &snap.files[0],
+        conflicts::Resolution::MarkResolved,
+        &token,
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(
+        report
+            .commands
+            .iter()
+            .all(|r| r.as_ref().is_ok_and(|c| c.status.success()))
+    );
+    assert!(Snapshot::read(&repo, &token).unwrap().files.is_empty());
+}

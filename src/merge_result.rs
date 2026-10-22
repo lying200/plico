@@ -10,7 +10,10 @@ use std::{
     fs,
     io::Read,
     path::PathBuf,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 struct Temporary(PathBuf, AtomicBool);
@@ -26,6 +29,7 @@ pub struct Prepared {
     snapshot: Snapshot,
     file: File,
     expected: PathBuf,
+    applied: Mutex<Option<PathBuf>>,
     root: PathBuf,
     inputs: [PathBuf; 4],
 }
@@ -126,6 +130,7 @@ impl Prepared {
             snapshot: snapshot.clone(),
             file: file.clone(),
             expected,
+            applied: Mutex::new(None),
             root: repo.path.clone(),
             inputs,
         })
@@ -182,14 +187,45 @@ impl Prepared {
             return Err("Merge output must be a regular file".into());
         }
         let project = Project::new(&repo.path).map_err(|e| format!("{e:?}"))?;
-        crate::file_save::save_from_file(
-            &project,
-            &self.file.path,
-            &self.expected,
-            &self.inputs[3],
-            token,
-        )
-        .map_err(|e| format!("{e:?}"))
+        let mut applied = self
+            .applied
+            .lock()
+            .map_err(|_| "Merge result state is unavailable")?;
+        // Freeze the exact bytes to be written before changing the worktree.
+        // A later edit of result must not also change our expected disk baseline.
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).map_err(|e| e.to_string())?;
+        let next = self.temporary.0.join(format!("applied-{random:x?}"));
+        let result = (|| {
+            let mut snapshot = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&next)
+                .map_err(|e| e.to_string())?;
+            crate::file_save::copy_stream(self.output(), &mut snapshot, token)
+                .map_err(|e| format!("{e:?}"))?;
+            snapshot.sync_all().map_err(|e| e.to_string())?;
+            drop(snapshot);
+            crate::file_save::save_from_file(
+                &project,
+                &self.file.path,
+                applied.as_deref().unwrap_or(&self.expected),
+                &next,
+                token,
+            )
+            .map_err(|e| format!("{e:?}"))
+        })();
+        if result.is_ok() {
+            // No fallible I/O between successful replacement and advancing the
+            // baseline. Staging/cancellation can fail after this point; retry
+            // must recognize our own write while still rejecting external edits.
+            if let Some(previous) = applied.replace(next) {
+                let _ = fs::remove_file(previous);
+            }
+        } else {
+            let _ = fs::remove_file(next);
+        }
+        result
     }
 
     pub fn file(&self) -> &File {

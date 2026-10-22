@@ -7,6 +7,7 @@ impl MergeEditor {
         let ranges = self.line_ranges(cx);
         let states = self
             .model
+            .borrow()
             .changes
             .iter()
             .map(|c| {

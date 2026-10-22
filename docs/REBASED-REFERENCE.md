@@ -3244,3 +3244,45 @@ Windows 独立真实 Git fixture `Temp/plico-native-merge-71c48b9afa774230b41956
 9 项三方模型测试通过（新增分类覆盖单侧／双方新增删除、相同修改及删除-修改冲突，解决后类型不变）；Windows release 构建通过（53.81 秒），格式检查通过。原有本轮完整核心／写回回归结果见上文。
 
 颜色及边线调整后，21 项桌面 UI 回归通过。
+
+
+## 现有功能独立逻辑复核（2026-10-22，基线 eceaca9）
+
+本轮为行为审计，不扩展功能、不修改产品代码。参考仍为 4aec35256d765c217aa0d662b82ac4e860c396fd；安装版 Rebased 1.1.20 / IC-262.10968.SNAPSHOT 不等同源码快照。重点读取本地三方合并、checkout、reset、rollback、stash、push 重试、提交 index 恢复、reword 检查及刷新入口。不是所有菜单／失败组合的全量原生验收。
+
+确认问题，按修复优先级：
+
+1. 三方合并手工编辑会重置两侧决策及 append 状态。src/text_merge.rs::edited 对触及块无条件 sides=false、appended=false、resolved=false；先接受左侧、手改为 left edited、再接受右侧，实际只剩 right。上游 MergeModelBase::processDocumentChange 保留／存储块状态，MergeConflictModel::replaceChange 根据 isOnesideAppliedConflict 追加，并非每次文本变更清空决策。本地临时模型用例已复现；上游半解决后手工编辑的完整键鼠序列仍须修复前单独复验（此次后续实机点击直接完成了整个冲突，不能用该截图证明半解决语义）。
+2. Undo/Redo 只回放文本，缺少合并决策事务。上游 MergeModelBase.kt::executeMergeCommand/registerUndoRedo 与 TextMergeChange.kt::storeState/restoreState 保存双方 resolved、onesideAppliedConflict、范围；本地 ignore 不产生编辑器事务，编辑回放只经 edited 重算，重做不能恢复已采纳侧。模型用例确认文本 undo/redo 后 sides=false、appended=false。原生独立 PID21752 在 reference-merge-colors 中忽略删除块后计数 3 changes→2 changes，Ctrl+Z 回到 3，按钮及灰色背景恢复；截图 artifacts/behavior-audit-20261022/audit-reference-initial/ignore/undo.png。未写回 reference 输出。
+3. 应用合并结果后暂存失败的重试不是幂等。ui/merge_result.rs 先 Prepared::apply 再 conflicts::resolve；apply 未更新 working-baseline。真实临时 Git 仓库用 .git/index.lock 阻止暂存，解除锁后再次 apply 返回 Conflict，尽管磁盘是自己刚保存的结果。保留输出避免数据丢失，但同一弹窗的再次应用无法完成。应区分尚未写回／已经写回待暂存，而非取消基线保护。上游 MultipleFileMergeDialog 的文档保存与 processedFiles/mergeSession 完成处理独立；此项首先是本地失败恢复缺陷，未声称已在原生 Rebased 人为锁 index 对照。
+4. 远端分支／标签 checkout 绕过共用覆盖冲突恢复。src/ui/reference_checkout.rs::execute_reference_checkout 仅展示失败 stderr；本地分支／指定 revision 则通过 ui/checkout.rs 提供 Smart Checkout/Force。上游 GitCheckoutAction.kt 的非远端与 GitRemoteBranchesUtil 的远端操作最终经 GitCheckoutOperation::runCheckoutAndHandleCommonFailures，均检测本地修改并进入 smartCheckoutOrNotify。本项已确认源码调用分叉，尚未做本轮原生覆盖冲突截图，不作为 UI 修复已验收。
+
+其余核对：GitRollbackEnvironment 的 unindex/delete/revert HEAD 顺序与本地 rollback_operation 基本一致；GitStashUtils::createUnstashHandler 的 apply/pop/--index 与 stash_operation 对应；GitPushOperation 的 10 次上限、force/非跟踪目标不自动更新，与 push_recovery 对应。GitCheckinEnvironment 的暂存区保存/恢复及 GitRewordAction 的 HEAD merge 例外在本地有对应路径。本轮未发现这些已读路径的新明确错误，但不代表全部边界已证明正确。
+
+独立实现的保留差异不混入缺陷：单仓库；保护分支默认 main/master 而无自定义规则；内置文本合并 UTF-8/5MiB；refs 5 秒轮询及远端 300 秒检查（GitRepositoryUpdater 上游走 VFS 事件）；Push 冲突解决后不自动重试发送。Reset 的 Keep 覆盖失败缺少上游 SmartResetPolicy.PROPOSE 恢复流程，列为后续对照候选，尚无本轮实机复验。
+
+证据：3 个临时诊断用例成功复现以上状态与失败路径，日志、可还原测试源保存在 artifacts/behavior-audit-20261022；这些断言描述现有错误行为，不充当修复回归。临时 tests/_behavior_audit.rs 已移除。未重新跑无改动的全仓测试，未修改用户仓库。
+
+### 四项偏差修复：合并决策的实现前复验（2026-10-22）
+
+同一参考 commit 4aec352、安装版 1.1.20。独立 reference-merge-fixture、自有 Rebased PID42040：先点击左侧首块采纳，再在结果末尾输入 123，再点击右侧追加。结果为 yours-first123\ntheirs-first，首块转为点线且冲突数从 2 降为 1。截图 artifacts/behavior-fixes-20261022/fix-ref-initial/left/edited/appended.png。结合上一轮 ignore→Ctrl+Z 的实机记录，确认手工编辑保留决策，撤销须同时恢复块范围、双方状态和追加标志。重新读取 MergeModelBase.kt::processDocumentChange/executeMergeCommand/registerUndoRedo、TextMergeChange.kt::storeState/restoreState。准备将轻量块状态接入现有编辑器事务，保留连续输入和 IME 的事务合并，不建立第二套全文撤销栈；映射 text_merge.rs、ui/text_merge.rs 和编辑器 UndoManager。
+
+Checkout 前置实机：独立 fix-checkout-fixture / PID40992，在 main 上修改 review.txt，再从分支弹窗 Tags→review-tag→Checkout。原生展示 Git Checkout Problem、受影响文件、Force Checkout / Smart Checkout / Don't Checkout。截图 fix-ref-tags-expanded/tag-menu/checkout-problem.png。已读取 GitCheckoutOperation.java::runCheckoutAndHandleCommonFailures/smartCheckoutOrNotify/checkoutOrNotify：本地覆盖进入共用保留流程，force 仅显式触发；unmerged/untracked 有独立失败分类。准备把远端／标签的原始 Prepared 与 Choice 交给共同恢复入口，保留 HEAD/ref/upstream 复验和跟踪分支创建语义；不把远端当成本地短名，不把重放本地提交的 Rebase 当作强制 checkout。
+
+写回／暂存前置实机：同一独立仓库创建真实 main/target 冲突，在原生冲突列表 Resolve Manually 中采纳 main 并忽略 target，创建测试 index.lock 后 Apply Changes。工作文件已保存为 main change，而 ls-files -u 仍有三阶段；关闭冲突列表触发暂存，原生显示 IDE error occurred，idea.log 明确 GitMergeProvider→markConflictResolved→git add 因 index.lock 失败。截图 fix-ref-real-merge-ready/real-resolved/apply-locked/stage-locked.png。随后只删除测试创建的锁。上游安装版使用迭代解决，保存与暂存的分离与 MultipleFileMergeDialog.kt::saveDocument/finishResolution/markFilesProcessed 相符，但其错误提示并非期望复制的行为。本地保留当前失败弹窗与草稿，仅修正 Prepared 已成功写回后的基线；用固定的已写入快照支持重试，不放宽外部编辑／index 身份检查。
+
+### 四项修复的实现与回归
+
+沿用上述源码与安装版本；本轮没有复制上游实现或资源。`src/text_merge.rs` 的手工编辑仅更新范围／手动编辑标记，不清除双方处理与追加决策。`ui/text_merge/history.rs` 把轻量块元数据接入 gpui-base 现有 UndoManager 事务；连续输入、IME、采纳、忽略及不改文本的选边均复用同一撤销栈，回放完文本后原子恢复范围与决策再发 Change。元数据不保存三份源文本或每步完整结果；保留编辑器原有 1000 事务上限。对应上游 MergeModelBase 的文档更新与 undo 注册、TextMergeChange 的状态保存／恢复；普通编辑器未安装回调时保持原路径。
+
+`merge_result::Prepared` 在写回前固定一个结果快照，成功后立即把它作为本实例下一次写回的预期基线。暂存失败可以重试，也可以继续编辑结果再重试；外部文件改动、冲突 index 身份变化仍被拒绝，原始编码／换行基线保持不变。回归先证明旧实现重试返回 Conflict，再验证解除测试 index.lock 后成功、结果再次修改后成功、外部修改仍拒绝。失败草稿仍按现有方式保留，不复制安装版 Rebased 的 IDE 错误弹窗。
+
+`reference_checkout::{attempt,recover}` 复用 checkout 的失败分类和 update_session 的保存／恢复。远端与标签覆盖本地修改时，`ui/reference_checkout.rs` 将原 Prepared/Choice 送入 `ui/checkout.rs` 共用恢复弹窗；Smart 保存并恢复修改，Force 只在显式选择后执行。完整 ref、HEAD、现有本地分支／upstream 仍复验，成功后再核验最终 HEAD 与 symbolic HEAD；远端保留跟踪分支创建语义，标签保持 detached HEAD。Rebase choice 不转换为强制 checkout，untracked/unmerged 仍沿用独立失败处理。恢复冲突保留 stash 并提示，不自动丢弃。13 项 reference_checkout 回归涵盖远端／标签 × Smart／Force、staged 保留、过期引用拒绝及恢复冲突留存。
+
+Windows 独立合并仓库 `plico-native-merge-1deff6dbf1114c66a3c69aaac46b3af1`，自有 PID42164：采纳左侧→输入 123→追加右侧，结果为 yours-first123/theirs-first；Ctrl+Z/Y 同步恢复／重做文字、追加箭头、点线与剩余数；第二块忽略两侧后，撤销恢复右侧按钮与未解决数、重做再次解决。人工 index.lock 阻止暂存后，工作文件已保存、三阶段仍在；解除自有锁后再次应用成功，ls-files -u 为空，文件精确内容核验通过。截图 `artifacts/behavior-fixes-20261022/fix-plico-{merge-ready,edited,appended,undo,redo,ignore,ignore-undo,ignore-redo,stage-locked-ready,retry-complete}.png`。
+
+Windows 独立 checkout 仓库 `plico-checkout-fix-ef56aea983be49509580ef2c77833383`，自有 PID9920，本地 bare remote：远端 origin/task 的检出因本地修改受阻，进入共用问题弹窗，Smart 后本地 task 跟踪 origin/task，目标修改与原本地修改同时保留，临时 stash 已清除。截图 `fix-plico-{remote-menu,remote-problem,remote-complete}.png`。无真实网络写入，未修改用户仓库。
+
+自动验证：核心完整测试 613 通过；最终 checkout 定向复跑 13 通过；桌面 65 通过、1 失败、1 原有忽略，新增真实编辑器决策／输入／IME 撤销回归通过。失败为 `editable_diff::lifecycle_tests::releasing_diff_clears_padding_from_retained_source`，独立修改前 worktree eceaca9 定向复跑得到相同 actual=0/expected=2，确认为既有失败，本轮未修改／屏蔽该测试。日志 core-tests.log、desktop-tests.log、baseline-desktop.log、checkout-final.log。Windows release 构建通过；cargo fmt 检查及仓库规定的无默认特性 Clippy 通过（仍有既有警告）。额外尝试全目标桌面 -D warnings 因既有告警未通过，不宣称全仓 lint 零警告。没有滚动自动化或像素级完全还原声明。
+
+同一 Windows 测试仓库切回 main 并准备新的本地覆盖后，Tags→review-tag→检出同样进入问题弹窗，显式 Force 后 HEAD 分离并等于 tag、工作文件精确等于目标内容。截图 fix-plico-tag-menu/tag-problem/tag-complete.png。远端 Smart 与标签 Force 已完成原生入口验收，其余组合由上述核心矩阵回归覆盖。测试结束仅停止自有 Plico PID42164/9920 与此前自有 Rebased PID42040/40992；用户 Rebased 保留。

@@ -79,6 +79,18 @@ impl Change {
             }
     }
 }
+/// Undo stores only mutable block metadata, never copies of the source files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct State(Vec<ChangeState>);
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChangeState {
+    result: Range<usize>,
+    manual: bool,
+    resolved: bool,
+    sides: [bool; 2],
+    appended: bool,
+    ambiguous: bool,
+}
 pub struct Merge {
     pub changes: Vec<Change>,
     text: String,
@@ -149,6 +161,33 @@ impl Merge {
             text: base.to_owned(),
         }
     }
+    pub fn state(&self) -> State {
+        State(
+            self.changes
+                .iter()
+                .map(|c| ChangeState {
+                    result: c.result.clone(),
+                    manual: c.manual,
+                    resolved: c.resolved,
+                    sides: c.sides,
+                    appended: c.appended,
+                    ambiguous: c.ambiguous,
+                })
+                .collect(),
+        )
+    }
+    pub fn restore(&mut self, state: &State, text: &str) {
+        assert_eq!(self.changes.len(), state.0.len());
+        for (c, saved) in self.changes.iter_mut().zip(&state.0) {
+            c.result = saved.result.clone();
+            c.manual = saved.manual;
+            c.resolved = saved.resolved;
+            c.sides = saved.sides;
+            c.appended = saved.appended;
+            c.ambiguous = saved.ambiguous;
+        }
+        self.text = text.to_owned();
+    }
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -196,9 +235,7 @@ impl Merge {
                 };
                 c.ambiguous |= touched > 1;
                 c.manual = true;
-                c.resolved = false;
-                c.sides = [false; 2];
-                c.appended = false;
+                // Document edits move ranges, but do not undo merge decisions.
             }
         }
         self.text = text.to_owned();
@@ -342,6 +379,16 @@ fn side_range(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn manual_edit_preserves_accepted_side_and_append() {
+        let mut m = Merge::new("base\n", "left\n", "right\n");
+        m.accept(0, Side::Yours, false).unwrap();
+        m.edited("left edited\n");
+        assert_eq!(m.changes[0].sides, [true, false]);
+        m.accept(0, Side::Theirs, false).unwrap();
+        assert_eq!(m.text(), "left edited\nright\n");
+        assert_eq!(m.remaining(), 0);
+    }
+    #[test]
     fn semantic_types_and_changed_sides_survive_resolution() {
         for (base, left, right, kind, sides) in [
             ("", "a\n", "", Kind::Added, [true, false]),
@@ -403,9 +450,9 @@ mod tests {
         assert_eq!(m.remaining(), 0);
         assert!(m.accept(0, Side::Yours, false).is_none());
         m.edited("manual\n");
-        assert!(m.changes[0].available(Side::Yours));
-        m.accept(0, Side::Yours, false).unwrap();
-        assert_eq!(m.text(), "left\n");
+        assert!(!m.changes[0].available(Side::Yours));
+        assert_eq!(m.remaining(), 0);
+        assert_eq!(m.text(), "manual\n");
         let mut m = Merge::new("base\n", "left\n", "");
         m.accept(0, Side::Yours, false).unwrap();
         assert_eq!(m.remaining(), 0);

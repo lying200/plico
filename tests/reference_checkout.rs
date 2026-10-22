@@ -306,3 +306,125 @@ fn rebase_conflict_is_not_reported_as_checkout_success() {
     f.git(&["rebase", "--abort"]);
     assert_eq!(f.git(&["show", "topic:base"]), "local");
 }
+
+#[test]
+fn remote_and_tag_overwrite_recovery_preserves_checkout_identity() {
+    for remote in [false, true] {
+        for smart in [false, true] {
+            let f = Fixture::new();
+            let base = f.head();
+            // Non-overlapping edits in the same file: ordinary checkout refuses,
+            // smart checkout can restore cleanly on top of the target.
+            f.commit("review", "base\n1\n2\n3\n4\n5\nend\n");
+            f.commit("staged", "separately staged");
+            let start = f.head();
+            f.commit("review", "target\n1\n2\n3\n4\n5\nend\n");
+            let target = f.head();
+            f.git(&["tag", "version"]);
+            f.git(&["update-ref", "refs/remotes/origin/topic", &target]);
+            f.git(&["reset", "--hard", &start]);
+            fs::write(f.0.join("review"), "base\n1\n2\n3\n4\n5\nlocal\n").unwrap();
+            // Keep a staged edit while preserving HEAD used by preparation.
+            fs::write(f.0.join("staged"), "staged edit").unwrap();
+            f.git(&["add", "staged"]);
+            let reference = if remote {
+                "refs/remotes/origin/topic"
+            } else {
+                "refs/tags/version"
+            };
+            let repo = Repository::new(&f.0);
+            let token = Cancel::default();
+            let p = Prepared::read(&repo, reference, &target, &f.head(), None, &token).unwrap();
+            let failed = f.run(&p, Choice::Checkout);
+            assert_eq!(failed.status(), plico::checkout::Status::LocalChanges);
+            assert!(failed.affected_files().paths.iter().any(|p| p == "review"));
+            let recovered = reference_checkout::recover(
+                &repo,
+                &p,
+                Choice::Checkout,
+                smart,
+                &token,
+                &Default::default(),
+            )
+            .unwrap();
+            assert!(recovered.checked_out());
+            if smart {
+                // The separate staged edit remains staged after restoration.
+                assert!(recovered.restored());
+                assert_eq!(
+                    fs::read_to_string(f.0.join("review")).unwrap(),
+                    "target\n1\n2\n3\n4\n5\nlocal\n"
+                );
+                assert!(
+                    f.git(&["diff", "--cached", "--name-only"])
+                        .contains("staged")
+                );
+            } else {
+                assert_eq!(
+                    fs::read_to_string(f.0.join("review")).unwrap(),
+                    "target\n1\n2\n3\n4\n5\nend\n"
+                );
+            }
+            assert_eq!(f.head(), target);
+            if remote {
+                assert_eq!(f.git(&["symbolic-ref", "HEAD"]), "refs/heads/topic");
+                assert_eq!(
+                    f.git(&["rev-parse", "--symbolic-full-name", "@{upstream}"]),
+                    reference
+                );
+            } else {
+                assert_eq!(
+                    f.git(&["rev-parse", "--symbolic-full-name", "HEAD"]),
+                    "HEAD"
+                );
+            }
+            assert_ne!(f.head(), base);
+        }
+    }
+}
+
+#[test]
+fn recovery_rejects_stale_refs_and_keeps_conflicting_saved_changes() {
+    let f = Fixture::new();
+    let base = f.head();
+    f.commit("base", "remote change");
+    f.git(&["update-ref", "refs/remotes/origin/topic", &f.head()]);
+    f.git(&["reset", "--hard", &base]);
+    fs::write(f.0.join("base"), "local change").unwrap();
+    let p = f.plan(None);
+    let repo = Repository::new(&f.0);
+    f.git(&["update-ref", "refs/remotes/origin/topic", &base]);
+    for smart in [false, true] {
+        assert!(
+            reference_checkout::recover(
+                &repo,
+                &p,
+                Choice::Checkout,
+                smart,
+                &Cancel::default(),
+                &Default::default()
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fs::read_to_string(f.0.join("base")).unwrap(),
+            "local change"
+        );
+        assert!(f.git(&["stash", "list"]).is_empty());
+    }
+    f.git(&["update-ref", "refs/remotes/origin/topic", &p.target]);
+    let r = reference_checkout::recover(
+        &repo,
+        &p,
+        Choice::Checkout,
+        true,
+        &Cancel::default(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert!(r.checked_out());
+    assert!(!r.restored());
+    assert!(r.saved_oid.is_some());
+    assert!(!r.state.unwrap().conflicts.is_empty());
+    assert!(f.git(&["stash", "list"]).contains("Plico: checkout"));
+}

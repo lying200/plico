@@ -1,3 +1,4 @@
+use std::{any::Any, rc::Rc};
 use super::auto_close::AutoClosedPairs;
 use crate::input::change::Change;
 
@@ -5,6 +6,15 @@ use super::cursor::CursorSelection;
 
 const MAX_UNDO_TRANSACTIONS: usize = 1000;
 const MAX_CHANGES_PER_TRANSACTION: usize = 1000;
+
+// Optional owner state travels with the existing text transaction (merge decisions).
+#[derive(Clone)]
+pub(super) struct HistoryState(pub Rc<dyn Any>);
+impl std::fmt::Debug for HistoryState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HistoryState")
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EditIntent {
@@ -30,6 +40,8 @@ struct UndoTransaction {
     selections_before: Option<Vec<CursorSelection>>,
     /// The cursors as they stood after it, restored on redo.
     selections_after: Option<Vec<CursorSelection>>,
+    state_before: Option<HistoryState>,
+    state_after: Option<HistoryState>,
     auto_closed_pairs_before: Option<AutoClosedPairs>,
     auto_closed_pairs_after: Option<AutoClosedPairs>,
 }
@@ -42,6 +54,8 @@ struct PendingTransaction {
     changes: Vec<Change>,
     selections_before: Option<Vec<CursorSelection>>,
     selections_after: Option<Vec<CursorSelection>>,
+    state_before: Option<HistoryState>,
+    state_after: Option<HistoryState>,
     auto_closed_pairs_before: Option<AutoClosedPairs>,
     auto_closed_pairs_after: Option<AutoClosedPairs>,
 }
@@ -49,6 +63,7 @@ struct PendingTransaction {
 /// One transaction handed back to be replayed, with the cursors to restore
 /// once the changes have been applied.
 pub(crate) struct Replay {
+    pub(super) state: Option<HistoryState>,
     pub(super) changes: Vec<Change>,
     pub(super) selections: Option<Vec<CursorSelection>>,
     pub(super) auto_closed_pairs: Option<AutoClosedPairs>,
@@ -66,6 +81,7 @@ pub(crate) struct Replay {
 pub(crate) struct UndoManager {
     undo_transactions: Vec<UndoTransaction>,
     redo_transactions: Vec<UndoTransaction>,
+    current_state: Option<HistoryState>,
     ignoring: bool,
     transaction_depth: usize,
     pending: Option<PendingTransaction>,
@@ -78,12 +94,34 @@ impl UndoManager {
         Self {
             undo_transactions: Vec::new(),
             redo_transactions: Vec::new(),
+            current_state: None,
             ignoring: false,
             transaction_depth: 0,
             pending: None,
             pending_intent: None,
             coalescing_boundary: false,
         }
+    }
+
+    pub(super) fn initialize_state(&mut self, state: HistoryState) {
+        self.clear();
+        self.current_state = Some(state);
+    }
+
+    pub(super) fn record_state(&mut self, state: HistoryState) {
+        if self.ignoring { return; }
+        self.current_state = Some(state.clone());
+        if let Some(pending) = self.pending.as_mut() {
+            pending.state_after = Some(state);
+        } else if let Some(transaction) = self.undo_transactions.last_mut() {
+            transaction.state_after = Some(state);
+        }
+    }
+
+    pub(super) fn record_state_only(&mut self, state: HistoryState) {
+        self.commit_all_transactions();
+        self.push_batch(Vec::new(), EditIntent::Atomic);
+        self.record_state(state);
     }
 
     /// The intent requested for the next recorded change, taken by the edit
@@ -135,6 +173,8 @@ impl UndoManager {
                 changes: Vec::new(),
                 selections_before: None,
                 selections_after: None,
+                state_before: self.current_state.clone(),
+                state_after: self.current_state.clone(),
                 auto_closed_pairs_before: None,
                 auto_closed_pairs_after: None,
             });
@@ -159,6 +199,7 @@ impl UndoManager {
         if pending.changes.is_empty() || is_noop_batch(&pending.changes) {
             return;
         }
+        let pending_count = pending.changes.len();
         self.push_batch(pending.changes, pending.intent);
         if let Some(before) = pending.selections_before {
             self.record_selections_before(before);
@@ -169,6 +210,10 @@ impl UndoManager {
         // These snapshots were recorded with the edits. Commit them even when
         // replay has just enabled ignoring to flush an open IME transaction.
         if let Some(transaction) = self.undo_transactions.last_mut() {
+            if transaction.state_before.is_none() || transaction.recorded_changes == pending_count {
+                transaction.state_before = pending.state_before;
+            }
+            transaction.state_after = pending.state_after;
             if let Some(before) = pending.auto_closed_pairs_before {
                 transaction.auto_closed_pairs_before.get_or_insert(before);
             }
@@ -181,10 +226,6 @@ impl UndoManager {
     /// Push one logical edit, which is one or more changes in application
     /// order, onto the undo stack.
     fn push_batch(&mut self, changes: Vec<Change>, intent: EditIntent) {
-        if changes.is_empty() {
-            return;
-        }
-
         self.redo_transactions.clear();
         let can_coalesce = !self.coalescing_boundary
             && intent != EditIntent::Atomic
@@ -229,6 +270,8 @@ impl UndoManager {
             changes,
             selections_before: None,
             selections_after: None,
+            state_before: self.current_state.clone(),
+            state_after: self.current_state.clone(),
             auto_closed_pairs_before: None,
             auto_closed_pairs_after: None,
         });
@@ -341,7 +384,9 @@ impl UndoManager {
     pub(super) fn undo(&mut self) -> Option<Replay> {
         self.commit_all_transactions();
         let transaction = self.undo_transactions.pop()?;
+        self.current_state = transaction.state_before.clone();
         let replay = Replay {
+            state: self.current_state.clone(),
             changes: transaction.changes.iter().rev().cloned().collect(),
             selections: transaction.selections_before.clone(),
             auto_closed_pairs: transaction.auto_closed_pairs_before.clone(),
@@ -354,7 +399,9 @@ impl UndoManager {
     pub(super) fn redo(&mut self) -> Option<Replay> {
         self.commit_all_transactions();
         let transaction = self.redo_transactions.pop()?;
+        self.current_state = transaction.state_after.clone();
         let replay = Replay {
+            state: self.current_state.clone(),
             changes: transaction.changes.clone(),
             selections: transaction.selections_after.clone(),
             auto_closed_pairs: transaction.auto_closed_pairs_after.clone(),

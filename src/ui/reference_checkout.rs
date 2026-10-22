@@ -179,6 +179,7 @@ impl Review {
         let repo = self.repo.clone();
         self.status_message = Some(t("Checking out branch…").into());
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
+            let recovery = prepared.clone();
             let result = wx
                 .background_spawn(async move {
                     plico::reference_checkout::execute(
@@ -190,10 +191,25 @@ impl Review {
                     )
                 })
                 .await;
-            let _ = this.update_in(wx, |s, _, cx| {
+            let _ = this.update_in(wx, |s, w, cx| {
                 let Some(cancelled) = s.finish_operation(operation, cx) else {
                     return;
                 };
+                if !cancelled
+                    && choice != Choice::Rebase
+                    && let Ok(report) = &result
+                    && report.status() == plico::checkout::Status::LocalChanges
+                {
+                    s.checkout_recovery_dialog(
+                        super::checkout::Recovery::Reference {
+                            prepared: recovery,
+                            choice,
+                        },
+                        report.affected_files(),
+                        w,
+                        cx,
+                    );
+                }
                 s.status_message = Some(if cancelled {
                     t("Checkout cancelled; repository refreshed").into()
                 } else {
@@ -223,6 +239,60 @@ impl Review {
                 cx.notify();
             });
         });
+    }
+    pub(super) fn recover_reference_checkout(
+        &mut self,
+        prepared: Prepared,
+        choice: Choice,
+        smart: bool,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.operation.busy() || self.operation.saving_documents() || self.welcome {
+            return;
+        }
+        if self.documents.pending(cx) {
+            self.with_saved_documents(w, cx, move |s, w, cx| {
+                s.recover_reference_checkout(prepared, choice, smart, w, cx)
+            });
+            return;
+        }
+        let Some((id, token)) = self.begin_operation(
+            plico::active_operation::Kind::Checkout,
+            plico::active_operation::Phase::Executing,
+            cx,
+        ) else {
+            return;
+        };
+        let repo = self.repo.clone();
+        self.status_message = Some(t("Checking out branch…").into());
+        self.operation_task = cx.spawn_in(w, async move |this, wx| {
+            let result = wx.background_spawn(async move {
+                plico::reference_checkout::recover(&repo, &prepared, choice, smart, &token, &Default::default())
+            }).await;
+            let _ = this.update_in(wx, |s, _, cx| {
+                if s.finish_operation(id, cx).is_none() { return; }
+                s.operation_state = None;
+                s.status_message = Some(match result {
+                    Ok(report) => {
+                        let message = if !report.restored() {
+                            "Local changes were not fully restored; review conflicts and saved stash"
+                        } else if report.checked_out() { "Branch checked out" }
+                        else { "Could not check out branch; repository refreshed" };
+                        s.saved_changes_available |= report.saved_oid.is_some();
+                        match report.saved_oid {
+                            Some(oid) => format!("{} (stash: {oid})", t(message)),
+                            None => t(message).into(),
+                        }
+                    }
+                    Err(error) => format!("{}: {error}", t("Could not check out branch; repository refreshed")),
+                });
+                s.user_menu.update(cx, |menu, cx| menu.refresh(cx));
+                s.refresh_impl(false, true, None, cx);
+                cx.notify();
+            });
+        });
+        cx.notify();
     }
 }
 

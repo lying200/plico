@@ -44,38 +44,9 @@ impl ResultState {
         self.status_with_success(self.checked_out(target))
     }
     fn status_with_success(&self, success: bool) -> Status {
-        use crate::{operation_events::Event, operation_process::StopReason};
-        let Ok(outcome) = &self.command else {
-            return Status::Failed;
-        };
-        match outcome.stopped {
-            Some(StopReason::Cancelled) => return Status::Cancelled,
-            Some(StopReason::TimedOut) => return Status::TimedOut,
-            None => {}
-        }
-        if success {
-            return Status::Success;
-        }
-        // Match GitCheckoutOperation failure ordering. Do not reinterpret a
-        // successful command with unexpected post-state as an overwrite failure.
-        if !outcome.status.success() {
-            if outcome.events.contains(Event::UnmergedPreventingCheckout) {
-                return Status::Unmerged;
-            }
-            if outcome
-                .events
-                .contains(Event::LocalChangesWouldBeOverwritten)
-            {
-                return Status::LocalChanges;
-            }
-            if outcome
-                .events
-                .contains(Event::UntrackedFilesWouldBeOverwritten)
-            {
-                return Status::UntrackedFiles;
-            }
-        }
-        Status::Failed
+        self.command
+            .as_ref()
+            .map_or(Status::Failed, |outcome| command_status(outcome, success))
     }
 
     /// A successful exit alone is insufficient: hooks or another process may
@@ -465,4 +436,37 @@ pub fn force_execute(
 ) -> Result<ResultState, String> {
     let _guard = repo.operation_guard(token)?;
     attempt(repo, target, expected_head, true, token, progress)
+}
+
+/// Shared ordering for local, revision, tag and remote checkout failures.
+pub(crate) fn command_status(outcome: &Outcome, success: bool) -> Status {
+    use crate::{operation_events::Event, operation_process::StopReason};
+    match outcome.stopped {
+        Some(StopReason::Cancelled) => return Status::Cancelled,
+        Some(StopReason::TimedOut) => return Status::TimedOut,
+        None => {}
+    }
+    if success {
+        return Status::Success;
+    }
+    // Match GitCheckoutOperation failure ordering. Do not reinterpret a
+    // successful command with unexpected post-state as an overwrite failure.
+    if !outcome.status.success() {
+        if outcome.events.contains(Event::UnmergedPreventingCheckout) {
+            return Status::Unmerged;
+        }
+        if outcome
+            .events
+            .contains(Event::LocalChangesWouldBeOverwritten)
+        {
+            return Status::LocalChanges;
+        }
+        if outcome
+            .events
+            .contains(Event::UntrackedFilesWouldBeOverwritten)
+        {
+            return Status::UntrackedFiles;
+        }
+    }
+    Status::Failed
 }

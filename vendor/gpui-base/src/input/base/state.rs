@@ -32,7 +32,7 @@ use super::{
     kind::InputModeKind,
     mask_pattern::normalize_number_input,
     mode::LayoutMode,
-    undo_manager::{EditIntent, UndoManager},
+    undo_manager::{EditIntent, HistoryState, UndoManager},
 };
 use crate::actions::{SelectDown, SelectLeft, SelectRight, SelectUp};
 use crate::input::blink_cursor::CURSOR_WIDTH;
@@ -487,6 +487,8 @@ pub struct InputBaseState<M: InputModeKind> {
     edit_guard: Option<Box<dyn Fn(&[(Range<usize>, &str)], &mut App) -> bool>>,
     edit_observer: Option<Rc<dyn Fn(&[(Range<usize>, &str)], bool, &mut Window, &mut App)>>,
     history_delegate: Option<Rc<dyn Fn(bool, &mut Window, &mut App)>>,
+    history_capture: Option<Rc<dyn Fn(&str) -> Rc<dyn std::any::Any>>>,
+    history_restore: Option<Rc<dyn Fn(&dyn std::any::Any, &str)>>,
     /// The step strategy for [`super::NumberInput`] to increment/decrement.
     /// See [`Self::step`] and [`Self::step_by`].
     pub(crate) number_step: Option<NumberStep>,
@@ -857,6 +859,8 @@ impl<M: InputModeKind> InputBaseState<M> {
             edit_guard: None,
             edit_observer: None,
             history_delegate: None,
+            history_capture: None,
+            history_restore: None,
             number_step: Some(NumberStep::Fixed(1.)),
             number_min: None,
             number_max: None,
@@ -1072,6 +1076,9 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.reset_scroll_to_start();
 
         self.undo_manager.clear();
+        if let Some(capture) = &self.history_capture {
+            self.undo_manager.initialize_state(HistoryState(capture(&self.text.to_string())));
+        }
         cx.notify();
     }
 
@@ -2999,6 +3006,11 @@ impl<M: InputModeKind> InputBaseState<M> {
         let mut change = Change::new(range, &old_text, new_range, new_text);
         change.token_delta = token_delta;
         let recorded = self.undo_manager.record_transaction(change, intent);
+        if recorded {
+            if let Some(capture) = &self.history_capture {
+                self.undo_manager.record_state(HistoryState(capture(&self.text.to_string())));
+            }
+        }
         // A batch records its own cursor sets. This covers a change that is a
         // transaction on its own.
         if recorded && !open_transaction {
@@ -3037,8 +3049,9 @@ impl<M: InputModeKind> InputBaseState<M> {
                 .changes
                 .iter()
                 .any(|change| change.token_delta.is_some());
+        let atomic_events = token_aware || replay.state.is_some();
         let emit_events = self.emit_events;
-        if token_aware {
+        if atomic_events {
             self.emit_events = false;
         }
         self.replaying_history = token_aware;
@@ -3064,7 +3077,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.undo_manager.set_ignoring(false);
         self.replaying_history = false;
         self.emit_events = emit_events;
-        if token_aware && emit_events {
+        if let (Some(state), Some(restore)) = (replay.state, &self.history_restore) {
+            restore(state.0.as_ref(), &self.text.to_string());
+        }
+        if atomic_events && emit_events {
             cx.emit(InputEvent::Change);
         }
         cx.notify();
@@ -11337,6 +11353,27 @@ impl InputBaseState<crate::input::EditorMode> {
     /// editor. Explicit programmatic rebuilds do not invoke this observer.
     pub fn set_edit_observer(&mut self, observer: impl Fn(&[(Range<usize>, &str)], bool, &mut Window, &mut App) + 'static) {
         self.edit_observer = Some(Rc::new(observer));
+    }
+
+    /// Attach owner metadata to text undo transactions. Callbacks must not re-enter
+    /// this editor. The capture callback may synchronize its model with the text.
+    pub fn set_history_state(
+        &mut self,
+        capture: impl Fn(&str) -> Rc<dyn std::any::Any> + 'static,
+        restore: impl Fn(&dyn std::any::Any, &str) + 'static,
+    ) {
+        self.undo_manager.initialize_state(HistoryState(capture(&self.text.to_string())));
+        self.history_capture = Some(Rc::new(capture));
+        self.history_restore = Some(Rc::new(restore));
+    }
+
+    /// Record an owner decision that changes no text, e.g. ignoring a merge side.
+    pub fn record_history_state(&mut self, cx: &mut Context<Self>) {
+        if let Some(capture) = &self.history_capture {
+            self.undo_manager.record_state_only(HistoryState(capture(&self.text.to_string())));
+            cx.emit(InputEvent::Change);
+            cx.notify();
+        }
     }
 
     /// Route projected-view Undo/Redo to its authoritative source document.

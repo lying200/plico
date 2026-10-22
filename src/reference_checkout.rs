@@ -195,6 +195,16 @@ pub fn execute(
     progress: &Progress,
 ) -> Result<Report, String> {
     let _guard = repo.operation_guard(token)?;
+    attempt(repo, prepared, choice, false, token, progress)
+}
+fn attempt(
+    repo: &Repository,
+    prepared: &Prepared,
+    choice: Choice,
+    force: bool,
+    token: &Cancel,
+    progress: &Progress,
+) -> Result<Report, String> {
     prepared.validate(repo, token)?;
     if prepared.local_ahead && choice == Choice::Checkout {
         return Err("Choose how to handle local commits".into());
@@ -214,8 +224,11 @@ pub fn execute(
             ]);
         }
         (Some(name), _) => {
+            command.arg("checkout");
+            if force {
+                command.arg("--force");
+            }
             command.args([
-                "checkout",
                 "--track",
                 if prepared.local_tip.is_some() {
                     "-B"
@@ -232,7 +245,11 @@ pub fn execute(
                 .reference
                 .strip_prefix("refs/heads/")
                 .unwrap_or(&prepared.reference);
-            command.args(["checkout", reference, "--"]);
+            command.arg("checkout");
+            if force {
+                command.arg("--force");
+            }
+            command.args([reference, "--"]);
         }
     }
     let command =
@@ -287,5 +304,113 @@ pub fn execute(
         state,
         head,
         symbolic_head,
+    })
+}
+
+impl Report {
+    pub fn status(&self) -> crate::checkout::Status {
+        crate::checkout::command_status(&self.command, self.verified)
+    }
+    pub fn affected_files(&self) -> crate::checkout_files::Files {
+        let status = self.status();
+        if !matches!(
+            status,
+            crate::checkout::Status::LocalChanges | crate::checkout::Status::UntrackedFiles
+        ) {
+            return Default::default();
+        }
+        crate::checkout_files::parse(
+            &self.command.stderr.bytes(),
+            self.command.stderr.truncated,
+            status == crate::checkout::Status::UntrackedFiles,
+        )
+    }
+}
+
+pub struct RecoveryReport {
+    pub checkout: Option<Result<Report, String>>,
+    pub save: Option<Result<Outcome, String>>,
+    pub restore: Result<Option<Outcome>, String>,
+    pub saved_oid: Option<String>,
+    pub head: Result<String, String>,
+    pub branch: Result<String, String>,
+    pub state: Result<crate::operation_state::State, String>,
+}
+impl RecoveryReport {
+    pub fn restored(&self) -> bool {
+        self.saved_oid.is_none()
+            && self.restore.as_ref().is_ok_and(|r| {
+                r.as_ref()
+                    .is_none_or(|o| o.status.success() && o.stopped.is_none())
+            })
+            && self.state.as_ref().is_ok_and(|s| s.conflicts.is_empty())
+    }
+    pub fn checked_out(&self) -> bool {
+        self.checkout.as_ref().is_some_and(|r| {
+            r.as_ref().is_ok_and(|r| {
+                r.verified
+                    && self.head.as_ref().is_ok_and(|head| head == &r.head)
+                    && self
+                        .branch
+                        .as_ref()
+                        .is_ok_and(|branch| branch == &r.symbolic_head)
+            })
+        })
+    }
+}
+/// Explicit recovery only. Retains the original pinned reference and branch
+/// creation/reset options, and restores saved changes even if checkout fails.
+pub fn recover(
+    repo: &Repository,
+    prepared: &Prepared,
+    choice: Choice,
+    smart: bool,
+    token: &Cancel,
+    progress: &Progress,
+) -> Result<RecoveryReport, String> {
+    if choice == Choice::Rebase {
+        return Err("Checkout recovery cannot replace a rebase".into());
+    }
+    let mut session = crate::update_session::Session::begin(repo, token)?;
+    prepared.validate(repo, token)?;
+    // Validate every user choice before saving any local changes.
+    if prepared.local_ahead && choice == Choice::Checkout {
+        return Err("Choose how to handle local commits".into());
+    }
+    let save = smart.then(|| {
+        session.save(
+            &format!("Plico: checkout {}", prepared.reference),
+            token,
+            progress,
+        )
+    });
+    let checkout = if save.as_ref().is_none_or(|r| {
+        r.as_ref()
+            .is_ok_and(|o| o.status.success() && o.stopped.is_none())
+    }) {
+        Some(attempt(repo, prepared, choice, !smart, token, progress))
+    } else {
+        None
+    };
+    let restore = if smart {
+        session.restore_saved(true, progress)
+    } else {
+        Ok(None)
+    };
+    Ok(RecoveryReport {
+        checkout,
+        save,
+        restore,
+        saved_oid: session.saved_oid().map(str::to_owned),
+        head: repo
+            .text(&["rev-parse", "--verify", "HEAD"], &Cancel::default())
+            .map(|s| s.trim().to_owned()),
+        branch: repo
+            .text(
+                &["rev-parse", "--symbolic-full-name", "HEAD"],
+                &Cancel::default(),
+            )
+            .map(|s| s.trim().to_owned()),
+        state: repo.operation_state(&Cancel::default()),
     })
 }

@@ -2,6 +2,19 @@
 //! Private implementation; shared lifecycle state remains owned by Review.
 use super::*;
 
+#[derive(Clone)]
+pub(super) enum Recovery {
+    Checkout {
+        target: String,
+        head: String,
+        reference: Option<String>,
+    },
+    Reference {
+        prepared: plico::reference_checkout::Prepared,
+        choice: plico::reference_checkout::Choice,
+    },
+}
+
 impl Review {
     pub(super) fn open_checkout_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.operation.busy()
@@ -304,6 +317,24 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.checkout_recovery_dialog(
+            Recovery::Checkout {
+                target,
+                head,
+                reference,
+            },
+            files,
+            window,
+            cx,
+        );
+    }
+    pub(super) fn checkout_recovery_dialog(
+        &mut self,
+        recovery: Recovery,
+        files: plico::checkout_files::Files,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let owner = cx.entity().downgrade();
         let path = self.repo.path.clone();
         let cancel_focus = cx.focus_handle();
@@ -316,10 +347,8 @@ impl Review {
             let mut footer = h_flex().w_full().gap_2();
             for smart in [false, true] {
                 let owner = owner.clone();
-                let target = target.clone();
-                let head = head.clone();
+                let recovery = recovery.clone();
                 let path = path.clone();
-                let reference = reference.clone();
                 let button = Button::new(if smart {
                     "smart-checkout"
                 } else {
@@ -342,14 +371,7 @@ impl Review {
                     window.close_dialog(cx);
                     let _ = owner.update(cx, |s, cx| {
                         if s.repo.path == path {
-                            s.start_checkout_recovery(
-                                target.clone(),
-                                head.clone(),
-                                reference.clone(),
-                                smart,
-                                window,
-                                cx,
-                            );
+                            s.start_checkout_request(recovery.clone(), smart, window, cx);
                         }
                     });
                 });
@@ -366,9 +388,7 @@ impl Review {
                     .on_click(|_, window, cx| window.close_dialog(cx)),
             );
             let owner = owner.clone();
-            let target = target.clone();
-            let head = head.clone();
-            let reference = reference.clone();
+            let recovery = recovery.clone();
             let path = path.clone();
             let cancel_focus = cancel_focus.clone();
             let force_focus = force_focus.clone();
@@ -398,19 +418,30 @@ impl Review {
                     let smart = !force_focus.is_focused(window);
                     let _ = owner.update(cx, |s, cx| {
                         if s.repo.path == path {
-                            s.start_checkout_recovery(
-                                target.clone(),
-                                head.clone(),
-                                reference.clone(),
-                                smart,
-                                window,
-                                cx,
-                            );
+                            s.start_checkout_request(recovery.clone(), smart, window, cx);
                         }
                     });
                     true
                 })
         });
+    }
+    fn start_checkout_request(
+        &mut self,
+        recovery: Recovery,
+        smart: bool,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match recovery {
+            Recovery::Checkout {
+                target,
+                head,
+                reference,
+            } => self.start_checkout_recovery(target, head, reference, smart, w, cx),
+            Recovery::Reference { prepared, choice } => {
+                self.recover_reference_checkout(prepared, choice, smart, w, cx)
+            }
+        }
     }
     pub(super) fn start_checkout_recovery(
         &mut self,

@@ -10,13 +10,15 @@ use plico::{
 };
 
 mod gutter;
+mod history;
+use std::{cell::RefCell, rc::Rc};
 
 struct MergeEditor {
     owner: WeakEntity<Review>,
     repository: PathBuf,
     prepared: Arc<Prepared>,
     inputs: [Entity<EditorState>; 3],
-    model: Merge,
+    model: Rc<RefCell<Merge>>,
     marks: [TextDecorationCollection; 3],
     selected: usize,
     initial: String,
@@ -33,6 +35,7 @@ impl MergeEditor {
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let model = Rc::new(RefCell::new(model));
         let language = crate::project_view::file_language(&prepared.file().path);
         let inputs = std::array::from_fn(|i| {
             cx.new(|cx| {
@@ -44,6 +47,7 @@ impl MergeEditor {
                 e
             })
         });
+        history::attach(&inputs[1], model.clone(), cx);
         for (i, input) in inputs.iter().enumerate() {
             cx.subscribe(input, move |s, _, event: &InputEvent, cx| match event {
                 InputEvent::LayoutChanged => cx.notify(),
@@ -87,7 +91,7 @@ impl MergeEditor {
         }
         let subscription = cx.subscribe(&inputs[1], |s, input, event, cx| {
             if matches!(event, InputEvent::Change) {
-                s.model.edited(&input.read(cx).value());
+                s.model.borrow_mut().edited(&input.read(cx).value());
                 s.highlight(cx);
                 cx.notify();
             }
@@ -114,6 +118,7 @@ impl MergeEditor {
         for i in 0..3 {
             let marks = self
                 .model
+                .borrow()
                 .changes
                 .iter()
                 .filter_map(|c| {
@@ -151,10 +156,13 @@ impl MergeEditor {
         }
     }
     fn sync(&mut self, cx: &App) {
-        self.model.edited(&self.inputs[1].read(cx).value());
+        self.model
+            .borrow_mut()
+            .edited(&self.inputs[1].read(cx).value());
     }
     fn line_ranges(&self, cx: &App) -> Vec<[std::ops::Range<usize>; 3]> {
         self.model
+            .borrow()
             .changes
             .iter()
             .map(|c| {
@@ -185,12 +193,13 @@ impl MergeEditor {
         self.sync(cx);
         self.selected = index;
         if ignore {
-            self.model.ignore(index, side, whole);
-        } else if let Some((range, text)) = self.model.accept(index, side, whole) {
-            self.inputs[1].update(cx, |e, cx| {
-                e.set_selected_range(range, cx);
-                e.replace(text, w, cx);
-            });
+            self.model.borrow_mut().ignore(index, side, whole);
+            self.inputs[1].update(cx, |e, cx| e.record_history_state(cx));
+        } else {
+            let replacement = self.model.borrow_mut().accept(index, side, whole);
+            if let Some(replacement) = replacement {
+                history::replace(&self.inputs[1], &self.model, replacement, w, cx);
+            }
         }
         self.inputs[1].read(cx).focus_handle(cx).focus(w, cx);
         self.highlight(cx);
@@ -198,12 +207,10 @@ impl MergeEditor {
     }
     fn choose(&mut self, choice: Choice, w: &mut Window, cx: &mut Context<Self>) {
         self.sync(cx);
-        if let Some((range, text)) = self.model.choose(self.selected, choice) {
-            self.inputs[1].update(cx, |e, cx| {
-                e.set_selected_range(range, cx);
-                e.replace(text, w, cx);
-                e.focus_handle(cx).focus(w, cx);
-            });
+        let replacement = self.model.borrow_mut().choose(self.selected, choice);
+        if let Some(replacement) = replacement {
+            history::replace(&self.inputs[1], &self.model, replacement, w, cx);
+            self.inputs[1].read(cx).focus_handle(cx).focus(w, cx);
         }
         self.highlight(cx);
         cx.notify();
@@ -211,11 +218,11 @@ impl MergeEditor {
     fn navigate(&mut self, forward: bool, cx: &mut Context<Self>) {
         self.sync(cx);
         self.selected = if forward {
-            (self.selected + 1).min(self.model.changes.len().saturating_sub(1))
+            (self.selected + 1).min(self.model.borrow().changes.len().saturating_sub(1))
         } else {
             self.selected.saturating_sub(1)
         };
-        if let Some(change) = self.model.changes.get(self.selected) {
+        if let Some(change) = self.model.borrow().changes.get(self.selected) {
             for (i, offset) in [
                 change.yours_range.start,
                 change.result.start,
@@ -272,9 +279,9 @@ impl MergeEditor {
         }
         self.sync(cx);
         let needs_confirmation = if apply {
-            self.model.remaining() > 0
+            self.model.borrow().remaining() > 0
         } else {
-            self.model.text() != self.initial
+            self.model.borrow().text() != self.initial
         };
         if !needs_confirmation {
             if apply {
@@ -300,7 +307,7 @@ impl MergeEditor {
 }
 impl Render for MergeEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.model.changes.get(self.selected);
+        let has_selected = self.model.borrow().changes.get(self.selected).is_some();
         v_flex()
             .capture_key_down(cx.listener(|s, event: &KeyDownEvent, _, cx| {
                 if event.keystroke.key == "f7" {
@@ -345,19 +352,16 @@ impl Render for MergeEditor {
                             )
                             .tooltip(t("Next difference · F7"))
                             .disabled(
-                                self.applying || self.selected + 1 >= self.model.changes.len(),
+                                self.applying
+                                    || self.selected + 1 >= self.model.borrow().changes.len(),
                             )
                             .on_click(cx.listener(|s, _, _, cx| s.navigate(true, cx))),
                     )
                     .child(div().child(format!(
                         "{} / {} · {} {}",
-                        if selected.is_some() {
-                            self.selected + 1
-                        } else {
-                            0
-                        },
-                        self.model.changes.len(),
-                        self.model.remaining(),
+                        if has_selected { self.selected + 1 } else { 0 },
+                        self.model.borrow().changes.len(),
+                        self.model.borrow().remaining(),
                         t("unresolved")
                     )))
                     .child(
@@ -367,14 +371,16 @@ impl Render for MergeEditor {
                             .label(t("Apply Non-Conflicting Changes"))
                             .disabled(
                                 self.applying
-                                    || !(0..self.model.changes.len())
-                                        .any(|i| self.model.automatic_choice(i).is_some()),
+                                    || !(0..self.model.borrow().changes.len())
+                                        .any(|i| self.model.borrow().automatic_choice(i).is_some()),
                             )
                             .on_click(cx.listener(|s, _, w, cx| {
                                 s.sync(cx);
                                 let selected = s.selected;
-                                for i in 0..s.model.changes.len() {
-                                    if let Some(choice) = s.model.automatic_choice(i) {
+                                let count = s.model.borrow().changes.len();
+                                for i in 0..count {
+                                    let choice = s.model.borrow().automatic_choice(i);
+                                    if let Some(choice) = choice {
                                         s.selected = i;
                                         s.choose(choice, w, cx);
                                     }

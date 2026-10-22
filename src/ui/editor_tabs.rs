@@ -1017,6 +1017,43 @@ mod tests {
         }));
     }
     #[gpui::test]
+    fn disk_read_error_does_not_trap_clean_diff_tabs(cx: &mut gpui::TestAppContext) {
+        use gpui::component::input::EditorState;
+        use plico::{diff_target::{Target, Chain}, file_document::Document};
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let view = review.unwrap();
+        cx.update(|window, cx| view.update(cx, |s, cx| {
+            let document = s.documents.get_or_create(PathBuf::new(), "deleted.txt".into(),
+                Document::new(b"unchanged".to_vec()).unwrap(),
+                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())), cx);
+            // The external disk observer retains this diagnostic when a file disappears.
+            document.update(cx, |d, cx| {
+                d.error = Some("File is unavailable on disk".into());
+                cx.notify();
+            });
+            for from_menu in [false, true] {
+                let change = git::Change { area: git::Area::Untracked, path: "deleted.txt".into(), old_path: None, status: "?".into() };
+                let target = Target::new(s.repo.clone(), None, change.clone()).unwrap();
+                let chain = Chain::new(&target, &[change]).unwrap();
+                let tab = cx.new(|_| DiffTab::new(target, chain));
+                let id = tab.entity_id();
+                s.insert_editor_tab(id);
+                s.tabs.push(tab);
+                if from_menu { s.close_editor_ids(vec![id], Some(id), window, cx); }
+                else { s.close_diff_tab_from_header(0, window, cx); }
+                assert!(s.tabs.is_empty(), "clean deleted-file diff must close through either entry point");
+                assert!(!s.editor_tabs.order().contains(&id));
+            }
+            assert_eq!(document.read(cx).editor.read(cx).text().to_string(), "unchanged");
+        }));
+    }
+    #[gpui::test]
     fn closing_inactive_tab_keeps_active_entity_and_pending_close_uses_identity(
         cx: &mut gpui::TestAppContext,
     ) {

@@ -89,7 +89,7 @@ impl Review {
                             return false;
                         }
                         s.operation.finish_save();
-                        if let Some(error) = documents.iter().find_map(|d| d.read(cx).error.clone())
+                        if let Some(error) = documents.iter().filter(|d| d.read(cx).pending(cx)).find_map(|d| d.read(cx).error.clone())
                         {
                             s.error = Some(error);
                             s.status_message = Some(t("Could not save file").into());
@@ -167,6 +167,37 @@ mod tests {
                 assert!(other.read(cx).editor.read(cx).is_editable());
             })
         });
+    }
+
+    #[gpui::test]
+    fn clean_read_error_does_not_block_deferred_action(cx: &mut TestAppContext) {
+        use std::{cell::Cell, rc::Rc};
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone()); Root::new(view, window, cx)
+        });
+        let view = review.unwrap();
+        let called = Rc::new(Cell::new(false)); let result = called.clone();
+        let mut document = None;
+        cx.update(|window, cx| view.update(cx, |s, cx| {
+            let doc = s.documents.get_or_create("fixture".into(), "missing.txt".into(),
+                plico::file_document::Document::new(b"old".to_vec()).unwrap(),
+                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())), cx);
+            s.with_saved_documents(window, cx, move |_, _, _| result.set(true));
+            // A disk observation can report failure while the save barrier is active.
+            doc.update(cx, |d, cx| { d.error = Some("File is unavailable on disk".into()); cx.notify(); });
+            document = Some(doc);
+        }));
+        cx.run_until_parked();
+        assert!(called.get());
+        view.read_with(cx, |s, _| {
+            assert!(!s.operation.saving_documents());
+            assert!(!s.documents.locked());
+            assert!(s.error.is_none());
+        });
+        assert!(document.unwrap().read_with(cx, |d, _| d.error.is_some()));
     }
 
     #[gpui::test]

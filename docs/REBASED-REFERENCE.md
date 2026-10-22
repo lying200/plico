@@ -3120,3 +3120,35 @@ isOkActionEnabled，GitCloneDialogComponent.kt 与 GitShallowCloneViewModel.kt�
 禁用 Clone，两种语言均无本次表单文字溢出。测试进程已关闭，配置仅修改独立测试 profile。
 前四阶段提交 f77f7dc、3821fcd、0a2a0e6、6939478，完整核心回归已在第4阶段收尾通过；
 本轮仅 UI／翻译变化。按用户最新收口要求，本次目标完成，不启动第五阶段。
+
+## 外部删除文件后 Diff 无法关闭（2026-10-22）
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，本轮实际读取
+`platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/EditorWindow.kt`
+的 `closeFile`，以及同目录 `FileDocumentManagerImpl.java` 的
+`isDocumentUnsaved`、`doSaveDocument`、`doSaveDocumentInWriteAction`、`fileDeleted`。
+安装版仍为 Rebased 1.1.20 / IC-262.10968.SNAPSHOT，与参考快照不同。
+规则：关闭基于 editor composite 生命周期，不要求磁盘内容可读；文件删除解除文件／
+文档绑定并通知监听者；无效文件不应成为持续待保存义务。读取失败与未保存编辑分开。
+
+本地根因：`Editing::pending` 将任何 error 算作未保存，外部删除后的只读错误
+因此进入强引用待保存集合；关闭 Tab 与仓库操作经过保存屏障后又被同一错误拦截。
+`src/editing.rs` 改为只判断真实草稿、写入、重载和无效输入；
+`src/ui/operation.rs` 只用仍有待保存内容的文档错误阻止后续操作。
+保留差异：不照搬 IDE 对无效文件的丢弃策略；Plico 的未保存草稿仍保留，
+外部删除后禁止自动重建文件，错误横幅和显式重载入口保留。
+
+回归：关闭按钮／关闭菜单共用入口测试先失败再通过；外部删除 clean document
+不再 pending、不启动写入且关闭后释放引用；未保存草稿、IME preedit、外部冲突
+仍受保护；读取错误不阻断后续操作，真实保存失败释放锁但不执行后续操作。
+桌面相关测试共 13 项通过（editor_tabs 3、editing 7、operation 3）。
+Windows release 构建通过（42.58 秒）。整窗线程卡死尚未复现，不能将本次已确认的
+保存屏障问题直接等同于用户补充的整窗卡死；原构建的错误页仍能打开菜单和切换日志。
+
+Windows 原生复验：独立临时仓库、独立 profile；旧构建 PID 33896 出现删除后
+读取错误且 X 关闭无效，但日志／菜单仍可响应；新构建 PID 41268 同一流程
+（打开 untracked Diff → 外部删除 → 切日志 → 返回错误页 → 点击 X）可关闭，
+进程 Responding=True，确认磁盘文件未重建。截图位于
+`artifacts/deleted-diff-20261022/{before-error,before-responsive-menu,after-error,after-closed}.png`。
+右键关闭的共同动作入口由回归测试覆盖，未单独做新构建右键菜单原生点击验收。
+只关闭本次自有测试进程；没有修改用户仓库、关闭用户 Rebased 或操作发布流水线。

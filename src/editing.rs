@@ -118,7 +118,9 @@ impl Editing {
     }
     pub fn pending(&self, cx: &App) -> bool {
         self.reloading || self.document.dirty() || self.document.saving()
-            || self.error.is_some() || self.invalid_edit
+            // Disk read errors are diagnostics, not unsaved edits. In particular,
+            // an externally deleted clean file must not block closing or Git actions.
+            || self.invalid_edit
             // IME preedit changes the editor before InputEvent::Change. Close
             // and repository switching must not mistake that draft for clean.
             || !self.editor.read(cx).text().chars().eq(self.document.text().chars())

@@ -195,6 +195,32 @@ mod tests {
         assert_eq!(documents.get(&"a.txt".into()).unwrap().entity_id(),identity);
     }
     #[gpui::test]
+    fn external_delete_of_clean_document_is_not_an_unsaved_draft(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let documents = Documents::default(); let mut document = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            document = Some(documents.get_or_create("fixture".into(), "deleted.txt".into(),
+                Document::new(b"old".to_vec()).unwrap(),
+                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())), cx));
+            let empty = cx.new(|_| Empty); Root::new(empty, window, cx)
+        });
+        let document = document.unwrap();
+        cx.update(|window, cx| document.update(cx, |s, cx| {
+            let old = s.document.disk();
+            s.finish_observation(&old, false, Err("deleted".into()), window, cx);
+            assert!(s.error.is_some());
+            assert!(!s.pending(cx));
+            s.save(cx);
+            assert!(!s.saving(), "must not recreate the externally deleted file");
+            assert_eq!(s.editor.read(cx).text().to_string(), "old");
+        }));
+        cx.run_until_parked();
+        assert!(!cx.read(|cx| documents.pending(cx)));
+        drop(document);
+        assert!(documents.get(&"deleted.txt".into()).is_none(), "clean read errors must not retain closed documents");
+    }
+
+    #[gpui::test]
     fn external_conflict_preserves_draft_and_never_recreates_deleted_file(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let documents = Documents::default(); let mut document = None;

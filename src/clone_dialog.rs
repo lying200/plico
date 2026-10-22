@@ -2,7 +2,6 @@
 use gpui_kit::component::{
     Disableable as _, Icon, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
     h_flex,
     input::{Input, InputEvent, InputState},
     v_flex,
@@ -110,7 +109,13 @@ impl Render for Form {
                     .gap_3()
                     .items_center()
                     .child(div().w(px(70.)).flex_shrink_0().child("URL:"))
-                    .child(Input::new(&self.url).disabled(self.busy).flex_1()),
+                    .child(
+                        Input::new(&self.url)
+                            .external_focus_ring(false)
+                            .rounded(px(4.))
+                            .disabled(self.busy)
+                            .flex_1(),
+                    ),
             )
             .child(
                 h_flex()
@@ -124,6 +129,8 @@ impl Render for Form {
                     )
                     .child(
                         Input::new(&self.directory)
+                            .external_focus_ring(false)
+                            .rounded(px(4.))
                             .disabled(self.busy)
                             .flex_1()
                             .suffix(
@@ -143,7 +150,7 @@ impl Render for Form {
                     .items_center()
                     .flex_wrap()
                     .child(
-                        Checkbox::new("clone-shallow")
+                        crate::ui_style::checkbox("clone-shallow")
                             .label(t("Shallow clone with a history truncated to"))
                             .checked(self.shallow)
                             .disabled(self.busy)
@@ -154,13 +161,15 @@ impl Render for Form {
                     )
                     .child(
                         Input::new(&self.depth)
+                            .external_focus_ring(false)
+                            .rounded(px(4.))
                             .disabled(self.busy || !self.shallow)
                             .w(px(66.)),
                     )
                     .child(t("commits")),
             )
             .child(
-                Checkbox::new("clone-submodules")
+                crate::ui_style::checkbox("clone-submodules")
                     .label(t("Clone submodules"))
                     .checked(self.recurse)
                     .disabled(self.busy)

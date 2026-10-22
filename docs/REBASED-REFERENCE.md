@@ -3286,3 +3286,31 @@ Windows 独立 checkout 仓库 `plico-checkout-fix-ef56aea983be49509580ef2c77833
 自动验证：核心完整测试 613 通过；最终 checkout 定向复跑 13 通过；桌面 65 通过、1 失败、1 原有忽略，新增真实编辑器决策／输入／IME 撤销回归通过。失败为 `editable_diff::lifecycle_tests::releasing_diff_clears_padding_from_retained_source`，独立修改前 worktree eceaca9 定向复跑得到相同 actual=0/expected=2，确认为既有失败，本轮未修改／屏蔽该测试。日志 core-tests.log、desktop-tests.log、baseline-desktop.log、checkout-final.log。Windows release 构建通过；cargo fmt 检查及仓库规定的无默认特性 Clippy 通过（仍有既有警告）。额外尝试全目标桌面 -D warnings 因既有告警未通过，不宣称全仓 lint 零警告。没有滚动自动化或像素级完全还原声明。
 
 同一 Windows 测试仓库切回 main 并准备新的本地覆盖后，Tags→review-tag→检出同样进入问题弹窗，显式 Force 后 HEAD 分离并等于 tag、工作文件精确等于目标内容。截图 fix-plico-tag-menu/tag-problem/tag-complete.png。远端 Smart 与标签 Force 已完成原生入口验收，其余组合由上述核心矩阵回归覆盖。测试结束仅停止自有 Plico PID42164/9920 与此前自有 Rebased PID42040/40992；用户 Rebased 保留。
+
+## Log／Commit 路径压缩与平铺文本（2026-10-22）
+
+实现前：源码 4aec35256d765c217aa0d662b82ac4e860c396fd，Windows Rebased 1.1.20（安装构建与源码非同版）。自有 PID10356、独立 compact-path-fixture，以截图同形的 main/test Java 路径和 resources XML 创建提交及本地修改。Log 选中提交后观察到 spring-core\src、main\java\org\springframework\core\env、test 下的 java\…\env 连续目录压成一行，遇到分叉或文件停止；目录模式不把文件并入路径。切换 Directory 后，Log 和 Commit 平铺行均是文件名后紧接灰色父路径，窄栏按整体文本右边界裁剪，不给父路径分配独立右对齐列。Commit Directory 使用相同单链压缩。截图 artifacts/compact-paths-20261022/compact-ref-grouped.png、compact-ref-commit-options2.png、compact-ref-local-grouped.png，选项入口其余 compact-ref-*.png。
+
+已读 platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/TreeModelBuilder.java::build/collapseDirectories/collapseParentWithOnlyChild/appendCollapsedParent：单子节点非叶且双方为 FilePath 时压缩，保留末端节点及折叠父身份；DirectoryChangesGroupingPolicy.kt 构造辅助目录。ChangesBrowserFilePathNode.kt::render/getRelativeFilePath/addCollapsedParent 和 ChangesBrowserNode.java::appendParentPath 使用父节点相对路径；平铺先 append name 再追加灰色路径。ChangesBrowserChangeNode.java 采用相同文件名／父路径文本顺序。
+
+本地拟映射 file_tree 的可选压缩投影、ui/files 的 Log 行、local_changes/local_view 的 Commit 行。真实路径与文件索引保留用于选择／勾选／导航，展示名独立；只压缩已加载变更清单，不扫描磁盘或改变项目浏览器。Log 平铺改为与 Commit 相同的单段带色文本，消除两列宽度竞争。现有根计数行与省略号裁剪方式保留，横向滚动未纳入本轮。
+
+实现完成：`file_tree::compact_rows` 使用末端真实路径作为身份，单独保留相对展示标签；Log 与 Commit 接入，其他树保持原投影。Log 平铺使用单段 StyledText，父路径仅作为灰色后缀，不再竞争文件名宽度。Commit 原有平铺实现已经是同样规则，原生确认后保留。
+
+验证：file_tree 5 项、local_changes 9 项及桌面 Log 分组选择回归 1 项通过；cargo check 与 Windows release 构建通过。测试覆盖分叉、有文件的中间目录、多根目录、原文件索引、折叠、目录勾选范围、reveal 展开和分组切换保留选择。Windows 自有 Plico PID43984 使用同一 compact-path-fixture，Log 目录压缩与平铺切换、Commit 平铺／目录切换及压缩目录折叠通过。截图 `artifacts/compact-paths-20261022/compact-plico-{start,flat,local,local-grouped,local-collapsed}.png`。平铺时 PropertySource.java、PropertySourceTests.java、log4j2-test.xml 后立即跟灰色路径，文件名不再因路径长度被提前挤缩；超过可用栏宽的文件名仍正常省略。
+
+保留差异：现有 Log 根计数行、整体省略号、Git 路径的 `/` 分隔符不变；Rebased Windows 展示 `\` 且偏向直接裁剪／横向浏览。此次修正路径压缩和文本布局，不扩展横向滚动或修改排序；未宣称完全像素一致。没有修改用户仓库或自动化滚动。
+
+## Commit 控件与 Clone 焦点边框（2026-10-22）
+
+实现前实机：Rebased 1.1.20 自有 PID20712、compact-path-fixture，勾选 Changes 后目录和文件采用同一蓝底白勾复选框；未勾选为灰边灰底，目录带 folder 图标及灰色文件数，只有 Changes 标题加粗。打开 Clone Repository 切到 Repository URL，点击 URL 后只有一条连续蓝边。截图 controls-ref-{commit,checked,clone,clone-focus}.png；Plico PID520 同场景 controls-plico-clone-before.png 复现外圈顶部截断及双边。证据最终归档 artifacts/controls-ui-20261022。
+
+源码仍为 4aec35256d765c217aa0d662b82ac4e860c396fd：ChangesTreeCellRenderer.kt 的 ThreeStateCheckBox 与 textRenderer 独立布局；ChangesBrowserFilePathNode.kt::render/setIcon 普通字重、目录图标和 appendCount；expUI/icons/dark/checkBox{,Selected}.svg 的可见框为 16×16、圆角 2.5、灰边 #5A5D63、蓝底 #3574F0、白色 2px 勾。DvcsCloneDialogComponent.kt 使用标准 URL／Directory 字段，DarculaTextBorderNew.kt 与 DarculaNewUIUtil.kt::paintComponentBorder 在普通／聚焦边框间择一绘制。
+
+本地原因：Clone 同时启用 Input 自身 focus border 和 external_focus_ring，后者越过表单顶边被裁剪；关闭外圈，保留自身连续焦点边。Commit 使用组件默认 rem 大小与暗色 input 边框，且目录没有图标／计数、普遍加粗。拟采用应用层复选框皮肤（保留组件原有键盘、三态、禁用和事件语义），补齐目录展示；不改 Git 提交选择规则。
+
+实现与验收：`ui_style::checkbox` 选择上游普通／选中／混合及禁用 SVG，裁掉资源外围透明留白但不改路径颜色，固定可见框 16px；vendor Checkbox 新增可选 indicator renderer，保留原控件事件与无障碍语义，未使用的调用点保持原样。Commit、Amend、Clone 接入该皮肤。local_view 补目录图标与灰色本地化文件数，仅分组标题加粗；Log／Commit 共用文件计数格式。Clone 三个输入框关闭 external_focus_ring，圆角改为 4px，保留 Input 自身 focus border，消除裁剪根源而不放宽弹窗裁剪。
+
+Windows Plico 自有 PID42376，实际勾选 Changes 4 文件，再取消单个文件，父分组显示蓝底白横线、其余三文件仍为白勾且底部显示 3 项修改；目录图标及普通字重正确。截图 controls-plico-{commit,checked,mixed}.png。Clone 初始 URL 与切到浅克隆深度字段均为连续单层蓝边，URL 失焦恢复普通边，浅克隆点击启用深度输入，截图 controls-plico-clone-{after,depth}.png。没有执行 clone 或 commit。源码与截图证据保存在 artifacts/controls-ui-20261022。
+
+验证：cargo check、Windows release、桌面 Log 分组选择回归通过，cargo fmt --package plico -- --check 和 git diff --check 通过。曾尝试直接运行依赖包 Checkbox 单测，但 Cargo 拒绝非 workspace 成员的 dev-dependencies，因此不计为测试通过；本次新增皮肤的鼠标勾选与三态切换由原生验证，未专门复验键盘及运行中禁用态。保留差异：Clone 是应用内弹窗、无账号提供商侧栏／URL 历史，焦点边框保留组件的 1px 而非 Rebased 更厚描边；此轮未声明整页像素级一致。

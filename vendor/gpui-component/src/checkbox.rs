@@ -33,6 +33,7 @@ pub struct Checkbox {
     tooltip: ComponentTooltip,
     role: RoleOverride,
     focus_ring_enabled: bool,
+    indicator: Option<Rc<dyn Fn(bool, bool, bool) -> AnyElement>>,
 }
 
 impl Checkbox {
@@ -56,7 +57,15 @@ impl Checkbox {
             tooltip: ComponentTooltip::default(),
             role: RoleOverride::default(),
             focus_ring_enabled: true,
+            indicator: None,
         }
+    }
+
+    /// Replace only the indicator presentation, retaining toggle and accessibility behavior.
+    /// Arguments are checked, indeterminate and disabled, respectively.
+    pub fn indicator(mut self, render: impl Fn(bool, bool, bool) -> AnyElement + 'static) -> Self {
+        self.indicator = Some(Rc::new(render));
+        self
     }
 
     pub fn role(mut self, role: impl Into<RoleOverride>) -> Self {
@@ -299,7 +308,11 @@ impl RenderOnce for Checkbox {
                 this.focus_ring_style(window, cx)
             })
             .refine_style(&self.style)
-            .child(
+            .child(if let Some(render) = self.indicator {
+                div().flex_shrink_0()
+                    .when(has_content, |this| this.mt(px(2.)))
+                    .child(render(checked, mixed, self.disabled)).into_any_element()
+            } else {
                 CheckboxIndicator::new()
                     .checked(checked)
                     .disabled(self.disabled)
@@ -335,8 +348,8 @@ impl RenderOnce for Checkbox {
                         self.disabled,
                         window,
                         cx,
-                    )),
-            )
+                    )).into_any_element()
+            })
             .when(self.label.is_some() || !children.is_empty(), |this| {
                 this.child(
                     v_flex()

@@ -699,6 +699,7 @@ impl Render for PushDialog {
                                 depth,
                                 count,
                                 expanded,
+                                ..
                             } => {
                                 let name = path
                                     .file_name()

@@ -2,11 +2,7 @@
 use super::*;
 
 pub(super) fn log_file_count(count: usize) -> String {
-    if i18n::is_chinese() {
-        format!("{count} 个文件")
-    } else {
-        format!("{count} {}", if count == 1 { "file" } else { "files" })
-    }
+    crate::ui_style::file_count(count)
 }
 
 #[cfg(all(test, feature = "desktop-tests"))]

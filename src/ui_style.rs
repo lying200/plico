@@ -399,3 +399,26 @@ pub(crate) fn islands_tab(id: impl Into<ElementId>, selected: bool, cx: &App) ->
         })
         .when(!selected, |tab| tab.hover(|style| style.bg(rgb(0x26282c))))
 }
+
+/// Application presentation over the shared checkbox's controlled state and events.
+pub(crate) fn checkbox(id: impl Into<ElementId>) -> gpui_kit::component::checkbox::Checkbox {
+    gpui_kit::component::checkbox::Checkbox::new(id).indicator(|checked, mixed, disabled| {
+        let asset = match (checked, mixed, disabled) {
+            (_, true, true) => "jb/checkBoxIndeterminateSelectedDisabled.svg",
+            (_, true, false) => "jb/checkBoxIndeterminateSelected.svg",
+            (true, false, true) => "jb/checkBoxSelectedDisabled.svg",
+            (true, false, false) => "jb/checkBoxSelected.svg",
+            (false, false, true) => "jb/checkBoxDisabled.svg",
+            (false, false, false) => "jb/checkBox.svg",
+        };
+        img(asset).size(px(16.)).into_any_element()
+    })
+}
+
+pub(crate) fn file_count(count: usize) -> String {
+    if i18n::is_chinese() {
+        format!("{count} 个文件")
+    } else {
+        format!("{count} {}", if count == 1 { "file" } else { "files" })
+    }
+}

@@ -2,7 +2,6 @@
 use gpui_kit::component::{
     Disableable as _, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
     h_flex,
     input::{InputEvent, Textarea, TextareaState},
     menu::{ContextMenuExt as _, PopupMenuItem},
@@ -535,12 +534,19 @@ impl Render for LocalView {
                     let (included,total)=s.scope.read(cx).counts(&ids);
                     let branch=!matches!(&item, Row::Entry{row:file_tree::Row::File{..},..});
                     let (label,depth,asset,selected,color)=match item {
-                        Row::Group{area,count,expanded}=>(format!("{}  {count}",t(if area==plico::git::Area::Untracked {"Unversioned Files"} else {area.label()})),0,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
-                        Row::Entry{row:file_tree::Row::Folder{path,depth,expanded,..},..}=>(path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+1,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
+                        Row::Group{area,expanded,..}=>(t(if area==plico::git::Area::Untracked {"Unversioned Files"} else {area.label()}).to_owned(),0,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
+                        Row::Entry{row:file_tree::Row::Folder{ref label,depth,expanded,..},..}=>(label.to_string_lossy().into_owned(),depth+1,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
                         Row::Entry{row:file_tree::Row::File{index,depth},..}=>{
                             let f=&s.model.files()[index];
                             (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui_style::file_icon(&f.path),s.model.selected()==Some(index),if f.area==plico::git::Area::Ignored{0x72757a}else{crate::ui_style::change_color(f)})
                         }
+                    };
+                    let group = matches!(item, Row::Group { .. });
+                    let directory = matches!(item, Row::Entry { row: file_tree::Row::Folder { .. }, .. });
+                    let count = match &item {
+                        Row::Group { count, .. } => Some(*count),
+                        Row::Entry { row: file_tree::Row::Folder { count, .. }, .. } => Some(*count),
+                        _ => None,
                     };
                     let rollback_paths=paths.clone();let context_owner=cx.entity().downgrade();let rollback_enabled=area==plico::git::Area::WorkingTree && s.can_rollback(cx);
                     let parent_label=if !s.model.grouped(){match &s.model.rows()[row]{Row::Entry{row:file_tree::Row::File{index,..},..}=>{let p=s.model.files()[*index].path.parent().unwrap_or(std::path::Path::new(""));Some(if p.as_os_str().is_empty(){s.repo.path.file_name().unwrap_or_default().to_string_lossy().into_owned()}else{p.display().to_string()})},_=>None}}else{None};
@@ -548,21 +554,23 @@ impl Render for LocalView {
                     let mut row_text = label.clone();
                     let name_end = row_text.len();
                     if let Some(parent) = parent_label { row_text.push_str("  "); row_text.push_str(&parent); }
+                    if let Some(count) = count { row_text.push_str("  "); row_text.push_str(&crate::ui_style::file_count(count)); }
                     let text_end = row_text.len();
                     let row_text = StyledText::new(row_text).with_highlights([(name_end..text_end, HighlightStyle {
-                        color: Some(rgb(crate::ui_style::MUTED).into()), ..Default::default()
+                        color: Some(rgb(crate::ui_style::MUTED).into()), font_weight: Some(FontWeight::NORMAL), ..Default::default()
                     })]);
                     h_flex().id(("local-row",row)).relative().w_full().h(row_height).pl(px(crate::ui_style::TREE_INSET+depth as f32*crate::ui_style::TREE_INDENT)).pr(px(crate::ui_style::TREE_INSET)).gap(px(4.))
                         .when(selected,|v|v.child(crate::ui_style::tree_selection(selection_color)))
                         .when(branch, |v|v.child(icon(asset)))
-                        .when(area!=plico::git::Area::Ignored,|v|v.child(Checkbox::new(("commit-file",row)).checked(total>0 && included==total)
+                        .when(area!=plico::git::Area::Ignored,|v|v.child(crate::ui_style::checkbox(("commit-file",row)).checked(total>0 && included==total)
                             .indeterminate(included>0 && included<total)
                             .accessibility_label(label.clone())
                             .tooltip(t("Commit entire file, including unstaged changes"))
                             .disabled(s.refresh.read(cx).busy() || s.error.is_some() || s.write_token.is_some() || total==0)
                             .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.scope.update(cx,|q,cx|q.set_scope(&ids,*checked,cx));cx.stop_propagation();cx.notify();}))))
+                        .when(directory, |v|v.child(img("jb/folder_dark_4x.svg").size(px(16.)).flex_shrink_0()))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
-                        .child(div().truncate().text_color(rgb(color)).when(branch && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(row_text))
+                        .child(div().truncate().text_color(rgb(color)).when(group && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(row_text))
                         .when(updating, |v| v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("updating…"))))
                         .on_mouse_down(MouseButton::Right,cx.listener(move|s,_,w,cx|{s.rollback_scope=Some((area,rollback_paths.clone()));s.focus.focus(w,cx);cx.notify();}))
                         .on_click(cx.listener(move |s,e:&ClickEvent,w,cx|{s.focus.focus(w,cx);
@@ -581,7 +589,7 @@ impl Render for LocalView {
             })).when(self.refresh.read(cx).loaded() && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
                 div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
             .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
-                .child(h_flex().min_w_0().flex_wrap().gap_2().child(Checkbox::new("commit-amend").max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
+                .child(h_flex().min_w_0().flex_wrap().gap_2().child(crate::ui_style::checkbox("commit-amend").max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
                     .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(status::selection_status(self.scope.read(cx).inclusion.summary(), window, cx)))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))

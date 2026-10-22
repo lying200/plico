@@ -102,6 +102,7 @@ impl ListDelegate for FilePicker {
                 depth,
                 expanded,
                 count,
+                ..
             } => {
                 let path = path.clone();
                 let label = path

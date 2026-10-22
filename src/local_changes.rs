@@ -223,7 +223,7 @@ impl Model {
                     }));
             } else if expanded {
                 self.rows.extend(
-                    file_tree::rows(
+                    file_tree::compact_rows(
                         self.files
                             .iter()
                             .enumerate()
@@ -252,6 +252,41 @@ mod tests {
             area,
         }
     }
+    #[test]
+    fn compact_folder_scope_and_reveal_use_real_paths() {
+        let mut m = Model::default();
+        let target = file("src/main/java/Target.java", Area::WorkingTree);
+        m.replace(vec![
+            target.clone(),
+            file("src/main/java/Other.java", Area::WorkingTree),
+            file("src-other/a", Area::WorkingTree),
+        ]);
+        m.set_grouped(true);
+        let folder = m.rows().iter().position(|r| matches!(r,Row::Entry{row:file_tree::Row::Folder{path,..},..} if path==std::path::Path::new("src/main/java"))).unwrap();
+        m.toggle(folder);
+        assert_eq!(
+            m.inclusion_paths(folder),
+            [
+                PathBuf::from("src/main/java/Target.java"),
+                PathBuf::from("src/main/java/Other.java")
+            ]
+            .into_iter()
+            .collect()
+        );
+        let row = m.reveal(&target).unwrap();
+        assert!(matches!(
+            m.rows()[row],
+            Row::Entry {
+                row: file_tree::Row::File { index: 0, .. },
+                ..
+            }
+        ));
+        assert_eq!(m.selected(), Some(0));
+        m.set_grouped(false);
+        m.set_grouped(true);
+        assert_eq!(m.selected(), Some(0));
+    }
+
     #[test]
     fn grouping_switch_preserves_selected_identity_and_ignored_scope_is_separate() {
         let mut m = Model::default();

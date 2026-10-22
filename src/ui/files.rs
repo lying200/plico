@@ -89,6 +89,7 @@ impl Review {
                 rows.push(FileRow::Folder(
                     Area::Commit,
                     PathBuf::new(),
+                    PathBuf::new(),
                     0,
                     self.files.len(),
                     expanded,
@@ -108,7 +109,7 @@ impl Review {
         self.file_rows = Arc::new(rows);
     }
     pub(super) fn directory_rows(&self, area: Area) -> Vec<FileRow> {
-        file_tree::rows(
+        file_tree::compact_rows(
             self.files
                 .iter()
                 .enumerate()
@@ -126,12 +127,14 @@ impl Review {
             }
             file_tree::Row::Folder {
                 path,
+                label,
                 depth,
                 count,
                 expanded,
             } => FileRow::Folder(
                 area,
                 path,
+                label,
                 depth + usize::from(area == Area::Commit),
                 count,
                 expanded,
@@ -350,7 +353,14 @@ impl Review {
                                 .map(|row| {
                                     let (i, depth) = match &rows[row] {
                                         FileRow::File(i, depth) => (*i, *depth),
-                                        FileRow::Folder(area, path, depth, count, expanded) => {
+                                        FileRow::Folder(
+                                            area,
+                                            path,
+                                            label,
+                                            depth,
+                                            count,
+                                            expanded,
+                                        ) => {
                                             let area = *area;
                                             let path = path.clone();
                                             let owner = owner.clone();
@@ -371,10 +381,7 @@ impl Review {
                                                 .child(img("jb/folder_dark_4x.svg").size(px(16.)))
                                                 .child(
                                                     div().truncate().child(
-                                                        path.file_name()
-                                                            .unwrap_or_default()
-                                                            .to_string_lossy()
-                                                            .into_owned(),
+                                                        label.to_string_lossy().into_owned(),
                                                     ),
                                                 )
                                                 .child(div().text_color(rgb(MUTED)).child(
@@ -465,29 +472,37 @@ impl Review {
                                         .child(
                                             img(file_icon(&f.path)).size(px(16.)).flex_shrink_0(),
                                         )
-                                        .child(
+                                        .child({
+                                            let mut text = f
+                                                .path
+                                                .file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                                .into_owned();
+                                            let name_end = text.len();
+                                            if flat {
+                                                let parent = f
+                                                    .path
+                                                    .parent()
+                                                    .unwrap_or(std::path::Path::new(""));
+                                                if !parent.as_os_str().is_empty() {
+                                                    text.push_str("  ");
+                                                    text.push_str(&parent.to_string_lossy());
+                                                }
+                                            }
+                                            let end = text.len();
                                             div()
-                                                .truncate()
+                                                .min_w_0()
                                                 .flex_1()
+                                                .truncate()
                                                 .text_color(rgb(change_color(f)))
-                                                .child(
-                                                    f.path
-                                                        .file_name()
-                                                        .unwrap_or_default()
-                                                        .to_string_lossy()
-                                                        .into_owned(),
-                                                ),
-                                        )
-                                        .when(flat, |row| {
-                                            row.child(
-                                                div().truncate().text_color(rgb(MUTED)).child(
-                                                    f.path
-                                                        .parent()
-                                                        .unwrap_or(std::path::Path::new(""))
-                                                        .to_string_lossy()
-                                                        .into_owned(),
-                                                ),
-                                            )
+                                                .child(StyledText::new(text).with_highlights([(
+                                                    name_end..end,
+                                                    HighlightStyle {
+                                                        color: Some(rgb(MUTED).into()),
+                                                        ..Default::default()
+                                                    },
+                                                )]))
                                         })
                                         .on_click(move |event, window, cx| {
                                             let _ = owner.update(cx, |s, cx| {

@@ -366,3 +366,5 @@ TextMergeChange.kt and ThreesideMergeHighlighters.kt in Rebased 4aec35256d765c21
 Merge gutter SVG icons are copied from platform/icons/src/expui/diff; exact paths
 are recorded in assets/icons/SOURCE.txt. Copyright JetBrains s.r.o. and contributors,
 Apache-2.0 (licenses/assets/icons/LICENSE.txt).
+
+Checkbox SVG presentation: assets/icons/checkBox*.svg, JetBrains s.r.o. and contributors, Apache-2.0. Source/version and viewport adaptation recorded in assets/icons/SOURCE.txt; license in assets/icons/LICENSE.txt.

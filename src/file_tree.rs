@@ -33,6 +33,7 @@ pub fn retain_collapsed<'a, K: Copy + Eq + Hash>(
 pub enum Row {
     Folder {
         path: PathBuf,
+        label: PathBuf,
         depth: usize,
         count: usize,
         expanded: bool,
@@ -52,6 +53,22 @@ struct Node {
 pub fn rows<'a>(
     files: impl IntoIterator<Item = (usize, &'a Path)>,
     collapsed: impl Fn(&Path) -> bool,
+) -> Vec<Row> {
+    build_rows(files, collapsed, false)
+}
+
+/// Collapse directory-only chains, retaining the terminal real path as identity.
+pub fn compact_rows<'a>(
+    files: impl IntoIterator<Item = (usize, &'a Path)>,
+    collapsed: impl Fn(&Path) -> bool,
+) -> Vec<Row> {
+    build_rows(files, collapsed, true)
+}
+
+fn build_rows<'a>(
+    files: impl IntoIterator<Item = (usize, &'a Path)>,
+    collapsed: impl Fn(&Path) -> bool,
+    compact: bool,
 ) -> Vec<Row> {
     let mut nodes = BTreeMap::<PathBuf, Node>::new();
     for (index, path) in files {
@@ -87,15 +104,21 @@ pub fn rows<'a>(
     while let Some(item) = pending.pop() {
         match item {
             Pending::File(index, depth) => output.push(Row::File { index, depth }),
-            Pending::Directory(path, depth) => {
-                let Some(node) = nodes.get(&path) else {
+            Pending::Directory(mut path, depth) => {
+                let parent = path.parent().unwrap_or(Path::new("")).to_path_buf();
+                let Some(mut node) = nodes.get(&path) else {
                     continue;
                 };
                 let root = path.as_os_str().is_empty();
                 if !root {
+                    while compact && node.files.is_empty() && node.directories.len() == 1 {
+                        path = node.directories.first().unwrap().clone();
+                        node = &nodes[&path];
+                    }
                     let expanded = !collapsed(&path);
                     output.push(Row::Folder {
                         path: path.clone(),
+                        label: path.strip_prefix(&parent).unwrap_or(&path).to_path_buf(),
                         depth,
                         count: node.count,
                         expanded,
@@ -126,6 +149,101 @@ pub fn rows<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compact_chains_stop_at_branches_and_files_and_keep_indices() {
+        let paths = [
+            "spring-core/src/main/java/org/env/Property.java",
+            "spring-core/src/test/java/org/env/CompositeTests.java",
+            "spring-core/src/test/java/org/env/PropertyTests.java",
+            "spring-core/src/test/resources/log.xml",
+        ];
+        let build = |hide: &Path| {
+            compact_rows(
+                paths.iter().enumerate().map(|(i, p)| (i, Path::new(p))),
+                |p| p == hide,
+            )
+        };
+        let all = build(Path::new("never"));
+        let folders: Vec<_> = all
+            .iter()
+            .filter_map(|r| match r {
+                Row::Folder {
+                    path,
+                    label,
+                    depth,
+                    count,
+                    ..
+                } => Some((path.as_path(), label.as_path(), *depth, *count)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            folders,
+            vec![
+                (
+                    Path::new("spring-core/src"),
+                    Path::new("spring-core/src"),
+                    0,
+                    4
+                ),
+                (
+                    Path::new("spring-core/src/main/java/org/env"),
+                    Path::new("main/java/org/env"),
+                    1,
+                    1
+                ),
+                (Path::new("spring-core/src/test"), Path::new("test"), 1, 3),
+                (
+                    Path::new("spring-core/src/test/java/org/env"),
+                    Path::new("java/org/env"),
+                    2,
+                    2
+                ),
+                (
+                    Path::new("spring-core/src/test/resources"),
+                    Path::new("resources"),
+                    2,
+                    1
+                ),
+            ]
+        );
+        assert!(all.contains(&Row::File { index: 0, depth: 2 }));
+        assert!(all.contains(&Row::File { index: 2, depth: 3 }));
+        let hidden = build(Path::new("spring-core/src/test/java/org/env"));
+        assert!(hidden.contains(&Row::File { index: 3, depth: 3 }));
+        assert!(
+            !hidden
+                .iter()
+                .any(|r| matches!(r, Row::File { index: 1 | 2, .. }))
+        );
+        assert_eq!(build(Path::new("spring-core/src")).len(), 1);
+        assert_eq!(build(Path::new("never")), all);
+    }
+
+    #[test]
+    fn compact_projection_keeps_files_and_multiple_roots_separate() {
+        let paths = ["a/b/file", "a/b/c/nested", "a-other/b/file", "README"];
+        let rows = compact_rows(
+            paths.iter().enumerate().map(|(i, p)| (i, Path::new(p))),
+            |_| false,
+        );
+        assert!(
+            rows.iter()
+                .any(|r| matches!(r,Row::Folder{path,depth:0,..} if path==Path::new("a/b")))
+        );
+        assert!(
+            rows.iter()
+                .any(|r| matches!(r,Row::Folder{path,depth:1,..} if path==Path::new("a/b/c")))
+        );
+        assert!(rows.contains(&Row::File { index: 3, depth: 0 }));
+        assert_eq!(
+            rows.iter()
+                .filter(|r| matches!(r, Row::File { .. }))
+                .count(),
+            4
+        );
+    }
+
     #[test]
     fn expansion_state_tracks_current_directories_and_releases_old_capacity() {
         let mut state: HashSet<_> = (0..1000)
@@ -164,6 +282,7 @@ mod tests {
         let all = build(false);
         assert!(all.contains(&Row::Folder {
             path: "src".into(),
+            label: "src".into(),
             depth: 0,
             count: 3,
             expanded: true

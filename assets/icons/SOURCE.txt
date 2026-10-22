@@ -140,3 +140,5 @@ merge-append-left.svg: platform/icons/src/expui/diff/arrowLeftDown@14x14_dark.sv
 merge-append-right.svg: platform/icons/src/expui/diff/arrowRightDown@14x14_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains Apache-2.0.
 
 merge-ignore.svg: platform/icons/src/expui/diff/remove@14x14_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, JetBrains Apache-2.0.
+
+Checkbox presentation: platform/jewel/int-ui/int-ui-standalone/src/main/resources/themes/expUI/icons/dark/checkBox*.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd. Apache-2.0, JetBrains s.r.o. and contributors. Viewport cropped from 24x24 to visible 16x16; paths/colors unchanged.

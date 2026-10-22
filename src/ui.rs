@@ -94,7 +94,7 @@ pub fn init(cx: &mut App) {
 enum FileRow {
     Group(Area, usize, bool),
     File(usize, usize),
-    Folder(Area, PathBuf, usize, usize, bool),
+    Folder(Area, PathBuf, PathBuf, usize, usize, bool),
 }
 #[derive(Clone)]
 struct NavigationNotice {

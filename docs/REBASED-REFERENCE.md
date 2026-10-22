@@ -3422,3 +3422,38 @@ GitLabCredentials 明确区分 PAT 和 OAuth，后者保存 access/refresh token
 - 本地实现：`hosting_panel.rs`、`hosting/api.rs`、`assets.rs`、`i18n.rs`。新增命名空间显示与真实克隆 URL 独立的回归测试。
 - 版本差异：安装版 Rebased 1.1.20 的 GitLab 页面为 Token 表单，源码已支持 OAuth 入口；OAuth 入口按源码实现。自建服务器 OAuth 需要该服务器注册的 Plico 应用配置，未配置时明确提示使用 Token；不借用 JetBrains 应用身份。仍保留 REST 分页、单账号切换，不宣称多账号聚合完全一致。
 - 验证：7 项 hosting 核心测试和 1 项桌面标签规则测试通过，最终 Windows release 构建通过。原生参考 Token 页面已截图；Plico 真实 GitLab 账号仓库、图片头像、三项菜单、自建服务器表单、切换 Token 并返回列表均已实际操作，截图 `artifacts/oauth-clone-20261022/gl-*.png`。截图使用菜单文案完成后的构建；最终构建仅追加 Retry 中文翻译。未执行真实克隆，未重新验证 OAuth 授权与自建服务器授权。
+
+### 2026-10-23：认证全链路审计（进行中）
+
+参考仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`。追加读取 `GitHttpGuiAuthenticator`、`SilentHostedGitHttpAuthDataProviderBase`、`HostedGitAuthenticationFailureManager`、`AccountUrlAuthenticationFailuresHolder`、`GitLabHttpAuthDataProvider`、`GHSilentHttpAuthDataProvider`、`NativeSshGuiAuthenticator`、`NativeSshAuthService`、`SshPrompts`。
+
+前置实机：Rebased 1.1.20，自有 PID17792；独立 `auth-audit-20261023/repo` 配置本地 SSH transport fixture（不连接服务器、不读取密钥），Fetch 后出现 SSH Key Passphrase 弹窗：密钥路径说明、掩码输入、Remember、OK/Cancel。截图 `artifacts/auth-audit-20261023/ref-ssh-passphrase.png`。HTTP 错误凭据/重试/取消规则延续本会话 `artifacts/http-auth-20261022` 的原生验证。
+
+已确认缺口：SSH AskPass 命令桥未接入且现有 HTTP 表单不适用于 SSH；托管凭据拒绝仅操作内记忆，缺少上游跨操作 URL/账号失败隔离；移除绑定账号后旧绑定阻止唯一有效账号回退。拟补独立 SSH 提示分类与凭据生命周期、静默不弹窗、账号失败缓存随 token 版本失效。多账号交互选择、账号管理、自建 OAuth 应用配置及回调收尾继续审计。
+
+账号设置前置复验：自有原生 Rebased PID17792，Find Action→GitHub Settings；空账号页为带 + / - / 默认账号工具栏的列表，+ 菜单提供 Browser / Token / Enterprise，底部显示 helper 已启用时托管账号不参与 Git 操作的提示。截图 `artifacts/auth-audit-20261023/ref-settings-{github,add}.png`。读取 `GithubSettingsConfigurable`、`GitLabSettingsConfigurable`、`AccountsPanelFactory`：增删与新凭据保存在草稿、Apply 才写入账号管理器，Cancel 丢弃；GitLab 新源码有自建 OAuth server=clientID 配置，安装版没有该入口。映射 `hosting_settings.rs` 与 `hosting_panel.rs` 的独立登录模式；不加载 Clone 仓库列表，登录凭据暂存在设置实体。Enterprise 与 PR 设置继续按产品范围省略；默认项目账号和交互式账号选择仍待实机多账号场景验收。
+
+#### 审计实现与恢复原生验收
+
+用户解锁后重试成功。原生 Rebased 自有 PID24656，独立 profile 加入两个不含凭据的 fixture 账号；本地 transport 仅调用 AskPass，不连接真实服务器。Fetch→Choose GitHub Account：首项默认选中、当前项目默认账号复选框、Log In/Cancel；选择缺少凭据的账号后显示 Browser/Token 登录入口。截图 `artifacts/auth-audit-20261023/ref-multi-{choose,login}.png`。追加读取同 commit：
+
+- `plugins/github/github-core/src/org/jetbrains/plugins/github/extensions/GHSelectAccountHttpAuthDataProvider.kt`、`authentication/ui/GithubChooseAccountDialog.kt`；GitLab 对应 `plugins/gitlab/gitlab-core/src/org/jetbrains/plugins/gitlab/authentication/ui/GitLabChooseAccountDialog.kt`。
+- `platform/collaboration-tools/src/com/intellij/collaboration/auth/ui/AccountsPanelFactory.kt`、`auth/AccountUrlAuthenticationFailuresHolder.kt`。
+- `platform/external-process-auth-helper/src/externalProcessAuthHelper/NativeSshGuiAuthenticator.kt`；GitLab `authentication/GitLabOAuthService.kt`、`GitLabSettingsConfigurable.kt`。
+
+落地规则与位置：
+
+| 场景 | 本地实现及边界 |
+| --- | --- |
+| SSH 密钥口令、密码、PIN、交互式提示、主机确认 | `ssh_auth.rs`、`askpass.rs`、`authenticated_command.rs`、`auth_dialog.rs`。接入 SSH_ASKPASS；按提示类型隔离缓存，重复失败只清除本次使用的旧值，保留并发更新；主机确认 Yes/No，不保存为密码；静默模式不排队弹窗。原生 OpenSSH 继续管理 agent、密钥选择及 known_hosts。 |
+| 托管账号选择和重登录 | `auth_request.rs`、`auth_dialog.rs`、`hosting_panel.rs`。多个候选交互选择，缺失/被拒凭据进入指定账号登录；登录结果核对账号身份，不能将另一账号 Token 保存到原账号。可回退手动/helper，取消释放等待。 |
+| 项目默认账号与失效绑定 | `hosting.rs`，远端操作与 `branch_updates.rs` 传递项目上下文。项目默认隔离，保留 Clone 明确目标绑定优先；删除的绑定可回退唯一匹配账号。按精确 origin、GitLab 路径边界及已知用户名筛选，不跨服务器借用令牌。 |
+| 跨操作失败处理 | `hosting/failures.rs`、`http_auth.rs`。按账号+URL+凭据指纹记录拒绝，最大256项；更换凭据恢复可用。只归因给最后实际使用的提供方，不清除其他账号/端点共享凭据。 |
+| GitHub/GitLab 设置 | `hosting_settings.rs`、`ui/settings.rs`。添加、移除、重登录、当前项目默认；新增账号/凭据暂存，Apply才保存，Cancel丢弃。helper启用时提示托管账号不参与Git HTTP认证。 |
+| 自建 GitLab OAuth 配置与回调 | `hosting/oauth.rs`。设置 `server URL = client ID`，检查HTTPS、重复地址及空值；回调跳转不带code的结果页、no-store/no-referrer、取消和超时释放监听。结果页只表示收到响应，授权交换结果由客户端显示。 |
+
+Windows Plico 自有测试进程已实际验证：SSH口令/取消、主机确认拒绝；GitHub设置、移除草稿后Cancel保留原账号；GitLab设置与自建OAuth配置入口；本地模拟凭据拒绝→账号选择→指定账号重登录→其他凭据→取消，不影响真实账号Token。截图均在 `artifacts/auth-audit-20261023/`，`plico-final-*` 为新交互流程，`plico-account-*` 为设置取消。新图标来源/许可证见 assets/icons/SOURCE.txt 与 docs/THIRD-PARTY.txt。
+
+保留差异及未覆盖项：安装版GitLab没有新源码OAuth设置，按源码实现；GitHub直接平台PKCE而非JetBrains中转，交互认证使用真实login而非上游x-oauth-basic替代用户名；GitLab只允许HTTPS，避免明文令牌传输。Plico为内嵌弹窗，账号设置尚无头像，列表行与弹窗尺寸尚非逐像素一致。GitHub Enterprise继续不做；Clone单账号切换、手动分页及未补组织公开仓库是既有列表差异。真实组织SSO、硬件PIN、自建GitLab授权、异常证书/代理本轮未实测；已有真实GitHub/GitLab授权记录不能代替这些覆盖。自定义SSH命令的后台远端检查仍保留原有保守禁用规则，未自行覆盖用户transport。
+
+验证结果：全量核心测试646项通过；最后补充AskPass提示分类回归后核心库268项通过，认证表单桌面测试3项通过；最终Windows release（主程序与AskPass）构建通过，格式化及diff whitespace检查通过。Clippy完成，仍有既有及样式建议warning（未宣称零警告）。当前项目默认账号在独立repo中Apply后重启复验；只关闭本次自有测试程序，Rebased测试profile的虚构账号与helper设置已清理还原。未对真实远端执行写操作。

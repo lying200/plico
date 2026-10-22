@@ -9,6 +9,8 @@ enum Page {
     EditorTabs = 3,
     Appearance = 4,
     EditorFont = 5,
+    GitHub = 6,
+    GitLab = 7,
 }
 
 pub(super) struct SettingsDraft {
@@ -17,6 +19,8 @@ pub(super) struct SettingsDraft {
     language: Language,
     file_preview: bool,
     git: Option<Entity<crate::update_settings::Settings>>,
+    github: Entity<crate::hosting_settings::Settings>,
+    gitlab: Entity<crate::hosting_settings::Settings>,
     loading: bool,
     error: Option<String>,
 }
@@ -70,12 +74,28 @@ impl Review {
             return;
         }
         self.settings_session = self.settings_session.wrapping_add(1);
+        let github = crate::hosting_settings::Settings::new(
+            plico::hosting::Provider::GitHub,
+            self.repo.path.clone(),
+            window,
+            cx,
+        );
+        let gitlab = crate::hosting_settings::Settings::new(
+            plico::hosting::Provider::GitLab,
+            self.repo.path.clone(),
+            window,
+            cx,
+        );
+        cx.observe(&github, |_, _, cx| cx.notify()).detach();
+        cx.observe(&gitlab, |_, _, cx| cx.notify()).detach();
         self.settings_draft = Some(SettingsDraft {
             fonts: crate::ui_font::Preferences::current(cx),
             section: Page::Language,
             language: i18n::preference(),
             file_preview: self.file_preview,
             git: None,
+            github,
+            gitlab,
             loading: false,
             error: None,
         });
@@ -158,6 +178,19 @@ impl Review {
             return;
         }
         let fonts = draft.fonts.clone();
+        for (page, accounts) in [
+            (Page::GitHub, draft.github.clone()),
+            (Page::GitLab, draft.gitlab.clone()),
+        ] {
+            if !accounts.update(cx, |s, cx| s.save(cx)) {
+                if let Some(d) = &mut self.settings_draft {
+                    d.section = page;
+                }
+                cx.notify();
+                return;
+            }
+        }
+        let draft = self.settings_draft.as_ref().unwrap();
         let (language, file_preview, git) = (draft.language, draft.file_preview, draft.git.clone());
         if let Some(draft) = &mut self.settings_draft {
             draft.error = None;
@@ -266,6 +299,8 @@ impl Review {
             .as_ref()
             .expect("Open settings have a draft");
         let modified = draft.fonts != crate::ui_font::Preferences::current(cx)
+            || draft.github.read(cx).modified(cx)
+            || draft.gitlab.read(cx).modified(cx)
             || draft.language != i18n::preference()
             || draft.file_preview != self.file_preview
             || draft
@@ -279,6 +314,8 @@ impl Review {
             (Page::EditorFont, "Editor Font"),
             (Page::EditorTabs, "Editor Tabs"),
             (Page::Git, "Git"),
+            (Page::GitHub, "GitHub"),
+            (Page::GitLab, "GitLab"),
         ] {
             if section == Page::Git {
                 navigation = navigation.child(
@@ -324,6 +361,8 @@ impl Review {
             Page::EditorFont => t("Editor Font").to_owned(),
             Page::EditorTabs => t("Editor Tabs").to_owned(),
             Page::Git => format!("{}  ›  Git", t("Version Control")),
+            Page::GitHub => format!("{}  ›  GitHub", t("Version Control")),
+            Page::GitLab => format!("{}  ›  GitLab", t("Version Control")),
             Page::Language => t("Language").to_owned(),
         };
         let mut content = v_flex()
@@ -484,6 +523,8 @@ impl Review {
                     }))
                 }
             }
+            Page::GitHub => content.child(draft.github.clone()),
+            Page::GitLab => content.child(draft.gitlab.clone()),
             Page::Language => content.child(
                 v_flex().gap_3().children(
                     [

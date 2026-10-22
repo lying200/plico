@@ -124,6 +124,7 @@ impl References {
             crate::http_auth::Mode::Silent,
             crate::credential_store::Store::system(),
         );
+        requests.set_project(&repo.path);
         let auth = helper
             .as_deref()
             .filter(|p| p.is_file())

@@ -146,17 +146,43 @@ fn serve(mut stream: TcpStream, token: &str, requests: &Requests, stop: &Cancel)
 /// Entry used by the tiny helper binary. Git passes the prompt as a single arg.
 /// HTTP classification matches GitHttpAuthService; SSH uses an explicit env mode.
 pub fn helper(prompt: &str) -> io::Result<Option<String>> {
-    let kind = if std::env::var_os("GITUI_ASKPASS_SSH").is_some() {
+    request(
+        prompt_kind(prompt, std::env::var_os("GITUI_ASKPASS_SSH").is_some()),
+        prompt,
+    )
+}
+fn prompt_kind(prompt: &str, ssh: bool) -> u8 {
+    let prompt = prompt.to_ascii_lowercase();
+    if ssh {
         2
-    } else if prompt
-        .get(..8)
-        .is_some_and(|s| s.eq_ignore_ascii_case("username"))
-    {
+    } else if prompt.starts_with("username for 'http") {
         0
-    } else {
+    } else if prompt.starts_with("password for 'http") {
         1
-    };
-    request(kind, prompt)
+    } else {
+        2
+    }
+}
+#[cfg(test)]
+mod prompt_tests {
+    use super::prompt_kind;
+    #[test]
+    fn distinguishes_git_http_prompts_from_ssh_keyboard_interactive() {
+        assert_eq!(prompt_kind("Username for 'https://git.example':", false), 0);
+        assert_eq!(
+            prompt_kind("Password for 'http://alice@git.example':", false),
+            1
+        );
+        for prompt in [
+            "Username:",
+            "Password:",
+            "alice@host's password:",
+            "Verification code:",
+        ] {
+            assert_eq!(prompt_kind(prompt, false), 2);
+        }
+        assert_eq!(prompt_kind("Username for 'https://git.example':", true), 2);
+    }
 }
 /// Shared capability transport; editor requests carry a path and return an exit code.
 pub(crate) fn request(kind: u8, prompt: &str) -> io::Result<Option<String>> {

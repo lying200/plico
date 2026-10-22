@@ -1,6 +1,7 @@
 //! Hosted Git accounts. Rebased 4aec352 GitLabAccountManager/GH clone models,
 //! Apache-2.0, JetBrains and contributors. No collaboration/PR API integration.
 mod api;
+pub(crate) mod failures;
 pub mod oauth;
 use crate::{credential_store::Store, git::Cancel};
 pub use api::{Repository, avatar, repositories, validate_token};
@@ -141,7 +142,9 @@ pub fn save(account: &Account, credentials: &Credentials, cancel: &Cancel) -> Re
         &format!("hosting:token:{}", account.id()),
         &credentials.value().to_string(),
     )?;
-    store.set("hosting:accounts", &index)
+    store.set("hosting:accounts", &index)?;
+    failures::clear_account(&account.id());
+    Ok(())
 }
 pub fn remove(account: &Account) -> Result<(), String> {
     let _g = ACCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
@@ -183,14 +186,71 @@ pub fn credentials(account: &Account, cancel: &Cancel) -> Result<Credentials, St
     }
     Ok(c)
 }
+pub fn git_account_credentials(
+    account: &Account,
+    target: &str,
+    cancel: &Cancel,
+) -> Result<Credentials, String> {
+    let c = credentials(account, cancel)?;
+    if failures::Attempt::new(target, &account.id(), &c.access).rejected() {
+        return Err("Account needs to log in again".into());
+    }
+    Ok(c)
+}
 /// Only an explicit repository binding or a unique matching account may supply Git.
+pub fn matching_accounts(target: &str, known: Option<&str>) -> Result<Vec<Account>, String> {
+    let u = url::Url::parse(target).map_err(|_| "Invalid repository URL")?;
+    let entries = accounts()?;
+    Ok(entries
+        .into_iter()
+        .filter(|a| account_matches(a, &u, known))
+        .collect())
+}
+pub fn account_matches(account: &Account, target: &url::Url, known: Option<&str>) -> bool {
+    let Ok(server) = url::Url::parse(&account.server) else {
+        return false;
+    };
+    target.origin() == server.origin()
+        && (server.path() == "/"
+            || target
+                .path()
+                .starts_with(&format!("{}/", server.path().trim_end_matches('/'))))
+        && known.is_none_or(|login| {
+            login == account.login || (account.provider == Provider::GitLab && login == "oauth2")
+        })
+}
+
+fn default_key(provider: Provider, project: &std::path::Path) -> String {
+    format!(
+        "hosting:default:{}:{:x}",
+        provider.name(),
+        Sha256::digest(project.to_string_lossy().as_bytes())
+    )
+}
+pub fn default_account(
+    provider: Provider,
+    project: &std::path::Path,
+) -> Result<Option<String>, String> {
+    Ok(Store::system()
+        .get(&default_key(provider, project))?
+        .filter(|s| !s.is_empty()))
+}
+pub fn set_default(
+    provider: Provider,
+    project: &std::path::Path,
+    account: Option<&Account>,
+) -> Result<(), String> {
+    Store::system().set(
+        &default_key(provider, project),
+        &account.map(Account::id).unwrap_or_default(),
+    )
+}
 pub(crate) fn git_credentials(
     target: &str,
     known: Option<&str>,
     cancel: &Cancel,
-) -> Option<(String, String)> {
-    let u = url::Url::parse(target).ok()?;
-    let entries = accounts().ok()?;
+    project: Option<&std::path::Path>,
+) -> Option<(String, String, failures::Attempt)> {
     let binding = Store::system()
         .get(&format!(
             "hosting:binding:{:x}",
@@ -198,31 +258,42 @@ pub(crate) fn git_credentials(
         ))
         .ok()
         .flatten();
-    let matches: Vec<_> = entries
-        .into_iter()
-        .filter(|a| {
-            let Ok(s) = url::Url::parse(&a.server) else {
-                return false;
-            };
-            u.origin() == s.origin()
-                && (s.path() == "/"
-                    || u.path()
-                        .starts_with(&format!("{}/", s.path().trim_end_matches('/'))))
-                && known.is_none_or(|k| {
-                    k == a.login || (a.provider == Provider::GitLab && k == "oauth2")
-                })
+    let mut matches = matching_accounts(target, known).ok()?;
+    // Upstream excludes rejected accounts before deciding whether the remaining
+    // account is unique. Inspect stored credentials only; do not refresh every
+    // matching account merely to choose one.
+    matches.retain(|account| {
+        let cached = Store::system()
+            .get(&format!("hosting:token:{}", account.id()))
+            .ok()
+            .flatten()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .and_then(|value| Credentials::parse(value).ok());
+        cached.is_none_or(|c| {
+            c.expires_at
+                .is_some_and(|expires| expires <= oauth::now() + 60)
+                || !failures::Attempt::new(target, &account.id(), &c.access).rejected()
         })
-        .collect();
-    let a = if let Some(id) = binding {
-        matches.iter().find(|a| a.id() == id)?
-    } else {
-        if matches.len() != 1 {
-            return None;
-        }
-        &matches[0]
-    };
+    });
+    let default = project.and_then(|path| {
+        matches.iter().find_map(|a| {
+            default_account(a.provider, path)
+                .ok()
+                .flatten()
+                .filter(|id| *id == a.id())
+        })
+    });
+    let preferred = binding
+        .as_deref()
+        .filter(|id| matches.iter().any(|a| a.id() == *id))
+        .or(default.as_deref());
+    let a = select_account(&matches, preferred)?;
     let c = credentials(a, cancel).ok()?;
-    Some((a.login.clone(), c.access))
+    let attempt = failures::Attempt::new(target, &a.id(), &c.access);
+    if attempt.rejected() {
+        return None;
+    }
+    Some((a.login.clone(), c.access, attempt))
 }
 pub fn bind(account: &Account, target: &str) -> Result<(), String> {
     let mut u = url::Url::parse(target).map_err(|_| "Invalid repository URL")?;
@@ -237,4 +308,65 @@ pub fn bind(account: &Account, target: &str) -> Result<(), String> {
         ),
         &account.id(),
     )
+}
+
+fn select_account<'a>(accounts: &'a [Account], binding: Option<&str>) -> Option<&'a Account> {
+    binding
+        .and_then(|id| accounts.iter().find(|a| a.id() == id))
+        .or_else(|| {
+            if accounts.len() == 1 {
+                accounts.first()
+            } else {
+                None
+            }
+        })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn hosted_credentials_match_origin_namespace_and_explicit_login() {
+        let account = Account {
+            provider: Provider::GitLab,
+            server: "https://git.example/team".into(),
+            login: "alice".into(),
+        };
+        let good = url::Url::parse("https://git.example/team/repo.git").unwrap();
+        assert!(account_matches(&account, &good, None));
+        assert!(account_matches(&account, &good, Some("oauth2")));
+        assert!(!account_matches(&account, &good, Some("bob")));
+        for target in [
+            "http://git.example/team/repo.git",
+            "https://git.example:8443/team/repo.git",
+            "https://git.example.attacker/team/repo.git",
+            "https://git.example/team-other/repo.git",
+        ] {
+            assert!(!account_matches(
+                &account,
+                &url::Url::parse(target).unwrap(),
+                None
+            ));
+        }
+    }
+    #[test]
+    fn stale_binding_falls_back_only_to_unambiguous_account() {
+        let alice = Account {
+            provider: Provider::GitHub,
+            server: Provider::GitHub.server().into(),
+            login: "alice".into(),
+        };
+        let bob = Account {
+            login: "bob".into(),
+            ..alice.clone()
+        };
+        assert_eq!(
+            select_account(std::slice::from_ref(&alice), Some("removed")),
+            Some(&alice)
+        );
+        assert!(select_account(&[alice.clone(), bob.clone()], Some("removed")).is_none());
+        assert_eq!(
+            select_account(&[alice.clone(), bob.clone()], Some(&bob.id())),
+            Some(&bob)
+        );
+    }
 }

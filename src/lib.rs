@@ -204,3 +204,5 @@ pub mod clone_destination;
 pub mod text_merge;
 
 pub mod hosting;
+
+pub mod ssh_auth;

@@ -7,6 +7,7 @@ impl AssetSource for Assets {
             "jb/defaultAvatar_dark.svg" => {
                 Some(include_bytes!("../assets/icons/defaultAvatar_dark.svg"))
             }
+            "jb/checked_dark.svg" => Some(include_bytes!("../assets/icons/checked_dark.svg")),
             "jb/github_dark.svg" => Some(include_bytes!("../assets/icons/github_dark.svg")),
             "jb/gitlab.svg" => Some(include_bytes!("../assets/icons/gitlab.svg")),
             "jb/checkBox.svg" => Some(include_bytes!("../assets/icons/checkBox.svg")),

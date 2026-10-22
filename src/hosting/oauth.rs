@@ -12,6 +12,7 @@ use std::{
 };
 const PORT: u16 = 34561;
 const PATH: &str = "/oauth/callback";
+const RESULT_PATH: &str = "/oauth/result";
 pub const REDIRECT_URI: &str = "http://127.0.0.1:34561/oauth/callback";
 pub struct Config {
     pub client_id: String,
@@ -19,6 +20,14 @@ pub struct Config {
 }
 pub fn config(provider: Provider, host: &str) -> Result<Config, String> {
     let host = server(provider, host)?;
+    if provider == Provider::GitLab {
+        if let Some(client_id) = custom_client_ids(&custom_config_text()?)?.remove(&host) {
+            return Ok(Config {
+                client_id,
+                client_secret: String::new(),
+            });
+        }
+    }
     let raw = Store::system()
         .get(&format!("oauth:config:{host}"))?
         .unwrap_or_else(|| "{}".into());
@@ -40,6 +49,35 @@ pub fn config(provider: Provider, host: &str) -> Result<Config, String> {
         client_id: v["client_id"].as_str().unwrap_or(default_id).into(),
         client_secret: v["client_secret"].as_str().unwrap_or(default_secret).into(),
     })
+}
+pub fn custom_config_text() -> Result<String, String> {
+    Ok(Store::system()
+        .get("oauth:gitlab-custom-servers")?
+        .unwrap_or_default())
+}
+pub fn save_custom_config(text: &str) -> Result<(), String> {
+    custom_client_ids(text)?;
+    if text.len() > 2400 {
+        return Err("OAuth configuration is too large".into());
+    }
+    Store::system().set("oauth:gitlab-custom-servers", text)
+}
+fn custom_client_ids(text: &str) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let mut result = std::collections::BTreeMap::new();
+    for line in text.lines().map(str::trim).filter(|s| !s.is_empty()) {
+        let (host, client) = line
+            .split_once('=')
+            .ok_or("Use one server URL = client ID per line")?;
+        let host = server(Provider::GitLab, host.trim())?;
+        let client = client.trim();
+        if client.is_empty() || client.chars().any(char::is_whitespace) || client.contains('=') {
+            return Err("Use one server URL = client ID per line".into());
+        }
+        if result.insert(host, client.into()).is_some() {
+            return Err("Duplicate OAuth server".into());
+        }
+    }
+    Ok(result)
 }
 pub fn save_config(provider: Provider, host: &str, c: &Config) -> Result<(), String> {
     let host = server(provider, host)?;
@@ -140,6 +178,53 @@ fn callback(target: &str, state: &str) -> Result<String, String> {
         .filter(|s| !s.is_empty())
         .ok_or("Missing authorization code".into())
 }
+/// Finish the browser on a code-free URL. The listener is still owned by this
+/// authorization and cannot outlive cancellation or keep the port indefinitely.
+fn finish_browser(listener: &TcpListener, cancel: &Cancel) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !cancel.cancelled() && Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut socket, _)) => {
+                let _ = socket.set_read_timeout(Some(Duration::from_millis(250)));
+                let _ = socket.set_write_timeout(Some(Duration::from_millis(250)));
+                let mut bytes = [0u8; 8192];
+                let mut count = 0;
+                while count < bytes.len()
+                    && !cancel.cancelled()
+                    && Instant::now() < deadline
+                    && !bytes[..count].windows(4).any(|s| s == b"\r\n\r\n")
+                {
+                    match socket.read(&mut bytes[count..]) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => count += n,
+                    }
+                }
+                let valid = std::str::from_utf8(&bytes[..count])
+                    .ok()
+                    .and_then(|s| s.lines().next())
+                    .is_some_and(|s| s == format!("GET {RESULT_PATH} HTTP/1.1"));
+                let body = if valid {
+                    "Authorization response received. Return to Plico to see the result. You may close this page."
+                } else {
+                    "Not found"
+                };
+                let status = if valid { "200 OK" } else { "404 Not Found" };
+                let _ = write!(
+                    socket,
+                    "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                if valid {
+                    break;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(10))
+            }
+            Err(_) => break,
+        }
+    }
+}
 pub fn authorize(
     provider: Provider,
     host: &str,
@@ -199,18 +284,17 @@ pub fn authorize(
                 let valid_state = target
                     .and_then(|t| url::Url::parse(&format!("http://localhost{t}")).ok())
                     .is_some_and(|u| u.query_pairs().any(|(k, v)| k == "state" && v == state));
-                let body = "Authorization response received. Return to Plico to see the result. You may close this page.";
-                let response = format!(
-                    "HTTP/1.1 {}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-                    if result.is_ok() {
-                        "200 OK"
-                    } else {
-                        "400 Bad Request"
-                    },
-                    body.len()
-                );
+                let response = if valid_state {
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: {RESULT_PATH}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+                    )
+                } else {
+                    "HTTP/1.1 400 Bad Request\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".into()
+                };
                 let _ = socket.write_all(response.as_bytes());
+                drop(socket);
                 if valid_state {
+                    finish_browser(&listener, cancel);
                     break result?;
                 }
             }
@@ -294,6 +378,46 @@ pub(super) fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn custom_servers_validate_before_saving_and_normalize_duplicates() {
+        assert_eq!(
+            custom_client_ids(" https://git.example/team = client-id \n").unwrap()["https://git.example/team"],
+            "client-id"
+        );
+        for value in [
+            "https://git.example",
+            "https://git.example=",
+            "https://git.example=a b",
+            "http://git.example=a",
+            "https://git.example=a\nhttps://git.example/=b",
+        ] {
+            assert!(custom_client_ids(value).is_err());
+        }
+    }
+    #[test]
+    fn result_page_has_no_code_and_replayed_callbacks_are_not_processed() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = std::thread::spawn(move || finish_browser(&listener, &Cancel::default()));
+        for (path, expected) in [
+            ("/oauth/callback?code=fixture", "404 Not Found"),
+            (RESULT_PATH, "200 OK"),
+        ] {
+            let mut client = std::net::TcpStream::connect(address).unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            write!(client, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let mut reply = String::new();
+            client.read_to_string(&mut reply).unwrap();
+            assert!(reply.contains(expected));
+            assert!(reply.contains("Referrer-Policy: no-referrer"));
+            assert!(!reply.contains("fixture"));
+        }
+        worker.join().unwrap();
+        assert!(TcpListener::bind(address).is_ok());
+    }
     #[test]
     fn callback_rejects_foreign_duplicate_and_denied_requests() {
         assert_eq!(

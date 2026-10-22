@@ -76,6 +76,8 @@ pub(crate) fn run(
         server.configure(command);
         command
             .env("GIT_ASKPASS", helper)
+            .env("SSH_ASKPASS", helper)
+            .env("SSH_ASKPASS_REQUIRE", "force")
             .env_remove("GITUI_ASKPASS_SSH");
         let outcome =
             operation_process::run(command, token, progress, timeout).map_err(|e| e.to_string())?;

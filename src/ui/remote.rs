@@ -263,6 +263,7 @@ impl Review {
         };
         self.status_message = Some(t("Updating project…").into());
         let requests = plico::auth_request::Requests::persistent(token.clone());
+        requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (mut choices, choice_ui) = plico::update_decision::channel(token.clone());
@@ -481,6 +482,7 @@ impl Review {
         };
         self.status_message = Some(t("Pushing…").into());
         let requests = plico::auth_request::Requests::persistent(token.clone());
+        requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (mut choices, choice_ui) = plico::update_decision::channel(token.clone());
@@ -745,6 +747,7 @@ impl Review {
         };
         self.status_message = Some(t("Pulling…").into());
         let requests = plico::auth_request::Requests::persistent(token.clone());
+        requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         enum PullResult {
@@ -935,6 +938,7 @@ impl Review {
         };
         self.status_message = Some(t("Fetching…").into());
         let requests = plico::auth_request::Requests::persistent(token.clone());
+        requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);

@@ -17,8 +17,7 @@ struct Used {
 }
 struct State {
     requested: bool,
-    hosted_used: Option<String>,
-    hosted_rejected: HashSet<String>,
+    hosted_used: Option<crate::hosting::failures::Attempt>,
     helper: bool,
     switched: bool,
     helper_available: bool,
@@ -31,6 +30,7 @@ pub(crate) struct Auth {
     pub mode: Mode,
     store: Store,
     state: Mutex<State>,
+    project: Mutex<Option<std::path::PathBuf>>,
 }
 fn login_key(target: &str) -> String {
     format!("login:{target}")
@@ -69,10 +69,10 @@ impl Auth {
         Self {
             mode,
             store,
+            project: Mutex::new(None),
             state: Mutex::new(State {
                 requested: false,
                 hosted_used: None,
-                hosted_rejected: HashSet::new(),
                 helper,
                 switched: false,
                 helper_available: false,
@@ -82,6 +82,20 @@ impl Auth {
                 rejected: HashSet::new(),
             }),
         }
+    }
+    pub fn set_project(&self, path: &std::path::Path) {
+        *self.project.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.to_owned());
+    }
+    pub fn project(&self) -> Option<std::path::PathBuf> {
+        self.project
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+    pub fn record_hosted(&self, attempt: crate::hosting::failures::Attempt) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.used.clear();
+        state.hosted_used = Some(attempt);
     }
     pub fn begin(&self, helper_available: bool) {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -141,11 +155,11 @@ impl Auth {
     pub fn lookup(&self, target: &str, known: Option<&str>) -> Option<(String, String)> {
         // The latest provider acquisition owns failure cleanup. A later manual
         // or helper login must not invalidate an earlier endpoint's credential.
-        self.state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .used
-            .clear();
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.used.clear();
+            state.hosted_used = None;
+        }
         if self.mode == Mode::None || self.switched() {
             return None;
         }
@@ -190,6 +204,7 @@ impl Auth {
     ) -> Result<(), String> {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         s.used.clear();
+        s.hosted_used = None;
         // A failed preference write must not prevent an explicitly unsaved login.
         let _ = self
             .store
@@ -229,23 +244,18 @@ impl Auth {
         if !self.store.is_system() || self.mode == Mode::None || self.helper() || self.switched() {
             return None;
         }
-        {
-            let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            if s.hosted_rejected.contains(target) {
-                return None;
-            }
-        }
-        let credentials = crate::hosting::git_credentials(target, known, cancel)?;
+        let (login, password, attempt) =
+            crate::hosting::git_credentials(target, known, cancel, self.project().as_deref())?;
         self.state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .hosted_used = Some(target.into());
-        Some(credentials)
+            .hosted_used = Some(attempt);
+        Some((login, password))
     }
     pub fn failed(&self) {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(target) = s.hosted_used.take() {
-            s.hosted_rejected.insert(target);
+        if let Some(attempt) = s.hosted_used.take() {
+            attempt.reject();
         }
         for used in std::mem::take(&mut s.used) {
             s.rejected.insert(used.key.clone());
@@ -388,6 +398,19 @@ mod tests {
 #[cfg(test)]
 mod source_tests {
     use super::*;
+    #[test]
+    fn later_provider_failure_does_not_reject_previous_hosted_account() {
+        let auth = Auth::new(Mode::Full, Store::default());
+        let attempt = crate::hosting::failures::Attempt::new(
+            "https://host/previous-provider".into(),
+            "account".into(),
+            "token",
+        );
+        auth.state.lock().unwrap().hosted_used = Some(attempt.clone());
+        assert!(auth.lookup("https://host/other", None).is_none());
+        auth.failed();
+        assert!(!attempt.rejected());
+    }
     #[test]
     fn later_unremembered_failure_does_not_clear_an_earlier_provider() {
         let store = Store::default();

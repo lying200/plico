@@ -18,8 +18,10 @@ use std::sync::{Arc, mpsc};
 #[derive(Clone)]
 pub struct Selection(pub Option<String>);
 impl EventEmitter<Selection> for Panel {}
+pub struct LoggedIn;
+impl EventEmitter<LoggedIn> for Panel {}
 enum ResultData {
-    Login(Account),
+    Login(Account, Credentials),
     Repositories(Vec<Repository>, u32),
 }
 pub struct Panel {
@@ -43,6 +45,8 @@ pub struct Panel {
     avatars: HashMap<String, Arc<Image>>,
     avatar_task: Task<()>,
     avatar_cancel: Cancel,
+    login_only: bool,
+    staged: Option<(Account, Credentials)>,
 }
 impl Drop for Panel {
     fn drop(&mut self) {
@@ -113,8 +117,39 @@ impl Panel {
                 avatars: HashMap::new(),
                 avatar_task: Task::ready(()),
                 avatar_cancel: Cancel::default(),
+                login_only: false,
+                staged: None,
             }
         })
+    }
+    pub fn account_login(
+        provider: Provider,
+        account: Option<Account>,
+        token: bool,
+        w: &mut Window,
+        cx: &mut App,
+    ) -> Entity<Self> {
+        let panel = Self::new(w, cx);
+        panel.update(cx, |s, cx| {
+            s.login_only = true;
+            s.provider = provider;
+            s.server.update(cx, |v, cx| {
+                v.set_value(
+                    account
+                        .as_ref()
+                        .map(|a| a.server.as_str())
+                        .unwrap_or(provider.server()),
+                    w,
+                    cx,
+                )
+            });
+            s.selected = account;
+            s.token_ui = token;
+        });
+        panel
+    }
+    pub fn take_login(&mut self) -> Option<(Account, Credentials)> {
+        self.staged.take()
     }
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
         self.cancel.cancel();
@@ -149,7 +184,7 @@ impl Panel {
         self.error = None;
         self.token_ui = false;
         self.custom_server_ui = false;
-        if self.accounts.iter().any(|a| a.provider == self.provider) {
+        if !self.login_only && self.accounts.iter().any(|a| a.provider == self.provider) {
             self.switch(self.provider, w, cx);
         } else {
             cx.notify();
@@ -196,7 +231,13 @@ impl Panel {
                                 return;
                             }
                             match result {
-                                Ok(ResultData::Login(account)) => {
+                                Ok(ResultData::Login(account, credentials)) => {
+                                    if s.login_only {
+                                        s.staged = Some((account, credentials));
+                                        s.secret.update(cx, |v, cx| v.set_value("", w, cx));
+                                        cx.emit(LoggedIn);
+                                        return;
+                                    }
                                     s.accounts = hosting::accounts().unwrap_or_default();
                                     s.selected = Some(account);
                                     s.login_ui = false;
@@ -274,6 +315,7 @@ impl Panel {
         let server = self.server.read(cx).value().trim().to_string();
         let token = self.secret.read(cx).value().to_string();
         let expected = self.selected.clone().filter(|_| self.login_ui);
+        let persist = !self.login_only;
         if !browser && token.trim().is_empty() {
             self.error = Some(t("Password must not be empty").into());
             cx.notify();
@@ -292,8 +334,10 @@ impl Panel {
             if expected.as_ref().is_some_and(|a| a != &account) {
                 return Err("Token belongs to a different account".into());
             }
-            hosting::save(&account, &credentials, &cancel)?;
-            Ok(ResultData::Login(account))
+            if persist {
+                hosting::save(&account, &credentials, &cancel)?;
+            }
+            Ok(ResultData::Login(account, credentials))
         });
     }
     fn field(label: &str, input: &Entity<InputState>, disabled: bool) -> impl IntoElement {
@@ -413,9 +457,10 @@ impl Render for Panel {
                                 })),
                         ),
                 );
-                if self.selected.is_some()
-                    || self.custom_server_ui
-                    || self.accounts.iter().any(|a| a.provider == self.provider)
+                if !self.login_only
+                    && (self.selected.is_some()
+                        || self.custom_server_ui
+                        || self.accounts.iter().any(|a| a.provider == self.provider))
                 {
                     content = content.child(
                         h_flex().child(

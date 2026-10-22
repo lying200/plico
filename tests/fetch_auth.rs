@@ -754,3 +754,51 @@ fn explicit_helper_switch_rebuilds_command_and_none_never_uses_helper() {
     stop.cancel();
     server.join().unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn fetch_routes_native_ssh_prompt_and_cancel_without_http_retry() {
+    let fixture = Fixture::new();
+    let script = fixture.0.join("ssh fixture.sh");
+    fs::write(&script, "#!/bin/sh\n\"$SSH_ASKPASS\" \"Enter passphrase for key '/fixture/key':\" >/dev/null\nexit 1\n").unwrap();
+    fixture.git(&[
+        "config",
+        "core.sshCommand",
+        &format!("sh '{}'", script.display()),
+    ]);
+    fixture.git(&["config", "ssh.variant", "ssh"]);
+    fixture.git(&[
+        "remote",
+        "add",
+        "origin",
+        "ssh://fixture@127.0.0.1/repo.git",
+    ]);
+    let helper = fixture.helper();
+    let requests = Requests::new(Cancel::default());
+    let worker_requests = requests.clone();
+    let repo = Repository::new(fixture.0.clone());
+    let worker = thread::spawn(move || {
+        repo.fetch_authenticated(
+            &Spec::new("origin".into()).unwrap(),
+            &Cancel::default(),
+            &Default::default(),
+            &worker_requests,
+            &helper,
+        )
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(prompt) = requests.take_pending() {
+            assert_eq!(prompt.kind, Kind::Ssh);
+            assert!(!prompt.helper_available());
+            drop(prompt);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "SSH prompt did not reach UI bridge"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!worker.join().unwrap().unwrap().status.success());
+}

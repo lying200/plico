@@ -51,8 +51,86 @@ pub struct Pending {
     stop: Cancel,
     credentials: Cache,
     auth: Arc<crate::http_auth::Auth>,
+    ssh: Arc<crate::ssh_auth::Auth>,
 }
 impl Pending {
+    pub fn project(&self) -> Option<std::path::PathBuf> {
+        self.auth.project()
+    }
+    pub fn cancel_token(&self) -> Cancel {
+        self.cancel.clone()
+    }
+    pub fn hosted_accounts(&self) -> Vec<crate::hosting::Account> {
+        if self.auth.helper() {
+            return vec![];
+        }
+        self.http_target()
+            .and_then(|target| {
+                crate::hosting::matching_accounts(&target, self.known_username().as_deref()).ok()
+            })
+            .unwrap_or_default()
+    }
+    pub fn hosted_provider(&self) -> Option<crate::hosting::Provider> {
+        if self.auth.helper() {
+            return None;
+        }
+        let url = url::Url::parse(&self.http_target()?).ok()?;
+        [
+            crate::hosting::Provider::GitHub,
+            crate::hosting::Provider::GitLab,
+        ]
+        .into_iter()
+        .find(|p| url.origin() == url::Url::parse(p.server()).unwrap().origin())
+    }
+    pub fn prepare_hosted(
+        &self,
+        account: &crate::hosting::Account,
+        credentials: &crate::hosting::Credentials,
+        default: bool,
+        save: bool,
+    ) -> Result<(), Error> {
+        if self.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if !matches!(self.kind, Kind::HttpUsername | Kind::HttpPassword)
+            || !valid_reply(&account.login)
+            || !valid_reply(&credentials.access)
+        {
+            return Err(Error::InvalidResponse);
+        }
+        let target = self.http_target().ok_or(Error::InvalidPrompt)?;
+        let url = url::Url::parse(&target).map_err(|_| Error::InvalidPrompt)?;
+        if !crate::hosting::account_matches(account, &url, self.known_username().as_deref()) {
+            return Err(Error::InvalidResponse);
+        }
+        if save {
+            crate::hosting::save(account, credentials, &self.cancel).map_err(|_| Error::Storage)?;
+        }
+        if default {
+            if let Some(project) = self.project() {
+                crate::hosting::set_default(account.provider, &project, Some(account))
+                    .map_err(|_| Error::Storage)?;
+            }
+        }
+        self.auth
+            .record_hosted(crate::hosting::failures::Attempt::new(
+                &target,
+                &account.id(),
+                &credentials.access,
+            ));
+        Ok(())
+    }
+    pub fn answer_hosted(
+        self,
+        account: crate::hosting::Account,
+        credentials: crate::hosting::Credentials,
+    ) -> Result<(), Error> {
+        if self.kind == Kind::HttpUsername {
+            self.answer_credentials(account.login, credentials.access)
+        } else {
+            self.answer(credentials.access)
+        }
+    }
     pub fn known_username(&self) -> Option<String> {
         (self.kind == Kind::HttpPassword)
             .then(|| http_url(&self.prompt).map(|u| crate::http_auth::username(&u)))
@@ -66,7 +144,7 @@ impl Pending {
         self.auth.remember_default()
     }
     pub fn helper_available(&self) -> bool {
-        self.auth.helper_available()
+        self.kind != Kind::Ssh && self.auth.helper_available()
     }
     pub fn storage_error(&self) -> bool {
         self.auth.storage_error()
@@ -91,6 +169,16 @@ impl Pending {
         }
         if !valid_reply(username) || !valid_reply(password) {
             return Err(Error::InvalidResponse);
+        }
+        if self.kind == Kind::Ssh {
+            return self
+                .ssh
+                .remember(
+                    &crate::ssh_auth::Prompt::parse(&self.prompt),
+                    password,
+                    remember,
+                )
+                .map_err(|_| Error::Storage);
         }
         self.auth
             .remember(
@@ -172,10 +260,14 @@ struct Shared {
     cancel: Cancel,
     credentials: Cache,
     auth: Arc<crate::http_auth::Auth>,
+    ssh: Arc<crate::ssh_auth::Auth>,
 }
 #[derive(Clone)]
 pub struct Requests(Arc<Shared>);
 impl Requests {
+    pub fn set_project(&self, path: &std::path::Path) {
+        self.0.auth.set_project(path);
+    }
     pub fn new(cancel: Cancel) -> Self {
         Self::with_store(cancel, crate::http_auth::Mode::Full, Default::default())
     }
@@ -196,6 +288,7 @@ impl Requests {
             gate: Mutex::new(()),
             cancel,
             credentials: Arc::new(Mutex::new(None)),
+            ssh: Arc::new(crate::ssh_auth::Auth::new(store.clone())),
             auth: Arc::new(crate::http_auth::Auth::new(mode, store)),
         }))
     }
@@ -243,6 +336,18 @@ impl Requests {
         };
         if self.0.cancel.cancelled() || stop.cancelled() {
             return Err(Error::Cancelled);
+        }
+        if kind == Kind::Ssh {
+            if let Some(value) = self
+                .0
+                .ssh
+                .lookup(&crate::ssh_auth::Prompt::parse(&prompt), self.0.auth.mode)
+            {
+                return Ok(value);
+            }
+            if self.0.auth.mode != crate::http_auth::Mode::Full {
+                return Ok(String::new());
+            }
         }
         if matches!(kind, Kind::HttpUsername | Kind::HttpPassword) {
             self.0.auth.mark_requested();
@@ -310,6 +415,7 @@ impl Requests {
             stop: stop.clone(),
             credentials: self.0.credentials.clone(),
             auth: self.0.auth.clone(),
+            ssh: self.0.ssh.clone(),
         });
         let result = loop {
             if self.0.cancel.cancelled() || stop.cancelled() {
@@ -354,6 +460,58 @@ mod tests {
     fn ask(requests: &Requests) -> thread::JoinHandle<Result<String, Error>> {
         let requests = requests.clone();
         thread::spawn(move || requests.ask(Kind::HttpPassword, "Password:".into()))
+    }
+    #[test]
+    fn silent_ssh_never_queues_confirmation_or_password_ui() {
+        for mode in [crate::http_auth::Mode::Silent, crate::http_auth::Mode::None] {
+            let requests = Requests::with_store(Cancel::default(), mode, Default::default());
+            for prompt in [
+                "Enter passphrase for key '/fixture':",
+                "Are you sure you want to continue connecting (yes/no)?",
+                "Verification code:",
+            ] {
+                assert_eq!(requests.ask(Kind::Ssh, prompt.into()).unwrap(), "");
+                assert!(requests.take_pending().is_none());
+            }
+        }
+    }
+    #[test]
+    fn hosted_reply_cannot_cross_origins_and_reuses_only_matching_password_prompt() {
+        use crate::hosting::{Account, Credentials, Provider};
+        let requests = Requests::new(Cancel::default());
+        let copy = requests.clone();
+        let worker = thread::spawn(move || {
+            copy.ask(
+                Kind::HttpUsername,
+                "Username for 'https://fixture.invalid/team/repo': ".into(),
+            )
+        });
+        let prompt = pending(&requests);
+        let mut account = Account {
+            provider: Provider::GitLab,
+            server: "https://other.invalid".into(),
+            login: "alice".into(),
+        };
+        let credentials = Credentials::token("fixture-token".into());
+        assert_eq!(
+            prompt.prepare_hosted(&account, &credentials, false, false),
+            Err(Error::InvalidResponse)
+        );
+        account.server = "https://fixture.invalid/team".into();
+        prompt
+            .prepare_hosted(&account, &credentials, false, false)
+            .unwrap();
+        prompt.answer_hosted(account, credentials).unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "alice");
+        assert_eq!(
+            requests
+                .ask(
+                    Kind::HttpPassword,
+                    "Password for 'https://alice@fixture.invalid/team/repo': ".into()
+                )
+                .unwrap(),
+            "fixture-token"
+        );
     }
     #[test]
     fn response_is_returned_only_to_requesting_operation() {

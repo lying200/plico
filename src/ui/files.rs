@@ -23,7 +23,7 @@ impl Review {
         cx.notify();
     }
     pub(super) fn move_commit(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.local || self.history_loading || self.commits.is_empty() {
+        if self.local || self.log_query.history_loading() || self.commits.is_empty() {
             return;
         }
         self.activate_log_preview();
@@ -36,7 +36,7 @@ impl Review {
         }
     }
     pub(super) fn extend_commit(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.local || self.history_loading {
+        if self.local || self.log_query.history_loading() {
             return;
         }
         self.activate_log_preview();
@@ -506,7 +506,7 @@ impl Review {
                         .track_scroll(&self.files_scroll),
                     )
                     .child(Scrollbar::vertical(&self.files_scroll))
-                    .when(self.files.is_empty() && !self.busy, |pane| {
+                    .when(self.files.is_empty() && !self.log_query.busy(), |pane| {
                         pane.child(
                             div()
                                 .absolute()
@@ -529,7 +529,7 @@ impl Review {
                     })
                     // Selection clears the previous tree immediately; keep visible
                     // feedback in the changes pane even when the Diff lives in a tab.
-                    .when(self.busy, |pane| {
+                    .when(self.log_query.busy(), |pane| {
                         pane.child(
                             div()
                                 .absolute()

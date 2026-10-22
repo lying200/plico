@@ -15,21 +15,55 @@ use std::{
 };
 
 #[derive(Clone, Default)]
-pub struct Documents(
-    Rc<RefCell<BTreeMap<PathBuf, WeakEntity<Editing>>>>,
-    Rc<Cell<bool>>,
-    Rc<RefCell<BTreeMap<PathBuf, Entity<Editing>>>>,
-    Rc<RefCell<Option<Rc<dyn Fn(&mut App)>>>>,
-);
+pub struct Documents {
+    entries: Rc<RefCell<BTreeMap<PathBuf, WeakEntity<Editing>>>>,
+    locked: Rc<Cell<bool>>,
+    drafts: Rc<RefCell<BTreeMap<PathBuf, Entity<Editing>>>>,
+    saved_listener: Rc<RefCell<Option<Rc<dyn Fn(&mut App)>>>>,
+}
+
+/// Retains the documents participating in a save until the caller finishes its
+/// operation. The document module alone decides whether errors block saving.
+#[must_use]
+pub struct SaveBatch(Vec<Entity<Editing>>);
+
+pub enum SaveStatus {
+    Saving,
+    Ready,
+    Blocked(Option<String>),
+}
+
+impl SaveBatch {
+    pub fn status(&self, cx: &App) -> SaveStatus {
+        if self.0.iter().any(|document| document.read(cx).saving()) {
+            return SaveStatus::Saving;
+        }
+        let mut blocked = false;
+        for document in &self.0 {
+            let document = document.read(cx);
+            if document.pending(cx) {
+                blocked = true;
+                if let Some(error) = &document.error {
+                    return SaveStatus::Blocked(Some(error.clone()));
+                }
+            }
+        }
+        if blocked {
+            SaveStatus::Blocked(None)
+        } else {
+            SaveStatus::Ready
+        }
+    }
+}
 impl Documents {
     pub fn on_saved(&self, listener: impl Fn(&mut App) + 'static) {
-        *self.3.borrow_mut() = Some(Rc::new(listener));
+        *self.saved_listener.borrow_mut() = Some(Rc::new(listener));
     }
     pub fn locked(&self) -> bool {
-        self.1.get()
+        self.locked.get()
     }
     pub fn set_locked(&self, locked: bool, cx: &mut App) {
-        if self.1.replace(locked) == locked {
+        if self.locked.replace(locked) == locked {
             return;
         }
         for document in self.all() {
@@ -41,7 +75,10 @@ impl Documents {
         }
     }
     pub fn get(&self, path: &PathBuf) -> Option<Entity<Editing>> {
-        self.0.borrow().get(path).and_then(WeakEntity::upgrade)
+        self.entries
+            .borrow()
+            .get(path)
+            .and_then(WeakEntity::upgrade)
     }
     /// Resolve on the UI thread after asynchronous IO, so a second surface
     /// cannot replace a live document with a stale disk snapshot.
@@ -60,7 +97,7 @@ impl Documents {
         editor.update(cx, |state, cx| state.set_readonly(self.locked(), cx));
         let editing = cx.new(|cx| Editing::new(root, path.clone(), document, editor, cx));
         self.insert(path.clone(), &editing);
-        let listener = Rc::downgrade(&self.3);
+        let listener = Rc::downgrade(&self.saved_listener);
         cx.subscribe(&editing, move |_, _: &Saved, cx| {
             let callback = listener.upgrade().and_then(|slot| slot.borrow().clone());
             if let Some(callback) = callback {
@@ -68,7 +105,7 @@ impl Documents {
             }
         })
         .detach();
-        let listener = Rc::downgrade(&self.3);
+        let listener = Rc::downgrade(&self.saved_listener);
         cx.subscribe(&editing, move |_, _: &Reloaded, cx| {
             let callback = listener.upgrade().and_then(|slot| slot.borrow().clone());
             if let Some(callback) = callback {
@@ -76,7 +113,7 @@ impl Documents {
             }
         })
         .detach();
-        let pending = Rc::downgrade(&self.2);
+        let pending = Rc::downgrade(&self.drafts);
         cx.observe(&editing, move |document, cx| {
             let Some(pending) = pending.upgrade() else {
                 return;
@@ -91,17 +128,17 @@ impl Documents {
         editing
     }
     pub fn insert(&self, path: PathBuf, document: &Entity<Editing>) {
-        let mut entries = self.0.borrow_mut();
+        let mut entries = self.entries.borrow_mut();
         entries.retain(|_, weak| weak.upgrade().is_some());
         entries.insert(path, document.downgrade());
     }
     pub fn retain_pending(&self, path: PathBuf, document: &Entity<Editing>, cx: &App) {
         if document.read(cx).pending(cx) {
-            self.2.borrow_mut().insert(path, document.clone());
+            self.drafts.borrow_mut().insert(path, document.clone());
         }
     }
     pub fn all(&self) -> Vec<Entity<Editing>> {
-        self.0
+        self.entries
             .borrow()
             .values()
             .filter_map(WeakEntity::upgrade)
@@ -110,10 +147,12 @@ impl Documents {
     pub fn pending(&self, cx: &App) -> bool {
         self.all().iter().any(|d| d.read(cx).pending(cx))
     }
-    pub fn save_all(&self, cx: &mut App) {
-        for document in self.all() {
+    pub fn save_all(&self, cx: &mut App) -> SaveBatch {
+        let documents = self.all();
+        for document in &documents {
             document.update(cx, |d, cx| d.save(cx));
         }
+        SaveBatch(documents)
     }
 }
 

@@ -4,7 +4,7 @@ use super::*;
 
 impl Review {
     pub(super) fn select_commit(&mut self, index: usize, cx: &mut Context<Self>) {
-        if self.history_loading {
+        if self.log_query.history_loading() {
             return;
         }
         self.activate_log_preview();
@@ -23,7 +23,7 @@ impl Review {
         context: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.history_loading {
+        if self.log_query.history_loading() {
             return;
         }
         self.activate_log_preview();
@@ -69,7 +69,8 @@ impl Review {
             }
             return;
         }
-        let (generation, token) = self.reset_job(cx);
+        self.reset_log_presentation();
+        let (generation, token) = self.log_query.begin(log_query::Kind::Details);
         self.selected = None;
         self.selected_file = None;
         self.files = Arc::default();
@@ -79,82 +80,90 @@ impl Review {
         self.containing_branches = None;
         self.base = None;
         self.pending_preview_file = preferred.clone();
-        self.busy = !ids.is_empty();
         if ids.is_empty() {
+            self.log_query.finish(generation);
             self.pending_preview_file = None;
             cx.notify();
             return;
         }
         let repo = self.repo.clone();
-        self.task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let snapshot = plico::log_changes::load(&repo, &ids, &token)?;
-                    let mut presentations = Vec::new();
-                    let mut presentation_bytes = 0usize;
-                    for commit in snapshot.commits.iter().take(50) {
-                        let details = repo.commit_metadata(commit, &token)?;
-                        let presentation = commit_presentation::build(&details, Some(commit));
-                        presentation_bytes = presentation_bytes
-                            .saturating_add(presentation.message.len())
-                            .saturating_add(
-                                presentation.metadata.iter().map(String::len).sum::<usize>(),
+        self.log_query.track(
+            generation,
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_spawn(async move {
+                        let snapshot = plico::log_changes::load(&repo, &ids, &token)?;
+                        let mut presentations = Vec::new();
+                        let mut presentation_bytes = 0usize;
+                        for commit in snapshot.commits.iter().take(50) {
+                            let details = repo.commit_metadata(commit, &token)?;
+                            let presentation = commit_presentation::build(&details, Some(commit));
+                            presentation_bytes = presentation_bytes
+                                .saturating_add(presentation.message.len())
+                                .saturating_add(
+                                    presentation.metadata.iter().map(String::len).sum::<usize>(),
+                                );
+                            if presentation_bytes > git::OUTPUT_LIMIT {
+                                return Err("Log details exceed the preview output limit".into());
+                            }
+                            presentations.push((
+                                commit.refs.clone(),
+                                presentation,
+                                commit.id.clone(),
+                            ));
+                        }
+                        let chain = if snapshot.files.is_empty() {
+                            None
+                        } else {
+                            Some(diff_target::Chain::combined(repo, snapshot.files, 0)?.1)
+                        };
+                        Ok::<_, String>((chain, presentations))
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if !this.log_query.finish(generation) {
+                        return;
+                    }
+                    this.pending_preview_file = None;
+                    match result {
+                        Ok((chain, presentations)) => {
+                            this.files = Arc::new(
+                                chain
+                                    .as_ref()
+                                    .map(|c| c.changes().to_vec())
+                                    .unwrap_or_default(),
                             );
-                        if presentation_bytes > git::OUTPUT_LIMIT {
-                            return Err("Log details exceed the preview output limit".into());
+                            this.aggregate_chain = chain;
+                            let mut cards = Vec::new();
+                            this.selection_details = presentations
+                                .into_iter()
+                                .map(|(refs, presentation, id)| {
+                                    let view = cx.new(
+                                        crate::containing_branches::ContainingBranches::pending,
+                                    );
+                                    cards.push((id, view.downgrade()));
+                                    (refs, presentation, view)
+                                })
+                                .collect();
+                            let repo = this.repo.clone();
+                            this.selection_branches =
+                                Some(cx.new(|cx| {
+                                    crate::containing_branches::Batch::new(repo, cards, cx)
+                                }));
+                            this.prune_directory_state();
+                            this.rebuild_files();
+                            if let Some(index) =
+                                plico::preview_selection::index(&this.files, preferred.as_ref())
+                            {
+                                this.load_file(index, cx);
+                            }
                         }
-                        presentations.push((commit.refs.clone(), presentation, commit.id.clone()));
+                        Err(error) => this.error = Some(error),
                     }
-                    let chain = if snapshot.files.is_empty() {
-                        None
-                    } else {
-                        Some(diff_target::Chain::combined(repo, snapshot.files, 0)?.1)
-                    };
-                    Ok::<_, String>((chain, presentations))
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.busy = false;
-                this.pending_preview_file = None;
-                match result {
-                    Ok((chain, presentations)) => {
-                        this.files = Arc::new(
-                            chain
-                                .as_ref()
-                                .map(|c| c.changes().to_vec())
-                                .unwrap_or_default(),
-                        );
-                        this.aggregate_chain = chain;
-                        let mut cards = Vec::new();
-                        this.selection_details = presentations
-                            .into_iter()
-                            .map(|(refs, presentation, id)| {
-                                let view =
-                                    cx.new(crate::containing_branches::ContainingBranches::pending);
-                                cards.push((id, view.downgrade()));
-                                (refs, presentation, view)
-                            })
-                            .collect();
-                        let repo = this.repo.clone();
-                        this.selection_branches = Some(
-                            cx.new(|cx| crate::containing_branches::Batch::new(repo, cards, cx)),
-                        );
-                        this.prune_directory_state();
-                        this.rebuild_files();
-                        if let Some(index) =
-                            plico::preview_selection::index(&this.files, preferred.as_ref())
-                        {
-                            this.load_file(index, cx);
-                        }
-                    }
-                    Err(error) => this.error = Some(error),
-                }
-                cx.notify();
-            });
-        });
+                    cx.notify();
+                });
+            }),
+        );
         cx.notify();
     }
     pub(super) fn select_commit_with_file(
@@ -163,7 +172,7 @@ impl Review {
         preferred: Option<Change>,
         cx: &mut Context<Self>,
     ) {
-        if self.history_loading {
+        if self.log_query.history_loading() {
             return;
         }
         let Some(commit) = self.commits.get(index).cloned() else {
@@ -171,7 +180,8 @@ impl Review {
         };
         self.reword_gate =
             Some(cx.new(|cx| super::reword::Gate::new(self.repo.clone(), commit.id.clone(), cx)));
-        let (generation, token) = self.reset_job(cx);
+        self.reset_log_presentation();
+        let (generation, token) = self.log_query.begin(log_query::Kind::Details);
         self.aggregate_chain = None;
         self.selection_details.clear();
         self.selected = Some(index);
@@ -179,7 +189,6 @@ impl Review {
         self.selected_file = None;
         self.files = Arc::default();
         self.rebuild_files();
-        self.busy = true;
         self.message.clear();
         self.commit_metadata = Default::default();
         self.containing_branches = None;
@@ -192,35 +201,37 @@ impl Review {
             )
         }));
         if let Some(details) = self.details_cache.get(&self.repo.path, &commit) {
-            self.busy = false;
+            self.log_query.finish(generation);
             self.apply_commit_details(&details, preferred.as_ref(), cx);
             cx.notify();
             return;
         }
         let repo = self.repo.clone();
-        self.task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move { repo.details(&commit, &token) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.busy = false;
-                match result {
-                    Ok(d) => {
-                        let d = Arc::new(d);
-                        if let Some(commit) = this.selected.and_then(|i| this.commits.get(i)) {
-                            this.details_cache
-                                .insert(&this.repo.path, commit, d.clone());
-                        }
-                        this.apply_commit_details(&d, preferred.as_ref(), cx);
+        self.log_query.track(
+            generation,
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_spawn(async move { repo.details(&commit, &token) })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if !this.log_query.finish(generation) {
+                        return;
                     }
-                    Err(e) => this.error = Some(e),
-                }
-                cx.notify();
-            });
-        });
+                    match result {
+                        Ok(d) => {
+                            let d = Arc::new(d);
+                            if let Some(commit) = this.selected.and_then(|i| this.commits.get(i)) {
+                                this.details_cache
+                                    .insert(&this.repo.path, commit, d.clone());
+                            }
+                            this.apply_commit_details(&d, preferred.as_ref(), cx);
+                        }
+                        Err(e) => this.error = Some(e),
+                    }
+                    cx.notify();
+                });
+            }),
+        );
         cx.notify();
     }
     fn apply_commit_details(

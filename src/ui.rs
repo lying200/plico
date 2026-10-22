@@ -14,6 +14,7 @@ mod history_operations;
 mod identity;
 mod log_branches;
 mod log_history;
+mod log_query;
 mod log_selection;
 mod log_viewport;
 mod merge_recovery;
@@ -194,15 +195,11 @@ pub struct Review {
     error: Option<String>,
     preview_error: Option<String>,
     details_cache: plico::detail_cache::Cache,
-    busy: bool,
-    history_loading: bool,
     limit: usize,
+    log_query: log_query::Query,
     history_offset: usize,
     window_start: graph::Layout,
     window_end: graph::Layout,
-    generation: u64,
-    token: Cancel,
-    task: Task<()>,
     focus: FocusHandle,
     history_focus: FocusHandle,
     tree_focus: FocusHandle,
@@ -259,7 +256,6 @@ pub struct Review {
 }
 impl Drop for Review {
     fn drop(&mut self) {
-        self.token.cancel();
         self.graph_print_token.cancel();
         self.adjacent_token.cancel();
         self.source_token.cancel();
@@ -448,8 +444,6 @@ impl Review {
             error: None,
             preview_error: None,
             details_cache: Default::default(),
-            busy: false,
-            history_loading: false,
             operation: Default::default(),
             operation_task: Task::ready(()),
             status_message: None,
@@ -464,12 +458,10 @@ impl Review {
             revert_recovery_available: false,
             revert_saved_available: false,
             limit,
+            log_query: Default::default(),
             history_offset: 0,
             window_start: graph::Layout::default(),
             window_end: graph::Layout::default(),
-            generation: 0,
-            token: Cancel::default(),
-            task: Task::ready(()),
             focus,
             history_focus,
             tree_focus: cx.focus_handle().tab_stop(true),
@@ -538,7 +530,7 @@ impl Review {
         )]);
         cx.observe_window_activation(window, |s, window, cx| {
             if !window.is_window_active() {
-                s.documents.save_all(cx);
+                drop(s.documents.save_all(cx));
             }
             cx.notify();
         })
@@ -652,7 +644,7 @@ impl Render for Review {
                 }
             }
         } else if !self.uses_local_changes_preview() {
-            let pair = if self.busy {
+            let pair = if self.log_query.busy() {
                 None
             } else {
                 self.log_preview_target(cx)
@@ -853,7 +845,7 @@ impl Render for Review {
             .on_action(cx.listener(|s, _: &PreviousChange, w, cx| {
                 if let Some(tab) = s.active_diff_index().and_then(|i| s.tabs.get(i)) { tab.update(cx, |t, cx| t.navigate(false, w, cx)); } else { if let Some(p) = &s.local_preview { p.update(cx, |p, cx| p.navigate(false, w, cx)); } }
             }))
-            .on_action(cx.listener(|s, _: &crate::project_view::SaveFile, _, cx| { s.documents.save_all(cx); }))
+            .on_action(cx.listener(|s, _: &crate::project_view::SaveFile, _, cx| { drop(s.documents.save_all(cx)); }))
             .on_action(cx.listener(|s, _: &Find, w, cx| {
                 if s.repository_menu_open {
                     s.repository_search_editing = true;
@@ -1011,7 +1003,7 @@ impl Render for Review {
                     .on_click(cx.listener(|s, _, w, cx| s.show_error_details(w, cx))))
                 .child(Button::new("dismiss-operation-error").ghost().xsmall().label(t("Dismiss"))
                     .on_click(cx.listener(|s, _, _, cx| { s.error = None; cx.notify(); })))))
-            .when(self.operation.busy() || self.busy || self.history_loading, |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
+            .when(self.operation.busy() || self.log_query.busy() || self.log_query.history_loading(), |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
             .when_some(self.status_message.clone(), |v, text| v.child(div().max_w_full().min_w_0().truncate().child(text)))
             .when_some(self.merged_branch.as_ref(), |v, merged| v.child(
                 Button::new("delete-merged-branch").link().xsmall()

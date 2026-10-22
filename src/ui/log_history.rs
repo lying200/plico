@@ -4,7 +4,10 @@ use super::*;
 
 impl Review {
     pub(super) fn set_long_edges(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if self.history_loading || self.graph_print_loading || enabled == self.show_long_edges {
+        if self.log_query.history_loading()
+            || self.graph_print_loading
+            || enabled == self.show_long_edges
+        {
             return;
         }
         let Some(model) = self.graph_model.clone() else {
@@ -59,7 +62,7 @@ impl Review {
         let owner = cx.entity().downgrade();
         let path = self.repo.path.clone();
         let checked = self.show_long_edges;
-        let disabled = self.history_loading
+        let disabled = self.log_query.history_loading()
             || self.graph_print_loading
             || self.rows.is_empty()
             || self.graph_model.is_none();
@@ -78,7 +81,7 @@ impl Review {
                         let s = view.read(cx);
                         let checked = s.show_long_edges;
                         let enabled = s.repo.path == current_path
-                            && !s.history_loading
+                            && !s.log_query.history_loading()
                             && !s.graph_print_loading
                             && !s.rows.is_empty()
                             && s.graph_model.is_some();
@@ -113,7 +116,7 @@ impl Review {
         let probe = self.startup_report.as_ref().filter(|probe| !probe.done())?;
         if !self.welcome
             && (self.snapshot.is_none()
-                || self.history_loading
+                || self.log_query.history_loading()
                 || self.graph_print_loading
                 || self.error.is_some())
         {
@@ -335,7 +338,7 @@ impl Review {
                                             });
                                             let parent_owner = checkout_owner.clone(); let child_owner = checkout_owner.clone();
                                             let adjacent_enabled = checkout_owner.upgrade().is_some_and(|e| {
-                                                let s = e.read(cx); !s.history_loading && s.log_selection.ordered(&s.commit_ids()).len() == 1
+                                                let s = e.read(cx); !s.log_query.history_loading() && s.log_selection.ordered(&s.commit_ids()).len() == 1
                                             });
                                             let compare_owner = checkout_owner.clone();
                                             let compare_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).log_selection.ordered(&e.read(cx).commit_ids()).len() == 2);
@@ -443,7 +446,7 @@ impl Review {
                             .child(t(plico::git_error::summary(self.error.as_deref().unwrap_or_default())))
                             .child(h_flex().gap_3()
                                 .child(Button::new("retry-repository-load").link().small().label(t("Refresh"))
-                                    .disabled(self.busy || self.history_loading).on_click(cx.listener(|s, _, w, cx| s.refresh_current(w, cx))))
+                                    .disabled(self.log_query.busy() || self.log_query.history_loading()).on_click(cx.listener(|s, _, w, cx| s.refresh_current(w, cx))))
                                 .child(Button::new("repository-load-details").link().small().label(t("Details"))
                                     .on_click(cx.listener(|s, _, w, cx| s.show_error_details(w, cx)))))
                     )),
@@ -483,7 +486,7 @@ impl Review {
                                     "Load more"
                                 }))
                                 .on_click(cx.listener(|s, _, _, cx| {
-                                    if !s.history_loading {
+                                    if !s.log_query.history_loading() {
                                         s.refresh(true, cx);
                                     }
                                 })),
@@ -536,7 +539,9 @@ fn interactive_graph_cell(
         tooltip,
         move |segment, cx| {
             let _ = hover_owner.update(cx, |s, cx| {
-                if !Arc::ptr_eq(&hover_rows, &s.rows) || s.history_loading || s.graph_print_loading
+                if !Arc::ptr_eq(&hover_rows, &s.rows)
+                    || s.log_query.history_loading()
+                    || s.graph_print_loading
                 {
                     return;
                 }
@@ -553,7 +558,7 @@ fn interactive_graph_cell(
         move |target, window, cx| {
             let _ = owner.update(cx, |s, cx| {
                 if !Arc::ptr_eq(&rows, &s.rows)
-                    || s.history_loading
+                    || s.log_query.history_loading()
                     || s.graph_print_loading
                     || target >= s.commits.len()
                 {

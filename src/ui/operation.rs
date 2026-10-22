@@ -110,28 +110,29 @@ impl Review {
             return;
         }
         self.sync_document_lock(cx);
-        self.documents.save_all(cx);
-        let documents = self.documents.all(); // retain drafts until writes finish
+        let documents = self.documents.save_all(cx);
         cx.spawn_in(window, async move |this, wx| {
             let mut action = Some(action);
             loop {
                 let done = this
                     .update_in(wx, |s, window, cx| {
-                        if documents.iter().any(|d| d.read(cx).saving()) {
+                        use crate::editing::SaveStatus;
+                        let status = documents.status(cx);
+                        if matches!(status, SaveStatus::Saving) {
                             return false;
                         }
                         s.operation.finish_save();
-                        if let Some(error) = documents
-                            .iter()
-                            .filter(|d| d.read(cx).pending(cx))
-                            .find_map(|d| d.read(cx).error.clone())
-                        {
-                            s.error = Some(error);
-                            s.status_message = Some(t("Could not save file").into());
-                        } else if !documents.iter().any(|d| d.read(cx).pending(cx)) {
-                            if let Some(action) = action.take() {
-                                action(s, window, cx);
+                        match status {
+                            SaveStatus::Blocked(Some(error)) => {
+                                s.error = Some(error);
+                                s.status_message = Some(t("Could not save file").into());
                             }
+                            SaveStatus::Ready => {
+                                if let Some(action) = action.take() {
+                                    action(s, window, cx);
+                                }
+                            }
+                            SaveStatus::Blocked(None) | SaveStatus::Saving => {}
                         }
                         s.sync_document_lock(cx);
                         cx.notify();

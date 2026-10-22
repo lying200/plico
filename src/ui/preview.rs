@@ -107,7 +107,7 @@ impl Review {
                             .text_center()
                             .child(t(if error.is_some() {
                                 "Could not load the diff."
-                            } else if self.busy {
+                            } else if self.log_query.busy() {
                                 "Reading Git data…"
                             } else {
                                 self.empty_diff_message()
@@ -122,7 +122,10 @@ impl Review {
                                         .link()
                                         .small()
                                         .label(t("Refresh"))
-                                        .disabled(self.busy || self.history_loading)
+                                        .disabled(
+                                            self.log_query.busy()
+                                                || self.log_query.history_loading(),
+                                        )
                                         .on_click(
                                             cx.listener(|s, _, w, cx| s.refresh_current(w, cx)),
                                         ),
@@ -185,10 +188,11 @@ mod ownership_tests {
                     area: Area::Commit,
                 }]);
                 s.selected = Some(0);
-                let generation = s.generation;
+                let generation = s.log_query.stamp();
                 s.load_file(0, cx);
                 assert_eq!(
-                    s.generation, generation,
+                    s.log_query.stamp(),
+                    generation,
                     "file selection must not cancel details"
                 );
                 let (first, _) = s.log_preview_target(cx).unwrap();
@@ -229,7 +233,7 @@ mod ownership_tests {
                     refs: vec![],
                 }]);
                 s.log_selection.select(&s.commit_ids(), 0, false, false);
-                s.history_loading = false;
+                s.log_query.finish(s.log_query.stamp());
                 s.open_local(window, cx);
                 assert!(s.uses_local_changes_preview());
                 s.select_log_row(0, false, false, false, cx);

@@ -3152,3 +3152,30 @@ Windows 原生复验：独立临时仓库、独立 profile；旧构建 PID 33896
 `artifacts/deleted-diff-20261022/{before-error,before-responsive-menu,after-error,after-closed}.png`。
 右键关闭的共同动作入口由回归测试覆盖，未单独做新构建右键菜单原生点击验收。
 只关闭本次自有测试进程；没有修改用户仓库、关闭用户 Rebased 或操作发布流水线。
+
+2026-10-22 架构整理沿用上节已读源码：文档保存判断收进 `editing::SaveBatch`，
+调用方按 Saving／Ready／Blocked 处理，保留既有文档强引用、锁释放与草稿保护行为。
+没有改变 Tab／Diff 的视觉、导航或磁盘操作规则。其余自有 Rust 改动为 rustfmt 排版，
+vendor 上游代码不参与批量格式化。
+
+## 主 Log 请求生命周期整理（2026-10-22）
+
+实际读取参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的
+`platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VisiblePackRefresherImpl.java`：
+构造函数以 SingleTaskController 集中请求和完成状态；过滤／索引完成可取消运行中任务；
+MyTask.run 对取消不提交新 State；computeState 选择最新过滤请求并区分加载更多、
+刷新和有效性变化。安装版仍为 Rebased 1.1.20 / IC-262.10968.SNAPSHOT，非同一快照。
+
+提取的是请求控制与界面显示分离、取消不发布旧结果的规则；本地对应
+`src/ui/log_query.rs` 和 repository/log_selection/log_branches 的调用入口。
+保留 Plico 原有单个替换请求策略，不复制 IDE 的索引队列和永久图缓存。
+History／Details 控制读取反馈，Navigation 保留旧比较并使用既有定位提示。
+进入 Diff 的显式取消清除加载状态；无新增控件或图标，不改变布局。
+
+验证：21 项相关桌面测试与 Windows release 构建通过；原生截图黑屏保护使交互
+核对未完成，不能将测试通过等同于原生视觉验收。此轮未改布局或做滚动自动化。
+
+2026-10-22 原生补测已通过：对真实 Git log 仅在独立测试进程中加 8 秒延迟，
+在读取中切换 Diff 后返回日志可再次刷新，加载状态正常结束；同一新构建外部删除
+文件后错误 Diff 可关闭且不重建文件。截图与时序见 ARCHITECTURE.md 的原生补测记录
+及 `artifacts/log-query-acceptance-20261022/`。此前黑屏导致的相关交互待验收已补齐。

@@ -806,7 +806,8 @@ impl Review {
     ) {
         self.close_settings(cx);
         self.leave_diff_tab(cx);
-        self.reset_job(cx);
+        self.reset_log_presentation();
+        self.log_query.cancel();
         if let Some(tab) = self.tabs.get(index) {
             self.editor_tabs.activate(tab.entity_id());
             let callback = self.diff_source_callback(cx);
@@ -1077,18 +1078,17 @@ mod tests {
             view.update(cx, |s, cx| {
                 s.open_local(window, cx);
                 let local = s.local_view.clone().unwrap();
-                let generation = s.generation;
+                let generation = s.log_query.stamp();
                 local.update(cx, |_, cx| {
                     cx.emit(crate::local_view::Changed { push: false })
                 });
                 // Emission is dispatched after the entity update, below.
-                assert_eq!(s.generation, generation);
+                assert_eq!(s.log_query.stamp(), generation);
             });
         });
         cx.update(|_, cx| {
             view.update(cx, |s, _| {
-                assert!(s.history_loading);
-                assert!(s.generation > 0);
+                assert!(s.log_query.history_loading());
             })
         });
     }

@@ -53,7 +53,10 @@ impl Review {
                 }
                 let ready = this
                     .read_with(cx, |s, _| {
-                        !s.welcome && !s.operation.busy() && !s.documents.locked() && !s.busy
+                        !s.welcome
+                            && !s.operation.busy()
+                            && !s.documents.locked()
+                            && !s.log_query.busy()
                     })
                     .unwrap_or(false);
                 if ready {
@@ -79,7 +82,7 @@ impl Review {
                             if token.cancelled()
                                 || s.operation.busy()
                                 || s.documents.locked()
-                                || s.busy
+                                || s.log_query.busy()
                             {
                                 return;
                             }

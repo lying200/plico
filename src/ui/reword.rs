@@ -42,7 +42,7 @@ impl Review {
     pub(super) fn can_reword(&self, target: &str, cx: &App) -> bool {
         !self.operation.busy()
             && !self.operation.saving_documents()
-            && !self.history_loading
+            && !self.log_query.history_loading()
             && self.log_selection.ordered(&self.commit_ids()).len() == 1
             && self
                 .commits

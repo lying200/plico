@@ -3,7 +3,7 @@
 use super::*;
 
 impl Review {
-    pub(super) fn reset_job(&mut self, _cx: &mut Context<Self>) -> (u64, Cancel) {
+    pub(super) fn reset_log_presentation(&mut self) {
         self.graph_hover = None;
         self.graph_print_token.cancel();
         self.graph_print_generation += 1;
@@ -12,14 +12,10 @@ impl Review {
         self.adjacent_token.cancel();
         self.adjacent_menu = None;
         self.adjacent_subscription = None;
-        self.token.cancel();
-        self.token = Cancel::default();
-        self.generation += 1;
         self.error = None;
         self.preview_error = None;
         self.navigation_loading = None;
         self.navigation_notice = None;
-        (self.generation, self.token.clone())
     }
     pub(super) fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.operation.busy() {
@@ -274,7 +270,7 @@ impl Review {
         }
         // During a refresh the displayed file list is temporarily empty. A
         // second refresh must not replace the in-flight selection with None.
-        if self.busy || self.history_loading {
+        if self.log_query.busy() || self.log_query.history_loading() {
             return;
         }
         let user_active = self.user_menu.read(cx).active();
@@ -285,7 +281,7 @@ impl Review {
         self.refresh_impl(false, true, None, cx);
     }
     pub(super) fn previous_window(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.history_loading || self.history_offset == 0 {
+        if self.log_query.busy() || self.log_query.history_loading() || self.history_offset == 0 {
             return;
         }
         let offset = self.history_offset.saturating_sub(git::HISTORY_MAX);
@@ -314,9 +310,8 @@ impl Review {
             .selected
             .and_then(|i| self.commits.get(i))
             .map(|c| c.id.clone());
-        let (generation, token) = self.reset_job(cx);
-        self.busy = true;
-        self.history_loading = true;
+        self.reset_log_presentation();
+        let (generation, token) = self.log_query.begin(log_query::Kind::History);
         self.files = Arc::default();
         self.rebuild_files();
         self.selected_file = None;
@@ -367,74 +362,75 @@ impl Review {
             None
         };
         let filtering = text_filter.is_some();
-        self.task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let state = repo.operation_state(&token);
-                    let merge_recovery = repo
-                        .editor_directory(&token)
-                        .and_then(|dir| plico::merge_saved::read(&dir))
-                        .map(|record| record.is_some())
-                        .unwrap_or(true);
-                    let revert_recovery =
-                        plico::revert_operation::Recovery::record_exists(&repo, &token)
+        self.log_query.track(
+            generation,
+            cx.spawn(async move |this, cx| {
+                let result = cx
+                    .background_spawn(async move {
+                        let state = repo.operation_state(&token);
+                        let merge_recovery = repo
+                            .editor_directory(&token)
+                            .and_then(|dir| plico::merge_saved::read(&dir))
+                            .map(|record| record.is_some())
                             .unwrap_or(true);
-                    let revert_saved =
-                        plico::revert_operation::SavedChanges::record_exists(&repo, &token)
-                            .unwrap_or(true);
-                    let result = if local {
-                        repo.local_changes(&token).map(|f| (None, Some(f)))
-                    } else if let Some(filter) = &text_filter {
-                        history::read_filtered(
-                            &repo,
-                            branch.as_deref(),
-                            offset,
-                            limit,
-                            fixed.as_deref(),
-                            filter,
-                            &token,
+                        let revert_recovery =
+                            plico::revert_operation::Recovery::record_exists(&repo, &token)
+                                .unwrap_or(true);
+                        let revert_saved =
+                            plico::revert_operation::SavedChanges::record_exists(&repo, &token)
+                                .unwrap_or(true);
+                        let result = if local {
+                            repo.local_changes(&token).map(|f| (None, Some(f)))
+                        } else if let Some(filter) = &text_filter {
+                            history::read_filtered(
+                                &repo,
+                                branch.as_deref(),
+                                offset,
+                                limit,
+                                fixed.as_deref(),
+                                filter,
+                                &token,
+                            )
+                            .map(|window| (Some(window), None))
+                        } else {
+                            history::read(
+                                &repo,
+                                branch.as_deref(),
+                                offset,
+                                limit,
+                                fixed.as_deref(),
+                                layout_start,
+                                &token,
+                            )
+                            .map(|window| (Some(window), None))
+                        };
+                        let mut graph_model = None;
+                        let result = result.and_then(|(window, local)| {
+                            let window = window
+                                .map(|mut window: history::Window| {
+                                    let model = Arc::new(plico::graph_print::Model::new(
+                                        &window.rows,
+                                        &token,
+                                    )?);
+                                    window.rows = model.project(show_long_edges, &token)?;
+                                    graph_model = Some(model);
+                                    Ok::<_, String>(window)
+                                })
+                                .transpose()?;
+                            Ok((window, local))
+                        });
+                        (
+                            result,
+                            state,
+                            graph_model,
+                            (merge_recovery, revert_recovery, revert_saved),
                         )
-                        .map(|window| (Some(window), None))
-                    } else {
-                        history::read(
-                            &repo,
-                            branch.as_deref(),
-                            offset,
-                            limit,
-                            fixed.as_deref(),
-                            layout_start,
-                            &token,
-                        )
-                        .map(|window| (Some(window), None))
-                    };
-                    let mut graph_model = None;
-                    let result = result.and_then(|(window, local)| {
-                        let window = window
-                            .map(|mut window: history::Window| {
-                                let model =
-                                    Arc::new(plico::graph_print::Model::new(&window.rows, &token)?);
-                                window.rows = model.project(show_long_edges, &token)?;
-                                graph_model = Some(model);
-                                Ok::<_, String>(window)
-                            })
-                            .transpose()?;
-                        Ok((window, local))
-                    });
-                    (
-                        result,
-                        state,
-                        graph_model,
-                        (merge_recovery, revert_recovery, revert_saved),
-                    )
-                })
-                .await;
-            let _ =
-                this.update(cx, |this, cx| {
-                    if this.generation != generation {
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if !this.log_query.finish(generation) {
                         return;
                     }
-                    this.busy = false;
-                    this.history_loading = false;
                     this.operation_state = result.1.ok();
                     this.merge_recovery_available = result.3.0;
                     this.revert_recovery_available = result.3.1;
@@ -530,7 +526,8 @@ impl Review {
                     }
                     cx.notify();
                 });
-        });
+            }),
+        );
         cx.notify();
     }
 }

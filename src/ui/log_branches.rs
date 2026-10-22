@@ -70,7 +70,7 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.history_loading || self.settings_open || self.welcome {
+        if self.log_query.history_loading() || self.settings_open || self.welcome {
             return;
         }
         let ids = self.commit_ids();
@@ -86,7 +86,7 @@ impl Review {
         self.adjacent_token = Cancel::default();
         let token = self.adjacent_token.clone();
         let repo = self.repo.clone();
-        let generation = self.generation;
+        let generation = self.log_query.stamp();
         let filter = self.text_filter.clone();
         self.adjacent_position = if keyboard {
             let scroll = self.history_scroll.0.borrow();
@@ -120,7 +120,7 @@ impl Review {
             let _ = wx.update(|window, cx| {
                 let _ = this.update(cx, |s, cx| {
                     if token.cancelled()
-                        || s.generation != generation
+                        || s.log_query.stamp() != generation
                         || s.log_selection.ordered(&s.commit_ids()) != [selected.as_str()]
                     {
                         return;
@@ -189,7 +189,7 @@ impl Review {
                                 menu = menu.item(PopupMenuItem::new(label).on_click(
                                     move |_, window, cx| {
                                         let _ = owner.update(cx, |s, cx| {
-                                            if s.generation == generation
+                                            if s.log_query.stamp() == generation
                                                 && s.log_selection.ordered(&s.commit_ids())
                                                     == [selected.as_str()]
                                             {
@@ -239,10 +239,7 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if fresh {
-            self.history_loading = false;
-        }
-        if self.history_loading {
+        if !fresh && self.log_query.history_loading() {
             return;
         }
         if !clear_filters && !fresh {
@@ -257,12 +254,7 @@ impl Review {
         }
         // Cancel old work without clearing the visible comparison. A hidden
         // target must leave the user's current view intact until explicit reset.
-        self.token.cancel();
-        self.token = Cancel::default();
-        self.generation += 1;
-        let generation = self.generation;
-        let token = self.token.clone();
-        self.busy = false;
+        let (generation, token) = self.log_query.begin(log_query::Kind::Navigation);
         self.error = None;
         self.navigation_notice = None;
         self.navigation_loading = Some(name.clone());
@@ -284,90 +276,96 @@ impl Review {
         };
         let limit = self.limit;
         let query_target = target.clone();
-        self.task = cx.spawn_in(window, async move |this, wx| {
-            let result = wx
-                .background_spawn(async move {
-                    let roots = match fixed {
-                        Some(roots) => roots,
-                        None => repo.snapshot(branch.as_deref(), 1, None, &token)?.tips,
-                    };
-                    let located = match filter {
-                        Some(filter) => history::locate_filtered(
-                            &repo,
-                            &roots,
-                            &query_target,
-                            limit,
-                            &filter,
-                            &token,
-                        )?,
-                        None => match history::locate(&repo, &roots, &query_target, limit, &token)?
-                        {
-                            Some(found) => history::FilteredLocation::Found(found),
-                            None => history::FilteredLocation::OutsideRoots,
-                        },
-                    };
-                    if matches!(located, history::FilteredLocation::OutsideRoots) && !clear_filters
-                    {
-                        let all_roots = repo.snapshot(None, 1, None, &token)?.tips;
-                        if repo
-                            .commit_position(&all_roots, &query_target, &token)?
-                            .is_some()
-                        {
-                            return Ok(history::FilteredLocation::Hidden);
-                        }
-                    }
-                    Ok::<_, String>(located)
-                })
-                .await;
-            let _ = wx.update(|window, cx| {
-                let _ = this.update(cx, |s, cx| {
-                    if s.generation != generation {
-                        return;
-                    }
-                    s.navigation_loading = None;
-                    match result {
-                        Ok(history::FilteredLocation::Found(found)) => {
-                            s.local = false;
-                            if clear_filters {
-                                s.branch = None;
-                                s.text_filter = None;
-                                s.date_filter = Default::default();
-                                s.filter_search
-                                    .update(cx, |input, cx| input.set_value("", window, cx));
-                                s.user_menu.update(cx, |menu, cx| menu.clear_filter(cx));
-                                s.paths_menu.update(cx, |menu, cx| menu.clear_filter(cx));
+        self.log_query.track(
+            generation,
+            cx.spawn_in(window, async move |this, wx| {
+                let result = wx
+                    .background_spawn(async move {
+                        let roots = match fixed {
+                            Some(roots) => roots,
+                            None => repo.snapshot(branch.as_deref(), 1, None, &token)?.tips,
+                        };
+                        let located = match filter {
+                            Some(filter) => history::locate_filtered(
+                                &repo,
+                                &roots,
+                                &query_target,
+                                limit,
+                                &filter,
+                                &token,
+                            )?,
+                            None => {
+                                match history::locate(&repo, &roots, &query_target, limit, &token)?
+                                {
+                                    Some(found) => history::FilteredLocation::Found(found),
+                                    None => history::FilteredLocation::OutsideRoots,
+                                }
                             }
-                            let history::Window {
-                                mut snapshot,
-                                rows,
-                                start,
-                                end,
-                            } = found.window;
-                            s.history_offset = found.offset;
-                            s.window_start = start;
-                            s.window_end = end;
-                            s.rows = Arc::new(rows);
-                            s.commits = Arc::new(std::mem::take(&mut snapshot.commits));
-                            s.snapshot = Some(snapshot);
-                            s.rebuild_branches(cx);
-                            s.select_commit(found.selected, cx);
-                            s.history_scroll
-                                .scroll_to_item(found.selected, ScrollStrategy::Top);
-                            s.history_focus.focus(window, cx);
+                        };
+                        if matches!(located, history::FilteredLocation::OutsideRoots)
+                            && !clear_filters
+                        {
+                            let all_roots = repo.snapshot(None, 1, None, &token)?.tips;
+                            if repo
+                                .commit_position(&all_roots, &query_target, &token)?
+                                .is_some()
+                            {
+                                return Ok(history::FilteredLocation::Hidden);
+                            }
                         }
-                        Ok(outcome) => {
-                            s.navigation_notice = Some(NavigationNotice {
-                                name,
-                                target,
-                                can_clear: matches!(outcome, history::FilteredLocation::Hidden),
-                            })
+                        Ok::<_, String>(located)
+                    })
+                    .await;
+                let _ = wx.update(|window, cx| {
+                    let _ = this.update(cx, |s, cx| {
+                        if !s.log_query.finish(generation) {
+                            return;
                         }
-                        Err(error) => s.error = Some(error),
-                    }
-                    cx.notify();
+                        s.navigation_loading = None;
+                        match result {
+                            Ok(history::FilteredLocation::Found(found)) => {
+                                s.local = false;
+                                if clear_filters {
+                                    s.branch = None;
+                                    s.text_filter = None;
+                                    s.date_filter = Default::default();
+                                    s.filter_search
+                                        .update(cx, |input, cx| input.set_value("", window, cx));
+                                    s.user_menu.update(cx, |menu, cx| menu.clear_filter(cx));
+                                    s.paths_menu.update(cx, |menu, cx| menu.clear_filter(cx));
+                                }
+                                let history::Window {
+                                    mut snapshot,
+                                    rows,
+                                    start,
+                                    end,
+                                } = found.window;
+                                s.history_offset = found.offset;
+                                s.window_start = start;
+                                s.window_end = end;
+                                s.rows = Arc::new(rows);
+                                s.commits = Arc::new(std::mem::take(&mut snapshot.commits));
+                                s.snapshot = Some(snapshot);
+                                s.rebuild_branches(cx);
+                                s.select_commit(found.selected, cx);
+                                s.history_scroll
+                                    .scroll_to_item(found.selected, ScrollStrategy::Top);
+                                s.history_focus.focus(window, cx);
+                            }
+                            Ok(outcome) => {
+                                s.navigation_notice = Some(NavigationNotice {
+                                    name,
+                                    target,
+                                    can_clear: matches!(outcome, history::FilteredLocation::Hidden),
+                                })
+                            }
+                            Err(error) => s.error = Some(error),
+                        }
+                        cx.notify();
+                    });
                 });
-            });
-        });
+            }),
+        );
         cx.notify();
     }
     pub(super) fn set_date_filter(&mut self, after: Option<i64>, cx: &mut Context<Self>) {

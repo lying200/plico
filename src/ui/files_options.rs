@@ -68,7 +68,7 @@ impl Review {
         self.bottom_preview = bottom;
         // The single-panel hidden layout must not overwrite the remembered two-panel sizes.
         self.preview_split = cx.new(|_| ResizableState::default());
-        if !self.busy {
+        if !self.log_query.busy() {
             if let Some(index) = self.selected_file {
                 self.load_file(index, cx);
             }

@@ -24,7 +24,7 @@ impl Review {
             return;
         };
         form.update(cx, |s, cx| s.begin(token.clone(), cx));
-        let requests = plico::auth_request::Requests::new(token.clone());
+        let requests = plico::auth_request::Requests::persistent(token.clone());
         let worker_requests = requests.clone();
         let progress = plico::operation_process::Progress::default();
         let worker_progress = progress.clone();

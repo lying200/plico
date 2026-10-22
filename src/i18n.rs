@@ -87,6 +87,58 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         };
     }
     match english {
+        "Could not connect to hosting service" => "无法连接到代码托管服务",
+        "Account needs to log in again" => "账号需要重新登录",
+        "Authorization timed out" => "授权超时，请重试",
+        "Browser login is unavailable in this build or for this server; use a token" => {
+            "此版本或服务器暂不支持浏览器登录，请使用 Token"
+        }
+        "Token permissions: read_api, read_user, write_repository" => {
+            "Token 所需权限：read_api、read_user、write_repository"
+        }
+        "Token permissions: repository access and read user" => {
+            "Token 需要仓库访问和读取用户信息权限"
+        }
+        "Invalid server URL" => "服务器 URL 无效",
+        "Use an HTTPS server URL without credentials" => "请使用不含凭据的 HTTPS 服务器 URL",
+        "GitHub Enterprise is not supported" => "暂不支持 GitHub Enterprise",
+        "Account changed during authorization" => "授权期间账号已更改，请重新登录",
+        "Authorization was denied" => "授权被拒绝",
+        "OAuth callback port is in use" => "OAuth 回调端口已被占用",
+        "Could not start OAuth callback" => "无法启动 OAuth 回调",
+        "OAuth callback failed" => "OAuth 回调失败",
+        "Access denied: check account permissions or organization policy" => {
+            "访问被拒绝，请检查账号权限或组织策略"
+        }
+        "OAuth authorization failed; check application configuration or log in again" => {
+            "OAuth 授权失败，请检查应用配置或重新登录"
+        }
+        "Account storage is full" => "账号存储已满",
+        "Invalid repository list" => "仓库列表无效",
+        "Unexpected repository host" => "仓库地址与账号服务器不匹配",
+        "Hosting response is too large" => "服务器响应过大",
+        "Could not read hosting response" => "无法读取服务器响应",
+        "Invalid hosting response" => "服务器响应无效",
+        "Server" => "服务器：",
+        "Back" => "返回",
+        "Generate…" => "生成…",
+        "or" => "或",
+        "Token belongs to a different account" => "Token 不属于当前账号",
+        "Log In to Custom Server…" => "登录自建服务器…",
+        "Log In to gitlab.com…" => "登录 gitlab.com…",
+        "Log In with Token…" => "使用 Token 登录…",
+        "Logging in…" => "正在登录…",
+        "Log in via browser…" => "通过浏览器登录…",
+        "Connecting…" => "正在连接…",
+        "Remove account" => "移除账号",
+        "Add account…" => "添加账号…",
+        "Search repositories" => "搜索仓库",
+        "Callback URL" => "回调地址",
+        "Configure OAuth application…" => "配置 OAuth 应用…",
+        "Use token…" => "使用 Token…",
+        "Log in via" => "通过浏览器登录",
+        "No accounts" => "尚无账号",
+        "Repository URL" => "仓库 URL",
         "Clone Repository" => "克隆仓库",
         "Clone Repository…" => "克隆仓库…",
         "Clone" => "克隆",
@@ -720,6 +772,16 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Git authentication" => "Git 认证",
         "Log in to" => "登录到",
         "Log In" => "登录",
+        "Retry" => "重试",
+        "Password or token" => "密码或 Token",
+        "Remember" => "记住",
+        "Remember for this session" => "在本次会话中记住",
+        "Authentication" => "身份验证",
+        "Applies to all repositories" => "应用于所有仓库",
+        "Use credentials helper" => "使用凭据助手",
+        "Credential storage is unavailable. Clear Remember to continue without saving." => {
+            "凭据存储不可用。取消“记住”可继续且不保存。"
+        }
         "Enter your credentials" => "请输入凭据",
         "Username must not be empty" => "用户名不能为空",
         "Password must not be empty" => "密码不能为空",

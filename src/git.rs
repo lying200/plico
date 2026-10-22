@@ -794,22 +794,8 @@ impl Repository {
             return Err("Fetch remote is no longer configured".into());
         }
         let mut command = self.operation_command();
-        let server = if let Some((requests, helper)) = auth {
-            let server =
-                crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
-            server.configure(&mut command);
-            command
-                .env("GIT_ASKPASS", helper)
-                .env_remove("GITUI_ASKPASS_SSH");
-            Some(server)
-        } else {
-            None
-        };
-        let result =
-            crate::operation_process::run(command.args(spec.args()?), token, progress, None)
-                .map_err(|e| e.to_string());
-        drop(server);
-        result
+        command.args(spec.args()?);
+        crate::authenticated_command::run(&mut command, auth, token, progress, None, |_| true)
     }
     pub(crate) fn operation_guard(&self, token: &Cancel) -> Result<crate::operation_queue::Guard> {
         let common = self.read(

@@ -184,14 +184,16 @@ pub fn check_access(
     if !helper.is_absolute() || !helper.is_file() {
         return Err("Authentication helper is unavailable".into());
     }
-    let server = crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
     let mut command = repo.operation_command();
     command.args(["ls-remote", "--", url]);
-    server.configure(&mut command);
-    command
-        .env("GIT_ASKPASS", helper)
-        .env_remove("GITUI_ASKPASS_SSH");
-    operation_process::run(&mut command, token, progress, None).map_err(|e| e.to_string())
+    crate::authenticated_command::run(
+        &mut command,
+        Some((requests, helper)),
+        token,
+        progress,
+        None,
+        |_| true,
+    )
 }
 
 /// Redact credentials before showing a remote URL in the manager table.

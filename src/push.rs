@@ -1,7 +1,8 @@
 //! Single ordinary or explicitly requested safe force push attempt, translated from Rebased
 //! 4aec35256d765c217aa0d662b82ac4e860c396fd GitPushOperation.doPush/createPushSpec,
 //! GitImpl.doPush and GitPushRepoResult.convertType. Apache-2.0, JetBrains et al.
-//! Rejected-push update/dialog/retry belongs to the caller; never automatic here.
+//! Non-fast-forward update/retry belongs to the caller. HTTP authentication may
+//! retry only before any successful ref update and while the reviewed source holds.
 use crate::{
     git::{Cancel, Repository},
     operation_process::{self, Outcome, Progress},
@@ -114,22 +115,16 @@ pub fn execute(
     }
     // Options before '--' is a local argv-hardening adaptation of GitImpl.doPush.
     command.args(["--", &spec.target.remote, &refspec]);
-    let server = if let Some((requests, helper)) = auth {
-        if !helper.is_absolute() || !helper.is_file() {
-            return Err("Authentication helper is unavailable".into());
-        }
-        let server = crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
-        server.configure(&mut command);
-        command
-            .env("GIT_ASKPASS", helper)
-            .env_remove("GITUI_ASKPASS_SSH");
-        Some(server)
-    } else {
-        None
-    };
     let result =
-        operation_process::run(&mut command, token, progress, None).map_err(|e| e.to_string());
-    drop(server);
+        crate::authenticated_command::run(&mut command, auth, token, progress, None, |outcome| {
+            crate::authenticated_command::push_can_retry(outcome)
+                && repo.push_snapshot(token).is_ok_and(|current| {
+                    current.is_some_and(|current| {
+                        current.source_branch == spec.source_branch
+                            && current.source_oid == spec.source_oid
+                    })
+                })
+        });
     let status = match &result {
         Ok(outcome) => classify(outcome, &source, &destination, spec.force),
         Err(_) if token.cancelled() => Status::Cancelled,

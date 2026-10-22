@@ -1,0 +1,377 @@
+//! Direct public-client Authorization Code + PKCE. Lifecycle from Rebased
+//! GitLabOAuthService (4aec352, Apache-2.0); GitHub uses direct platform endpoints.
+use super::{Account, Credentials, Provider, api::request, server};
+use crate::{credential_store::Store, git::Cancel};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+const PORT: u16 = 34561;
+const PATH: &str = "/oauth/callback";
+pub const REDIRECT_URI: &str = "http://127.0.0.1:34561/oauth/callback";
+pub struct Config {
+    pub client_id: String,
+    pub client_secret: String,
+}
+pub fn config(provider: Provider, host: &str) -> Result<Config, String> {
+    let host = server(provider, host)?;
+    let raw = Store::system()
+        .get(&format!("oauth:config:{host}"))?
+        .unwrap_or_else(|| "{}".into());
+    let v: Value = serde_json::from_str(&raw).map_err(|_| "Invalid OAuth configuration")?;
+    // Public application identities belong to the distributed client, not its login form.
+    // Packagers supply GitHub's application credential at build time; user tokens never do.
+    let (default_id, default_secret) = match provider {
+        Provider::GitHub => (
+            "Ov23liDKwQoqAQptBsRl",
+            option_env!("PLICO_GITHUB_CLIENT_SECRET").unwrap_or(""),
+        ),
+        Provider::GitLab if host == Provider::GitLab.server() => (
+            "5e8285ed201e3dad521e49be59b7d35b3a4ebd48478e1eb9d6a61b6f73bd401b",
+            "",
+        ),
+        _ => ("", ""),
+    };
+    Ok(Config {
+        client_id: v["client_id"].as_str().unwrap_or(default_id).into(),
+        client_secret: v["client_secret"].as_str().unwrap_or(default_secret).into(),
+    })
+}
+pub fn save_config(provider: Provider, host: &str, c: &Config) -> Result<(), String> {
+    let host = server(provider, host)?;
+    Store::system().set(
+        &format!("oauth:config:{host}"),
+        &json!({"client_id":c.client_id.trim(),"client_secret":c.client_secret}).to_string(),
+    )
+}
+pub(super) fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn random() -> Result<String, String> {
+    let mut b = [0u8; 32];
+    getrandom::fill(&mut b).map_err(|_| "Could not generate OAuth verifier")?;
+    Ok(URL_SAFE_NO_PAD.encode(b))
+}
+fn endpoint(provider: Provider, host: &str, kind: &str) -> String {
+    match provider {
+        Provider::GitHub => format!("{host}/login/oauth/{kind}"),
+        Provider::GitLab => format!("{host}/oauth/{kind}"),
+    }
+}
+fn token_response(v: Value, c: &Config) -> Result<Credentials, String> {
+    if v.get("error").is_some() {
+        return Err(
+            "OAuth authorization failed; check application configuration or log in again".into(),
+        );
+    }
+    Ok(Credentials {
+        access: v["access_token"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .ok_or("Missing OAuth access token")?
+            .into(),
+        refresh: v["refresh_token"].as_str().map(str::to_owned),
+        expires_at: v["expires_in"].as_u64().map(|s| now().saturating_add(s)),
+        client_id: c.client_id.clone(),
+        client_secret: c.client_secret.clone(),
+    })
+}
+fn authorize_url(
+    provider: Provider,
+    host: &str,
+    c: &Config,
+    state: &str,
+    verifier: &str,
+) -> String {
+    let mut u = url::Url::parse(&endpoint(provider, host, "authorize")).unwrap();
+    u.query_pairs_mut().extend_pairs([
+        ("client_id", c.client_id.as_str()),
+        ("redirect_uri", REDIRECT_URI),
+        ("response_type", "code"),
+        ("state", state),
+        ("code_challenge_method", "S256"),
+        (
+            "code_challenge",
+            &URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())),
+        ),
+        (
+            "scope",
+            match provider {
+                Provider::GitHub => "repo read:user read:org workflow",
+                Provider::GitLab => "read_api read_user write_repository",
+            },
+        ),
+    ]);
+    u.to_string()
+}
+fn callback(target: &str, state: &str) -> Result<String, String> {
+    let u = url::Url::parse(&format!("http://127.0.0.1{target}"))
+        .map_err(|_| "Invalid authorization callback")?;
+    if u.path() != PATH {
+        return Err("Invalid authorization callback".into());
+    }
+    let pairs: Vec<_> = u.query_pairs().collect();
+    if pairs.iter().filter(|(k, _)| k == "state").count() != 1
+        || pairs
+            .iter()
+            .find(|(k, _)| k == "state")
+            .map(|(_, v)| v.as_ref())
+            != Some(state)
+    {
+        return Err("Invalid authorization state".into());
+    }
+    if pairs.iter().any(|(k, _)| k == "error") {
+        return Err("Authorization was denied".into());
+    }
+    if pairs.iter().filter(|(k, _)| k == "code").count() != 1 {
+        return Err("Missing authorization code".into());
+    }
+    pairs
+        .into_iter()
+        .find(|(k, _)| k == "code")
+        .map(|(_, v)| v.into_owned())
+        .filter(|s| !s.is_empty())
+        .ok_or("Missing authorization code".into())
+}
+pub fn authorize(
+    provider: Provider,
+    host: &str,
+    c: &Config,
+    cancel: &Cancel,
+    open: impl FnOnce(String) -> Result<(), String>,
+) -> Result<Credentials, String> {
+    let host = server(provider, host)?;
+    if c.client_id.trim().is_empty() || (provider == Provider::GitHub && c.client_secret.is_empty())
+    {
+        return Err(
+            "Browser login is unavailable in this build or for this server; use a token".into(),
+        );
+    }
+    let listener =
+        TcpListener::bind(("127.0.0.1", PORT)).map_err(|_| "OAuth callback port is in use")?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|_| "Could not start OAuth callback")?;
+    let state = random()?;
+    let verifier = random()?;
+    if cancel.cancelled() {
+        return Err("Cancelled".into());
+    }
+    open(authorize_url(provider, &host, c, &state, &verifier))?;
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let code = loop {
+        if cancel.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if Instant::now() >= deadline {
+            return Err("Authorization timed out".into());
+        }
+        match listener.accept() {
+            Ok((mut socket, _)) => {
+                let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
+                let _ = socket.set_write_timeout(Some(Duration::from_millis(500)));
+                let mut bytes = Vec::new();
+                let mut b = [0u8; 1024];
+                while bytes.len() < 8192 && !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match socket.read(&mut b) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => bytes.extend_from_slice(&b[..n]),
+                    }
+                }
+                let line = std::str::from_utf8(&bytes)
+                    .unwrap_or("")
+                    .lines()
+                    .next()
+                    .unwrap_or("");
+                let target = line
+                    .strip_prefix("GET ")
+                    .and_then(|s| s.strip_suffix(" HTTP/1.1"));
+                let result = target
+                    .ok_or("Invalid authorization callback".into())
+                    .and_then(|t| callback(t, &state));
+                let valid_state = target
+                    .and_then(|t| url::Url::parse(&format!("http://localhost{t}")).ok())
+                    .is_some_and(|u| u.query_pairs().any(|(k, v)| k == "state" && v == state));
+                let body = "Authorization response received. Return to Plico to see the result. You may close this page.";
+                let response = format!(
+                    "HTTP/1.1 {}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    if result.is_ok() {
+                        "200 OK"
+                    } else {
+                        "400 Bad Request"
+                    },
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes());
+                if valid_state {
+                    break result?;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(40))
+            }
+            Err(_) => return Err("OAuth callback failed".into()),
+        }
+    };
+    if cancel.cancelled() {
+        return Err("Cancelled".into());
+    }
+    let mut form = vec![
+        ("client_id", c.client_id.as_str()),
+        ("grant_type", "authorization_code"),
+        ("code", &code),
+        ("code_verifier", &verifier),
+        ("redirect_uri", REDIRECT_URI),
+    ];
+    if provider == Provider::GitHub {
+        form.push(("client_secret", &c.client_secret));
+    }
+    token_response(
+        request(
+            &endpoint(
+                provider,
+                &host,
+                if provider == Provider::GitHub {
+                    "access_token"
+                } else {
+                    "token"
+                },
+            ),
+            None,
+            Some(&form),
+            cancel,
+        )?,
+        c,
+    )
+}
+pub(super) fn refresh(
+    account: &Account,
+    c: &Credentials,
+    cancel: &Cancel,
+) -> Result<Credentials, String> {
+    let refresh = c
+        .refresh
+        .as_deref()
+        .ok_or("Account needs to log in again")?;
+    let config = Config {
+        client_id: c.client_id.clone(),
+        client_secret: c.client_secret.clone(),
+    };
+    let mut form = vec![
+        ("client_id", config.client_id.as_str()),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh),
+        ("redirect_uri", REDIRECT_URI),
+    ];
+    if account.provider == Provider::GitHub {
+        form.push(("client_secret", &config.client_secret));
+    }
+    token_response(
+        request(
+            &endpoint(
+                account.provider,
+                &account.server,
+                if account.provider == Provider::GitHub {
+                    "access_token"
+                } else {
+                    "token"
+                },
+            ),
+            None,
+            Some(&form),
+            cancel,
+        )?,
+        &config,
+    )
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn callback_rejects_foreign_duplicate_and_denied_requests() {
+        assert_eq!(
+            callback("/oauth/callback?state=ok&code=value", "ok").unwrap(),
+            "value"
+        );
+        for s in [
+            "/oauth/callback?state=other&code=value",
+            "/oauth/callback?state=ok&state=ok&code=value",
+            "/oauth/callback?state=ok&error=access_denied",
+            "/other?state=ok&code=value",
+        ] {
+            assert!(callback(s, "ok").is_err());
+        }
+    }
+    #[test]
+    fn cancel_releases_loopback_listener_without_exchanging_tokens() {
+        let cancel = Cancel::default();
+        let result = authorize(
+            Provider::GitLab,
+            "https://gitlab.com",
+            &Config {
+                client_id: "fixture".into(),
+                client_secret: String::new(),
+            },
+            &cancel,
+            |_| {
+                cancel.cancel();
+                Ok(())
+            },
+        );
+        assert!(matches!(result, Err(ref e) if e == "Cancelled"));
+        let listener = TcpListener::bind(("127.0.0.1", PORT)).unwrap();
+        drop(listener);
+    }
+    #[test]
+    fn token_rotation_keeps_expiration_and_new_refresh_token() {
+        let c = Config {
+            client_id: "fixture".into(),
+            client_secret: String::new(),
+        };
+        let before = now();
+        let credentials = token_response(
+            json!({"access_token":"new-access", "refresh_token":"new-refresh", "expires_in":7200}),
+            &c,
+        )
+        .unwrap();
+        assert_eq!(credentials.refresh.as_deref(), Some("new-refresh"));
+        assert!(credentials.expires_at.unwrap() >= before + 7200);
+        assert!(
+            token_response(
+                json!({"error":"invalid_grant","error_description":"sensitive"}),
+                &c
+            )
+            .err()
+            .unwrap()
+            .find("sensitive")
+            .is_none()
+        );
+    }
+    #[test]
+    fn pkce_uses_s256_and_registered_loopback() {
+        let c = Config {
+            client_id: "plico".into(),
+            client_secret: String::new(),
+        };
+        let u = url::Url::parse(&authorize_url(
+            Provider::GitLab,
+            "https://gitlab.com",
+            &c,
+            "state",
+            "verifier",
+        ))
+        .unwrap();
+        let p: std::collections::HashMap<_, _> = u.query_pairs().collect();
+        assert_eq!(p["redirect_uri"], REDIRECT_URI);
+        assert_eq!(p["code_challenge_method"], "S256");
+        assert_ne!(p["code_challenge"], "verifier");
+        assert!(!p.contains_key("client_secret"));
+    }
+}

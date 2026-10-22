@@ -247,7 +247,15 @@ fn verify(cancel_prompt: bool, successful_auth: bool, pull: bool) {
         if successful_auth {
             assert_eq!(kinds, [Kind::HttpUsername]);
         } else {
-            assert_eq!(kinds, [Kind::HttpUsername, Kind::HttpPassword]);
+            assert_eq!(
+                kinds,
+                [
+                    Kind::HttpUsername,
+                    Kind::HttpPassword,
+                    Kind::HttpUsername,
+                    Kind::HttpPassword
+                ]
+            );
         }
         assert_eq!(outcome.stopped, None);
         assert_eq!(outcome.status.success(), successful_auth);
@@ -412,7 +420,7 @@ fn verify_push_auth_failure(dismiss: bool) {
     let result = worker.join().unwrap().unwrap();
     http_stop.cancel();
     let sent_auth = http.join().unwrap();
-    assert_eq!(prompts, 1);
+    assert_eq!(prompts, if dismiss { 1 } else { 2 });
     assert_eq!(sent_auth, !dismiss);
     assert_eq!(
         result.status,
@@ -523,7 +531,7 @@ fn verify_remote_access(dismiss: bool, authorized: bool, clone: bool) {
     let outcome = worker.join().unwrap().unwrap();
     stop.cancel();
     let sent_auth = server.join().unwrap();
-    assert_eq!(prompts, 1);
+    assert_eq!(prompts, if dismiss || authorized { 1 } else { 2 });
     assert_eq!(sent_auth, !dismiss);
     assert_eq!(outcome.stopped, dismiss.then_some(StopReason::Cancelled));
     assert_eq!(outcome.status.success(), authorized && !dismiss);
@@ -577,4 +585,172 @@ fn clone_http_authentication_failure_is_not_success() {
 #[test]
 fn clone_http_authentication_dismissal_cancels_operation() {
     verify_remote_access(true, false, true);
+}
+
+// Exercise the production command/AskPass/store lifecycle, not a mirrored model.
+fn access_with_store(
+    fixture: &Fixture,
+    url: &str,
+    store: plico::credential_store::Store,
+    mode: plico::http_auth::Mode,
+    answers: &[(&str, bool)],
+) -> (bool, usize) {
+    let token = Cancel::default();
+    let requests = Requests::with_store(token.clone(), mode, store);
+    let worker_requests = requests.clone();
+    let worker_token = token.clone();
+    let repo = Repository::new(fixture.0.clone());
+    let url = url.to_owned();
+    let helper = fixture.helper();
+    let worker = thread::spawn(move || {
+        plico::remote_management::check_access(
+            &repo,
+            &url,
+            &worker_requests,
+            &helper,
+            &worker_token,
+            &Default::default(),
+        )
+    });
+    let start = Instant::now();
+    let mut prompts = 0;
+    while !worker.is_finished() {
+        if let Some(pending) = requests.take_pending() {
+            let Some((password, remember)) = answers.get(prompts) else {
+                drop(pending);
+                panic!("Unexpected authentication prompt");
+            };
+            assert_eq!(pending.kind, Kind::HttpUsername);
+            if *password == "select-test-helper" {
+                assert!(pending.helper_available());
+                pending.select_helper().unwrap();
+                pending.answer(String::new()).unwrap();
+                prompts += 1;
+                continue;
+            }
+            pending
+                .save_credentials("fixture-user", password, *remember)
+                .unwrap();
+            pending
+                .answer_credentials("fixture-user".into(), (*password).into())
+                .unwrap();
+            prompts += 1;
+        }
+        if start.elapsed() > Duration::from_secs(8) {
+            token.cancel();
+            panic!("Authentication lifecycle timed out");
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let result = worker.join().unwrap().unwrap();
+    assert!(requests.take_pending().is_none());
+    (result.status.success() && result.stopped.is_none(), prompts)
+}
+#[test]
+fn rejected_token_retries_then_saved_token_is_reused_by_silent_operation() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let fixture = Fixture::new();
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &fixture,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("wrong", true), ("fixture-password", true)]
+        ),
+        (true, 2)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store.clone(), Mode::Silent, &[]),
+        (true, 0)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store, Mode::None, &[]),
+        (false, 0)
+    );
+    stop.cancel();
+    server.join().unwrap();
+}
+#[test]
+fn unremembered_token_does_not_leak_into_next_operation() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let fixture = Fixture::new();
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &fixture,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("fixture-password", false)]
+        ),
+        (true, 1)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store, Mode::Silent, &[]),
+        (false, 0)
+    );
+    stop.cancel();
+    server.join().unwrap();
+}
+#[test]
+fn failed_saved_token_is_forgotten_after_two_attempts() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let fixture = Fixture::new();
+    let (url, stop, server) = http_server(None);
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &fixture,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("wrong", true), ("wrong-again", true)]
+        ),
+        (false, 2)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store, Mode::Silent, &[]),
+        (false, 0)
+    );
+    stop.cancel();
+    server.join().unwrap();
+}
+
+#[test]
+fn explicit_helper_switch_rebuilds_command_and_none_never_uses_helper() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let fixture = Fixture::new();
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    fixture.git(&["config","credential.helper", "!f() { if test \"$1\" = get; then printf '%s\\n' username=fixture-user password=fixture-password; fi; }; f"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &fixture,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("select-test-helper", false)]
+        ),
+        (true, 1)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store.clone(), Mode::Silent, &[]),
+        (true, 0)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store, Mode::None, &[]),
+        (false, 0)
+    );
+    stop.cancel();
+    server.join().unwrap();
 }

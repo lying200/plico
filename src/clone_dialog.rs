@@ -1,6 +1,6 @@
 //! Rebased DvcsCloneDialogComponent: URL, destination chooser, shallow clone.
 use gpui_kit::component::{
-    Disableable as _, Icon, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -10,6 +10,8 @@ use gpui_kit::{prelude::FluentBuilder as _, *};
 use plico::{clone_repository::Request, git::Cancel, i18n::t};
 use std::{path::PathBuf, rc::Rc};
 pub struct Form {
+    page: usize,
+    host: Entity<crate::hosting_panel::Panel>,
     suggestion: plico::clone_destination::Suggestion,
     url: Entity<InputState>,
     directory: Entity<InputState>,
@@ -29,6 +31,7 @@ impl Drop for Form {
 }
 impl Form {
     pub fn begin(&mut self, token: Cancel, cx: &mut Context<Self>) {
+        self.host.update(cx, |s, cx| s.cancel(cx));
         self.busy = true;
         self.error = None;
         self.progress.clear();
@@ -98,25 +101,26 @@ impl Form {
         .detach();
     }
 }
-impl Render for Form {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Form {
+    fn fields(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_3()
             .min_w_0()
-            .min_h(px(260.))
-            .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(div().w(px(70.)).flex_shrink_0().child("URL:"))
-                    .child(
-                        Input::new(&self.url)
-                            .external_focus_ring(false)
-                            .rounded(px(4.))
-                            .disabled(self.busy)
-                            .flex_1(),
-                    ),
-            )
+            .when(self.page == 0, |v| {
+                v.child(
+                    h_flex()
+                        .gap_3()
+                        .items_center()
+                        .child(div().w(px(70.)).flex_shrink_0().child("URL:"))
+                        .child(
+                            Input::new(&self.url)
+                                .external_focus_ring(false)
+                                .rounded(px(4.))
+                                .disabled(self.busy)
+                                .flex_1(),
+                        ),
+                )
+            })
             .child(
                 h_flex()
                     .gap_3()
@@ -202,6 +206,94 @@ impl Render for Form {
             })
     }
 }
+impl Render for Form {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut sidebar = v_flex()
+            .w(px(190.))
+            .flex_shrink_0()
+            .h_full()
+            .border_r_1()
+            .border_color(rgb(crate::ui_style::BORDER));
+        for (page, label) in [(0, "Repository URL"), (1, "GitHub"), (2, "GitLab")] {
+            sidebar = sidebar.child(
+                div()
+                    .id(("clone-provider", page))
+                    .px_3()
+                    .py_3()
+                    .cursor_pointer()
+                    .when(self.page == page, |v| v.bg(rgb(crate::ui_style::SELECT)))
+                    .child(
+                        h_flex()
+                            .gap_3()
+                            .child(
+                                img(match page {
+                                    1 => "jb/github_dark.svg",
+                                    2 => "jb/gitlab.svg",
+                                    _ => "jb/vcs_dark.svg",
+                                })
+                                .size(px(20.)),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap_1()
+                                    .child(div().font_weight(FontWeight::SEMIBOLD).child(t(label)))
+                                    .when(page > 0, |v| {
+                                        v.child(
+                                            div().text_color(rgb(crate::ui_style::MUTED)).child(
+                                                self.host.read(cx).account_label(if page == 1 {
+                                                    plico::hosting::Provider::GitHub
+                                                } else {
+                                                    plico::hosting::Provider::GitLab
+                                                }),
+                                            ),
+                                        )
+                                    }),
+                            ),
+                    )
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        if s.busy {
+                            return;
+                        }
+                        s.page = page;
+                        s.error = None;
+                        s.url.update(cx, |i, cx| i.set_value("", w, cx));
+                        if page == 0 {
+                            s.host.update(cx, |s, cx| s.cancel(cx));
+                            s.url.read(cx).focus_handle(cx).focus(w, cx);
+                        } else {
+                            s.host.update(cx, |s, cx| {
+                                s.switch(
+                                    if page == 1 {
+                                        plico::hosting::Provider::GitHub
+                                    } else {
+                                        plico::hosting::Provider::GitLab
+                                    },
+                                    w,
+                                    cx,
+                                )
+                            });
+                        }
+                        cx.notify();
+                    })),
+            );
+        }
+        let mut content = v_flex().flex_1().min_w_0().h_full().gap_3().p_3();
+        if self.page > 0 && !self.busy {
+            content = content.child(div().h(px(0.)).flex_1().min_h_0().child(self.host.clone()));
+        }
+        if self.page == 0 || self.host.read(cx).shows_repositories() {
+            content = content.child(self.fields(cx));
+        }
+        h_flex()
+            .w_full()
+            .h((window.viewport_size().height - px(150.))
+                .max(px(180.))
+                .min(px(520.)))
+            .items_stretch()
+            .child(sidebar)
+            .child(content)
+    }
+}
 pub fn show(
     w: &mut Window,
     cx: &mut App,
@@ -234,7 +326,24 @@ pub fn show(
             }
         })
         .detach();
+        let host = crate::hosting_panel::Panel::new(w, cx);
+        cx.subscribe_in(
+            &host,
+            w,
+            |s: &mut Form, _, selection: &crate::hosting_panel::Selection, w, cx| {
+                if !s.busy && !s.closed {
+                    s.url.update(cx, |i, cx| {
+                        i.set_value(selection.0.clone().unwrap_or_default(), w, cx)
+                    });
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        cx.observe(&host, |_, _, cx| cx.notify()).detach();
         Form {
+            page: 0,
+            host,
             suggestion,
             url,
             directory,
@@ -264,8 +373,10 @@ pub fn show(
         let confirm = form.clone();
         let close = form.clone();
         let start = start.clone();
-        d.title(t("Clone Repository"))
-            .w(px(620.))
+        d.font_family(cx.theme().font_family.clone())
+            .text_size(cx.theme().font_size)
+            .title(t("Clone Repository"))
+            .w(px(900.))
             .centered(true)
             .overlay_closable(false)
             .child(form.clone())
@@ -301,7 +412,8 @@ pub fn show(
                 false
             })
             .on_close(move |_, _, cx| {
-                close.update(cx, |s, _| {
+                close.update(cx, |s, cx| {
+                    s.host.update(cx, |s, cx| s.cancel(cx));
                     s.closed = true;
                     s.token.cancel();
                 })

@@ -21,6 +21,7 @@ mod editing;
 mod editor_dialog;
 mod error_ui;
 mod history_view;
+mod hosting_panel;
 mod identity_dialog;
 mod local_view;
 mod path_chooser;

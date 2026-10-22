@@ -4,7 +4,7 @@
 use crate::{
     auth_request::Requests,
     git::{Cancel, Repository},
-    operation_process::{self, Outcome, Progress},
+    operation_process::{Outcome, Progress},
 };
 use std::{
     fs,
@@ -131,18 +131,10 @@ pub fn execute(
         .arg("--")
         .arg(source)
         .arg(request.destination.file_name().unwrap());
-    let _server = if let Some((requests, helper)) = auth {
-        let server = crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
-        server.configure(&mut command);
-        command
-            .env("GIT_ASKPASS", helper)
-            .env_remove("GITUI_ASKPASS_SSH");
-        Some(server)
-    } else {
-        None
-    };
     let outcome =
-        operation_process::run(&mut command, token, progress, None).map_err(|e| e.to_string())?;
+        crate::authenticated_command::run(&mut command, auth, token, progress, None, |_| {
+            validate(request).is_ok()
+        })?;
     Ok(Report {
         outcome,
         destination: request.destination.clone(),

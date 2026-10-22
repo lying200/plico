@@ -8,7 +8,7 @@ description = "A lightweight Git review desktop"
 [features]
 default = ["desktop"]
 desktop-tests = ["desktop", "dep:gpui-component"]
-desktop = ["dep:gpui-kit", "dep:serde_json"]
+desktop = ["dep:gpui-kit"]
 
 [dependencies]
 notify = "=8.2.0"
@@ -18,7 +18,10 @@ getrandom = "=0.3.4"
 url = "=2.5.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 gpui-kit = { version = "=0.7.3", optional = true, features = ["tree-sitter-languages"] }
-serde_json = { version = "1", optional = true }
+serde_json = "1"
+ureq = { version = "=2.12.1", default-features = false, features = ["tls"] }
+sha2 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 chrono-tz = "0.10"
@@ -50,7 +53,7 @@ gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
 gpui-component = { path = "vendor/gpui-component" }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ProcessSnapshotting", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ProcessSnapshotting", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_Graphics_Gdi"] }
 
 [[example]]
 name = "editor_dialog"

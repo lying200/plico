@@ -262,7 +262,7 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Updating project…").into());
-        let requests = plico::auth_request::Requests::new(token.clone());
+        let requests = plico::auth_request::Requests::persistent(token.clone());
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (mut choices, choice_ui) = plico::update_decision::channel(token.clone());
@@ -480,7 +480,7 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Pushing…").into());
-        let requests = plico::auth_request::Requests::new(token.clone());
+        let requests = plico::auth_request::Requests::persistent(token.clone());
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (mut choices, choice_ui) = plico::update_decision::channel(token.clone());
@@ -744,7 +744,7 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Pulling…").into());
-        let requests = plico::auth_request::Requests::new(token.clone());
+        let requests = plico::auth_request::Requests::persistent(token.clone());
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         enum PullResult {
@@ -934,7 +934,7 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Fetching…").into());
-        let requests = plico::auth_request::Requests::new(token.clone());
+        let requests = plico::auth_request::Requests::persistent(token.clone());
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -962,7 +962,13 @@ impl Review {
             let mut login: Option<Entity<crate::auth_dialog::Login>> = None;
             loop {
                 if let Some(pending) = requests.take_pending() {
-                    match wx.update(|window, cx| crate::auth_dialog::show(pending, window, cx)) {
+                    match wx.update(|window, cx| {
+                        let _ = this.update(cx, |s, cx| {
+                            s.repository_menu_open = false;
+                            cx.notify();
+                        });
+                        crate::auth_dialog::show(pending, window, cx)
+                    }) {
                         Ok(dialog) => login = Some(dialog),
                         Err(_) => break,
                     }

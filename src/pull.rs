@@ -277,22 +277,16 @@ pub fn execute_command(
             .args(["-c", "core.commentChar=\u{1}"])
             .env("GIT_SEQUENCE_EDITOR", editor);
     }
-    let server = if let Some((requests, helper)) = auth {
-        if !helper.is_absolute() || !helper.is_file() {
-            return Err("Authentication helper is unavailable".into());
-        }
-        let server = crate::askpass::Server::start(requests.clone()).map_err(|e| e.to_string())?;
-        server.configure(&mut command);
-        command
-            .env("GIT_ASKPASS", helper)
-            .env_remove("GITUI_ASKPASS_SSH");
-        Some(server)
-    } else {
-        None
-    };
-    let result = crate::operation_process::run(command.args(args), token, progress, None)
-        .map_err(|e| e.to_string());
-    drop(server);
+    command.args(args);
+    let initial_head = repo.text(&["rev-parse", "HEAD"], token).ok();
+    let result =
+        crate::authenticated_command::run(&mut command, auth, token, progress, None, |_| {
+            initial_head.is_some()
+                && repo.text(&["rev-parse", "HEAD"], token).ok() == initial_head
+                && repo
+                    .operation_state(token)
+                    .is_ok_and(|s| !s.in_progress() && s.conflicts.is_empty())
+        });
     // A cancelled network/update command may already have written refs or index.
     let state = repo.operation_state(&crate::git::Cancel::default());
     Ok(CommandResult {

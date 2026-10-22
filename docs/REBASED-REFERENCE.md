@@ -3314,3 +3314,111 @@ Windows 独立 checkout 仓库 `plico-checkout-fix-ef56aea983be49509580ef2c77833
 Windows Plico 自有 PID42376，实际勾选 Changes 4 文件，再取消单个文件，父分组显示蓝底白横线、其余三文件仍为白勾且底部显示 3 项修改；目录图标及普通字重正确。截图 controls-plico-{commit,checked,mixed}.png。Clone 初始 URL 与切到浅克隆深度字段均为连续单层蓝边，URL 失焦恢复普通边，浅克隆点击启用深度输入，截图 controls-plico-clone-{after,depth}.png。没有执行 clone 或 commit。源码与截图证据保存在 artifacts/controls-ui-20261022。
 
 验证：cargo check、Windows release、桌面 Log 分组选择回归通过，cargo fmt --package plico -- --check 和 git diff --check 通过。曾尝试直接运行依赖包 Checkbox 单测，但 Cargo 拒绝非 workspace 成员的 dev-dependencies，因此不计为测试通过；本次新增皮肤的鼠标勾选与三态切换由原生验证，未专门复验键盘及运行中禁用态。保留差异：Clone 是应用内弹窗、无账号提供商侧栏／URL 历史，焦点边框保留组件的 1px 而非 Rebased 更厚描边；此轮未声明整页像素级一致。
+
+## HTTPS Token／凭据生命周期：实现前源码核对（2026-10-22）
+
+仅分析，不修改功能。参考 commit 4aec35256d765c217aa0d662b82ac4e860c396fd；已安装 1.1.20 与参考源码不同版。本轮尚未原生复验认证弹窗、helper 切换和失败重试，不能算功能前置 UI 验收完成。
+
+已读源码及规则：
+
+- plugins/git4idea/backend/src/commands/GitHttpGuiAuthenticator.java：每次远端操作一个实例，AuthenticationGate 串行获取认证；askUsername 一次取用户名和密码，askPassword 复用，已知 URL 用户名走 known-login 路径。NONE 不提供凭据；SILENT 仅 PasswordSafe／silent providers；FULL 增加交互 provider 与通用弹窗。通用 provider 优先 PasswordSafe，再扩展，再弹窗。
+- GitHttpLoginDialog.kt：用户名、密码、记住密码；已知用户名不可编辑；存在 helper 配置时显示切换选项，另有平台登录 provider。GitVcsApplicationSettings.java 的 USE_CREDENTIAL_HELPER 默认 false；GitHandlerAuthenticationManager.java 按该开关和 NONE 模式通过命令级 credential.helper= 覆盖，而非永远优先系统 helper。
+- PasswordSafeProvider：普通凭据按 URL＋login 保存，协议统一成 http 作为键，记住用户名与记住密码分开；DialogProvider 在返回凭据前调用 savePassword，认证失败再移除对应键，不能误记成“只在 Git 命令成功后才保存”。GitHttpGuiAuthenticatorTest.kt 覆盖成功保存、错误清理、已存密码失效、不记住、取消传播、用户名/密码只弹一次；本轮读取，未运行上游测试。
+- GitHandlerAuthenticationManager.java：只有 askpass 曾被请求才识别认证失败；匹配 authentication failed、403、特定 repository not found、permission denied 等输出，再决定 forget/save；取消不算认证失败。不是任意非零退出都删密码。GitImplBase.java 的 handlerConstructor 重试路径仅 FULL 且认证失败重建命令，最多两次认证尝试；helper 开关变化不消耗次数。不是所有 runCommand 重载都自动重试。
+- plugins/git4idea/backend/src/remote/hosting/http/SilentHostedGitHttpAuthDataProviderBase.kt：匹配主机及未失败账号，项目默认账号优先，其次唯一候选；多个候选不随意选。已知 login 必须匹配。失败回调验证 provider 身份，只标记当前 provider 提供的账号。HostedGitAuthenticationFailureManager.kt 与 platform/collaboration-tools/src/com/intellij/collaboration/auth/AccountUrlAuthenticationFailuresHolder.kt 按账号＋URL 暂停复用，凭据流变动/作用域结束清除；不删除账号的全局 Token。SilentHostedGitHttpAuthDataProviderBaseTest.kt 读取主机、默认、唯一/多候选、无凭据、指定 login、失败排除和 provider 隔离断言，未运行。
+- plugins/github/github-core/src/org/jetbrains/plugins/github/extensions/GHSilentHttpAuthDataProvider.kt、GHSelectAccountHttpAuthDataProvider.kt：已有 token 配合账号信息查询提供 Git AuthData；多账号选择可设项目默认。plugins/gitlab/gitlab-core/src/org/jetbrains/plugins/gitlab/git/http/GitLab{Silent,Http}AuthDataProvider.kt：静默获取/刷新凭据并查当前用户名；交互区分零/一/多个账号、重登录、OtherMethod/取消。这层会调用平台 API，并非纯 Git HTTPS 密码桥接。
+- GitHostingUrlUtil.kt：matchHost 只比较忽略大小写的 host，未纳入 port；PasswordSafe unifyUrl 合并 HTTP/HTTPS。Plico 后续需明确保留协议/端口与仓库边界，不能盲目复制这两处身份归一化。
+
+本地映射与修订方案：现有 auth_request/askpass/auth_dialog 已有操作级缓存、用户名与密码单次表单和取消传播，git::operation_command 目前保留系统 helper。待补的重点是独立的凭据来源策略、保存生命周期、错误分类、有限重试、后台静默模式及多账号绑定。优先完善通用 HTTPS＋安全存储／helper 兼容层，平台账号 API/OAuth 作为独立后续层；不是把 GCM 当作 Rebased 的默认实现，也不因“不做 PR”就照搬其 API 权限需求。凭据来源明确互斥/有序，失败只处理本次使用的凭据；普通网络错误、分支保护、非快进拒绝不触发清除。
+
+实现前需原生复验并建立本地 HTTP 测试矩阵：无凭据、正确/错误/过期 Token、只读 Token 推送、已知用户名、同主机多账号、不同端口/协议/仓库、取消、helper 切换、后台请求不弹窗、重试上限、配置保存失败、Windows/WSL 执行环境差异。Push/Pull/Clone 的重试必须在各自副作用边界接入，不能对失败操作一概重放。
+
+### 认证实现前原生复验
+
+2026-10-22，安装版 Rebased 1.1.20，自有 PID41160、独立 compact-path-fixture 与本地 HTTP Basic bare remote（18763）。Fetch 首次弹出 Enter credentials、Username、Password、默认选中的 Remember、Use credentials helper 和 Log In/Cancel。错误测试密码提交后重新弹出，保留 fixture-user、密码清空；第二次正确输入成功。再次 Fetch 无弹窗完成。改为 URL 指定 other-fixture 后显示不可编辑用户名，焦点在密码，Esc 取消并结束操作。截图 artifacts/http-auth-20261022/auth-ref-{login,wrong-ready,retry,reused,known}.png；取消后的主窗另行记录。所有凭据为本地测试值，不使用用户账号。对照 GitHttpGuiAuthenticator、GitHttpLoginDialog 与 GitHandlerAuthenticationManager，确认表单与生命周期；尚未原生验证 helper 切换、系统存储拒绝及第三方平台账号选择。
+
+拟实现：在现有 Requests/AskPass 上分离持久凭据存储和 HTTP 认证状态；Windows 使用 Credential Manager，非 Windows 暂为会话保存并明确文案。通用凭据按协议/主机/端口/路径/用户名隔离，命令设置 credential.useHttpPath=true，保留与上游合并协议的差异。默认应用凭据、显式切换系统 helper，FULL 有限重试，SILENT 禁止 UI。Fetch/ls-remote 可重试；Clone 仅目标仍为空时重试；Push 有任一引用成功不重放；Pull 不重放已进入合并/rebase 的操作。失败仅清除当前尝试使用且值仍一致的凭据。GitHub/GitLab Token 通过通用密码字段使用，不添加平台 API/OAuth/PR 权限。
+
+### 通用 HTTP 认证实现与验收
+
+参考版本仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，原生参考为 Rebased 1.1.20 / IC-262.10968.SNAPSHOT。本轮翻译其通用认证状态流程，不引入 GitHub/GitLab 账号 API。新增 `http_auth.rs` 管理 FULL/SILENT/NONE、保存来源、失败清理、helper 切换及记住选项；`authenticated_command.rs` 统一网络命令与有限重试；`credential_store{,/windows}.rs` 封装 Windows Credential Manager。`auth_request.rs` 保留现有 AskPass 通道与操作级串行请求，`auth_dialog.rs` 负责表单状态，Git 设置由 `update_settings.rs` 接入。Token 不写入 Git URL、配置或普通文件；Windows 使用当前用户 generic credentials，前缀 `Plico:git-http:v1:`。非 Windows 当前仅会话保存，界面明确标注。
+
+上游 `GitHttpGuiAuthenticator` 的保存先于返回、认证失败清理当前来源、记住用户名独立于密码、known-login 只读、一次表单回答 username/password 均保留。缓存键保留协议、端口、仓库路径及用户名；不沿用上游 HTTP/HTTPS 合并。错误只清除本次使用且值仍一致的条目，不删其他账号；普通网络失败、非快进、分支保护失败不当作密码失效。保存失败保留输入及等待中的请求，允许取消记住后继续；helper 偏好无法保存时，本次操作仍可使用助手。取消后过期表单不能写入凭据。
+
+Fetch、Pull、Push、Clone、remote ls-remote 使用同一认证入口；后台分支检查走 SILENT，不弹窗。认证最多两次，切换 helper 不占次数。Clone 仅在目标仍为空时重试；Pull 要求 HEAD 不变且未进入合并/rebase/冲突；Push 复验原分支/OID，若 porcelain 已报告任何引用成功或输出截断，不自动重放。现有 SSH、编辑器、force lease 和 Git 操作恢复流程保持原路径。后台 app 凭据仍需 Git 调用 AskPass，不能以 credential.interactive=false 禁用桥接；静默由 Requests 保证，helper 静默模式另外禁止 GCM 交互。
+
+追加前置核对：原生 Rebased 自有 PID41160、本地 localhost 测试 remote，选择 Use credentials helper 后表单字段禁用，Log In 后 Fetch 成功。Git 设置搜索 credential，观察到已勾选 Use credential helper（截图 auth-ref-settings-helper.png）；源码 `plugins/git4idea/backend/src/config/GitVcsPanel.kt::cdOverrideCredentialHelper` 读写应用级 `isUseCredentialHelper`。本地同样在 Git 设置提供应用级开关，允许助手返回错误凭据时切回手工 Token；设置保存失败显示错误，不假装已保存。
+
+原生 Windows Plico 独立 fixture：错误密码后重新提示且清空密码；正确密码成功；重启进程后从系统凭据库复用且无弹窗；切换 localhost 与 127.0.0.1 后重新请求，验证目标隔离；选择 helper 后字段禁用并完成 Fetch；URL 指定 other-fixture 后用户名只读，Esc 取消并结束操作。补充修正 Fetch 的分支弹窗遮挡认证对话框、英文 Password or token 标签宽度。中英文表单均使用现有单层焦点边框和复选框皮肤。截图归档 `artifacts/http-auth-20261022`；所有 Token 为本地测试值，未使用真实平台账号。
+
+范围与待验收：没有新增 OAuth、平台账号选择、Token 权限 API、PR 或评论；SSH agent／key 保持原行为。测试证明通用 Git HTTP 认证链路，不代表已验证 GitHub/GitLab 服务端 SSO、组织策略或真实过期 Token。Windows 原生认证已复验；Windows 打开 WSL 仓库的本轮认证组合尚未专项原生复验。UI 结构与关键行为已核对，不宣称像素完全一致；已安装 Rebased 与参考源码不同版。
+
+收尾回归：628 项核心测试（包括 18 项真实 Git HTTP/AskPass 入口测试）和 2 项登录表单桌面测试通过，Windows release 构建通过。另补凭据库不可用时仍可本次切换 helper 的回归。原生 PID41768 英文 Password or token 已保持单行；Git 设置开关启用／应用、停用／应用均可执行，截图 auth-final-settings-{enabled,disabled}.png。完整桌面套件未作为本轮通过项；已有 editable_diff 生命周期测试失败不在本轮修改范围。
+
+用户指出 Remember 与勾选框错位后，追加对照 `DarculaCheckBoxUI.java::updateTextPosition/createLayout`：单行文本使用 CENTER。本地自定义皮肤沿用默认 indicator 的 2px 顶部补偿，但该皮肤已裁去 SVG 透明留白，导致视觉中心偏低。`vendor/gpui-component/src/checkbox.rs` 对自定义 indicator 改为行内垂直居中并去掉固定补偿；默认 indicator 路径不变，勾选/禁用/键盘事件不变。
+
+对齐修正后 Windows release 再次通过（1m50s）；自有 PID19232 英文与 PID43140 中文原生截图 `auth-final-alignment-{en,zh}.png` 验证勾选框与文字居中。核心 Clippy 完成，保留现有 warning；格式及 diff 检查通过。验收结束关闭本次自有测试进程，并仅删除本地测试 endpoint 的 Plico 凭据及本轮测试创建的偏好条目，不读取／删除用户其他凭据。
+
+### OAuth 专项源码复核（2026-10-22）
+
+用户要求继续参照 Rebased，参考仍为 4aec35256d765c217aa0d662b82ac4e860c396fd。此处是源码调查，尚未实现 OAuth，也未做本轮原生 OAuth 授权验收。
+
+已实际读取：github/authentication/GHOAuthService.kt、GHOAuthCredentialsAcquier.kt；collaboration-tools/auth-base/.../OAuthServiceBase.kt；gitlab/authentication/GitLabOAuthService.kt、GitLabOAuthSettings.kt、GitLabCredentials.kt、accounts/GitLabAccountManager.kt、ui/GitLabOAuthLoginViewModel.kt；GitLabOAuthSettingsTest.kt（读取未运行）。
+
+GitHub 并非此前建议的 Device Flow：GHOAuthService 打开 account.jetbrains.com/github/oauth/intellij/authorize，携带 code_challenge 和本机 callback_url；回调 code 后通过同一 JetBrains 服务的 access_token 端点＋code_verifier，从 X-OAuth-Token 头取得凭据。OAuthServiceBase 合并并发授权请求、结束后清空当前请求。公开客户端源码不能证明该中转后端的内部实现；Plico 不能假定自己可作为 JetBrains 产品依赖此服务。可翻译浏览器等待、回调和取消生命周期；授权端点及应用身份要使用 Plico 自有配置，若选直连 GitHub 则明确为传输层差异。
+
+GitLab 可直接参考程度更高：标准 Authorization Code＋S256 PKCE，随机 state 关联 pendingLogins；取消／结束 finally 移除请求；缺 code、错误 state、服务端错误均有处理；令牌交换后重定向至不带授权 code 的结果页，设置 no-referrer。GitLab.com 内置上游 client ID，自建实例支持 server→client ID 配置。Plico 应使用自己的注册身份，保留配置自建实例入口。上游 scope 为 api read_user write_repository openid；本产品只做 Git 认证，应按用户名校验和 Git 操作需要缩小权限，不原样附带协作功能权限。
+
+GitLabCredentials 明确区分 PAT 和 OAuth，后者保存 access/refresh token、client ID、createdAt/expiresIn；到期前 60 秒刷新。PersistentGitLabAccountManager 在 dataGuard 锁内读取、刷新并更新凭据，避免多个 Git 操作并发刷新竞争；取消与刷新失败独立传播。GitLabOAuthLoginViewModel 防重复登录、验证指定用户名和账号唯一性，允许转 OtherMethod。配置测试覆盖空值、无效 URI、重复服务器、空白与分隔符解析。
+
+后续映射：独立 OAuth provider／账号凭据模型接入现有 Requests 来源策略；复用 Windows 安全存储而不把 refresh token 当普通 Git 密码；共用账号刷新锁；保留手动 Token/helper 回退。实现 UI 前按 AGENTS 原生复验。不能把“Rebased 有 OAuth”解释为只复制登录按钮即可完整交付，也无需重新自行设计其已验证的生命周期。
+
+### OAuth 与托管仓库 Clone 实现前复验（2026-10-22）
+
+原生 Rebased 1.1.20，自有 PID15388，独立 compact-path-fixture：Find Action→Clone Repository，GitHub 页显示浏览器登录/Use token，切换 Token 页显示 Server/Token/Generate/Log In/Back；GitLab 页显示 Server/Token，底部 Clone 在未选择仓库时禁用。截图 oauth-ref-{github,token,gitlab,browser}.png。安装版 GitLab 无 OAuth 入口，采用参考 commit 4aec352 的较新 GitLabCloneLoginComponentFactory/GitLabOAuthService 行为；尚未取得真实账号授权及登录后仓库列表原生截图，用户已明确未注册应用、先完成实现，真实平台授权验收留待注册后。
+
+已读 GHCloneDialogExtensionComponentBase、GHCloneDialogRepositoryListLoaderImpl、CloneDialogLoginPanel、GHOAuthCredentialsUi，GitLabCloneLoginComponentFactory、GitLabCloneRepositoriesComponentFactory、GitLabCloneRepositoriesListViewModel。规则：账号独立加载/取消，查询保留选择，错误提供重试/重登录；搜索置顶、目录与浅克隆置底；登录/等待/取消与克隆进行中分离。GitHub 请求当前用户仓库并补组织仓库，GitLab 源码用 GraphQL 分页。Plico 拟分离 hosting 的账号/API/OAuth 与 Clone 页视图；保留 HTTPS、账号/目标绑定、安全存储、取消迟到结果保护；不加入 GitHub Enterprise，GitLab 支持自建地址。API 可采用 REST 分页，记录与上游查询差异。
+
+### OAuth / Clone 实现与注册（2026-10-22）
+
+实现位置：`src/hosting.rs` 管理账号、凭据轮换和仓库绑定，`hosting/oauth.rs` 负责直接平台 PKCE、state 校验、本机回调、取消/超时；`hosting/api.rs` 负责受限 REST 请求及分页；`hosting_panel.rs` 管理登录/Token/列表状态，`clone_dialog.rs` 保留 URL 和实际克隆流程。Git HTTP 通过 `http_auth` 复用账号，失败只排除本次操作中的账号，不删除共享 OAuth 凭据。Windows 使用 Credential Manager，Linux 当前仅会话内保存。
+
+用户指出开发者配置混入登录页后，重新阅读 `CloneDialogLoginPanel::buttonPanel/setupNewUi` 和 `GHTokenCredentialsUi::centerPanel`：普通用户页仅有浏览器登录 / or / Use token；Token 右侧 Generate、下方权限说明、第二列下方并排 Log In/Back。移除 Clone 页 Client ID/Secret 表单和配置按钮；公共应用身份随客户端提供，GitHub 应用参数由构建环境 `PLICO_GITHUB_CLIENT_SECRET` 注入。自建 GitLab 无默认注册身份时可用 Token，不借用 JetBrains 应用。保留开发者 `oauth::save_config` 接口，不向普通 Clone 用户暴露。
+
+通过 ego-browser 注册 Plico GitHub OAuth App 和 GitLab 公共客户端应用，完整记录按用户要求保存到 Windows 桌面 TXT，不进入仓库。GitHub 开启 access token 到期；GitLab Confidential=No，scope 为 read_api/read_user/write_repository。GitHub repo/read:user/read:org/workflow，支持同步工作流文件，不申请 gist。Windows 临时核心验收程序调用同一生产 OAuth、账号保存和 repository API：GitHub 成功，第一页 37 个仓库；GitLab 成功，第一页 1 个仓库。未对真实远端执行 Push 等写操作。发行流水线通过仓库 Actions secret 注入 GitHub 应用参数，用户 Token 不进入构建。
+
+保留差异：GitHub 不依赖 JetBrains 中转服务，直接 code+PKCE；GitLab REST membership 分页代替 GraphQL；GitHub 当前加载 user/repos 全部 affiliation，尚未补组织公开但未参与的仓库。使用每页 100 项手动 Load more，不一次性抓取全量。回调页无外部资源并设置 no-store/no-referrer，但尚未实现上游跳转无 code URL 的结果页。GitHub Enterprise 不在范围内。真实账号登录已验证不等于所有自建证书、代理、组织 SSO 场景均验证；视觉验收另记，不宣称完全复刻。
+
+修正后核心回归 634 项通过，6 项 hosting 专项覆盖 PKCE/state/拒绝授权/取消释放回调/Token 到期数据/跨主机仓库地址/HTTP 不跟随重定向，2 项认证表单桌面测试通过。Clippy 完成并保留既有 warning。Windows 原生 GitHub 登录页、Token 页已复验；另发现长列表挤占底部操作区，限定列表和宿主 flex 高度，补 Server/Generate/Back 中文及 Repository URL 的 VCS 图标。
+
+最终原生 PID42872：`artifacts/oauth-clone-20261022/oauth-delivery-login.png` 已无 OAuth 配置按钮；`oauth-delivery-token.png` 为中文表单，Generate 右置、权限说明下置、登录/返回对齐；`oauth-delivery-list.png` 可见等待指示、取消及账号操作。根因不是列表自身高度，而是 Clone 内容区固定 520 DIP 在 150% 缩放的小窗口内超过弹窗可用高度；改为 viewport height - 150 DIP，上限 520 DIP。发行 Windows release、格式与 diff 检查通过。仍采用 Plico 内嵌弹窗，未宣称与 Rebased 独立原生窗口逐像素一致。
+
+### 2026-10-23：GitHub 登录后 Clone 页面实际对照
+
+- 参考源码：Rebased `4aec35256d765c217aa0d662b82ac4e860c396fd`；原生参考版本 1.1.20 / IC-262.10968.SNAPSHOT。本次在原生 Rebased 完成浏览器 GitHub 授权，查看真实仓库列表及账户菜单。
+- 已读：`GHCloneDialogExtensionComponentBase.kt`、`GHRepositoryListCellRenderer.kt`（github-core/ui/cloneDialog），`platform/collaboration-tools/src/com/intellij/collaboration/auth/ui/CompactAccountsPanelFactory.kt`。
+- 提取规则：搜索框右侧分隔线及账户入口；菜单列出账号和登录方式；自己的仓库显示短名，其他所有者保留 fullName；仓库列表下目录与浅克隆选项常驻；浏览器登录等待替换登录按钮为状态及取消。
+- 本地映射：`hosting_panel.rs` 收拢账户操作至搜索栏菜单、调整列表名称与登录状态；过滤保留仍可见的选择；切换账号清空旧列表，避免失败后把旧仓库绑定到新账号。`clone_dialog.rs` 观察托管面板状态，登录后的目录不依赖仓库选择。
+- 保留差异：账户入口暂用首字母而非远端头像；多账户仍切换查看而非聚合；菜单保留刷新、移除账号；分页 Load more 保留以限制规模；Plico 使用应用内弹窗，保留克隆子模块选项。不能宣称像素级完全一致。
+- 原生参考截图：`artifacts/oauth-clone-20261022/rebased-hosted-{login,wait,success,account}.png`。
+- 验证：Windows release 构建通过；仓库名称规则测试 1 项通过；格式化及 diff whitespace 检查通过。原生 Plico 已查看真实 GitHub 仓库、点击选择确认 Clone 启用、打开账户菜单，截图 `plico-hosted-aligned-{list,account}.png`。未执行实际克隆；本轮未重复全量测试。
+
+### 2026-10-23：Clone 账户头像与菜单第二轮
+
+- 延续原生已授权 GitHub 的 `rebased-hosted-success.png` / `rebased-hosted-account.png` 真实截图；本轮重新打开参考程序确认登录页，测试 profile 重启后未保留账号，未将匿名截图当作已登录菜单验收。
+- 同一参考 commit 追加读取 `GHAccountsDetailsProvider.kt`、`CachingGHUserAvatarLoader.kt`、`CompactAccountsPanelFactory.kt`、`VcsCloneDialogUiSpec.kt`。规则：头像独立懒加载、失败保留默认图标；工具栏 24 DIP，菜单 40 DIP；账号名与服务器分两行，服务器省略 https://；账号下只显示登录方式，不混入刷新及移除。
+- 本地：`hosting/api.rs::avatar` 经用户 API 获取头像 URL，头像请求不携带 Token、不跟随重定向、10 秒超时、1 MiB 上限；`hosting_panel.rs` 独立任务及面板生命周期缓存，不阻塞仓库列表，过期账号响应不覆盖当前账号。菜单真实图片与两行身份信息；登录标题使用当前 UI 字号的比例，不改全局字号。
+- 保留差异：多账号仍通过账户行切换仓库列表，非上游聚合；头像缓存仅限当前面板，无上游五分钟共享缓存和自动退避重试；无头像或加载失败回退图标。
+- 原生验收中确认了英文正文与菜单文字的字体继承偏差；Clone 弹窗显式沿用 `Theme.font_family/font_size`，账户菜单自定义行也使用主题字体。头像在图片元素上设置圆角，避免仅给父容器圆角仍绘制为方形。
+- 最终 Windows release 构建通过；6 项 hosting 核心测试及 1 项桌面仓库标签测试通过；diff whitespace 检查通过。原生真实 GitHub 头像与圆形裁切已确认，菜单截图 `artifacts/oauth-clone-20261022/avatar-final-menu.png`。主题字体已显式统一，但与 Rebased 的字体观感仍有差异，不能认定字体像素验收完成；本轮没有修改用户全局字体配置。
+
+### 2026-10-23：GitLab Clone 独立对齐
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`，读取 gitlab-core 的 `GitLabCloneLoginComponentFactory`、`GitLabCloneRepositoriesComponentFactory`、`GitLabCloneListRenderer`、`GitLabCloneListItem`、`GitLabCloneLoginViewModel`；账户头像继续沿用 CompactAccountsPanelFactory 的 24/40 DIP 规则。
+
+- 登录入口区分 gitlab.com 与自建服务器；服务器字段仅在 Token / 自建服务器表单出现，重新认证已有账号时锁定服务器。菜单在浏览器登录与 Token 之间包含自建服务器入口，并使用分隔线。
+- 列表使用 `nameWithNamespace` 显示名称，保留群组和子群组；本地 REST 映射 `name_with_namespace`，克隆仍使用 `http_url_to_repo`，搜索兼容显示名称及 URL 路径。旧服务器响应缺字段时回退 `path_with_namespace`。
+- 列表网络失败可重试，缺少/无效凭据进入原账号重新登录；Token 返回在有账户时返回列表，否则返回登录入口。默认头像采用上游中性头像，避免 GitLab 显示 GitHub 图标；头像 URL 支持服务器相对路径。
+- 本地实现：`hosting_panel.rs`、`hosting/api.rs`、`assets.rs`、`i18n.rs`。新增命名空间显示与真实克隆 URL 独立的回归测试。
+- 版本差异：安装版 Rebased 1.1.20 的 GitLab 页面为 Token 表单，源码已支持 OAuth 入口；OAuth 入口按源码实现。自建服务器 OAuth 需要该服务器注册的 Plico 应用配置，未配置时明确提示使用 Token；不借用 JetBrains 应用身份。仍保留 REST 分页、单账号切换，不宣称多账号聚合完全一致。
+- 验证：7 项 hosting 核心测试和 1 项桌面标签规则测试通过，最终 Windows release 构建通过。原生参考 Token 页面已截图；Plico 真实 GitLab 账号仓库、图片头像、三项菜单、自建服务器表单、切换 Token 并返回列表均已实际操作，截图 `artifacts/oauth-clone-20261022/gl-*.png`。截图使用菜单文案完成后的构建；最终构建仅追加 Retry 中文翻译。未执行真实克隆，未重新验证 OAuth 授权与自建服务器授权。

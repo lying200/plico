@@ -11,10 +11,14 @@ pub struct Settings {
     error: Option<String>,
     show_options: bool,
     saved_show_options: bool,
+    helper: bool,
+    saved_helper: bool,
 }
 impl Settings {
     pub fn modified(&self) -> bool {
-        self.draft != self.saved || self.show_options != self.saved_show_options
+        self.draft != self.saved
+            || self.show_options != self.saved_show_options
+            || self.helper != self.saved_helper
     }
     pub fn save(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.modified() {
@@ -22,16 +26,26 @@ impl Settings {
             cx.notify();
             return true;
         }
-        let result = update_preferences::save(&self.path, self.draft).and_then(|_| {
-            plico::project_update_preferences::save_show_options(
-                &self.path.with_file_name("project-update-options"),
-                self.show_options,
-            )
-        });
+        let result = update_preferences::save(&self.path, self.draft)
+            .and_then(|_| {
+                plico::project_update_preferences::save_show_options(
+                    &self.path.with_file_name("project-update-options"),
+                    self.show_options,
+                )
+            })
+            .and_then(|_| {
+                if self.helper != self.saved_helper {
+                    plico::http_auth::set_use_credential_helper(self.helper)
+                        .map_err(std::io::Error::other)
+                } else {
+                    Ok(())
+                }
+            });
         match result {
             Ok(()) => {
                 self.saved = self.draft;
                 self.saved_show_options = self.show_options;
+                self.saved_helper = self.helper;
                 self.error = None;
                 cx.notify();
                 true
@@ -91,6 +105,21 @@ impl Render for Settings {
                         cx.notify();
                     })),
             )
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(t("Authentication")),
+            )
+            .child(
+                Checkbox::new("git-credential-helper")
+                    .label(t("Use credentials helper"))
+                    .checked(self.helper)
+                    .on_click(cx.listener(|s, value, _, cx| {
+                        s.helper = *value;
+                        cx.notify();
+                    })),
+            )
+            .child(t("Applies to all repositories"))
             .when_some(self.error.clone(), |v, error| {
                 v.child(div().text_color(rgb(0xf2a6a6)).child(error))
             })
@@ -102,6 +131,7 @@ pub fn new(
     show_options: bool,
     cx: &mut App,
 ) -> Entity<Settings> {
+    let helper = plico::http_auth::use_credential_helper();
     cx.new(|_| Settings {
         path,
         draft,
@@ -109,5 +139,7 @@ pub fn new(
         error: None,
         show_options,
         saved_show_options: show_options,
+        helper,
+        saved_helper: helper,
     })
 }

@@ -297,6 +297,9 @@ impl RenderOnce for Checkbox {
             .h_flex()
             .gap_2()
             .items_start()
+            // Custom indicators have their own dimensions; center the row instead
+            // of applying the default em-sized indicator's baseline offset.
+            .when(self.indicator.is_some(), |this| this.items_center())
             .line_height(relative(1.))
             .text_color(cx.theme().foreground)
             .map(|this| match self.size {
@@ -310,7 +313,6 @@ impl RenderOnce for Checkbox {
             .refine_style(&self.style)
             .child(if let Some(render) = self.indicator {
                 div().flex_shrink_0()
-                    .when(has_content, |this| this.mt(px(2.)))
                     .child(render(checked, mixed, self.disabled)).into_any_element()
             } else {
                 CheckboxIndicator::new()

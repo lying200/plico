@@ -50,6 +50,8 @@ jobs:
       - name: Fetch locked Windows dependencies
         run: cargo fetch --locked --target x86_64-pc-windows-msvc
       - name: Build Windows executable and helpers
+        env:
+          PLICO_GITHUB_CLIENT_SECRET: ${{ secrets.PLICO_GITHUB_CLIENT_SECRET }}
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bins
       - name: Package
         shell: pwsh

@@ -2,7 +2,7 @@
 //! never fetches objects or changes refs; unknown remote state is not “up to date”.
 use crate::{
     git::{Cancel, Repository, Result},
-    operation_process::{self, Progress},
+    operation_process::Progress,
 };
 use std::{collections::HashMap, time::Duration};
 
@@ -112,11 +112,28 @@ impl References {
         {
             return Err("Background check requires explicit custom transport support".into());
         }
+        let helper = std::env::current_exe().ok().map(|p| {
+            p.with_file_name(if cfg!(windows) {
+                "plico-askpass.exe"
+            } else {
+                "plico-askpass"
+            })
+        });
+        let requests = crate::auth_request::Requests::with_store(
+            token.clone(),
+            crate::http_auth::Mode::Silent,
+            crate::credential_store::Store::system(),
+        );
+        let auth = helper
+            .as_deref()
+            .filter(|p| p.is_file())
+            .map(|p| (&requests, p));
         let mut command = repo.command();
+        if auth.is_none() {
+            command.args(["-c", "credential.interactive=false"]);
+        }
         command
             .args([
-                "-c",
-                "credential.interactive=false",
                 "ls-remote",
                 "--heads",
                 "--",
@@ -127,13 +144,14 @@ impl References {
             .env("GIT_ASKPASS", "")
             .env("SSH_ASKPASS", "")
             .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes -oConnectTimeout=10");
-        let result = operation_process::run(
+        let result = crate::authenticated_command::run(
             &mut command,
+            auth,
             token,
             &Progress::default(),
             Some(Duration::from_secs(30)),
-        )
-        .map_err(|e| e.to_string())?;
+            |_| false,
+        )?;
         if !result.status.success() || result.stopped.is_some() || result.stdout.truncated {
             return Err("Background remote check unavailable".into());
         }

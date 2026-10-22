@@ -37,6 +37,9 @@ pub mod operation_process;
 mod operation_queue;
 
 pub mod auth_request;
+pub mod authenticated_command;
+pub mod credential_store;
+pub mod http_auth;
 
 pub mod askpass;
 
@@ -199,3 +202,5 @@ pub mod clone_repository;
 pub mod clone_destination;
 
 pub mod text_merge;
+
+pub mod hosting;

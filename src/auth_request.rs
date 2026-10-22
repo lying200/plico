@@ -38,6 +38,8 @@ fn http_url(prompt: &str) -> Option<url::Url> {
 fn target(mut url: url::Url) -> String {
     let _ = url.set_username("");
     let _ = url.set_password(None);
+    url.set_query(None);
+    url.set_fragment(None);
     url.into()
 }
 // No Debug: prompts can contain URLs/user identities; responses contain secrets.
@@ -48,8 +50,57 @@ pub struct Pending {
     cancel: Cancel,
     stop: Cancel,
     credentials: Cache,
+    auth: Arc<crate::http_auth::Auth>,
 }
 impl Pending {
+    pub fn known_username(&self) -> Option<String> {
+        (self.kind == Kind::HttpPassword)
+            .then(|| http_url(&self.prompt).map(|u| crate::http_auth::username(&u)))
+            .flatten()
+    }
+    pub fn suggested_username(&self) -> Option<String> {
+        self.known_username()
+            .or_else(|| self.auth.suggested_login(&self.http_target()?))
+    }
+    pub fn remember_default(&self) -> bool {
+        self.auth.remember_default()
+    }
+    pub fn helper_available(&self) -> bool {
+        self.auth.helper_available()
+    }
+    pub fn storage_error(&self) -> bool {
+        self.auth.storage_error()
+    }
+    pub fn select_helper(&self) -> Result<(), Error> {
+        if self.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if !self.helper_available() {
+            return Err(Error::InvalidResponse);
+        }
+        self.auth.switch_helper().map_err(|_| Error::Storage)
+    }
+    pub fn save_credentials(
+        &self,
+        username: &str,
+        password: &str,
+        remember: bool,
+    ) -> Result<(), Error> {
+        if self.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if !valid_reply(username) || !valid_reply(password) {
+            return Err(Error::InvalidResponse);
+        }
+        self.auth
+            .remember(
+                &self.http_target().ok_or(Error::InvalidPrompt)?,
+                username,
+                password,
+                remember,
+            )
+            .map_err(|_| Error::Storage)
+    }
     pub fn is_cancelled(&self) -> bool {
         self.cancel.cancelled() || self.stop.cancelled()
     }
@@ -113,23 +164,43 @@ pub enum Error {
     Cancelled,
     InvalidPrompt,
     InvalidResponse,
+    Storage,
 }
 struct Shared {
     pending: Mutex<Option<Pending>>,
     gate: Mutex<()>,
     cancel: Cancel,
     credentials: Cache,
+    auth: Arc<crate::http_auth::Auth>,
 }
 #[derive(Clone)]
 pub struct Requests(Arc<Shared>);
 impl Requests {
     pub fn new(cancel: Cancel) -> Self {
+        Self::with_store(cancel, crate::http_auth::Mode::Full, Default::default())
+    }
+    pub fn persistent(cancel: Cancel) -> Self {
+        Self::with_store(
+            cancel,
+            crate::http_auth::Mode::Full,
+            crate::credential_store::Store::system(),
+        )
+    }
+    pub fn with_store(
+        cancel: Cancel,
+        mode: crate::http_auth::Mode,
+        store: crate::credential_store::Store,
+    ) -> Self {
         Self(Arc::new(Shared {
             pending: Mutex::new(None),
             gate: Mutex::new(()),
             cancel,
             credentials: Arc::new(Mutex::new(None)),
+            auth: Arc::new(crate::http_auth::Auth::new(mode, store)),
         }))
+    }
+    pub(crate) fn auth(&self) -> &crate::http_auth::Auth {
+        &self.0.auth
     }
     pub fn clear_credentials(&self) {
         self.0
@@ -173,6 +244,12 @@ impl Requests {
         if self.0.cancel.cancelled() || stop.cancelled() {
             return Err(Error::Cancelled);
         }
+        if matches!(kind, Kind::HttpUsername | Kind::HttpPassword) {
+            self.0.auth.mark_requested();
+            if self.0.auth.switched() || self.0.auth.mode == crate::http_auth::Mode::None {
+                return Ok(String::new());
+            }
+        }
         if kind == Kind::HttpPassword {
             if let Some(url) = http_url(&prompt) {
                 let cache = self.0.credentials.lock().unwrap_or_else(|e| e.into_inner());
@@ -187,6 +264,43 @@ impl Requests {
         } else if kind == Kind::HttpUsername {
             self.clear_credentials();
         }
+        if matches!(kind, Kind::HttpUsername | Kind::HttpPassword) {
+            if let Some(url) = http_url(&prompt) {
+                let known = crate::http_auth::username(&url);
+                let target = target(url);
+                if let Some((login, password)) = self
+                    .0
+                    .auth
+                    .lookup(
+                        &target,
+                        (kind == Kind::HttpPassword).then_some(known.as_str()),
+                    )
+                    .or_else(|| {
+                        self.0.auth.lookup_hosted(
+                            &target,
+                            (kind == Kind::HttpPassword).then_some(known.as_str()),
+                            &self.0.cancel,
+                        )
+                    })
+                {
+                    if kind == Kind::HttpPassword {
+                        return Ok(password);
+                    }
+                    let mut url = http_url(&prompt).unwrap();
+                    let _ = url.set_username(&login);
+                    *self.0.credentials.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(Credentials {
+                            target,
+                            username: url.username().into(),
+                            password,
+                        });
+                    return Ok(login);
+                }
+            }
+            if self.0.auth.mode != crate::http_auth::Mode::Full {
+                return Ok(String::new());
+            }
+        }
         let (tx, rx) = mpsc::sync_channel(1);
         *self.0.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pending {
             kind,
@@ -195,6 +309,7 @@ impl Requests {
             cancel: self.0.cancel.clone(),
             stop: stop.clone(),
             credentials: self.0.credentials.clone(),
+            auth: self.0.auth.clone(),
         });
         let result = loop {
             if self.0.cancel.cancelled() || stop.cancelled() {
@@ -344,5 +459,72 @@ mod tests {
         });
         pending(&requests).answer("fresh".into()).unwrap();
         assert_eq!(worker.join().unwrap().unwrap(), "fresh");
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    #[test]
+    fn storage_failure_keeps_prompt_live_and_unremembered_login_can_continue() {
+        let requests = Requests::with_store(
+            Cancel::default(),
+            crate::http_auth::Mode::Full,
+            crate::credential_store::Store::unavailable(),
+        );
+        let worker_requests = requests.clone();
+        let worker = thread::spawn(move || {
+            worker_requests.ask(
+                Kind::HttpUsername,
+                "Username for 'https://host/repo': ".into(),
+            )
+        });
+        let start = std::time::Instant::now();
+        let pending = loop {
+            if let Some(pending) = requests.take_pending() {
+                break pending;
+            }
+            assert!(start.elapsed() < Duration::from_secs(3));
+            thread::sleep(POLL);
+        };
+        assert_eq!(
+            pending.save_credentials("alice", "token", true),
+            Err(Error::Storage)
+        );
+        assert!(!pending.is_cancelled());
+        pending.save_credentials("alice", "token", false).unwrap();
+        pending
+            .answer_credentials("alice".into(), "token".into())
+            .unwrap();
+        assert_eq!(worker.join().unwrap().unwrap(), "alice");
+    }
+    #[test]
+    fn cancelled_prompt_cannot_save_or_change_provider() {
+        let cancel = Cancel::default();
+        let requests = Requests::new(cancel.clone());
+        requests.auth().begin(true);
+        let worker_requests = requests.clone();
+        let worker = thread::spawn(move || {
+            worker_requests.ask(
+                Kind::HttpUsername,
+                "Username for 'https://host/repo': ".into(),
+            )
+        });
+        let start = std::time::Instant::now();
+        let pending = loop {
+            if let Some(pending) = requests.take_pending() {
+                break pending;
+            }
+            assert!(start.elapsed() < Duration::from_secs(3));
+            thread::sleep(POLL);
+        };
+        cancel.cancel();
+        assert_eq!(pending.select_helper(), Err(Error::Cancelled));
+        assert_eq!(
+            pending.save_credentials("alice", "token", true),
+            Err(Error::Cancelled)
+        );
+        drop(pending);
+        assert_eq!(worker.join().unwrap(), Err(Error::Cancelled));
     }
 }

@@ -257,6 +257,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Reverted" => "已撤销",
         "Skipped" => "已跳过",
         "Remaining" => "剩余",
+        "Local Changes Prevent Cherry-pick" => "本地更改阻止拣选提交",
+        "Save local changes in a stash and retry? Changes will be restored after success. If the operation stops, they remain available in Stashes." => {
+            "将本地更改保存到 Stash 并重试？成功后将恢复更改；如果操作中断，可在 Stash 列表中找回。"
+        }
+        "Cherry-Pick" => "拣选提交",
+        "Cherry-picking commits…" => "正在拣选提交…",
         "Revert Commit" => "撤销提交",
         "Revert Commits" => "撤销多个提交",
         "Show Files" => "查看文件",

@@ -1,6 +1,7 @@
 //! Main-window history coordination.
 //! Private implementation; shared lifecycle state remains owned by Review.
 use super::*;
+use gpui_kit::component::Icon;
 
 impl Review {
     pub(super) fn set_long_edges(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -336,6 +337,9 @@ impl Review {
                                                     && s.operation_state.as_ref().is_some_and(|state| !state.in_progress() && state.conflicts.is_empty())
                                                     && revert_targets.iter().all(|id| s.commits.iter().any(|c| &c.id==id && c.parents.len()<=1))
                                             });
+                                            let cherry_owner = checkout_owner.clone();
+                                            let cherry_path = path.clone();
+                                            let cherry_targets = revert_targets.clone();
                                             let parent_owner = checkout_owner.clone(); let child_owner = checkout_owner.clone();
                                             let adjacent_enabled = checkout_owner.upgrade().is_some_and(|e| {
                                                 let s = e.read(cx); !s.log_query.history_loading() && s.log_selection.ordered(&s.commit_ids()).len() == 1
@@ -348,6 +352,10 @@ impl Review {
                                             });
                                             menu.item(PopupMenuItem::new(t("Copy Revision Number")).disabled(hashes.is_empty()).on_click(move |_, _, cx| {
                                                 cx.write_to_clipboard(ClipboardItem::new_string(hashes.clone()));
+                                            })).item(PopupMenuItem::new(t("Cherry-Pick")).icon(Icon::default().path("jb/cherryPick_dark.svg")).disabled(!revert_enabled).on_click(move |_, w, cx| {
+                                                let _ = cherry_owner.update(cx, |s, cx| if s.repo.path == cherry_path {
+                                                    s.cherry_pick_commits(cherry_targets.clone(), w, cx);
+                                                });
                                             })).when(compare_enabled, |menu| menu.item(PopupMenuItem::new(t("Compare Versions")).on_click(move |_, w, cx| {
                                                 let _ = compare_owner.update(cx, |s, cx| s.compare_versions(w, cx));
                                             }))).separator().item(PopupMenuItem::new(t("Squash Commits…")).disabled(!squash_enabled)

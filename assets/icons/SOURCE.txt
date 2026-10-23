@@ -150,3 +150,7 @@ Markdown layout icons: platform/icons/src/expui/general/{editorOnly,editorPrevie
 File-history Get: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd,
 platform/icons/src/expui/general/download_dark.svg (unmodified, Apache-2.0).
 Action mapping: platform/vcs-impl/resources/META-INF/VcsActions.xml, Vcs.GetVersion / AllIcons.Actions.Download.
+
+cherryPick_dark.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
+platform/dvcs-impl/shared/resources/icons/new/cherryPick_dark.svg (unmodified)
+JetBrains s.r.o. and contributors, Apache-2.0; see LICENSE.txt.

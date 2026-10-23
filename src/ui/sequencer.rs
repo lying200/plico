@@ -1,4 +1,4 @@
-//! Recovery for cherry-pick/revert already in progress.
+//! Start and recover cherry-pick/revert through one editor and refresh lifecycle.
 use super::*;
 use gpui_kit::component::dialog::{DialogClose, DialogFooter};
 use plico::operation_state::Operation;
@@ -7,6 +7,8 @@ use plico::sequencer_operation::{EmptyChoice, EmptyCommit};
 enum Request {
     Continue,
     Revert(Vec<String>),
+    CherryPick(Vec<String>),
+    SaveCherryPick(plico::cherry_pick::Prepared),
     SaveRevert(plico::revert_operation::Batch),
     ResumeRevert(plico::revert_operation::Recovery),
     Abort,
@@ -14,6 +16,20 @@ enum Request {
 }
 
 impl Review {
+    pub(super) fn cherry_pick_commits(
+        &mut self,
+        targets: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_sequence(
+            Operation::CherryPick,
+            Request::CherryPick(targets),
+            window,
+            cx,
+        );
+    }
+
     pub(super) fn revert_commits(
         &mut self,
         target: Vec<String>,
@@ -72,27 +88,41 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.run_sequence_with_editor(kind, request, None, window, cx);
+    }
+    fn run_sequence_with_editor(
+        &mut self,
+        kind: Operation,
+        request: Request,
+        editor_override: Option<std::ffi::OsString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let abort = matches!(request, Request::Abort);
         // Reopened queues enter via Continue, not ResumeRevert. Their next
         // conflict needs the same resolver as a freshly started batch.
-        let resolving_revert = kind == Operation::Revert && !abort;
+        let resolving_changes = !abort;
         if self.operation.busy() || self.operation.saving_documents() {
             return;
         }
         if self.documents.pending(cx) {
             self.with_saved_documents(window, cx, move |s, w, cx| {
-                s.run_sequence(kind, request, w, cx)
+                s.run_sequence_with_editor(kind, request, editor_override, w, cx)
             });
             return;
         }
         let editor_command = if !matches!(
             request,
             Request::Continue
+                | Request::CherryPick(_)
+                | Request::SaveCherryPick(_)
                 | Request::Revert(_)
                 | Request::SaveRevert(_)
                 | Request::ResumeRevert(_)
         ) {
             None
+        } else if editor_override.is_some() {
+            editor_override
         } else {
             match std::env::current_exe().and_then(|exe| {
                 plico::editor::command(
@@ -123,7 +153,14 @@ impl Review {
         ) else {
             return;
         };
-        self.status_message = Some(t("Updating operation state…").into());
+        self.status_message = Some(
+            t(if matches!(request, Request::CherryPick(_)) {
+                "Cherry-picking commits…"
+            } else {
+                "Updating operation state…"
+            })
+            .into(),
+        );
         let requests = plico::auth_request::Requests::new(token.clone());
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
@@ -143,6 +180,60 @@ impl Review {
             } else {
                 request
             };
+            if let Request::SaveCherryPick(prepared) = &request {
+                let result = prepared
+                    .save_and_execute(
+                        &repo,
+                        editor_command.as_ref().unwrap(),
+                        Some(&worker_requests),
+                        &token,
+                        &Default::default(),
+                    )
+                    .map(|saved| {
+                        let mut completion = match saved.report {
+                            Some(report) => SequenceCompletion::cherry(report),
+                            None => SequenceCompletion::ordinary(
+                                plico::sequencer_operation::ResultState {
+                                    command: Err("Cherry-pick did not start".into()),
+                                    state: repo.operation_state(&Cancel::default()),
+                                    empty: None,
+                                },
+                            ),
+                        };
+                        if let Some(error) = saved.error {
+                            completion.report.command = Err(error);
+                        }
+                        completion.cherry_retry = None;
+                        completion.saved_cherry = saved.saved;
+                        completion
+                    });
+                let _ = tx.send(result);
+                return;
+            }
+            if let Request::CherryPick(targets) = &request {
+                let result = (|| {
+                    let protected = repo
+                        .pull_targets(&token)?
+                        .branches
+                        .into_iter()
+                        .filter(plico::published_commits::default_protected)
+                        .map(|target| format!("refs/remotes/{}/{}", target.remote, target.branch))
+                        .collect::<Vec<_>>();
+                    let prepared =
+                        plico::cherry_pick::Prepared::read(&repo, targets, &protected, &token)?;
+                    let result = plico::cherry_pick::execute(
+                        &repo,
+                        &prepared,
+                        editor_command.as_ref().unwrap(),
+                        Some(&worker_requests),
+                        &token,
+                        &Default::default(),
+                    )?;
+                    Ok(SequenceCompletion::cherry(result))
+                })();
+                let _ = tx.send(result);
+                return;
+            }
             if let Request::SaveRevert(batch) = &request {
                 let result = batch
                     .save_and_execute(
@@ -189,7 +280,11 @@ impl Review {
                     requests: Some(&worker_requests),
                 },
                 Request::Abort => Action::Abort,
-                Request::Revert(_) | Request::SaveRevert(_) | Request::ResumeRevert(_) => {
+                Request::CherryPick(_)
+                | Request::SaveCherryPick(_)
+                | Request::Revert(_)
+                | Request::SaveRevert(_)
+                | Request::ResumeRevert(_) => {
                     unreachable!()
                 }
                 Request::Empty(expected, choice) => Action::Empty {
@@ -248,6 +343,10 @@ impl Review {
                         let ignore_empty_exit = result.as_ref().is_ok_and(|r| r.ignore_empty_exit);
                         let summary = result.as_ref().ok().and_then(|r| r.summary.clone());
                         let retry = result.as_ref().ok().and_then(|r| r.retry.clone());
+                        let cherry_retry =
+                            result.as_ref().ok().and_then(|r| r.cherry_retry.clone());
+                        let saved_cherry =
+                            result.as_ref().ok().and_then(|r| r.saved_cherry.clone());
                         if kind == Operation::Revert {
                             if let Ok(completion) = &result {
                                 s.revert_recovery = completion.recovery.clone();
@@ -311,6 +410,15 @@ impl Review {
                                 summary
                             ));
                         }
+                        if let Some(stash) = saved_cherry {
+                            s.status_message = Some(format!(
+                                "{} — {}: {}",
+                                s.status_message.as_deref().unwrap_or_default(),
+                                t("Saved changes retained"),
+                                stash
+                            ));
+                            s.open_stashes(w, cx);
+                        }
                         if abort && complete && error.is_none() {
                             s.revert_recovery = None;
                         }
@@ -327,8 +435,10 @@ impl Review {
                         s.refresh_impl(false, true, None, cx);
                         if let Some(empty) = empty.filter(|_| !cancelled) {
                             s.choose_empty_commit(empty, w, cx);
-                        } else if resolving_revert && conflicts && !cancelled {
+                        } else if resolving_changes && conflicts && !cancelled {
                             s.open_conflicts(w, cx);
+                        } else if let Some(retry) = cherry_retry.filter(|_| !cancelled) {
+                            s.cherry_retry_dialog(retry, w, cx);
                         } else if let Some(retry) = retry.filter(|_| !cancelled) {
                             s.confirm_save_revert(retry, w, cx);
                         } else if let Some(error) = error {
@@ -441,6 +551,8 @@ fn batch_completion(
         summary: Some(summary),
         ignore_empty_exit,
         retry: batch.retry,
+        cherry_retry: None,
+        saved_cherry: None,
     }
 }
 
@@ -451,8 +563,20 @@ struct SequenceCompletion {
     summary: Option<String>,
     ignore_empty_exit: bool,
     retry: Option<plico::revert_operation::Batch>,
+    cherry_retry: Option<plico::cherry_pick::Prepared>,
+    saved_cherry: Option<String>,
 }
 impl SequenceCompletion {
+    fn cherry(report: plico::cherry_pick::Report) -> Self {
+        let mut completion = Self::ordinary(plico::sequencer_operation::ResultState {
+            command: report.command,
+            state: report.state,
+            empty: report.empty,
+        });
+        completion.cherry_retry = report.retry;
+        completion
+    }
+
     fn ordinary(report: plico::sequencer_operation::ResultState) -> Self {
         Self {
             report,
@@ -461,6 +585,8 @@ impl SequenceCompletion {
             summary: None,
             ignore_empty_exit: false,
             retry: None,
+            cherry_retry: None,
+            saved_cherry: None,
         }
     }
 }
@@ -579,6 +705,120 @@ impl Review {
                     }))
                     .child(DialogClose::new().trigger(|b|b.primary().label(t("Cancel")))))
                 .on_ok(|_,_,_|true)
+        });
+    }
+}
+
+impl Review {
+    fn cherry_retry_dialog(
+        &self,
+        prepared: plico::cherry_pick::Prepared,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let owner = cx.entity().downgrade();
+        let path = self.repo.path.clone();
+        w.open_dialog(cx, move |d, _, _| {
+            let files_owner = owner.clone(); let files_path = path.clone();
+            let owner = owner.clone(); let path = path.clone(); let prepared = prepared.clone();
+            d.title(t("Local Changes Prevent Cherry-pick")).w(px(560.)).centered(true).overlay_closable(false)
+                .child(div().whitespace_normal().child(t("Save local changes in a stash and retry? Changes will be restored after success. If the operation stops, they remain available in Stashes.")))
+                .footer(DialogFooter::new().gap_2()
+                    .child(Button::new("show-cherry-local-files").label(t("Show Files")).on_click(move |_, w, cx| {
+                        w.close_dialog(cx);
+                        let _ = files_owner.update(cx, |s, cx| if s.repo.path == files_path { s.open_local(w, cx); });
+                    }))
+                    .child(Button::new("save-and-retry-cherry").primary().label(t("Save and Retry")).on_click(move |_, w, cx| {
+                        w.close_dialog(cx);
+                        let _ = owner.update(cx, |s, cx| if s.repo.path == path {
+                            s.run_sequence(Operation::CherryPick, Request::SaveCherryPick(prepared.clone()), w, cx);
+                        });
+                    }))
+                    .child(DialogClose::new().trigger(|b| b.label(t("Cancel")))))
+                .on_ok(|_, _, _| true)
+        });
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use gpui::component::Root;
+
+    #[gpui::test]
+    fn start_cherry_pick_releases_barrier_and_refreshes_head(cx: &mut gpui::TestAppContext) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("plico-cherry-ui-{}-{nonce}", std::process::id())),
+        );
+        std::fs::create_dir(&fixture.0).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(&fixture.0)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(fixture.0.join("file.txt"), "base").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        let base = git(&["rev-parse", "HEAD"]);
+        git(&["checkout", "-b", "feature"]);
+        std::fs::write(fixture.0.join("file.txt"), "picked").unwrap();
+        git(&["commit", "-am", "picked"]);
+        let target = git(&["rev-parse", "HEAD"]);
+        git(&["checkout", "--detach", &base]);
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let view = cx.new(|cx| Review::new(fixture.0.clone(), 100, None, w, cx));
+            review = Some(view.clone());
+            Root::new(view, w, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        cx.update(|w, cx| {
+            review.update(cx, |s, cx| {
+                s.run_sequence_with_editor(
+                    Operation::CherryPick,
+                    Request::CherryPick(vec![target.clone()]),
+                    Some("true".into()),
+                    w,
+                    cx,
+                )
+            })
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read(fixture.0.join("file.txt")).unwrap(),
+            b"picked"
+        );
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "picked");
+        assert!(git(&["diff", "--cached"]).is_empty());
+        review.read_with(cx, |s, _| {
+            assert!(!s.operation.busy());
+            assert!(!s.documents.locked());
         });
     }
 }

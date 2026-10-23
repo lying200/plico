@@ -4002,3 +4002,72 @@ Windows release 构建、格式检查、git diff --check 通过。Clippy有既�
 当前恢复复用编辑器5MiB大小预算，超限明确失败；不宣称大文件恢复完成对齐。
 新建文件需文件系统支持hard-link，失败不覆盖目标；失败时可能保留空父目录。
 这些限制不更改Git index或refs；大文件流式恢复及非hard-link文件系统适配仍需后续完善。
+
+### 2. 主动 Cherry-pick：实现前依据（2026-10-24，进行中）
+
+参考源码仍为4aec352，原生1.1.20 / IC-262.10968.SNAPSHOT。独立
+`cherry-pick-reference-20261024`仓库：main为base，feature包含pick one、pick two。
+使用自有34276的新窗口28447474（未关闭其他窗口），取消Defender排除勾选，仅信任本测试项目。
+Log右键pick one：Cherry-Pick在Copy Revision Number/Create Patch之后、Checkout之前，
+带樱桃图标；点击直接开始，没有额外确认，底部显示Cherry-Picking及进度。
+Git验证main新增126c494（pick one），one.txt出现，来源b6da95c保持，提交消息无来源后缀。
+截图 `artifacts/workflow-closure-20261024/cherry-{menu,success,complete}.png`；
+success为执行中快照，不把它当作已刷新完成。多选、冲突、本地阻挡、空提交原生验证仍待补充。
+
+已读源码：`platform/dvcs-impl/src/com/intellij/dvcs/cherrypick/VcsCherryPickAction.java`
+保存文档、阻止重复任务；`VcsCherryPickManager.java`反转Log选择顺序后后台执行。
+`plugins/git4idea/backend/src/cherrypick/GitCherryPicker.java`委派process；
+`CherryPickProcess.kt`自动提交、按registry选择整批Git sequencer或逐条执行、已发布提交按设置追加-x、
+记录成功与已应用集合；`applyChanges/GitApplyChangesProcess.kt`区分冲突、untracked阻挡、
+local修改阻挡（显式save/retry且排除已处理提交）、空提交和其他失败，最后刷新仓库。
+`EmptyCherryPickResolutionStrategy.kt`支持Skip/Create Empty，创建前复验暂存区为空。
+已读测试 `GitCherryPickTest.kt` 和 `GitCherryPickAutoCommitTest.kt`前部覆盖普通成功、
+受保护发布提交后缀、脏工作区、untracked、冲突对话框与多提交；后部测试仍需继续阅读。
+本地将复用已实现的sequencer_continue/abort/empty与三方合并，主动入口与批次执行尚未实现。
+
+实现进度：`src/cherry_pick.rs`已加入不可变目标预检、反转Log顺序、HEAD/分支/仓库复验、
+受保护remote refs来源后缀、取消与结果分类；`ui/sequencer.rs`统一启动与继续/中止的文档屏障、
+editor桥接及结束刷新，Log菜单接入主动入口，冲突进入已有三方合并，空提交进入已有选择框。
+补读上游AutoCommitTest全部余下用例，以及`commands/Git.java`默认cherryPick方法和
+`GitProtectedBranches.kt`发布判定。上游registry默认git.cherry.pick.use.git.sequencer=false，
+本地采用其已提供的true分支：由Git持久化剩余队列，避免重启丢失待应用提交；这是明确的默认差异。
+目前四项核心集成回归通过，包括中途冲突继续处理后续提交与整批abort回到起点。
+尚未完成：本地变更阻挡的save/retry界面、菜单图标与最终Windows验收；当前未提交此项。
+
+补充原生阻挡与重试：同一fixture先仅stage base.txt，pick two失败通知只有Show Files；
+再修改base.txt形成MM，重试通知出现Shelve Changes and Retry。点击后成功生成pick two，
+本地base.txt恢复为未暂存修改（上游Shelf不保留原index分层）。截图cherry-local.png、
+cherry-local2.png、cherry-retry-result.png。已读GitApplyChangesLocalChangesDetectedNotification.kt：
+仅localChanges非空且retryAction存在才显示保存重试；staging模式选择Stash，否则使用保存策略。
+本地计划沿用现有Stash策略并保留index，明确区别于本次原生Shelf表现。
+按用户要求已关闭过期测试实例及额外窗口，仅保留Plico25716与Rebased34276的Cherry-pick窗口；
+后续换构建先关闭旧Plico，不累积测试进程。
+
+
+### 2. 主动 Cherry-pick：实现与验收（2026-10-24）
+
+已完成 Log 单选/多选入口、上游樱桃图标、后台执行及进度、文档保存屏障、结果刷新，
+复用冲突解决、Continue/Abort 和空提交 Skip/Keep。`src/cherry_pick.rs` 持有预检快照，
+执行前复验仓库、HEAD、分支和操作状态；整批按 Log 选择逆序执行。
+本地修改阻挡后显式提供查看文件、保存并重试和取消；保存用 update_session 统一操作锁，
+成功恢复原 index/工作区分层，失败保留 Git stash 并打开 Stash 列表。
+仅当原 HEAD 未改变且未留下操作队列时允许重试，避免重复应用已成功的前缀。
+合并提交因尚无 mainline 选择 UI 禁用，核心同样拒绝，不静默跳过。
+
+Windows Plico40584 在独立 cherry-pick-plico-20261024 仓库验证本地 MM 阻挡、保存重试、
+成功产生新提交、Log 刷新；核对 one.txt 内容、base.txt 磁盘 unstaged 与 index staged 各自保留，
+stash 列表为空。截图 cherry-plico-{menu,retry,done}.png。最终构建44800验证三按钮弹窗与
+查看文件打开左侧本地更改列表，截图 cherry-final-dialog.png、cherry-show-files.png。
+旧 Plico 已关闭，目前仅44800及Rebased34276各一个测试实例。
+
+核心全套通过；Cherry-pick 七项集成回归覆盖顺序、冲突后继续/整批中止、过期HEAD、
+暂存保护、已发布后缀、空提交、保存重试恢复分层、失败保留stash、untracked阻挡和取消。
+桌面81通过/2显式忽略，额外F7七项通过；Windows release构建、格式检查通过。
+Clippy执行完成，有既有警告；CI未运行。多选、冲突和空提交未完成逐项原生对照，
+不以集成测试代替这些原生视觉验收。
+
+保留差异：使用上游Git sequencer可选模式（原生默认关闭），使剩余队列由Git持久化；
+保存策略采用Stash并保留index，而此次Rebased默认Shelf不保留分层。
+阻挡采用现有模态弹窗而非通知，查看文件打开完整本地更改列表而非仅阻挡文件弹窗；
+完成状态沿用通用操作完成文案。中断后保留stash并显式恢复，不在之后Continue时自动pop。
+来源后缀沿用应用现有受保护main/master策略，尚无单独偏好设置。不宣称像素级还原完成。

@@ -212,3 +212,5 @@ mod log_pattern;
 mod topology;
 
 pub mod get_revision;
+
+pub mod cherry_pick;

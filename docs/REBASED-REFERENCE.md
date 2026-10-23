@@ -4379,3 +4379,40 @@ CI未运行。最后切片修正仅去除临时clone，不改变查询或界面�
 Commit列表图标沿用通用文件图标，尚未复刻Rebased目录图标；功能及结构通过，不宣称像素还原。
 新窗口/关闭窗口保存提示沿用已有流程，本轮原生选择当前窗口，未逐一重测所有窗口策略。
 本项实现完成；仍需全六项完成性核对，不能据此直接宣称整轮goal完成。
+
+### 收尾：历史Get大文件恢复前置（2026-10-24）
+
+Rebased1.1.20，独立library子仓库：restore-large.txt历史5402674为6,650,000字节，
+HEAD ea08601为15字节。Project右键Show History→选Large historical file→Get，无修改确认
+（目标原为clean），成功恢复6,650,000字节，SHA256=15af3261c8ec1050ccfe68d1489ad628859cb07f72868d7691c263572e13c292。
+diff --cached为空。截图artifacts/workflow-closure-20261024/get-large-reference-{start,menu,history,get,restored}.png。
+重新读4aec352 GetVersionAction.java::MyWriteVersionTask、writeCreation/writeModification，
+provider.loadRevisionContent后写原始字节并reloadFiles，没有编辑器5MiB限制，也不依赖hard-link。
+本地拟用已存在的operation_process::run_to_file、file_save::copy_stream/same_file_bytes/
+save_from_file，Prepared持有磁盘快照而非完整Arc字节，保留HEAD/index/磁盘复验及取消。
+Windows新建发布使用无覆盖MoveFileExW，避免对文件系统hard-link的要求。
+
+流式实现已接入（尚未提交）：Prepared用随机私有临时目录持有baseline/revision文件，
+后台Git stdout直接写磁盘；baseline流式复验，执行继续核对HEAD/index，复用save_from_file。
+缺失目标用create_from_file写完整sibling再发布；Windows MoveFileExW不带REPLACE_EXISTING，
+保留并发创建者，不再要求hard-link。非Windows暂沿用hard-link不覆盖发布。
+7项Get真实Git测试通过，新增12MiB历史二进制+10MiB工作区baseline及缺失文件恢复，
+验证index/HEAD不变，原有取消/并发修改/重命名/链接祖先回归保留。
+Windows构建/tmp/plico-get-stream-windows.log正在运行，原生Plico大文件验收待完成。
+
+
+### 历史 Get 流式恢复验收（2026-10-24）
+
+Windows release 构建通过，实际运行文件与构建 SHA256 一致。Plico41664 在独立
+get-large-plico-20261024 仓库，通过 History 旧提交右键 Get 恢复 6,650,000 字节文件；
+再删除自有测试文件，取消先前的修改确认后重新发起 Get，缺失文件创建恢复成功。
+两次核验 SHA256 均为15af3261c8ec1050ccfe68d1489ad628859cb07f72868d7691c263572e13c292，
+HEAD 保持ea08601dea905d666576dadffb1c0b2b90cc897f，暂存区无差异。
+截图 get-large-plico-{get,details,restored-final}.png 在上述 artifacts 目录。
+原始工作区小文件实际16字节，前置记录的15字节为笔误。
+
+核心全量测试通过，Get专项7项通过，桌面Get事件测试1项通过；Windows release、
+Clippy（既有警告）、格式检查通过，CI未运行。恢复不再受编辑器5MiB限制；
+预览仍保留限制。非Windows缺失文件发布仍依赖hard-link，Windows已使用无覆盖移动。
+原生发现预览超限错误误用“无法加载文件历史”提示并影响总数显示，列表与Get可用；
+此为后续独立修正项，不把截图中的错误状态算作完整UI通过。

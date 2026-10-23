@@ -1,7 +1,6 @@
 //! File-history Get, translated from Rebased 4aec352 GetVersionAction.
 //! Restore historical bytes to the current file path, preserving HEAD and index.
 use crate::{
-    file_document::Save,
     file_history::Revision,
     git::{Cancel, Repository},
     project_files::Project,
@@ -10,7 +9,6 @@ use std::{
     ffi::{OsStr, OsString},
     fs,
     path::{Component, Path, PathBuf},
-    sync::Arc,
 };
 
 pub struct Prepared {
@@ -18,8 +16,9 @@ pub struct Prepared {
     pub path: PathBuf,
     pub revision: String,
     pub modified: bool,
-    expected: Option<Arc<[u8]>>,
-    bytes: Arc<[u8]>,
+    expected: Option<PathBuf>,
+    bytes: PathBuf,
+    _temporary: Temporary,
     head: Option<String>,
     index: Vec<u8>,
 }
@@ -41,17 +40,54 @@ fn validate(path: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-fn disk(project: &Project, path: &Path, token: &Cancel) -> Result<Option<Arc<[u8]>>, String> {
+struct Temporary(PathBuf);
+impl Drop for Temporary {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+impl Temporary {
+    fn new() -> Result<Self, String> {
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).map_err(|e| e.to_string())?;
+        let name: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let path = std::env::temp_dir().join(format!("plico-get-{name}"));
+        let builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        let builder = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut builder = builder;
+            builder.mode(0o700);
+            builder
+        };
+        builder.create(&path).map_err(|e| e.to_string())?;
+        Ok(Self(path))
+    }
+}
+fn disk_path(project: &Project, path: &Path, token: &Cancel) -> Result<Option<PathBuf>, String> {
     let full = project
         .resolve_missing(path, token)
         .map_err(|e| format!("{e:?}"))?;
-    match fs::symlink_metadata(full) {
-        Ok(_) => project
-            .read_bytes(path, token)
-            .map(|b| Some(b.into()))
-            .map_err(|e| format!("{e:?}")),
+    match fs::symlink_metadata(&full) {
+        Ok(metadata) if metadata.is_file() => Ok(Some(full)),
+        Ok(_) => Err("History restore requires a regular file".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
+    }
+}
+fn disk_matches(
+    project: &Project,
+    path: &Path,
+    expected: Option<&Path>,
+    token: &Cancel,
+) -> Result<bool, String> {
+    match (disk_path(project, path, token)?, expected) {
+        (None, None) => Ok(true),
+        (Some(actual), Some(expected)) => {
+            crate::file_save::same_file_bytes(&actual, expected, token)
+                .map_err(|e| format!("{e:?}"))
+        }
+        _ => Ok(false),
     }
 }
 fn index(repo: &Repository, path: &Path, token: &Cancel) -> Result<Vec<u8>, String> {
@@ -81,20 +117,41 @@ impl Prepared {
         }
         let project = Project::new(&repo.path).map_err(|e| format!("{e:?}"))?;
         let head = crate::commit_operation::head(repo, token)?;
-        let expected = disk(&project, path, token)?;
+        let temporary = Temporary::new()?;
+        let expected = if let Some(source) = disk_path(&project, path, token)? {
+            let baseline = temporary.0.join("baseline");
+            let mut output = fs::File::create(&baseline).map_err(|e| e.to_string())?;
+            crate::file_save::copy_stream(&source, &mut output, token)
+                .map_err(|e| format!("{e:?}"))?;
+            drop(output);
+            if !disk_matches(&project, path, Some(&baseline), token)? {
+                return Err("File changed while preparing Get Revision".into());
+            }
+            Some(baseline)
+        } else {
+            None
+        };
         let mut spec = OsString::from(&revision.id);
         spec.push(":");
         spec.push(&revision.path);
-        let size = repo.read(&[OsStr::new("cat-file"), OsStr::new("-s"), &spec], token)?;
-        let size: usize = std::str::from_utf8(&size)
-            .map_err(|e| e.to_string())?
-            .trim()
-            .parse()
-            .map_err(|_| "Invalid blob size")?;
-        if size > crate::project_files::FILE_LIMIT {
-            return Err("File exceeds the 5 MiB restore limit".into());
+        let bytes = temporary.0.join("revision");
+        let output = fs::File::create(&bytes).map_err(|e| e.to_string())?;
+        let mut command = repo.operation_command();
+        command.args([OsStr::new("cat-file"), OsStr::new("blob"), &spec]);
+        let outcome = crate::operation_process::run_to_file(
+            &mut command,
+            token,
+            &crate::operation_process::Progress::default(),
+            output,
+        )
+        .map_err(|e| e.to_string())?;
+        if !outcome.status.success() || outcome.stopped.is_some() {
+            return Err(format!(
+                "Could not read history revision: {:?}: {}",
+                outcome.stopped,
+                String::from_utf8_lossy(&outcome.stderr.bytes())
+            ));
         }
-        let bytes = repo.read(&[OsStr::new("cat-file"), OsStr::new("blob"), &spec], token)?;
         let index = index(repo, path, token)?;
         let status = repo.read(
             &[
@@ -115,7 +172,8 @@ impl Prepared {
             revision: revision.id.clone(),
             modified: expected.is_some() && !status.is_empty(),
             expected,
-            bytes: bytes.into(),
+            bytes,
+            _temporary: temporary,
             head,
             index,
         })
@@ -129,21 +187,15 @@ impl Prepared {
         if project.root() != self.root
             || crate::commit_operation::head(repo, token)? != self.head
             || index(repo, &self.path, token)? != self.index
-            || disk(&project, &self.path, token)? != self.expected
+            || !disk_matches(&project, &self.path, self.expected.as_deref(), token)?
         {
             return Err("File or repository changed; reopen Get Revision".into());
         }
         match &self.expected {
-            Some(expected) => crate::file_save::save(
-                &project,
-                &self.path,
-                &Save {
-                    expected: expected.clone(),
-                    bytes: self.bytes.clone(),
-                },
-                token,
-            ),
-            None => crate::file_save::create(&project, &self.path, &self.bytes, token),
+            Some(expected) => {
+                crate::file_save::save_from_file(&project, &self.path, expected, &self.bytes, token)
+            }
+            None => crate::file_save::create_from_file(&project, &self.path, &self.bytes, token),
         }
         .map_err(|e| format!("Could not restore file revision: {e:?}"))
     }

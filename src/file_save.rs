@@ -45,15 +45,12 @@ pub fn save(project: &Project, path: &Path, request: &Save, cancel: &Cancel) -> 
 
 /// Publish a complete new file without replacing a concurrently created target.
 /// Empty parent directories may remain after cancellation or failure.
-pub(crate) fn create(
+pub(crate) fn create_from_file(
     project: &Project,
     path: &Path,
-    bytes: &[u8],
+    source: &Path,
     cancel: &Cancel,
 ) -> Result<(), Error> {
-    if bytes.len() > project_files::FILE_LIMIT {
-        return Err(project_files::Error::FileTooLarge.into());
-    }
     let destination = project.resolve_missing(path, cancel)?;
     let parent = path.parent().ok_or(project_files::Error::InvalidPath)?;
     let mut relative = PathBuf::new();
@@ -78,7 +75,7 @@ pub(crate) fn create(
         .write(true)
         .create_new(true)
         .open(&temporary.0)?;
-    file.write_all(bytes)?;
+    copy_stream(source, &mut file, cancel)?;
     file.sync_all()?;
     drop(file);
     if project.resolve_missing(path, cancel)? != destination {
@@ -86,7 +83,31 @@ pub(crate) fn create(
     }
     // Unlike rename, hard_link never overwrites a destination that appeared
     // after preparation. The temporary name is removed by its owner on return.
+    #[cfg(not(windows))]
     fs::hard_link(&temporary.0, &destination)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let from: Vec<u16> = temporary
+            .0
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let to: Vec<u16> = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        // No REPLACE_EXISTING: a concurrent creator wins, including on filesystems
+        // without hard links. The complete sibling is moved in one OS operation.
+        if unsafe {
+            windows_sys::Win32::Storage::FileSystem::MoveFileExW(from.as_ptr(), to.as_ptr(), 0)
+        } == 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
+    }
     Ok(())
 }
 

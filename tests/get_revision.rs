@@ -190,3 +190,26 @@ fn linked_parent_cannot_redirect_a_missing_file_write() {
     assert!(p.execute(&f.repo(), &Cancel::default()).is_err());
     assert!(!f.0.join("outside/new.txt").exists());
 }
+
+#[test]
+fn restores_large_blobs_and_large_baselines_without_editor_limits() {
+    let f = Fixture::new();
+    let historical = vec![0x81; 12 * 1024 * 1024 + 17];
+    let old = f.commit(&historical);
+    let current = f.commit(b"small current");
+    let working = vec![0x92; 10 * 1024 * 1024 + 3];
+    fs::write(f.0.join("file.txt"), &working).unwrap();
+    let index = fs::read(f.0.join(".git/index")).unwrap();
+    let p = Prepared::read(&f.repo(), &old.path, &old, &Cancel::default()).unwrap();
+    assert!(p.modified);
+    assert_eq!(fs::read(f.0.join("file.txt")).unwrap(), working);
+    p.execute(&f.repo(), &Cancel::default()).unwrap();
+    assert_eq!(fs::read(f.0.join("file.txt")).unwrap(), historical);
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), current.id);
+    fs::remove_file(f.0.join("file.txt")).unwrap();
+    let p = Prepared::read(&f.repo(), &old.path, &old, &Cancel::default()).unwrap();
+    p.execute(&f.repo(), &Cancel::default()).unwrap();
+    assert_eq!(fs::read(f.0.join("file.txt")).unwrap(), historical);
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+}

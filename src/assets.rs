@@ -4,6 +4,15 @@ pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         let data: Option<&'static [u8]> = match path {
+            "jb/layoutEditorOnly_dark.svg" => {
+                Some(include_bytes!("../assets/icons/layoutEditorOnly_dark.svg"))
+            }
+            "jb/layoutEditorPreview_dark.svg" => Some(include_bytes!(
+                "../assets/icons/layoutEditorPreview_dark.svg"
+            )),
+            "jb/layoutPreviewOnly_dark.svg" => {
+                Some(include_bytes!("../assets/icons/layoutPreviewOnly_dark.svg"))
+            }
             "jb/defaultAvatar_dark.svg" => {
                 Some(include_bytes!("../assets/icons/defaultAvatar_dark.svg"))
             }

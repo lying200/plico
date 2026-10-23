@@ -556,6 +556,14 @@ impl Review {
         cx.subscribe_in(
             tab,
             window,
+            |s, _, event: &crate::markdown_preview::OpenLink, window, cx| {
+                s.open_project_file(event.0.clone(), false, window, cx);
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            tab,
+            window,
             |s, _, event: &crate::source_changes::CommitChunk, w, cx| {
                 let event = event.clone();
                 s.with_saved_documents(w, cx, move |s, w, cx| s.commit_chunk(event, w, cx));

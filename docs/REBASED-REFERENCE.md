@@ -3468,3 +3468,21 @@ Windows Plico 自有测试进程已实际验证：SSH口令/取消、主机确�
 
 验证：ego-browser在Windows预览同一模板的中文、英文及360px深色布局，确认居中且无横向溢出（`browser-*.png`）；这是模板预览，没有重新触发真实平台授权。OAuth现有6项测试通过，增加结果页HTTP类型、模板占位符清空与UTF-8字节长度断言；应用语言仍复用既有显式中文/英文/跟随系统解析。Windows原生欢迎页间距验收通过。并非整页逐像素复刻；字体使用系统字体，不加载远程资源。
 最终Windows release构建通过，格式与diff whitespace检查通过。截图与模板验收使用ego-browser skill；本轮未提交或重新发布preview。
+
+## Markdown 预览前置核对（2026-10-23）
+
+用户授权安装并重启 Rebased。安装官方 Marketplace Markdown 262.10968.63（插件7793，更新1171956）到 Rebased 用户插件目录，匹配 Rebased 1.1.20 / IC-262.10968.SNAPSHOT。安装前 `.md` 由 TextMate 打开，无预览；重启后独立目录 `GitReview-validation/markdown-20261023/README.md` 可正常分栏渲染。截图 `artifacts/markdown-20261023/reference-plugin.png`、`reference-source.png`、`reference-preview.png`。默认左右分栏；右上 Tab 工具栏按源码、源码与预览、预览排列；源码模式保留编辑器，预览使用比例字体、标题层级、表格边框和独立代码块。模式切换的 JCEF 首帧可能短暂为空。测试目录未修改用户仓库。
+
+源码基线 `4aec35256d765c217aa0d662b82ac4e860c396fd`：已读 `plugins/markdown/core/src/org/intellij/plugins/markdown/ui/preview/MarkdownEditorWithPreview.java`（默认双栏、预览焦点、可见行同步）、`MarkdownPreviewFileEditor.kt`（文档更新、单任务合并、可见性与释放）、`MarkdownPreviewFileEditorProvider.kt`（预览提供者与文件类型检查）、`platform/platform-impl/src/com/intellij/openapi/fileEditor/TextEditorWithPreview.kt`（三模式、Tab actions、状态保留与布局记忆）。图标取自同 commit 的 `platform/icons/src/expui/general/{editorOnly,editorPreview,previewOnly}_dark.svg`（初查 general，实机比对后采用 Islands 对应 expui 资源）。
+
+本地接入点为 `project_view::FileTab`、`ui/chrome.rs` 与独立 Markdown 预览模块。复用同一编辑文档，模式切换不重建编辑器；采用原生 TextView 而非 JCEF，保持低内存。初始范围为项目文件 Tab 的 Markdown 阅读／编辑预览；Git Diff 仍保留文本比较，不把渲染后的段落作为差异算法输入。原生渲染器与浏览器 HTML/CSS、脚本／扩展的差异需在交付记录中明确，不声称完整浏览器兼容。
+
+### 实现与原生验收
+
+`src/markdown_preview.rs` 维护原生 TextView 与编辑文档的订阅；`project_view::FileTab` 接入三模式、分栏和文档重载，`ui/chrome.rs` 将模式按钮放到 Tab 行右端。`layout_preferences.rs` 记住新文档默认模式，`i18n.rs` 提供中英文提示。模式切换不复制可编辑缓冲区；编辑和磁盘重载更新同一个预览，后台解析未追上当前文档时不使用旧源码坐标同步位置。非活动且无待保存内容的 Tab 释放预览。相对图片以文档所在目录解析；相对文档链接通过既有项目文件打开入口，仅在当前仓库内路由，不执行任意协议。
+
+Windows 独立仓库实测通过：默认双栏、源码／预览切换、标题／表格／代码块、本地含空格图片路径、相对文档链接、输入法提交后预览实时更新。截图位于 `artifacts/markdown-20261023/`：`plico-split-final.png`、`plico-source.png`、`plico-preview.png`、`plico-link.png`、`plico-live.png`。输入法候选尚未提交时不更新预览，提交后更新；文档保存继续遵守既有自动保存机制。
+
+保留差异：原生渲染不包含完整 HTML/CSS、Mermaid／数学扩展及 data URI 图片；页内锚点和跨文档锚点暂未实现。表格占满预览宽度，代码块有语言标题，任务列表显示只读复选框，与安装版插件的具体绘制不同。普通文本 Diff 不增加预览模式。Tab 释放后重新打开会重建预览，未保存独立预览滚动位置。源码到预览为可见范围跟随，不保证浏览器版像素级滚动对齐；按项目约定，滚动手感留给用户手测。以上差异不宣称已像素级还原。
+
+验证结果：核心测试647项通过，项目视图桌面回归4项、Markdown测试3项通过；最终Windows release构建、格式检查、diff whitespace检查通过。最终构建原生截图 `plico-final.png`。本轮未提交、推送或发布安装包。

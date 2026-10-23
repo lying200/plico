@@ -629,5 +629,10 @@ impl Review {
                 }
             }))
             .child(div().flex_1())
+            .children(
+                self.active_file_index()
+                    .and_then(|i| self.file_tabs.get(i))
+                    .and_then(|tab| tab.update(cx, |tab, cx| tab.markdown_toolbar(cx))),
+            )
     }
 }

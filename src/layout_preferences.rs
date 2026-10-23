@@ -674,3 +674,24 @@ pub fn save_project_auto_follow(enabled: bool) -> std::io::Result<()> {
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(path, if enabled { "true" } else { "false" })
 }
+
+/// Markdown layout is a global default for newly opened documents, as in TextEditorWithPreview.
+pub fn load_markdown_layout() -> String {
+    settings_path()
+        .and_then(|p| std::fs::File::open(p.with_file_name("markdown-layout")).ok())
+        .and_then(|f| {
+            let mut s = String::new();
+            f.take(32).read_to_string(&mut s).ok().map(|_| s)
+        })
+        .unwrap_or_default()
+}
+pub fn save_markdown_layout(layout: &str) -> std::io::Result<()> {
+    if !matches!(layout, "source" | "split" | "preview") {
+        return Ok(());
+    }
+    let Some(path) = settings_path().map(|p| p.with_file_name("markdown-layout")) else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(path, layout)
+}

@@ -1,6 +1,6 @@
 mod navigation;
 use gpui_kit::component::{
-    Disableable as _, Icon, Sizable as _, WindowExt as _,
+    Disableable as _, Icon, Selectable as _, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Editor, EditorState, Position, RopeExt as _},
@@ -797,6 +797,9 @@ pub struct FileTab {
     root: PathBuf,
     viewer: Option<Entity<EditorState>>,
     reading_position: Option<ReadingPosition>,
+    markdown: Option<Entity<crate::markdown_preview::MarkdownPreview>>,
+    markdown_mode: crate::markdown_preview::Mode,
+    markdown_split: Option<Entity<gpui_kit::component::resizable::ResizableState>>,
     pending: Option<Vec<u8>>,
     pub documents: crate::editing::Documents,
     editing: Option<Entity<crate::editing::Editing>>,
@@ -808,6 +811,7 @@ pub struct FileTab {
     task: Task<()>,
 }
 impl EventEmitter<HistoryRequested> for FileTab {}
+impl EventEmitter<crate::markdown_preview::OpenLink> for FileTab {}
 impl EventEmitter<FileSaved> for FileTab {}
 impl EventEmitter<crate::source_changes::CommitChunk> for FileTab {}
 impl Drop for FileTab {
@@ -828,6 +832,9 @@ impl FileTab {
             request_focus: true,
             viewer: None,
             reading_position: None,
+            markdown: None,
+            markdown_mode: crate::markdown_preview::Mode::load(),
+            markdown_split: None,
             pending: None,
             documents: Default::default(),
             editing: None,
@@ -877,7 +884,78 @@ impl FileTab {
                 |_, _, event: &crate::source_changes::CommitChunk, cx| cx.emit(event.clone()),
             ));
         }
+        if crate::markdown_preview::supported(&self.path) {
+            let editor = editing.read(cx).editor.clone();
+            let path = self.root.join(&self.path);
+            self.markdown =
+                Some(cx.new(|cx| crate::markdown_preview::MarkdownPreview::new(&editor, path, cx)));
+            if let Some(preview) = &self.markdown {
+                self.editing_subscriptions.push(cx.subscribe(
+                    preview,
+                    |s, _, event: &crate::markdown_preview::OpenLink, cx| {
+                        if let Ok(path) = event.0.strip_prefix(&s.root) {
+                            cx.emit(crate::markdown_preview::OpenLink(path.to_path_buf()));
+                        }
+                    },
+                ));
+            }
+            self.markdown_split.get_or_insert_with(|| {
+                cx.new(|_| gpui_kit::component::resizable::ResizableState::default())
+            });
+        }
+        self.editing_subscriptions.push(cx.subscribe(
+            &editing,
+            |s, editing, _: &crate::editing::Reloaded, cx| {
+                if let Some(preview) = s.markdown.clone() {
+                    let text = editing.read(cx).editor.read(cx).text().to_string();
+                    preview.update(cx, |preview, cx| preview.refresh(&text, cx));
+                }
+            },
+        ));
         self.editing = Some(editing);
+    }
+    pub fn markdown_toolbar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.history || self.markdown.is_none() {
+            return None;
+        }
+        Some(
+            h_flex()
+                .gap_1()
+                .children(
+                    crate::markdown_preview::Mode::ALL
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, mode)| {
+                            Button::new(("markdown-mode", i))
+                                .ghost()
+                                .small()
+                                .icon(Icon::default().path(mode.icon()).size(px(16.)))
+                                .selected(self.markdown_mode == mode)
+                                .tooltip(t(mode.label()))
+                                .on_click(cx.listener(move |s, _, window, cx| {
+                                    s.markdown_mode = mode;
+                                    mode.save();
+                                    if mode == crate::markdown_preview::Mode::Preview {
+                                        if let Some(preview) = &s.markdown {
+                                            preview.read(cx).focus_handle(cx).focus(window, cx);
+                                        }
+                                    } else if let Some(editor) = &s.viewer {
+                                        editor.update(cx, |state, cx| state.focus(window, cx));
+                                    }
+                                    cx.notify();
+                                }))
+                        }),
+                )
+                .child(
+                    Button::new("markdown-reload")
+                        .ghost()
+                        .small()
+                        .icon(Icon::default().path("jb/refresh_dark.svg").size(px(16.)))
+                        .tooltip(t("Reload file"))
+                        .on_click(cx.listener(|s, _, window, cx| s.reload(window, cx))),
+                )
+                .into_any_element(),
+        )
     }
     pub fn dirty(&self, cx: &App) -> bool {
         self.editing
@@ -1012,6 +1090,7 @@ impl FileTab {
             .is_some_and(|d| d.read(cx).edited || d.read(cx).pending(cx))
         {
             self.viewer = None;
+            self.markdown = None;
             self.editing = None;
             self.editing_subscriptions.clear();
         }
@@ -1024,6 +1103,12 @@ impl FileTab {
     }
     pub fn focus_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.request_focus = self.viewer.is_none();
+        if self.markdown_mode == crate::markdown_preview::Mode::Preview {
+            if let Some(preview) = &self.markdown {
+                preview.read(cx).focus_handle(cx).focus(window, cx);
+                return;
+            }
+        }
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |state, cx| state.focus(window, cx));
         }
@@ -1148,7 +1233,18 @@ impl Render for FileTab {
         // Keep the requested line until asynchronous file loading creates the editor.
         if let Some(viewer) = self.viewer.as_ref() {
             if self.request_focus {
-                viewer.update(cx, |state, cx| state.focus(window, cx));
+                if self.markdown_mode == crate::markdown_preview::Mode::Preview
+                    && self.markdown.is_some()
+                {
+                    self.markdown
+                        .as_ref()
+                        .unwrap()
+                        .read(cx)
+                        .focus_handle(cx)
+                        .focus(window, cx);
+                } else {
+                    viewer.update(cx, |state, cx| state.focus(window, cx));
+                }
                 self.request_focus = false;
             }
             if let Some(line) = self.jump_line.take() {
@@ -1166,61 +1262,80 @@ impl Render for FileTab {
             .on_action(
                 cx.listener(|s, _: &ShowSelectionHistory, _, cx| s.history_requested(true, cx)),
             )
-            .child(
-                h_flex()
-                    .h(px(36.))
-                    .flex_shrink_0()
-                    .px_3()
-                    .gap_2()
-                    .child(self.path.to_string_lossy().into_owned())
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("reload-file")
-                            .ghost()
-                            .icon(Icon::default().path("jb/refresh_dark.svg").size(px(16.)))
-                            .tooltip(t("Reload file"))
-                            .on_click(cx.listener(|s, _, w, cx| s.reload(w, cx))),
-                    ),
-            )
+            .when(self.markdown.is_none(), |v| {
+                v.child(
+                    h_flex()
+                        .h(px(36.))
+                        .flex_shrink_0()
+                        .px_3()
+                        .gap_2()
+                        .child(self.path.to_string_lossy().into_owned())
+                        .child(div().flex_1())
+                        .child(
+                            Button::new("reload-file")
+                                .ghost()
+                                .icon(Icon::default().path("jb/refresh_dark.svg").size(px(16.)))
+                                .tooltip(t("Reload file"))
+                                .on_click(cx.listener(|s, _, w, cx| s.reload(w, cx))),
+                        ),
+                )
+            })
             .children(
                 self.editing
                     .as_ref()
                     .and_then(|d| crate::editing::Editing::error_banner(d, &self.documents, cx)),
             )
             .when_some(self.viewer.clone(), |v, viewer| {
-                v.child(
-                    div()
-                        .id("source-file-editor")
-                        .relative()
-                        .w_full()
-                        .flex_1()
-                        .min_h_0()
+                let source = div()
+                    .id("source-file-editor")
+                    .relative()
+                    .w_full()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        Editor::new(&viewer)
+                            .context_menu(|_, _, _| {
+                                gpui_kit::component::native_menu::NativeMenu::new()
+                            })
+                            .readonly(self.documents.locked())
+                            .appearance(false)
+                            .bordered(false)
+                            .h_full()
+                            .font_family(crate::ui_font::editor_family(cx))
+                            .text_size(crate::ui_font::editor_size(cx)),
+                    )
+                    .children(self.changes.clone())
+                    .context_menu(|menu, _, _| {
+                        menu.menu(t("Cut"), Box::new(gpui_kit::base::input::Cut))
+                            .menu(t("Copy"), Box::new(gpui_kit::base::input::Copy))
+                            .menu(t("Paste"), Box::new(gpui_kit::base::input::Paste))
+                            .menu(t("Select All"), Box::new(gpui_kit::base::input::SelectAll))
+                            .separator()
+                            .menu(t("Show History"), Box::new(ShowFileHistory))
+                            .menu(
+                                t("Show History for Selection…"),
+                                Box::new(ShowSelectionHistory),
+                            )
+                    });
+                use crate::markdown_preview::Mode;
+                match (&self.markdown, self.markdown_mode) {
+                    (Some(preview), Mode::Preview) => {
+                        v.child(div().flex_1().min_h_0().child(preview.clone()))
+                    }
+                    (Some(preview), Mode::Split) => v.child(
+                        gpui_kit::component::resizable::h_resizable((
+                            "markdown-split",
+                            cx.entity_id(),
+                        ))
+                        .with_state(self.markdown_split.as_ref().unwrap())
+                        .child(gpui_kit::component::resizable::resizable_panel().child(source))
                         .child(
-                            Editor::new(&viewer)
-                                .context_menu(|_, _, _| {
-                                    gpui_kit::component::native_menu::NativeMenu::new()
-                                })
-                                .readonly(self.documents.locked())
-                                .appearance(false)
-                                .bordered(false)
-                                .h_full()
-                                .font_family(crate::ui_font::editor_family(cx))
-                                .text_size(crate::ui_font::editor_size(cx)),
-                        )
-                        .children(self.changes.clone())
-                        .context_menu(|menu, _, _| {
-                            menu.menu(t("Cut"), Box::new(gpui_kit::base::input::Cut))
-                                .menu(t("Copy"), Box::new(gpui_kit::base::input::Copy))
-                                .menu(t("Paste"), Box::new(gpui_kit::base::input::Paste))
-                                .menu(t("Select All"), Box::new(gpui_kit::base::input::SelectAll))
-                                .separator()
-                                .menu(t("Show History"), Box::new(ShowFileHistory))
-                                .menu(
-                                    t("Show History for Selection…"),
-                                    Box::new(ShowSelectionHistory),
-                                )
-                        }),
-                )
+                            gpui_kit::component::resizable::resizable_panel()
+                                .child(preview.clone()),
+                        ),
+                    ),
+                    _ => v.child(source),
+                }
             })
             .when(!matches!(self.status, Notice::Label("")), |v| {
                 v.child(

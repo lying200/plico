@@ -25,6 +25,7 @@ mod hosting_panel;
 mod hosting_settings;
 mod identity_dialog;
 mod local_view;
+mod markdown_preview;
 mod path_chooser;
 mod paths_menu;
 mod project_update_dialog;

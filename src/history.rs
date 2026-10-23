@@ -11,6 +11,24 @@ pub struct Window {
     pub end: Layout,
 }
 
+/// Same fixed roots and filter precedence as read_filtered, without metadata or geometry.
+/// Hash ID/message unions deliberately override other filters, as in the Log.
+pub fn count(
+    repo: &Repository,
+    roots: &[String],
+    filter: Option<&crate::git::LogFilter>,
+    token: &Cancel,
+) -> Result<usize, String> {
+    if let Some(hashes) = filter.and_then(crate::git::LogFilter::hashes) {
+        let topology = read_topology(repo, roots, token)?;
+        let matched = hash_matches(repo, roots, &topology, &hashes, token)?;
+        if !matched.is_empty() {
+            return Ok(matched.len());
+        }
+    }
+    repo.count_history(roots, filter, token)
+}
+
 pub fn read(
     repo: &Repository,
     branch: Option<&str>,

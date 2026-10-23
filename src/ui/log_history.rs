@@ -451,50 +451,7 @@ impl Review {
                                     .on_click(cx.listener(|s, _, w, cx| s.show_error_details(w, cx)))))
                     )),
             )
-            .when(self.history_offset > 0 || self.snapshot.as_ref().is_some_and(|s| s.more), |v| v.child(
-                h_flex()
-                    .h(px(24.)).min_h(px(24.)).max_h(px(24.)).flex_shrink_0().items_center()
-                    .px_2()
-                    .text_size(px(12.))
-                    .text_color(rgb(MUTED))
-
-                    .when(self.history_offset > 0, |d| {
-                        d.child(
-                            Button::new("previous-window")
-                                .ghost()
-                                .small()
-                                .label(t("Newer window"))
-                                .tooltip(t("Return to the preceding history window in this snapshot"))
-                                .on_click(cx.listener(|s, _, _, cx| s.previous_window(cx))),
-                        )
-                        .child(
-                            Button::new("latest")
-                                .ghost()
-                                .small()
-                                .label(t("Back to latest"))
-                                .on_click(cx.listener(|s, _, _, cx| s.refresh(false, cx))),
-                        )
-                    })
-                    .when(self.snapshot.as_ref().is_some_and(|s| s.more), |d| {
-                        d.child(
-                            Button::new("more")
-                                .ghost()
-                                .small()
-                                .label(t(if self.limit >= git::HISTORY_MAX {
-                                    "Older window"
-                                } else {
-                                    "Load more"
-                                }))
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    if !s.log_query.history_loading() {
-                                        s.refresh(true, cx);
-                                    }
-                                })),
-                        )
-                    })
-
-,
-            ))
+            .child(self.history_footer(cx))
     }
 }
 

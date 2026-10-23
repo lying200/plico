@@ -1142,6 +1142,39 @@ impl Repository {
         commits.truncate(limit);
         Ok(TopologyPage { commits, more })
     }
+    /// Count exactly the fixed-root query without loading commit metadata.
+    pub(crate) fn count_history(
+        &self,
+        roots: &[String],
+        filter: Option<&LogFilter>,
+        token: &Cancel,
+    ) -> Result<usize> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if roots.iter().any(|id| !is_oid(id)) {
+            return Err("Invalid history root".into());
+        }
+        if let Some(filter) = filter {
+            filter.validate_paths()?;
+        }
+        if roots.is_empty() || filter.is_some_and(LogFilter::matches_no_authors) {
+            return Ok(0);
+        }
+        let filter_args = filter.map(LogFilter::arguments).unwrap_or_default();
+        let mut args = vec!["-c", "log.mailmap=false", "rev-list", "--count"];
+        args.extend(filter_args.iter().map(String::as_str));
+        args.extend(roots.iter().map(String::as_str));
+        args.push("--");
+        if let Some(filter) = filter {
+            args.extend(filter.paths.iter().map(String::as_str));
+        }
+        self.text(&args, token)?
+            .trim()
+            .parse()
+            .map_err(|_| "Invalid history count".into())
+    }
+
     /// Complete filtered topology in one traversal; rejects an oversized graph.
     pub(crate) fn bounded_topology(
         &self,

@@ -759,3 +759,65 @@ fn file_history_head_marker_tracks_checkout_not_first_file_revision() {
     assert_eq!(h.history.revisions[0].id, h.head_id);
     assert_eq!(f.git(&["status", "--porcelain"]), "");
 }
+
+#[test]
+fn background_scope_reaches_past_one_thousand_and_keeps_fixed_roots() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let f = Fixture::new();
+    let mut input = Vec::new();
+    for i in 0..1105 {
+        let message = format!("revision {i}");
+        let body = format!("{}revision {i}\n", "unchanged context\n".repeat(20));
+        let path = if i < 600 { "old.txt" } else { "new.txt" };
+        writeln!(input, "commit refs/heads/main\ncommitter Reviewer <review@example.invalid> {} +0000\ndata {}\n{}", 1700000000 + i, message.len(), message).unwrap();
+        if i == 600 {
+            writeln!(input, "D old.txt").unwrap();
+        }
+        writeln!(
+            input,
+            "M 100644 inline {path}\ndata {}\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    }
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(&f.0)
+        .args(["fast-import", "--quiet"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(&input).unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
+    f.git(&["reset", "--hard", "HEAD"]);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let scope = history::Scope::open(&repo, Path::new("new.txt"), Some("HEAD"), &token).unwrap();
+    let first = scope
+        .load(&repo, Path::new("new.txt"), 100, &token)
+        .unwrap();
+    assert_eq!(first.history.revisions.len(), 100);
+    assert!(first.history.more);
+    f.write("new.txt", "later change\n");
+    f.commit("later HEAD must not leak into fixed scope");
+    let all = scope
+        .load(&repo, Path::new("new.txt"), 2000, &token)
+        .unwrap();
+    assert_eq!(all.history.revisions.len(), 1105);
+    assert!(!all.history.more);
+    assert_eq!(all.history.revisions[0].message, "revision 1104");
+    assert_eq!(all.history.revisions[1104].message, "revision 0");
+    assert_eq!(all.history.revisions[1104].path, Path::new("old.txt"));
+    assert_eq!(all.history.revisions[99].id, first.history.revisions[99].id);
+    assert_eq!(all.graph.len(), 1105);
+    assert_eq!(all.links.len(), 1105);
+    token.cancel();
+    assert!(
+        scope
+            .load(&repo, Path::new("new.txt"), 2000, &token)
+            .is_err()
+    );
+}

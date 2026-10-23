@@ -386,7 +386,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Where would you like to open the project?" => "您希望在哪里打开此项目？",
         "This Window" => "当前窗口",
         "New Window" => "新窗口",
-        "History is partially loaded" => "历史尚未完整加载",
+        "Shallow repository · totals cover available history" => "浅克隆仓库 · 总数仅包含已有历史",
 
         "Clear branch filter" => "清除分支筛选",
         "Clear date filter" => "清除日期筛选",
@@ -539,6 +539,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Author" => "作者",
         "Commit Message" => "提交说明",
         "Revision" => "版本",
+        "Counting commits…" => "正在统计提交…",
+        "Retry count" => "重试统计",
+        "Loading remaining history…" => "正在加载其余历史…",
+        "Pause loading" => "暂停加载",
+        "Resume loading" => "继续加载",
+        "All commits loaded" => "已加载全部提交",
         "More file history is available" => "还有更早的文件历史",
         "No history for this file" => "此文件没有 Git 历史",
         "Loading file history…" => "正在加载文件历史…",
@@ -1299,5 +1305,29 @@ mod setup_translation_tests {
         assert_eq!(super::translate("Name", true), "姓名");
         assert_eq!(super::translate("Remote name", false), "Name");
         assert_eq!(super::translate("Name", false), "Name");
+    }
+}
+
+/// Counts refer to the displayed immutable query, not to unfiltered repository HEAD.
+pub fn history_count(loaded: usize, offset: usize, total: Option<usize>) -> String {
+    let total = total.map(|n| n.to_string()).unwrap_or_else(|| "—".into());
+    if offset == 0 || loaded == 0 {
+        if is_chinese() {
+            format!("已加载 {loaded} / {total} 条提交")
+        } else {
+            format!("{loaded} of {total} commits loaded")
+        }
+    } else if is_chinese() {
+        format!(
+            "当前 {loaded} 条 · 第 {}–{} 条 / 共 {total} 条",
+            offset + 1,
+            offset + loaded
+        )
+    } else {
+        format!(
+            "{loaded} loaded · {}–{} of {total} commits",
+            offset + 1,
+            offset + loaded
+        )
     }
 }

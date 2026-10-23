@@ -3899,3 +3899,53 @@ Windows xwin release 全部 bins 构建完成（49.59秒，/tmp/plico-filter-win
 测试 `tests/repository.rs::invalid_regex_falls_back_to_literal_across_history_queries`（含分页/定位/作者/大小写/取消）、
 `git_unsupported_regex_is_not_silently_retried_as_literal`、`src/log_pattern.rs` 兼容/资源边界均通过。
 保留UI差异：不支持的表达式仍用仓库查询错误页面，未新增上游 Reset filters 呈现；查询错误恢复首行选择未在本次改动。
+
+## 历史加载与数量状态栏（2026-10-23）
+
+本轮用户确定主 Log 保留手动按钮，不绑定滚动；显示当前加载量及异步总数。安装版 Rebased
+1.1.20 / IC-262.10968.SNAPSHOT，自有 PID34276、独立 binary-conflict-reference-20261023：
+打开 unrelated.txt → Find Action / Show History，历史工具窗显示 HEAD 筛选、紧凑图标工具栏、
+提交列表及右侧按选中项加载的预览；一条记录完成后没有加载按钮/常驻百分比。截图
+`artifacts/history-loading-20261023/rebased-file-history.png`。实机测试中输入焦点曾迟到，
+测试文件被输入 Show History；只发生在独立 fixture，未提交，不把输入失败动作作行为依据。
+主 Log 沿用此前原生截图，无对应的“当前/总数”页脚；该页脚是用户指定的保留差异。
+未自动滚动，大历史加载进行中/取消尚待后续原生验证，不宣称已测。
+
+已读取参考 `4aec35256d765c217aa0d662b82ac4e860c396fd`：
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/history/FileHistoryFilterer.kt`：30/ALL阶段；同路径/hash/filters复用任务，改变条件取消旧任务。
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/util/RevisionCollectorTask.kt`：快速首批、后台收集、100ms阶段快照、取消与错误传播；不设置1000条终点。
+- `plugins/git4idea/backend/src/history/GitFileHistory.kt`：按路径遍历，新增边界逐父查rename再继续，按commit去重，流式consumer；不能以单条--follow替换本地已有语义。
+- `platform/vcs-log/impl/src/com/intellij/vcs/log/data/VcsLogStatusBarProgress.kt`、`platform/vcs-impl/src/com/intellij/vcs/ui/ProgressStripe.java`：延迟显示、可取消、低干扰加载状态。
+
+拟映射：Log计数独立于详情/导航任务，固定列表roots及完整筛选，成功首屏后启动；新条件取消旧计数，失败显示未知并允许重试。
+文件历史解除1000条交互硬截止，保持rename/合并规则；后台分批扩展，保留当前阅读和已加载结果，关闭/切分支取消。
+页脚使用现有JetBrains字体、细分隔线、弱化数量文字、小型spinner及链接按钮；不伪造精确百分比。
+保留现有元数据、图和内容安全预算，预算错误明确呈现，不能把截断冒充加载完成。
+
+### 实现与验收
+
+本地映射：`src/git.rs::count_history`/`src/history.rs::count` 复用 LogFilter 参数及固定 roots；
+`src/ui/log_count.rs` 独立任务、150ms 首屏让步、取消及代次检查、计数失败重试。
+过滤结果按相同条件先取前 N 条，再追加；总数不是整个仓库总数。Hash ID/消息并集沿用已有
+Rebased 优先级，不擅自改变组合筛选含义。分页复用计数，普通刷新重算（相同根也可能发生浅克隆补全）。
+`src/ui/log_history.rs` 页脚始终显示当前数量/总数，超过内存窗口时另显示范围。
+移除左下角重复“历史尚未完整加载”；浅克隆独立显示“总数仅包含已有历史”，错误提示保留。
+
+`src/file_history.rs::Scope` 固定历史根，单次 Git 元数据响应分页，沿用逐父 rename/merge 规则；
+`src/history_view.rs` 首批100、后台倍增、暂停/继续、取消过期任务，发布时保持当前选中及阅读位置，
+失败保留已加载前缀。预览仍按选中项加载。与上游流式 collector 的差异：本地按倍增批次重算有界前缀，
+没有引入常驻全仓库索引；保留16000条元数据、16MiB文本、100000条祖先拓扑等既有安全预算。
+超预算是明确错误而非“全部加载”。选中行历史仍手动扩展，避免自动加载全部版本文本。
+
+Windows 独立1505提交 fixture，自有 Plico41512验证100→1100/1505；最终构建33380验证100/1505、
+过滤 revision 14 后111/111且加载按钮消失、重复左下提示消失。文件历史先100及预览，随后1505/1505，
+选中 revision 1504 和预览不变。截图在 `artifacts/history-loading-20261023/`：
+`history-plico-more.png`（早期构建尚有旧左下提示）、`history-final-count.png`、`history-filtered.png`、
+`history-file-complete.png`（早期构建加载中）、`history-final-file-complete.png`（最终构建）。
+原生暂停点击时任务已完成，因此该动作不算暂停验收；暂停/继续及旧任务取消由桌面回归覆盖。
+未进行滚动自动化，阅读位置的滚动体验留手测。未宣称像素完全一致：Plico文件历史仍为独立Tab，
+Rebased为底部工具窗；用户指定的数量页脚和手动主Log加载也是保留差异。
+
+回归覆盖固定roots下新HEAD、1105条跨rename历史、过滤/作者/日期/路径/正则/哈希计数一致性、
+首屏先于计数、详情不取消计数、切过滤拒绝旧总数。核心测试与桌面测试、F7专项通过；
+Windows release交叉构建通过。Clippy完成但仓库既有警告仍在，未把它报告成零警告。

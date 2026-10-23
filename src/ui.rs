@@ -13,6 +13,7 @@ mod files_options;
 mod history_operations;
 mod identity;
 mod log_branches;
+mod log_count;
 mod log_history;
 mod log_query;
 mod log_selection;
@@ -199,6 +200,7 @@ pub struct Review {
     details_cache: plico::detail_cache::Cache,
     limit: usize,
     log_query: log_query::Query,
+    history_count: log_count::Count,
     history_offset: usize,
     window_start: graph::Layout,
     window_end: graph::Layout,
@@ -461,6 +463,7 @@ impl Review {
             revert_saved_available: false,
             limit,
             log_query: Default::default(),
+            history_count: Default::default(),
             history_offset: 0,
             window_start: graph::Layout::default(),
             window_end: graph::Layout::default(),
@@ -996,8 +999,8 @@ impl Render for Review {
                     .flex_shrink_0()
                     .items_center()
                     .gap_2()
-                    .when(self.snapshot.as_ref().is_some_and(|s| s.more || s.shallow), |v| v.child(
-                        div().min_w_0().truncate().child(t("History is partially loaded"))))
+                    .when(self.snapshot.as_ref().is_some_and(|s| s.shallow), |v| v.child(
+                        div().min_w_0().truncate().child(t("Shallow repository · totals cover available history"))))
                     .child(div().flex_1())
             .when_some(self.error.clone(), |v, error| v.child(h_flex().gap_2().min_w_0()
                 .child(div().text_color(rgb(0xf2a6a6)).child(t(if plico::git_error::is_ownership_error(&error) { "Repository access blocked" } else { "Operation failed" })))

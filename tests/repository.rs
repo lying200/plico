@@ -8508,3 +8508,89 @@ fn invalid_regex_falls_back_to_literal_across_history_queries() {
             .is_err()
     );
 }
+
+#[test]
+fn async_history_count_matches_pages_and_filter_precedence() {
+    use plico::history;
+    let f = Fixture::new();
+    f.write("a.txt", "first");
+    f.commit("first [ needle");
+    let first = f.git(&["rev-parse", "HEAD"]);
+    f.write("b.txt", "other");
+    f.commit("other");
+    f.write("a.txt", "second");
+    f.commit(&format!("references {}", &first[..8]));
+    let repo = f.repo();
+    let token = Cancel::default();
+    let roots = repo.snapshot(None, 1, None, &token).unwrap().tips;
+    let author = plico::git::Author {
+        name: f.git(&["show", "-s", "--format=%an", "HEAD"]),
+        email: f.git(&["show", "-s", "--format=%ae", "HEAD"]),
+    };
+    let filters = [
+        LogFilter {
+            authors: Some(vec![author]),
+            paths: vec!["a.txt".into()],
+            ..Default::default()
+        },
+        LogFilter {
+            before: Some(1),
+            ..Default::default()
+        },
+        LogFilter {
+            after: Some(1),
+            before: Some(4_102_444_800),
+            ..Default::default()
+        },
+        LogFilter::default(),
+        LogFilter {
+            text: "[".into(),
+            regex: true,
+            ..Default::default()
+        },
+        LogFilter {
+            paths: vec!["a.txt".into()],
+            ..Default::default()
+        },
+        LogFilter {
+            authors: Some(vec![]),
+            ..Default::default()
+        },
+        LogFilter {
+            text: first[..8].into(),
+            paths: vec!["missing".into()],
+            authors: Some(vec![]),
+            ..Default::default()
+        },
+        LogFilter {
+            text: "no matches".into(),
+            ..Default::default()
+        },
+        LogFilter {
+            text: "NEEDLE".into(),
+            match_case: true,
+            ..Default::default()
+        },
+    ];
+    for filter in filters {
+        let count = history::count(&repo, &roots, Some(&filter), &token).unwrap();
+        let all =
+            history::read_filtered(&repo, None, 0, 100, Some(&roots), &filter, &token).unwrap();
+        assert_eq!(count, all.snapshot.commits.len(), "{filter:?}");
+    }
+    assert_eq!(
+        history::count(&repo, std::slice::from_ref(&first), None, &token).unwrap(),
+        1
+    );
+    assert_eq!(history::count(&repo, &roots, None, &token).unwrap(), 3);
+    f.git(&["commit", "--allow-empty", "-m", "new HEAD"]);
+    assert_eq!(history::count(&repo, &roots, None, &token).unwrap(), 3);
+    let invalid = LogFilter {
+        text: "(?=first)".into(),
+        regex: true,
+        ..Default::default()
+    };
+    assert!(history::count(&repo, &roots, Some(&invalid), &token).is_err());
+    token.cancel();
+    assert!(history::count(&repo, &roots, None, &token).is_err());
+}

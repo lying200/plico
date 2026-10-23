@@ -1,6 +1,6 @@
 //! File history tab and selection-history window, with on-demand revision previews.
 use gpui_kit::component::{
-    Disableable as _, Icon, Root, Sizable as _, TitleBar,
+    ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _, TitleBar,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     diff::{Diff, DiffChangeIndicator, DiffFile, DiffMode, DiffState},
@@ -81,6 +81,8 @@ pub struct HistoryView {
     changes_only: bool,
     limit: usize,
     loading: bool,
+    collecting: bool,
+    scope: Option<std::sync::Arc<file_history::Scope>>,
     error: Option<String>,
     viewer: Option<Entity<DiffState>>,
     mode: DiffMode,
@@ -176,6 +178,8 @@ impl HistoryView {
             changes_only: true,
             limit,
             loading: false,
+            collecting: false,
+            scope: None,
             error: None,
             viewer: None,
             mode,
@@ -203,6 +207,24 @@ impl HistoryView {
         }
     }
     fn load(&mut self, cx: &mut Context<Self>) {
+        self.scope = None;
+        self.load_batch(false, cx);
+    }
+    fn continue_loading(&mut self, cx: &mut Context<Self>) {
+        if self.loading || self.collecting || !self.history.more {
+            return;
+        }
+        self.limit = self.limit.saturating_mul(2).max(file_history::PAGE);
+        self.load_batch(true, cx);
+    }
+    fn pause_loading(&mut self, cx: &mut Context<Self>) {
+        self.token.cancel();
+        self.generation += 1;
+        self.task = Task::ready(());
+        self.collecting = false;
+        cx.notify();
+    }
+    fn load_batch(&mut self, continuation: bool, cx: &mut Context<Self>) {
         self.graph_hover = None;
         if self.restore.is_none() && !self.visible.is_empty() {
             self.restore = Some(self.reading_state());
@@ -210,23 +232,40 @@ impl HistoryView {
         self.token.cancel();
         self.token = Cancel::default();
         self.generation += 1;
-        self.preview_token.cancel();
-        self.preview_generation += 1;
-        self.preview_task = Task::ready(());
-        self.clear_details();
-        self.loading = true;
+        if !continuation {
+            self.preview_token.cancel();
+            self.preview_generation += 1;
+            self.preview_task = Task::ready(());
+            self.clear_details();
+            self.viewer = None;
+        }
+        self.loading = !continuation;
+        self.collecting = continuation;
         self.error = None;
-        self.viewer = None;
         let repo = self.repo.clone();
         let path = self.path.clone();
         let selection = self.selection.clone();
         let limit = self.limit;
         let branch = self.branch.clone();
+        let scope = self.scope.clone();
         let token = self.token.clone();
         let generation = self.generation;
         self.task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
+                    let scope = if selection.is_none() {
+                        Some(match scope {
+                            Some(scope) => scope,
+                            None => std::sync::Arc::new(file_history::Scope::open(
+                                &repo,
+                                &path,
+                                branch.as_deref(),
+                                &token,
+                            )?),
+                        })
+                    } else {
+                        None
+                    };
                     let (h, refs, graph, links, head_id) = if selection.is_some() {
                         (
                             file_history::load(&repo, &path, limit, &token)?,
@@ -236,13 +275,7 @@ impl HistoryView {
                             None,
                         )
                     } else {
-                        let scoped = file_history::load_scoped(
-                            &repo,
-                            &path,
-                            branch.as_deref(),
-                            limit,
-                            &token,
-                        )?;
+                        let scoped = scope.as_ref().unwrap().load(&repo, &path, limit, &token)?;
                         (
                             scoped.history,
                             scoped.refs,
@@ -255,7 +288,15 @@ impl HistoryView {
                         .as_ref()
                         .map(|s| file_history::trace(&repo, &h, s, &token))
                         .transpose()?;
-                    Ok::<_, String>((h, rows.unwrap_or_default(), refs, graph, links, head_id))
+                    Ok::<_, String>((
+                        h,
+                        rows.unwrap_or_default(),
+                        refs,
+                        graph,
+                        links,
+                        head_id,
+                        scope,
+                    ))
                 })
                 .await;
             let _ = this.update(cx, |s, cx| {
@@ -263,18 +304,51 @@ impl HistoryView {
                     return;
                 }
                 s.loading = false;
+                s.collecting = false;
+                let mut resume = false;
                 match result {
-                    Ok((h, rows, refs, graph, links, head_id)) => {
+                    Ok((h, rows, refs, graph, links, head_id, scope)) => {
+                        s.scope = scope;
+                        resume = h.more && s.selection.is_none();
                         s.head_id = head_id;
                         s.links = links;
                         s.refs = refs;
                         s.graph = std::sync::Arc::new(graph);
+                        if continuation {
+                            let row_height = crate::ui_style::log_row_height(cx);
+                            let state = s.scroll.0.borrow();
+                            let position = state.base_handle.offset();
+                            let pending = state.deferred_scroll_to_item.is_some();
+                            let top = state
+                                .deferred_scroll_to_item
+                                .as_ref()
+                                .map(|i| i.item_index)
+                                .unwrap_or_else(|| {
+                                    ((-position.y / px(row_height)).max(0.)).floor() as usize
+                                });
+                            let anchor =
+                                s.history.revisions.get(top).and_then(|old| {
+                                    h.revisions.iter().position(|r| r.id == old.id)
+                                });
+                            drop(state);
+                            if let Some(index) = anchor {
+                                if pending {
+                                    s.scroll.scroll_to_item_strict(index, ScrollStrategy::Top);
+                                } else {
+                                    let mut position = position;
+                                    position.y -= px((index as f32 - top as f32) * row_height);
+                                    s.scroll.0.borrow().base_handle.set_offset(position);
+                                }
+                            }
+                        }
                         s.history = h;
                         s.traced = rows;
                         s.rebuild();
                         let restored = s.restore.take();
-                        if let Some(state) = &restored {
-                            s.revisions = state.revisions.clone();
+                        if !continuation {
+                            if let Some(state) = &restored {
+                                s.revisions = state.revisions.clone();
+                            }
                         }
                         let row = restored
                             .as_ref()
@@ -289,7 +363,9 @@ impl HistoryView {
                             .unwrap_or(0);
                         let ids = s.revision_ids();
                         s.revisions.reconcile(&ids);
-                        if s.selection.is_none()
+                        if continuation {
+                            s.selected = s.revisions.lead(&ids).unwrap_or(s.selected);
+                        } else if s.selection.is_none()
                             && restored.as_ref().is_some_and(|st| st.revision.is_some())
                             && s.revisions.lead(&ids).is_some()
                         {
@@ -301,16 +377,21 @@ impl HistoryView {
                         }
                     }
                     Err(e) => {
-                        s.visible.clear();
-                        s.graph = Default::default();
-                        s.traced.clear();
-                        s.history = History {
-                            revisions: vec![],
-                            more: false,
-                            older: None,
-                        };
+                        if !continuation {
+                            s.visible.clear();
+                            s.graph = Default::default();
+                            s.traced.clear();
+                            s.history = History {
+                                revisions: vec![],
+                                more: false,
+                                older: None,
+                            };
+                        }
                         s.error = Some(e);
                     }
+                }
+                if resume {
+                    s.continue_loading(cx);
                 }
                 cx.notify();
             });
@@ -1003,25 +1084,57 @@ impl HistoryView {
                 .flex_1()
                 .min_h_0(),
             )
-            .when(self.history.more, |v| {
-                v.child(
-                    h_flex()
-                        .gap_2()
-                        .child(t("More file history is available"))
-                        .child(
+            .child(
+                h_flex()
+                    .h(px(32.))
+                    .flex_shrink_0()
+                    .min_w_0()
+                    .px_3()
+                    .gap_2()
+                    .border_t_1()
+                    .border_color(rgb(crate::ui_style::BORDER))
+                    .text_size(px(12.))
+                    .text_color(rgb(crate::ui_style::MUTED))
+                    .child(
+                        div().min_w_0().truncate().child(i18n::history_count(
+                            self.history.revisions.len(),
+                            0,
+                            (!self.history.more && !self.loading && self.error.is_none())
+                                .then_some(self.history.revisions.len()),
+                        )),
+                    )
+                    .when(self.collecting, |v| {
+                        v.child(gpui_kit::component::spinner::Spinner::new().small())
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(t("Loading remaining history…")),
+                            )
+                    })
+                    .child(div().flex_1())
+                    .when(self.collecting, |v| {
+                        v.child(
+                            Button::new("pause-history")
+                                .link()
+                                .text_color(cx.theme().link)
+                                .small()
+                                .label(t("Pause loading"))
+                                .on_click(cx.listener(|s, _, _, cx| s.pause_loading(cx))),
+                        )
+                    })
+                    .when(self.history.more && !self.collecting, |v| {
+                        v.child(
                             Button::new("more-file-history")
                                 .link()
+                                .text_color(cx.theme().link)
                                 .small()
-                                .label(t("Load more"))
-                                .disabled(self.limit >= file_history::MAX_REVISIONS || self.loading)
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    s.limit = (s.limit + file_history::PAGE)
-                                        .min(file_history::MAX_REVISIONS);
-                                    s.load(cx);
-                                })),
-                        ),
-                )
-            })
+                                .label(t("Resume loading"))
+                                .disabled(self.loading)
+                                .on_click(cx.listener(|s, _, _, cx| s.continue_loading(cx))),
+                        )
+                    }),
+            )
             .into_any_element()
     }
     pub fn source_request(&self, cx: &App) -> Option<SourceRequest> {
@@ -1553,5 +1666,104 @@ impl Render for HistoryWindow {
             .text_color(rgb(0xced0d6))
             .child(TitleBar::new().child(t("History for Selection")))
             .child(div().flex_1().min_h_0().child(self.history.clone()))
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod loading_tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+
+    #[gpui::test]
+    fn pause_preserves_prefix_and_resume_finishes_same_scope(cx: &mut gpui::TestAppContext) {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let name = format!("plico-history-pause-{}-{nonce}", std::process::id());
+        let fixture = Fixture(std::env::temp_dir().join(name));
+        std::fs::create_dir(&fixture.0).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(&fixture.0)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        for content in ["one", "two"] {
+            std::fs::write(fixture.0.join("file.txt"), content).unwrap();
+            git(&["add", "file.txt"]);
+            git(&[
+                "-c",
+                "user.name=History",
+                "-c",
+                "user.email=history@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                content,
+            ]);
+        }
+        let repo = Repository::new(fixture.0.clone());
+        let token = Cancel::default();
+        let scope = std::sync::Arc::new(
+            file_history::Scope::open(
+                &repo,
+                std::path::Path::new("file.txt"),
+                Some("HEAD"),
+                &token,
+            )
+            .unwrap(),
+        );
+        let prefix = scope
+            .load(&repo, std::path::Path::new("file.txt"), 1, &token)
+            .unwrap();
+        let first = prefix.history.revisions[0].id.clone();
+        cx.update(gpui::component::init);
+        let view = cx.new(|cx| {
+            let mut view = HistoryView::new(repo, "file.txt".into(), None, None, cx);
+            view.token.cancel();
+            view.generation += 1;
+            view.task = Task::ready(());
+            view.loading = false;
+            view.limit = 1;
+            view.scope = Some(scope);
+            view.history = prefix.history;
+            view.rebuild();
+            view.continue_loading(cx);
+            assert!(view.collecting);
+            view.pause_loading(cx);
+            view
+        });
+        cx.run_until_parked();
+        view.update(cx, |view, cx| {
+            assert!(!view.collecting);
+            assert_eq!(view.history.revisions.len(), 1);
+            assert_eq!(view.history.revisions[0].id, first);
+            assert!(view.history.more);
+            view.continue_loading(cx);
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.history.revisions.len(), 2);
+            assert_eq!(view.history.revisions[0].id, first);
+            assert!(!view.history.more);
+            assert!(!view.collecting);
+            assert!(view.error.is_none(), "{:?}", view.error);
+        });
     }
 }

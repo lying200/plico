@@ -346,6 +346,7 @@ impl Review {
                                 s.rows = Arc::new(rows);
                                 s.commits = Arc::new(std::mem::take(&mut snapshot.commits));
                                 s.snapshot = Some(snapshot);
+                                s.update_history_count(cx);
                                 s.rebuild_branches(cx);
                                 s.select_commit(found.selected, cx);
                                 s.history_scroll

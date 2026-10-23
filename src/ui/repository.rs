@@ -207,6 +207,7 @@ impl Review {
         self.selected_tree_ref = None;
         self.branch_rows = Arc::default();
         self.collapsed_branches.clear();
+        self.history_count.invalidate();
         self.snapshot = None;
         self.commits = Arc::default();
         self.rows = Arc::default();
@@ -295,6 +296,7 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         if !more {
+            self.history_count.invalidate();
             self.details_cache.clear();
             if let Some(view) = &self.local_view {
                 view.update(cx, |s, cx| s.refresh(cx));
@@ -479,6 +481,7 @@ impl Review {
                                 this.squash_undo = None;
                             }
                             this.snapshot = Some(s);
+                            this.update_history_count(cx);
                             this.rebuild_branches(cx);
                             this.selected = None;
                             let ids = this.commit_ids();

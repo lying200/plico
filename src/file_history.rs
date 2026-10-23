@@ -10,7 +10,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 pub const PAGE: usize = 100;
-pub const MAX_REVISIONS: usize = 1000;
+// Bound each Git response, not the amount of history the user may browse.
+const QUERY_PAGE: usize = 1000;
 pub const TEXT_LIMIT: usize = 5 * 1024 * 1024;
 pub const BLOCK_BUDGET: usize = 16 * 1024 * 1024;
 #[derive(Clone, Debug)]
@@ -313,90 +314,111 @@ fn load_root(
     head: String,
     token: &Cancel,
 ) -> Result<History> {
-    let limit = limit.clamp(1, MAX_REVISIONS);
+    let limit = limit.max(1);
     let mut queue = VecDeque::from([(head, path.to_owned())]);
     let mut seen = HashSet::new();
     let mut revisions = vec![];
+    let mut metadata_bytes = 0usize;
     while let Some((start, path)) = queue.pop_front() {
-        if token.cancelled() {
-            return Err("Cancelled".into());
-        }
-        let args = [
-            "-c",
-            "diff.renames=false",
-            "log",
-            "--date-order",
-            "--no-notes",
-            "--no-show-signature",
-            "--encoding=UTF-8",
-            "-z",
-            "--format=%H%x00%P%x00%at%x00%an%x00%B%x00",
-            "--name-status",
-            "-m",
-        ]
-        .map(OsString::from)
-        .to_vec();
-        let mut args = args;
-        args.extend([
-            format!("--max-count={}", limit + 1).into(),
-            start.into(),
-            "--".into(),
-            path.as_os_str().to_owned(),
-        ]);
-        let records = parse(&read(repo, args, token)?, &path)?;
-        for record in records {
-            if !seen.insert(record.revision.id.clone()) {
-                continue;
+        let mut offset = 0usize;
+        let page_size = limit.saturating_add(1).min(QUERY_PAGE);
+        'path_pages: loop {
+            if token.cancelled() {
+                return Err("Cancelled".into());
             }
-            if revisions.len() == limit {
-                return Ok(History {
-                    revisions,
-                    more: true,
-                    older: Some(record.revision),
-                });
+            let args = [
+                "-c",
+                "diff.renames=false",
+                "log",
+                "--date-order",
+                "--no-notes",
+                "--no-show-signature",
+                "--encoding=UTF-8",
+                "-z",
+                "--format=%H%x00%P%x00%at%x00%an%x00%B%x00",
+                "--name-status",
+                "-m",
+            ]
+            .map(OsString::from)
+            .to_vec();
+            let mut args = args;
+            args.extend([
+                format!("--max-count={page_size}").into(),
+                format!("--skip={offset}").into(),
+                start.clone().into(),
+                "--".into(),
+                path.as_os_str().to_owned(),
+            ]);
+            let records = parse(&read(repo, args, token)?, &path)?;
+            if records.is_empty() {
+                break;
             }
-            let boundary = record.added;
-            let revision = record.revision;
-            revisions.push(revision.clone());
-            if boundary {
-                // As upstream: log to the newest addition, then inspect each
-                // parent with rename detection. Never use --follow for the whole log.
-                for parent in &revision.parents {
-                    let bytes = read(
-                        repo,
-                        vec![
-                            "diff-tree".into(),
-                            "--no-commit-id".into(),
-                            "--name-status".into(),
-                            "-r".into(),
-                            "-M".into(),
-                            "-z".into(),
-                            parent.into(),
-                            revision.id.clone().into(),
-                            "--".into(),
-                        ],
-                        token,
-                    )?;
-                    let f: Vec<_> = bytes.split(|b| *b == 0).filter(|s| !s.is_empty()).collect();
-                    let mut j = 0;
-                    while j < f.len() {
-                        let kind = f[j].first().copied().ok_or("Invalid rename status")?;
-                        j += 1;
-                        let old =
-                            crate::git::path_from_bytes(f.get(j).ok_or("Missing rename source")?)?;
-                        j += 1;
-                        if matches!(kind, b'R' | b'C') {
-                            let new = crate::git::path_from_bytes(
-                                f.get(j).ok_or("Missing rename target")?,
+            offset = offset
+                .checked_add(page_size)
+                .ok_or("File history offset overflow")?;
+            for record in records {
+                if !seen.insert(record.revision.id.clone()) {
+                    continue;
+                }
+                if revisions.len() == limit {
+                    return Ok(History {
+                        revisions,
+                        more: true,
+                        older: Some(record.revision),
+                    });
+                }
+                let boundary = record.added;
+                let revision = record.revision;
+                metadata_bytes += revision.message.len()
+                    + revision.author.len()
+                    + revision.path.as_os_str().len()
+                    + 256;
+                if metadata_bytes > BLOCK_BUDGET {
+                    return Err("File history exceeds metadata budget".into());
+                }
+                revisions.push(revision.clone());
+                if boundary {
+                    // As upstream: log to the newest addition, then inspect each
+                    // parent with rename detection. Never use --follow for the whole log.
+                    for parent in &revision.parents {
+                        let bytes = read(
+                            repo,
+                            vec![
+                                "diff-tree".into(),
+                                "--no-commit-id".into(),
+                                "--name-status".into(),
+                                "-r".into(),
+                                "-M".into(),
+                                "-z".into(),
+                                parent.into(),
+                                revision.id.clone().into(),
+                                "--".into(),
+                            ],
+                            token,
+                        )?;
+                        let f: Vec<_> =
+                            bytes.split(|b| *b == 0).filter(|s| !s.is_empty()).collect();
+                        let mut j = 0;
+                        while j < f.len() {
+                            let kind = f[j].first().copied().ok_or("Invalid rename status")?;
+                            j += 1;
+                            let old = crate::git::path_from_bytes(
+                                f.get(j).ok_or("Missing rename source")?,
                             )?;
                             j += 1;
-                            if kind == b'R' && new == path {
-                                queue.push_back((parent.clone(), old));
+                            if matches!(kind, b'R' | b'C') {
+                                let new = crate::git::path_from_bytes(
+                                    f.get(j).ok_or("Missing rename target")?,
+                                )?;
+                                j += 1;
+                                if kind == b'R' && new == path {
+                                    queue.push_back((parent.clone(), old));
+                                }
                             }
                         }
                     }
+                    break 'path_pages;
                 }
-                break;
             }
         }
     }
@@ -428,11 +450,27 @@ pub fn load_scoped(
     limit: usize,
     token: &Cancel,
 ) -> Result<ScopedHistory> {
-    validate(path)?;
-    let head = resolve(repo, "HEAD", token)?;
-    let bytes = read(
-        repo,
-        vec![
+    Scope::open(repo, path, branch, token)?.load(repo, path, limit, token)
+}
+/// Immutable query identity reused while collecting successive batches.
+#[derive(Clone)]
+pub struct Scope {
+    head: String,
+    refs: Vec<RefChoice>,
+    roots: Vec<String>,
+}
+impl Scope {
+    pub fn open(
+        repo: &Repository,
+        path: &Path,
+        branch: Option<&str>,
+        token: &Cancel,
+    ) -> Result<Self> {
+        validate(path)?;
+        let head = resolve(repo, "HEAD", token)?;
+        let bytes = read(
+            repo,
+            vec![
             "for-each-ref".into(),
             "--format=%(refname)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)"
                 .into(),
@@ -440,164 +478,179 @@ pub fn load_scoped(
             "refs/remotes".into(),
             "refs/tags".into(),
         ],
-        token,
-    )?;
-    let mut refs = vec![];
-    for line in std::str::from_utf8(&bytes)
-        .map_err(|_| "Invalid refs")?
-        .lines()
-    {
-        let f: Vec<_> = line.split('\0').collect();
-        if f.len() != 5 {
-            return Err("Invalid history refs".into());
-        }
-        let id = match (f[2], f[4]) {
-            ("commit", _) => f[1].to_owned(),
-            ("tag", "commit") => f[3].to_owned(),
-            ("tag", "tag") => resolve(repo, f[0], token)?,
-            _ => continue,
-        };
-        if !crate::git::is_oid(&id) {
-            return Err("Invalid history ref target".into());
-        }
-        refs.push(RefChoice {
-            name: f[0].into(),
-            id,
-        });
-        if refs.len() > 4096 {
-            return Err("File history exceeds reference budget".into());
-        }
-    }
-    let mut roots = match branch {
-        Some("HEAD") => vec![head.clone()],
-        Some(name) => vec![
-            refs.iter()
-                .find(|r| r.name == name)
-                .ok_or("Branch no longer exists; refresh")?
-                .id
-                .clone(),
-        ],
-        None => refs
-            .iter()
-            .map(|r| r.id.clone())
-            .chain([head.clone()])
-            .collect(),
-    };
-    roots.sort();
-    roots.dedup();
-    if roots.len() > 128 {
-        return Err("File history exceeds branch traversal budget".into());
-    }
-    let limit = limit.clamp(1, MAX_REVISIONS);
-    let mut revisions = HashMap::new();
-    let mut more = false;
-    let mut metadata_bytes = 0usize;
-    for root in &roots {
-        let h = load_root(repo, path, limit, root.clone(), token)?;
-        more |= h.more;
-        for r in h.revisions.into_iter().chain(h.older) {
-            if !revisions.contains_key(&r.id) {
-                metadata_bytes += r.message.len() + r.author.len() + r.path.as_os_str().len() + 256;
-                if revisions.len() >= 16000 || metadata_bytes > BLOCK_BUDGET {
-                    return Err("File history exceeds metadata budget".into());
-                }
-                revisions.insert(r.id.clone(), r);
+            token,
+        )?;
+        let mut refs = vec![];
+        for line in std::str::from_utf8(&bytes)
+            .map_err(|_| "Invalid refs")?
+            .lines()
+        {
+            let f: Vec<_> = line.split('\0').collect();
+            if f.len() != 5 {
+                return Err("Invalid history refs".into());
+            }
+            let id = match (f[2], f[4]) {
+                ("commit", _) => f[1].to_owned(),
+                ("tag", "commit") => f[3].to_owned(),
+                ("tag", "tag") => resolve(repo, f[0], token)?,
+                _ => continue,
+            };
+            if !crate::git::is_oid(&id) {
+                return Err("Invalid history ref target".into());
+            }
+            refs.push(RefChoice {
+                name: f[0].into(),
+                id,
+            });
+            if refs.len() > 4096 {
+                return Err("File history exceeds reference budget".into());
             }
         }
-    }
-    // Full ancestry is temporary: path-limited Git log can rewrite parents, and
-    // cannot safely be used as the real revision graph (especially across renames).
-    let mut args: Vec<OsString> = [
-        "rev-list",
-        "--topo-order",
-        "--parents",
-        "--max-count=100001",
-    ]
-    .map(Into::into)
-    .to_vec();
-    args.extend(roots.iter().map(Into::into));
-    args.push("--".into());
-    let bytes = read(repo, args, token)?;
-    let topology: Vec<Vec<String>> = std::str::from_utf8(&bytes)
-        .map_err(|_| "Invalid history topology")?
-        .lines()
-        .map(|l| l.split_whitespace().map(str::to_owned).collect())
-        .collect();
-    if topology.len() > 100000 {
-        return Err("File history exceeds 100000-commit ancestry budget".into());
-    }
-    let positions: HashMap<_, _> = topology
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n[0].clone(), i))
-        .collect();
-    let mut parents = vec![];
-    let mut visible = vec![];
-    let mut ordered = vec![];
-    for n in &topology {
-        if token.cancelled() {
-            return Err("Cancelled".into());
+        let mut roots = match branch {
+            Some("HEAD") => vec![head.clone()],
+            Some(name) => vec![
+                refs.iter()
+                    .find(|r| r.name == name)
+                    .ok_or("Branch no longer exists; refresh")?
+                    .id
+                    .clone(),
+            ],
+            None => refs
+                .iter()
+                .map(|r| r.id.clone())
+                .chain([head.clone()])
+                .collect(),
+        };
+        roots.sort();
+        roots.dedup();
+        if roots.len() > 128 {
+            return Err("File history exceeds branch traversal budget".into());
         }
-        parents.push(
-            n.iter()
-                .skip(1)
-                .map(|id| {
-                    positions
-                        .get(id)
-                        .copied()
-                        .ok_or_else(|| "Incomplete file history ancestry".to_owned())
-                })
-                .collect::<Result<Vec<_>>>()?,
-        );
-        let r = revisions.remove(&n[0]);
-        visible.push(r.is_some());
-        if let Some(r) = r {
-            ordered.push(r);
+        Ok(Self { head, refs, roots })
+    }
+    pub fn load(
+        &self,
+        repo: &Repository,
+        path: &Path,
+        limit: usize,
+        token: &Cancel,
+    ) -> Result<ScopedHistory> {
+        validate(path)?;
+        let head = self.head.clone();
+        let refs = self.refs.clone();
+        let roots = &self.roots;
+        let limit = limit.max(1);
+        let mut revisions = HashMap::new();
+        let mut more = false;
+        let mut metadata_bytes = 0usize;
+        for root in roots {
+            let h = load_root(repo, path, limit, root.clone(), token)?;
+            more |= h.more;
+            for r in h.revisions.into_iter().chain(h.older) {
+                if !revisions.contains_key(&r.id) {
+                    metadata_bytes +=
+                        r.message.len() + r.author.len() + r.path.as_os_str().len() + 256;
+                    if revisions.len() >= 16000 || metadata_bytes > BLOCK_BUDGET {
+                        return Err("File history exceeds metadata budget".into());
+                    }
+                    revisions.insert(r.id.clone(), r);
+                }
+            }
         }
-    }
-    if !revisions.is_empty() {
-        return Err("File history changed during loading; refresh".into());
-    }
-    let edges = crate::filtered_graph::project(&parents, &visible, 400000)?;
-    let mut projected: HashMap<String, Vec<(String, bool)>> = HashMap::new();
-    for e in edges {
-        projected
-            .entry(topology[e.child][0].clone())
-            .or_default()
-            .push((topology[e.parent][0].clone(), e.dotted));
-    }
-    more |= ordered.len() > limit;
-    let older = ordered.get(limit).cloned();
-    ordered.truncate(limit);
-    let links: Vec<_> = ordered
-        .iter()
-        .map(|r| projected.remove(&r.id).unwrap_or_default())
-        .collect();
-    let mut layout = crate::graph::Layout::default();
-    let mut geometry = crate::graph::GeometryPool::default();
-    let mut raw = Vec::with_capacity(ordered.len());
-    for (revision, parents) in ordered.iter().zip(&links) {
-        if token.cancelled() {
-            return Err("Cancelled".into());
+        // Full ancestry is temporary: path-limited Git log can rewrite parents, and
+        // cannot safely be used as the real revision graph (especially across renames).
+        let mut args: Vec<OsString> = [
+            "rev-list",
+            "--topo-order",
+            "--parents",
+            "--max-count=100001",
+        ]
+        .map(Into::into)
+        .to_vec();
+        args.extend(roots.iter().map(Into::into));
+        args.push("--".into());
+        let bytes = read(repo, args, token)?;
+        let topology: Vec<Vec<String>> = std::str::from_utf8(&bytes)
+            .map_err(|_| "Invalid history topology")?
+            .lines()
+            .map(|l| l.split_whitespace().map(str::to_owned).collect())
+            .collect();
+        if topology.len() > 100000 {
+            return Err("File history exceeds 100000-commit ancestry budget".into());
         }
-        let mut row = layout.append_projected_bounded(&revision.id, parents)?;
-        if !geometry.intern(&mut row, 500_000) {
-            return Err("File history graph exceeds geometry budget".into());
+        let positions: HashMap<_, _> = topology
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n[0].clone(), i))
+            .collect();
+        let mut parents = vec![];
+        let mut visible = vec![];
+        let mut ordered = vec![];
+        for n in &topology {
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
+            parents.push(
+                n.iter()
+                    .skip(1)
+                    .map(|id| {
+                        positions
+                            .get(id)
+                            .copied()
+                            .ok_or_else(|| "Incomplete file history ancestry".to_owned())
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            );
+            let r = revisions.remove(&n[0]);
+            visible.push(r.is_some());
+            if let Some(r) = r {
+                ordered.push(r);
+            }
         }
-        raw.push(row);
+        if !revisions.is_empty() {
+            return Err("File history changed during loading; refresh".into());
+        }
+        let edges = crate::filtered_graph::project(&parents, &visible, 400000)?;
+        let mut projected: HashMap<String, Vec<(String, bool)>> = HashMap::new();
+        for e in edges {
+            projected
+                .entry(topology[e.child][0].clone())
+                .or_default()
+                .push((topology[e.parent][0].clone(), e.dotted));
+        }
+        more |= ordered.len() > limit;
+        let older = ordered.get(limit).cloned();
+        ordered.truncate(limit);
+        let links: Vec<_> = ordered
+            .iter()
+            .map(|r| projected.remove(&r.id).unwrap_or_default())
+            .collect();
+        let mut layout = crate::graph::Layout::default();
+        let mut geometry = crate::graph::GeometryPool::default();
+        let mut raw = Vec::with_capacity(ordered.len());
+        for (revision, parents) in ordered.iter().zip(&links) {
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
+            let mut row = layout.append_projected_bounded(&revision.id, parents)?;
+            if !geometry.intern(&mut row, 500_000) {
+                return Err("File history graph exceeds geometry budget".into());
+            }
+            raw.push(row);
+        }
+        let graph = crate::graph_print::project(&raw, false, token)?;
+        Ok(ScopedHistory {
+            head_id: head,
+            history: History {
+                revisions: ordered,
+                older,
+                more,
+            },
+            refs,
+            graph,
+            links,
+        })
     }
-    let graph = crate::graph_print::project(&raw, false, token)?;
-    Ok(ScopedHistory {
-        head_id: head,
-        history: History {
-            revisions: ordered,
-            older,
-            more,
-        },
-        refs,
-        graph,
-        links,
-    })
 }
 /// Compare with a real parent, never a neighbouring row from another branch.
 /// Rename detection uses the same parent-by-parent boundary rule as load_root.

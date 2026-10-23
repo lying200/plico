@@ -4416,3 +4416,27 @@ Clippy（既有警告）、格式检查通过，CI未运行。恢复不再受编
 预览仍保留限制。非Windows缺失文件发布仍依赖hard-link，Windows已使用无覆盖移动。
 原生发现预览超限错误误用“无法加载文件历史”提示并影响总数显示，列表与Get可用；
 此为后续独立修正项，不把截图中的错误状态算作完整UI通过。
+
+
+### 文件历史预览失败隔离：实现前依据（2026-10-24）
+
+原生同一6.65MB文件：Rebased1.1.20的历史列表仍显示两条，预览独立显示内容；
+截图history-preview-reference.png（此前已通过旧版本Get实际交互）。Plico相同历史
+预览触发5MiB限制，错误错误地出现在列表顶部，并使总数成为—。
+实读4aec352的platform/vcs-log/impl/src/com/intellij/vcs/log/history/FileHistoryDiffProcessor.kt：
+独立SingleFileDiffPreviewProcessor由选中change产生Diff请求；
+platform/diff-impl/src/com/intellij/diff/impl/CacheDiffRequestProcessor.java::doLoadRequest
+将producer异常转换为ErrorDiffRequest，不修改历史查询状态。
+本地src/history_view.rs将preview_error与列表error分离，在预览区显示可重试错误，
+切换选择只清除预览错误。保留本地5MiB预览限制，未声称与Rebased文件大小上限一致；
+上游异常状态本轮未人为破坏Git对象触发，错误区域归属以已读源码为依据。
+真实GPUI异步回归preview_failure_does_not_fail_history修复前失败，确认两条历史完整
+但预览超限污染error；查询失败与迟到结果不是该最小复现的原因。
+
+
+历史预览隔离验收：新增真实Git+GPUI异步回归，5MiB以上旧版本触发预览失败，
+断言历史两条完整、history.error为空、preview_error保留明确原因。修复前失败、
+修复后通过；既有暂停/继续历史加载测试亦通过。完整桌面84通过/2既有忽略，
+F7专项8通过；Windows release及格式检查通过。Plico41952原生重新打开同一文件历史，
+列表显示2/2，无顶部历史错误；底部显示本地化“无法加载差异。”及刷新/详情，
+截图history-preview-fixed.png。保留预览上限与错误提示控件外观差异，不宣称像素还原。

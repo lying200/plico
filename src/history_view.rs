@@ -70,6 +70,7 @@ pub struct HistoryView {
     preview_after: Option<Revision>,
     preview_versions: Vec<Revision>,
     preview_loading: bool,
+    preview_error: Option<String>,
     branch: Option<String>,
     refs: Vec<file_history::RefChoice>,
     graph: std::sync::Arc<Vec<plico::graph::Row>>,
@@ -163,6 +164,7 @@ impl HistoryView {
             preview_after: None,
             preview_versions: vec![],
             preview_loading: false,
+            preview_error: None,
             branch,
             refs: vec![],
             graph: Default::default(),
@@ -245,6 +247,8 @@ impl HistoryView {
             self.preview_generation += 1;
             self.preview_task = Task::ready(());
             self.clear_details();
+            self.preview_error = None;
+            self.preview_loading = false;
             self.viewer = None;
         }
         self.loading = !continuation;
@@ -665,7 +669,7 @@ impl HistoryView {
         self.preview_after = None;
         self.preview_versions.clear();
         self.preview_loading = false;
-        self.error = None;
+        self.preview_error = None;
         if self.selection.is_some() {
             let Some(&index) = self.visible.get(self.selected) else {
                 cx.notify();
@@ -693,7 +697,7 @@ impl HistoryView {
                     return;
                 }
                 Err(error) => {
-                    self.error = Some(error);
+                    self.preview_error = Some(error);
                     cx.notify();
                     return;
                 }
@@ -744,7 +748,7 @@ impl HistoryView {
                         let before = texts.pop().flatten();
                         s.set_diff(before.as_deref(), after.as_deref(), cx);
                     }
-                    Err(e) => s.error = Some(e),
+                    Err(e) => s.preview_error = Some(e),
                 }
                 cx.notify();
             });
@@ -762,7 +766,7 @@ impl HistoryView {
         use gpui_kit::component::diff::{DiffTint, ThreeWayRow};
         let versions: Option<Vec<_>> = versions.into_iter().collect();
         let Some(versions) = versions.filter(|v| v.len() == 3) else {
-            self.error = Some("Invalid three-way revisions".into());
+            self.preview_error = Some("Invalid three-way revisions".into());
             return;
         };
         let files = versions
@@ -805,7 +809,7 @@ impl HistoryView {
                 self.preview_versions = versions;
                 self.viewer = Some(viewer);
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => self.preview_error = Some(error),
         }
         cx.notify();
     }
@@ -847,7 +851,7 @@ impl HistoryView {
                 .detach();
                 self.viewer = Some(viewer);
             }
-            Err(e) => self.error = Some(e.into()),
+            Err(e) => self.preview_error = Some(e.into()),
         }
         cx.notify();
     }
@@ -1498,8 +1502,20 @@ impl HistoryView {
                         .change_indicator(DiffChangeIndicator::None),
                 )
             })
+            .when_some(self.preview_error.clone(), |v, error| {
+                v.child(crate::error_ui::notice(
+                    "file-history-preview-error",
+                    "Could not load the diff.",
+                    error,
+                    self.preview_loading,
+                    cx.listener(|s, _, _, cx| s.refresh_preview(cx)),
+                ))
+            })
             .when(
-                self.viewer.is_none() && !self.loading && self.error.is_none(),
+                self.viewer.is_none()
+                    && !self.loading
+                    && self.error.is_none()
+                    && self.preview_error.is_none(),
                 |v| {
                     v.child(div().p_4().child(t(if self.visible.is_empty() {
                         "No history for this file"
@@ -1730,6 +1746,73 @@ mod loading_tests {
     use core::prelude::v1::test;
     extern crate gpui_kit as gpui;
 
+    #[gpui::test]
+    fn preview_failure_does_not_fail_history(cx: &mut gpui::TestAppContext) {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let name = format!("plico-history-preview-{}-{nonce}", std::process::id());
+        let fixture = Fixture(std::env::temp_dir().join(name));
+        std::fs::create_dir(&fixture.0).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(&fixture.0)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        for content in ["x".repeat(5 * 1024 * 1024 + 1), "small".into()] {
+            std::fs::write(fixture.0.join("file.txt"), &content).unwrap();
+            git(&["add", "file.txt"]);
+            git(&[
+                "-c",
+                "user.name=History",
+                "-c",
+                "user.email=history@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "revision",
+            ]);
+        }
+        cx.update(gpui::component::init);
+        let view = cx.new(|cx| {
+            HistoryView::new(
+                Repository::new(fixture.0.clone()),
+                "file.txt".into(),
+                None,
+                None,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.history.revisions.len(), 2);
+            assert!(!view.history.more);
+            assert!(!view.preview_loading);
+            assert!(view.viewer.is_none());
+            assert!(view.preview_error.as_deref().unwrap().contains("5 MiB"));
+            assert!(
+                view.error.is_none(),
+                "Preview failure leaked into history: {:?}",
+                view.error
+            );
+        });
+    }
     #[gpui::test]
     fn pause_preserves_prefix_and_resume_finishes_same_scope(cx: &mut gpui::TestAppContext) {
         struct Fixture(std::path::PathBuf);

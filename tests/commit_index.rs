@@ -1560,3 +1560,127 @@ fn explicit_recovery_does_not_replace_a_new_staged_ancestor() {
         b"new staged parent\n"
     );
 }
+
+#[test]
+fn selected_gitlink_commits_child_head_without_committing_child_changes() {
+    let f = Fixture::new();
+    f.base();
+    let source = Fixture::new();
+    source.base();
+    f.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        source.0.to_str().unwrap(),
+        "child",
+    ]);
+    f.git(&["commit", "-m", "add child"]);
+    let child = Fixture(f.0.join("child"));
+    assert_eq!(
+        plico::project_files::Project::new(&f.0)
+            .unwrap()
+            .repository_at(
+                std::path::Path::new("child"),
+                &plico::git::Cancel::default()
+            )
+            .unwrap(),
+        child.0.canonicalize().unwrap()
+    );
+    for (key, value) in [
+        ("user.name", "Test"),
+        ("user.email", "test@example.invalid"),
+        ("commit.gpgsign", "false"),
+        ("core.hooksPath", "disabled-hooks"),
+    ] {
+        child.git(&["config", key, value]);
+    }
+    child.write("selected", "child committed\n");
+    child.git(&["add", "selected"]);
+    child.git(&["commit", "-m", "advance child"]);
+    let child_head = String::from_utf8(child.git(&["rev-parse", "HEAD"])).unwrap();
+    child.write("selected", "child staged\n");
+    child.git(&["add", "selected"]);
+    child.write("selected", "child unstaged\n");
+    let target = plico::diff_target::Target::new(
+        plico::git::Repository::new(&f.0),
+        None,
+        plico::git::Change {
+            path: "child".into(),
+            old_path: None,
+            status: "M".into(),
+            area: plico::git::Area::Unstaged,
+        },
+    )
+    .unwrap();
+    assert!(
+        target
+            .is_working_gitlink(&plico::git::Cancel::default())
+            .unwrap()
+    );
+    let patch = target.read(&plico::git::Cancel::default()).unwrap();
+    assert!(
+        patch.contains(&format!("+Subproject commit {}-dirty", child_head.trim())),
+        "{patch}"
+    );
+    let child_index = child.git(&["ls-files", "--stage", "-z"]);
+    let child_status = child.git(&["status", "--porcelain=v2", "-z"]);
+    f.write("excluded", "parent staged\n");
+    f.git(&["add", "excluded"]);
+    f.write("excluded", "parent unstaged\n");
+    let excluded = f.git(&["ls-files", "--stage", "-z", "--", "excluded"]);
+    let mut r = request(&f, false);
+    r.add = vec!["child".into()];
+    let report = execute(&f, &r);
+    assert_eq!(report.status(), plico::commit_operation::Status::Success);
+    let tree = String::from_utf8(f.git(&["ls-tree", "HEAD", "child"])).unwrap();
+    assert_eq!(
+        tree,
+        format!("160000 commit {}\tchild\n", child_head.trim())
+    );
+    assert_eq!(child.git(&["ls-files", "--stage", "-z"]), child_index);
+    assert_eq!(child.git(&["status", "--porcelain=v2", "-z"]), child_status);
+    assert_eq!(
+        fs::read(child.0.join("selected")).unwrap(),
+        b"child unstaged\n"
+    );
+    assert_eq!(
+        f.git(&["ls-files", "--stage", "-z", "--", "excluded"]),
+        excluded
+    );
+    assert_eq!(f.git(&["show", "HEAD:excluded"]), b"base\n");
+}
+
+#[test]
+fn directory_selection_never_recursively_stages_files() {
+    let f = Fixture::new();
+    f.base();
+    fs::create_dir(f.0.join("ordinary")).unwrap();
+    assert!(
+        plico::project_files::Project::new(&f.0)
+            .unwrap()
+            .repository_at(
+                std::path::Path::new("ordinary"),
+                &plico::git::Cancel::default()
+            )
+            .is_err()
+    );
+    f.write("ordinary/private", "do not stage\n");
+    // A .git-shaped directory alone is not evidence of a parent gitlink.
+    fs::create_dir(f.0.join("ordinary/.git")).unwrap();
+    let before = f.git(&["ls-files", "--stage", "-z"]);
+    let mut r = request(&f, false);
+    r.add = vec!["ordinary".into()];
+    let result = plico::commit_operation::execute(
+        &plico::git::Repository::new(&f.0),
+        &r,
+        &plico::git::Cancel::default(),
+        &plico::operation_process::Progress::default(),
+    );
+    assert!(result.is_err());
+    assert_eq!(f.git(&["ls-files", "--stage", "-z"]), before);
+    assert_eq!(
+        fs::read(f.0.join("ordinary/private")).unwrap(),
+        b"do not stage\n"
+    );
+}

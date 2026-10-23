@@ -112,6 +112,31 @@ impl Project {
         &self.root
     }
 
+    /// Open the selected directory itself, never Git's enclosing repository.
+    /// Resolve on the worker so linked/removed entries cannot bypass tree rules.
+    pub fn repository_at(
+        &self,
+        relative: &Path,
+        cancel: &Cancel,
+    ) -> std::result::Result<PathBuf, String> {
+        let path = self
+            .resolve(relative, cancel)
+            .map_err(|e| format!("{e:?}"))?;
+        if !path.is_dir() || !path.join(".git").exists() {
+            return Err("The selected folder is not an initialized Git repository".into());
+        }
+        let root =
+            crate::git::Repository::new(&path).text(&["rev-parse", "--show-toplevel"], cancel)?;
+        let root = Path::new(root.trim_end_matches(['\r', '\n']))
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if root != path.canonicalize().map_err(|e| e.to_string())? {
+            return Err("The selected folder is not a Git repository root".into());
+        }
+        check_cancel(cancel).map_err(|e| format!("{e:?}"))?;
+        Ok(root)
+    }
+
     /// Re-read expanded directories parent-first, up to their previous loaded
     /// boundary. New/closed subtrees are never recursively scanned. A failed
     /// subtree is omitted; other expanded siblings can still be restored.

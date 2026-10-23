@@ -40,6 +40,7 @@ pub struct HistoryRequested {
     pub selection: Option<plico::file_history::Selection>,
 }
 pub struct Open(pub PathBuf, pub bool, pub u64);
+pub struct OpenRepository(pub PathBuf);
 pub struct ProjectView {
     root: PathBuf,
     current_source: Option<PathBuf>,
@@ -67,6 +68,7 @@ pub struct ProjectView {
     task: Task<()>,
 }
 impl EventEmitter<Open> for ProjectView {}
+impl EventEmitter<OpenRepository> for ProjectView {}
 impl Drop for ProjectView {
     fn drop(&mut self) {
         self.token.cancel();
@@ -569,6 +571,9 @@ impl Render for ProjectView {
                             .map(|i| {
                                 let (entry, depth, more) = s.rows[i].clone();
                                 let expanded = s.directories.contains_key(&entry.path);
+                                let repository_path = entry.path.clone();
+                                let repository_owner = cx.entity().downgrade();
+                                let directory = entry.kind == Kind::Directory;
                                 let path = s.root.join(&entry.path);
                                 let copy_path = crate::ui_style::project_path_text(&path);
                                 let relative_path = entry
@@ -730,6 +735,25 @@ impl Render for ProjectView {
                                                             cx.open_with_system(&path);
                                                         }
                                                     }),
+                                            )
+                                            .when(
+                                                directory,
+                                                |menu| {
+                                                    let owner = repository_owner.clone();
+                                                    let relative = repository_path.clone();
+                                                    menu.separator().item(
+                                                        PopupMenuItem::new(t("Open Repository…"))
+                                                            .on_click(move |_, _, cx| {
+                                                                let _ =
+                                                                    owner.update(cx, |s, cx| {
+                                                                        s.open_repository(
+                                                                            relative.clone(),
+                                                                            cx,
+                                                                        );
+                                                                    });
+                                                            }),
+                                                    )
+                                                },
                                             )
                                         })
                                         .into_any_element()

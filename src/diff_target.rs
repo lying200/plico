@@ -131,6 +131,34 @@ impl Target {
         Some(&self.change.path)
     }
 
+    /// Gitlinks are commit identities, not editable files in the parent repo.
+    /// Query in the loader worker; never perform Git IO during rendering.
+    pub fn is_working_gitlink(&self, cancel: &Cancel) -> Result<bool> {
+        if self.working_tree_document().is_none() {
+            return Ok(false);
+        }
+        use std::ffi::OsStr;
+        let records = self.repository.read(
+            &[
+                OsStr::new("--literal-pathspecs"),
+                OsStr::new("ls-files"),
+                OsStr::new("--stage"),
+                OsStr::new("-z"),
+                OsStr::new("--"),
+                self.change.path.as_os_str(),
+            ],
+            cancel,
+        )?;
+        let expected =
+            crate::commit_operation::path_input(std::slice::from_ref(&self.change.path))?;
+        Ok(records.split(|b| *b == 0).any(|record| {
+            record.iter().position(|b| *b == b'\t').is_some_and(|tab| {
+                record[..tab].starts_with(b"160000 ")
+                    && record[tab + 1..] == expected[..expected.len() - 1]
+            })
+        }))
+    }
+
     pub fn identity(&self) -> &Identity {
         &self.identity
     }

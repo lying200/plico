@@ -206,9 +206,9 @@ fn execute_impl(
     }
     for path in &request.add {
         let metadata = fs::symlink_metadata(repo.path.join(path)).map_err(|e| e.to_string())?;
-        if metadata.is_dir() {
+        if metadata.is_dir() && !is_initialized_gitlink(repo, path, token)? {
             return Err(
-                "Select individual files; directory/submodule commits are not yet supported".into(),
+                "Select individual files or initialized submodules; ordinary directories cannot be committed".into(),
             );
         }
     }
@@ -397,6 +397,37 @@ fn index(
     )
     .map_err(|e| e.to_string())
 }
+/// A directory selection must already be a gitlink in the index. Never turn a
+/// normal directory into a recursive `git add`, or initialize a missing child.
+fn is_initialized_gitlink(repo: &Repository, path: &Path, token: &Cancel) -> Result<bool, String> {
+    if !repo.path.join(path).join(".git").exists() {
+        return Ok(false);
+    }
+    let entries = repo.read(
+        &[
+            OsStr::new("--literal-pathspecs"),
+            OsStr::new("ls-files"),
+            OsStr::new("--stage"),
+            OsStr::new("-z"),
+            OsStr::new("--"),
+            path.as_os_str(),
+        ],
+        token,
+    )?;
+    let expected = path_input(&[path.to_owned()])?;
+    let mut records = entries.split(|b| *b == 0).filter(|r| !r.is_empty());
+    let Some(record) = records.next() else {
+        return Ok(false);
+    };
+    let Some(tab) = record.iter().position(|b| *b == b'\t') else {
+        return Ok(false);
+    };
+    Ok(records.next().is_none()
+        && record[..tab].starts_with(b"160000 ")
+        && record[..tab].ends_with(b" 0")
+        && record[tab + 1..] == expected[..expected.len() - 1])
+}
+
 pub(crate) fn path_input(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     for path in paths {

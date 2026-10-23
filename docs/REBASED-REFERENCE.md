@@ -4296,3 +4296,86 @@ Clippy核心全部target通过（既有警告）；CI未运行。新增原生网
 目录选择器按钮文案本地化但标题由系统提供；确认框复用应用模态而非独立系统警告，
 未复制警告图标/精确间距。功能和结构验收完成，不宣称像素级还原。
 本项完成，下一项子模块导航与父仓库gitlink提交。
+
+### 6. 子模块：父仓库提交前置依据（2026-10-24，进行中）
+
+Rebased 1.1.20，沿用独立 cherry-pick-reference-20261024，添加本地源仓库
+submodule-source-20261024 为 modules/library；先提交 gitlink=f0f103d，再在子仓库
+提交 ec8a8fd 并继续修改 module.txt 未提交。父仓库另有未勾选 base.txt 修改。
+原生 Commit 显示 library 为目录图标的一条变更；取消 base.txt 勾选，仅提交 library，
+消息 Advance library pointer。成功通知 1 file committed；Git 验证父提交0d1f312的
+modules/library mode=160000、OID=ec8a8fd；子模块 module.txt 仍为未暂存修改。
+截图 artifacts/workflow-closure-20261024/submodule-reference-{changes,diff,commit-ready,committed}.png。
+勾选范围与提交消息同普通提交面板，不为子模块引入递归提交选项。
+
+已读参考4aec352：GitCheckinEnvironment.kt::sortChangesByGitRoot使用变更路径的父目录
+确定所属仓库；stageAndCommit通过暂存管理器保存未选择index，GitFileUtils.kt::stageForCommit
+将选择路径addPathsForce，随后GitRepositoryCommitter.kt提交index。
+GitCommitTest.kt的excluded submodule场景保留未选中的已暂存gitlink。
+GitSubmoduleContentRevision.kt、GitSubmoduleDiffRequestProvider.kt将子模块作为父仓库文件，
+内容为前后提交号；GitIndexUtil.java::loadSubmoduleHashAt验证ls-tree单条StagedSubrepo。
+GitSubmodule.kt依赖已注册子仓库。当前安装版本动态添加子模块后打开diff报cannot read object，
+见diff截图；尚未验证重新注册根目录后的表现，不把错误视为应复刻行为。
+
+本地第一步映射src/commit_operation.rs：只对index里确认为160000且存在子仓库标记的
+目录允许git add，普通目录继续拒绝，避免把选择扩展到整棵树；沿用未选index恢复与HEAD检查。
+子模块导航入口、差异审阅及原生Plico验证尚待完成，本项不提交、不标完成。
+
+父仓库提交核心已实现（未提交）：新增真实嵌套仓库回归，经产品execute入口提交子模块HEAD，
+验证child的index、工作区以及parent未选中的暂存内容不变；另验证伪.git普通目录不递归暂存。
+commit_index全39项通过（/tmp/plico-submodule-commit-tests.log），格式化完成。
+尚未完成导航、gitlink差异审阅核对及Windows Plico验收，不作为第6项完整交付。
+
+导航前置：原生Rebased File→Open选择modules/library，出现New Project窗口选择框，
+This Window默认焦点，另有New Window/Cancel；确认后同窗口标题library，Log显示子仓库
+Advance library和module base两条历史。截图submodule-reference-{file-menu,open-picker,open-confirm,opened}.png。
+已读OpenFileAction.kt::actionPerformed/doOpenFile：目录走ProjectUtil.openExistingDir AS_PROJECT，
+不是作为文本打开。Plico沿用现有choose_project_window和保存屏障；项目树目录菜单增加
+Open Repository快捷入口（相对上游File/Open是明确的入口扩展），后台确认目录本身是仓库根，
+普通子目录不能误开成父仓库。不开新递归扫描，不改变双击目录展开行为。
+
+导航已接入（未提交）：Project树目录菜单末尾Open Repository，路径在后台经Project.resolve
+拒绝链接/越界后检查.git及rev-parse根身份；普通子目录不能回落到父仓库。
+ProjectView请求复用取消令牌/代次，Review仅接纳当前可见Project实例事件，之后复用
+choose_project_window及当前窗口保存屏障。未改变双击展开与Copy Path菜单顺序。
+core commit_index39项（含真实gitfile子仓库导航与普通目录拒绝）及Project菜单回归通过。
+Windows构建启动于/tmp/plico-submodule-windows.log；尚未进行本版原生验收。
+
+差异加载修正依据：本地DiffTab::activate后台把所有非删除working_tree_document送进
+working_copy::read，子模块目录因NotFile失败；上游GitSubmoduleContentRevision仅提供提交号。
+拟按index的160000身份识别本地gitlink，走已有只读Git --submodule=short patch展示，
+保留Subproject commit和dirty提示（相对上游纯hash文本的明确差异），不创建可写文档。
+
+本轮原生Plico4396：Project展开modules→library右键Open Repository→当前窗口Enter，
+标题变为library，Log正确显示子仓库3/3提交，截图submodule-plico-{menu,open-confirm,opened}.png。
+打开不修改父/子Git内容。此轮未点击新窗口，以免留下多余实例。
+首次gitlink diff原生发现NotFile：分流曾误接到disk_refresh而非activate首次加载，已修正
+首次加载入口并新增gitlink_initial_load_uses_readonly_diff实际异步加载回归（待运行结果）。
+submodule-plico-diff.png是失败证据，不能作为最终通过截图。
+核心全量、桌面82通过/2显式忽略、F7七项、Clippy通过（既有警告）；其后修正首次加载需再验收。
+修正后的Windows构建/tmp/plico-submodule-windows-final.log已通过，尚未替换4396运行中的旧版。
+独立fixture submodule-plico-20261024父HEAD=0d1f312，childHEAD=59cc241，child仍有未暂存修改；
+父base.txt亦未暂存。本版原生父指针提交仍待验证，不提交第6项。
+
+### 6. 子模块：交付验收（2026-10-24）
+
+最终Windows Plico44236替换并正常关闭4396，父仓库双击library首次加载正确显示
+HEAD ec8a8fd→工作区59cc241-dirty，两侧锁图标，不能编辑目录。仅勾选library，
+Record child pointer from Plico→Commit，生成父提交4c66c578；ls-tree确认mode160000、
+OID59cc241d51cab07bf7c8e085b40f06c95003fb2b。父base.txt仍未暂存；child module.txt仍
+为child remains uncommitted after parent commit，status为未暂存，未被递归提交。
+提交后diff自动刷新为相同OID与dirty标记；Commit消息清空并显示成功反馈。
+截图submodule-plico-{diff-final,commit-ready,committed}.png为最终通过证据。
+
+新增真实Git测试覆盖gitfile子仓库打开、普通目录拒绝、gitlink只读patch和dirty标记、
+提交父指针保留child已暂存/未暂存及parent排除index；新增GPUI首次activate真实加载回归，
+防止只在刷新路径分流。核心全量通过；最终桌面83通过/2显式忽略，F7专项8通过；
+Windows最终release通过，fmt/diff检查通过，Clippy通过（既有警告，新增clone切片警告已修正）；
+CI未运行。最后切片修正仅去除临时clone，不改变查询或界面。
+
+保留差异/范围：Project目录菜单Open Repository是File/Open的快捷入口扩展；仍使用单仓库
+窗口而非Rebased多root模型。gitlink保留Git Subproject commit及dirty文本，而非上游纯hash。
+普通目录/未初始化submodule不能当父gitlink提交，初始化/递归更新子模块不在本项范围。
+Commit列表图标沿用通用文件图标，尚未复刻Rebased目录图标；功能及结构通过，不宣称像素还原。
+新窗口/关闭窗口保存提示沿用已有流程，本轮原生选择当前窗口，未逐一重测所有窗口策略。
+本项实现完成；仍需全六项完成性核对，不能据此直接宣称整轮goal完成。

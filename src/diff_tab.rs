@@ -342,7 +342,7 @@ impl DiffTab {
         self.task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    if editable {
+                    if editable && !target.is_working_gitlink(&token)? {
                         let contents = plico::working_copy::read(&target, &token)?;
                         let path = target.identity().path.to_string_lossy();
                         let file = DiffFile::from_editor_sources(
@@ -1247,6 +1247,87 @@ mod editable_navigation_tests {
         ) -> impl gpui::IntoElement {
             gpui::div()
         }
+    }
+    #[gpui::test]
+    fn gitlink_initial_load_uses_readonly_diff(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let root = std::env::temp_dir().join(format!("plico-gitlink-tab-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let git = |path: &std::path::Path, args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args([
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "core.hooksPath=disabled-hooks",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        };
+        git(&root, &["init", "-b", "main"]);
+        std::fs::write(root.join("base"), "base").unwrap();
+        git(&root, &["add", "base"]);
+        git(&root, &["commit", "-m", "base"]);
+        let old = git(&root, &["rev-parse", "HEAD"]);
+        let child = root.join("child");
+        std::fs::create_dir(&child).unwrap();
+        git(&child, &["init", "-b", "main"]);
+        std::fs::write(child.join("file"), "child").unwrap();
+        git(&child, &["add", "file"]);
+        git(&child, &["commit", "-m", "child"]);
+        git(
+            &root,
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("160000,{},child", old.trim()),
+            ],
+        );
+        git(&root, &["commit", "-m", "gitlink"]);
+        let change = plico::git::Change {
+            path: "child".into(),
+            old_path: None,
+            status: "M".into(),
+            area: Area::Unstaged,
+        };
+        let target = Target::new(plico::git::Repository::new(root), None, change.clone()).unwrap();
+        let chain = Chain::new(&target, &[change]).unwrap();
+        let mut tab = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|_| DiffTab::new(target, chain));
+            view.update(cx, |s, cx| s.activate_with_focus(false, window, cx));
+            tab = Some(view);
+            Empty
+        });
+        cx.run_until_parked();
+        tab.unwrap().read_with(cx, |s, cx| {
+            assert!(!s.loading);
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert!(s.pending_editable.is_none());
+            assert!(!s.source_available);
+            assert!(!s.viewer.as_ref().unwrap().read(cx).files().is_empty());
+        });
     }
     #[gpui::test]
     fn readonly_tab_has_full_scroll_extent_without_f7(cx: &mut gpui::TestAppContext) {

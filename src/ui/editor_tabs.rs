@@ -306,6 +306,20 @@ impl Review {
             cx.subscribe_in(
                 &view,
                 window,
+                |s, source, event: &crate::project_view::OpenRepository, w, cx| {
+                    if s.project_visible
+                        && s.project_view
+                            .as_ref()
+                            .is_some_and(|v| v.entity_id() == source.entity_id())
+                    {
+                        s.choose_project_window(event.0.clone(), w, cx);
+                    }
+                },
+            )
+            .detach();
+            cx.subscribe_in(
+                &view,
+                window,
                 |s, source, event: &crate::project_view::Open, w, cx| {
                     let current = s.project_view.as_ref().is_some_and(|view| {
                         view.entity_id() == source.entity_id()

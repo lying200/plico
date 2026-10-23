@@ -1,6 +1,37 @@
 //! Explicit Project-tree navigation; never opens an editor or scans closed siblings.
 use super::*;
 impl ProjectView {
+    pub(super) fn open_repository(&mut self, relative: PathBuf, cx: &mut Context<Self>) {
+        self.cancel_reveal();
+        self.cancel_preview();
+        self.token.cancel();
+        self.token = Cancel::default();
+        self.generation += 1;
+        self.loading = Some(relative.clone());
+        self.error = None;
+        let (root, token, generation) = (self.root.clone(), self.token.clone(), self.generation);
+        self.task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    Project::new(root)
+                        .map_err(|e| format!("{e:?}"))?
+                        .repository_at(&relative, &token)
+                })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                if s.generation != generation {
+                    return;
+                }
+                s.loading = None;
+                match result {
+                    Ok(path) => cx.emit(OpenRepository(path)),
+                    Err(error) => s.error = Some(Notice::Io(error)),
+                }
+                cx.notify();
+            });
+        });
+        cx.notify();
+    }
     pub(crate) fn set_project_showing(&mut self, showing: bool) {
         if self.project_showing == showing {
             return;

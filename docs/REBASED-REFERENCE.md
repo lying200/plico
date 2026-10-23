@@ -4440,3 +4440,31 @@ platform/diff-impl/src/com/intellij/diff/impl/CacheDiffRequestProcessor.java::do
 F7专项8通过；Windows release及格式检查通过。Plico41952原生重新打开同一文件历史，
 列表显示2/2，无顶部历史错误；底部显示本地化“无法加载差异。”及刷新/详情，
 截图history-preview-fixed.png。保留预览上限与错误提示控件外观差异，不宣称像素还原。
+
+
+## 本轮六项闭环交付核对（2026-10-24）
+
+范围以本文件“使用流程闭环增量（2026-10-23）”的六项为准，未把整个PLAN的后续功能
+纳入本轮，也未将本轮缩减为单独通过的路径。各功能实现提交均已存在，工作区干净后核对。
+
+| 要求 | 实现提交与入口 | 已核对的证据 |
+| --- | --- | --- |
+| 文件历史Get | cbe1e0f；History右键→ui/get_revision；e76130d流式恢复 | tests/get_revision.rs的7项覆盖原始字节、重命名、缺失、并发、取消和大文件；原生覆盖/取消/删除后恢复；HEAD及index保持 |
+| 主动Cherry-pick | 0c90b41；Log选中→sequencer协调 | tests/cherry_pick.rs七项覆盖顺序、冲突Continue/Abort、空提交及保存重试；cherry-final-dialog及done截图和原生MM保留记录 |
+| Reflog找回 | 1639569；Git菜单→Reflog→新建分支 | tests/reflog.rs用reset丢失提交并移动ordinal后按固定OID恢复；原生recovered-reflog-audit与restored截图 |
+| 创建/推送标签 | a536d8e；Log及Tags菜单 | tag_create/tag_push六项验证轻量/附注/Force/验证预览及单标签推送；原生bare仅收到指定tag，pushed及force截图 |
+| 初始化到首次推送 | fc1f601；欢迎/Git菜单→初始化→Commit→Define Remote→Push | init_repository三项真实流程；再次读取原生bare的refs/heads/main=f03e64ad014964d8cd2a653f934b92b6439dd28e，pushed截图 |
+| 子模块打开及父指针提交 | 597ff8a；Project目录Open Repository及Commit | commit_index真实gitfile子仓库导航、父指针与排除index保护；原生父HEAD的modules/library为160000/59cc241d51cab07bf7c8e085b40f06c95003fb2b，committed截图 |
+
+核对时读取了测试实际断言及/tmp/plico-get-stream-core.log的对应成功结果，
+未仅凭文件存在判定功能完成。最后UI修正6f6859e将预览错误与历史加载分离，
+真实异步回归先失败后通过；最新全桌面84通过/2既有忽略、F7专项8通过，
+Windows构建、原生2/2历史计数和独立预览错误、fmt/diff检查、Clippy通过（既有警告）。
+六项均在各自章节记录了Rebased安装版本、参考commit、源码规则、原生操作与差异。
+
+交付边界保持原记录：非像素级完全还原；Reflog是Plico扩展，最多10000条；
+Cherry-pick合并提交不提供mainline选择；子模块初始化/递归更新不在本轮；单仓库窗口
+不提供多root。历史Get已移除恢复大小上限，但预览仍有5MiB限制，非Windows新建发布
+仍要求hard-link。JetBrains LocalHistory、Shelf和额外签名配置不是本轮新增能力。
+原生异常状态未逐个截图的项目仍按各章标注，不把核心测试冒充视觉验收。
+本轮要求的六项实现及独立提交已完成；CI未运行，尚未推送或发布preview。

@@ -210,3 +210,5 @@ pub mod ssh_auth;
 
 mod log_pattern;
 mod topology;
+
+pub mod get_revision;

@@ -812,6 +812,7 @@ pub struct FileTab {
     task: Task<()>,
 }
 impl EventEmitter<HistoryRequested> for FileTab {}
+impl EventEmitter<crate::history_view::GetRevision> for FileTab {}
 impl EventEmitter<crate::markdown_preview::OpenLink> for FileTab {}
 impl EventEmitter<FileSaved> for FileTab {}
 impl EventEmitter<crate::source_changes::CommitChunk> for FileTab {}
@@ -1146,6 +1147,13 @@ impl FileTab {
                     cx,
                 )
             }));
+            if let Some(view) = &self.history_view {
+                cx.subscribe(
+                    view,
+                    |_, _, event: &crate::history_view::GetRevision, cx| cx.emit(event.clone()),
+                )
+                .detach();
+            }
             self.status = Notice::Label("");
             return;
         }

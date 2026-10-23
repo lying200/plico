@@ -28,6 +28,14 @@ actions!(
     ]
 );
 #[derive(Clone)]
+pub struct GetRevision {
+    pub repository: std::path::PathBuf,
+    pub path: std::path::PathBuf,
+    pub revision: Revision,
+}
+impl EventEmitter<GetRevision> for HistoryView {}
+
+#[derive(Clone)]
 pub struct SourceRequest {
     pub repository: std::path::PathBuf,
     pub path: std::path::PathBuf,
@@ -961,6 +969,7 @@ impl HistoryView {
                         .map(|row| {
                             let (a, b, c, d) = cells[row].clone();
                             let owner = owner.clone();
+                            let menu_owner = owner.clone();
                             h_flex()
                                 .id(("history-row", row))
                                 .w_full()
@@ -1075,6 +1084,52 @@ impl HistoryView {
                                             cx,
                                         );
                                     });
+                                })
+                                .map(|v| {
+                                    if selection {
+                                        return v.into_any_element();
+                                    }
+                                    v.context_menu(move |menu, _, cx| {
+                                        let Some(view) = menu_owner.upgrade() else {
+                                            return menu;
+                                        };
+                                        view.update(cx, |s, cx| {
+                                            if let Some(revision) = s.revision(row) {
+                                                if !s.revisions.contains(&revision.id) {
+                                                    s.select(row, cx);
+                                                }
+                                            }
+                                        });
+                                        let state = view.read(cx);
+                                        let request = (!state.loading
+                                            && state
+                                                .revisions
+                                                .ordered(&state.revision_ids())
+                                                .len()
+                                                == 1)
+                                            .then(|| {
+                                                state.revision(row).filter(|r| !r.deleted).cloned()
+                                            })
+                                            .flatten()
+                                            .map(|revision| GetRevision {
+                                                repository: state.repo.path.clone(),
+                                                path: state.path.clone(),
+                                                revision,
+                                            });
+                                        let owner = menu_owner.clone();
+                                        menu.item(
+                                            PopupMenuItem::new(t("Get"))
+                                                .icon(Icon::default().path("jb/download_dark.svg"))
+                                                .disabled(request.is_none())
+                                                .on_click(move |_, _, cx| {
+                                                    if let Some(request) = request.clone() {
+                                                        let _ = owner
+                                                            .update(cx, |_, cx| cx.emit(request));
+                                                    }
+                                                }),
+                                        )
+                                    })
+                                    .into_any_element()
                                 })
                                 .into_any_element()
                         })

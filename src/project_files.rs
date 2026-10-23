@@ -231,6 +231,20 @@ impl Project {
     // This is a workspace browser, not a filesystem security boundary against a
     // concurrently hostile process replacing directories between OS calls.
     pub(crate) fn resolve(&self, relative: &Path, cancel: &Cancel) -> Result<PathBuf> {
+        self.resolve_path(relative, cancel, false)
+    }
+
+    /// Resolve a creation target without permitting links in existing ancestors.
+    pub(crate) fn resolve_missing(&self, relative: &Path, cancel: &Cancel) -> Result<PathBuf> {
+        self.resolve_path(relative, cancel, true)
+    }
+
+    fn resolve_path(
+        &self,
+        relative: &Path,
+        cancel: &Cancel,
+        allow_missing: bool,
+    ) -> Result<PathBuf> {
         check_cancel(cancel)?;
         if linked(&fs::symlink_metadata(&self.root)?) {
             return Err(Error::LinkedPath);
@@ -241,8 +255,12 @@ impl Project {
                 Component::CurDir => (),
                 Component::Normal(name) if !git_admin(name) => {
                     full.push(name);
-                    if linked(&fs::symlink_metadata(&full)?) {
-                        return Err(Error::LinkedPath);
+                    match fs::symlink_metadata(&full) {
+                        Ok(metadata) if linked(&metadata) => return Err(Error::LinkedPath),
+                        Ok(_) => (),
+                        Err(error)
+                            if allow_missing && error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(error) => return Err(error.into()),
                     }
                 }
                 _ => return Err(Error::InvalidPath),

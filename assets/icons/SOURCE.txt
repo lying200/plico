@@ -146,3 +146,7 @@ Checkbox presentation: platform/jewel/int-ui/int-ui-standalone/src/main/resource
 checked_dark.svg: platform/icons/src/expui/actions/checked_dark.svg, Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd. Unmodified; Apache-2.0, JetBrains s.r.o. and contributors.
 
 Markdown layout icons: platform/icons/src/expui/general/{editorOnly,editorPreview,previewOnly}_dark.svg (stored with layout prefix), Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, Apache-2.0.
+
+File-history Get: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/general/download_dark.svg (unmodified, Apache-2.0).
+Action mapping: platform/vcs-impl/resources/META-INF/VcsActions.xml, Vcs.GetVersion / AllIcons.Actions.Download.

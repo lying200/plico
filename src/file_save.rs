@@ -43,6 +43,53 @@ pub fn save(project: &Project, path: &Path, request: &Save, cancel: &Cancel) -> 
     save_before_replace(project, path, request, cancel, || {})
 }
 
+/// Publish a complete new file without replacing a concurrently created target.
+/// Empty parent directories may remain after cancellation or failure.
+pub(crate) fn create(
+    project: &Project,
+    path: &Path,
+    bytes: &[u8],
+    cancel: &Cancel,
+) -> Result<(), Error> {
+    if bytes.len() > project_files::FILE_LIMIT {
+        return Err(project_files::Error::FileTooLarge.into());
+    }
+    let destination = project.resolve_missing(path, cancel)?;
+    let parent = path.parent().ok_or(project_files::Error::InvalidPath)?;
+    let mut relative = PathBuf::new();
+    for component in parent.components() {
+        relative.push(component);
+        let directory = project.resolve_missing(&relative, cancel)?;
+        match fs::create_dir(&directory) {
+            Ok(()) => (),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(error) => return Err(error.into()),
+        }
+        let directory = project.resolve(&relative, cancel)?;
+        if !fs::metadata(directory)?.is_dir() {
+            return Err(Error::Conflict);
+        }
+    }
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random).map_err(|e| io::Error::other(e.to_string()))?;
+    let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let temporary = Temporary(destination.with_file_name(format!(".plico-get-{suffix}.tmp")));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary.0)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    if project.resolve_missing(path, cancel)? != destination {
+        return Err(Error::Conflict);
+    }
+    // Unlike rename, hard_link never overwrites a destination that appeared
+    // after preparation. The temporary name is removed by its owner on return.
+    fs::hard_link(&temporary.0, &destination)?;
+    Ok(())
+}
+
 fn save_before_replace(
     project: &Project,
     path: &Path,

@@ -556,6 +556,14 @@ impl Review {
         cx.subscribe_in(
             tab,
             window,
+            |s, _, request: &crate::history_view::GetRevision, w, cx| {
+                s.get_file_revision(request.clone(), w, cx);
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            tab,
+            window,
             |s, _, event: &crate::markdown_preview::OpenLink, window, cx| {
                 s.open_project_file(event.0.clone(), false, window, cx);
             },
@@ -608,6 +616,7 @@ impl Review {
                 let tab = cx.new(|_| {
                     crate::project_view::FileTab::history(s.repo.path.clone(), event.path.clone())
                 });
+                s.subscribe_file_history(&tab, window, cx);
                 s.insert_editor_tab(tab.entity_id());
                 s.leave_diff_tab(cx);
                 s.file_tabs.push(tab);

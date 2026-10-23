@@ -10,6 +10,7 @@ mod conflicts;
 mod editor_tabs;
 mod files;
 mod files_options;
+mod get_revision;
 mod history_operations;
 mod identity;
 mod log_branches;

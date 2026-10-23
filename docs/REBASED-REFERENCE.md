@@ -3949,3 +3949,56 @@ Rebased为底部工具窗；用户指定的数量页脚和手动主Log加载也�
 回归覆盖固定roots下新HEAD、1105条跨rename历史、过滤/作者/日期/路径/正则/哈希计数一致性、
 首屏先于计数、详情不取消计数、切过滤拒绝旧总数。核心测试与桌面测试、F7专项通过；
 Windows release交叉构建通过。Clippy完成但仓库既有警告仍在，未把它报告成零警告。
+
+## 使用流程闭环增量（2026-10-23）
+
+用户要求逐项实现并分别提交，范围保持六项：文件历史Get、主动Cherry-pick、Reflog找回提交、
+创建/推送标签、初始化仓库、子模块打开及父仓库指针提交。各项分别进行源码/原生前置验证、
+实现、核心/桌面与Windows验收和提交；未完成项不因其他项完成而缩减。本轮起点ba4afbc，工作区干净。
+
+### 1. 文件历史 Get：实现前依据
+
+源码4aec35256d765c217aa0d662b82ac4e860c396fd；原生Rebased1.1.20 / IC-262.10968.SNAPSHOT。
+独立binary-conflict-reference-20261023、自有34276，在unrelated.txt文件历史单选base并右键：
+Get位于Cherry-Pick分隔线下、Show File at Revision上方，没有额外版本选择弹窗。
+本地文件有已暂存与未暂存变化，点击Get出现Get Revision警告：文件已在本地修改，
+主按钮Overwrite Modified File，次按钮Cancel；覆盖后编辑器立即显示base，Git仍为MM，
+没有替换原先已暂存内容或切换HEAD。截图`artifacts/workflow-closure-20261023/get-version-ref-{popup,confirm,done}.png`。
+测试只覆盖自建fixture，原有用户Rebased进程未修改。clean、missing、rename、删除记录禁用尚待原生补测。
+
+已读`platform/vcs-log/impl/src/com/intellij/vcs/log/ui/actions/history/GetVersionFromHistoryAction.java`：
+文件非目录、非空revision才可用；使用历史revision内容，写到FILE_PATH的当前路径。
+已读`platform/vcs-impl/src/com/intellij/openapi/vcs/history/actions/GetVersionAction.java`：
+先确认修改、检查只读、后台取内容，写入或创建文件、重新加载编辑器；历史Get的provider不传oldFilePath，
+不把普通文件Get实现成Git checkout更改index。上游LocalHistory记录是其平台能力，本地需明确与Git恢复区分。
+已读`platform/vcs-api/src/com/intellij/openapi/vcs/ui/ReplaceFileConfirmationDialog.java`：
+仅存在且非NOT_CHANGED的文件要求确认；不存在/干净文件不弹覆盖确认。
+拟本地映射：独立Get核心预取不可变revision、目标磁盘基线和状态，执行前复验；复用安全文件保存，
+历史菜单事件交由主窗口操作/文档协调，完成触发变更与打开文档刷新。正在实现，尚未提交。
+
+### 1. 文件历史 Get：实现与验收（2026-10-24）
+
+本地 `get_revision::Prepared` 读取历史路径的原始 blob，写回当前文件路径；复验 HEAD、
+目标 index 条目及磁盘基线，保留暂存区。`file_save::create` 使用完整临时文件及不覆盖目标的
+hard-link 发布，缺失父目录逐级验证；`Project::resolve_missing` 拒绝链接祖先。
+`history_view::GetRevision` 经 FileTab 转发至 `ui/get_revision.rs`，复用文档保存屏障、
+操作互斥与 worktree 同步。菜单仅单选非删除记录可用，选中行历史不提供文件 Get。
+确认框包含覆盖／取消，已有本地修改需要确认，缺失文件直接恢复。
+图标来自上游 `platform/icons/src/expui/general/download_dark.svg`，来源记录在 assets/icons/SOURCE.txt。
+
+Windows 自有 Plico43424 验证修改文件的取消、覆盖及打开文档刷新；最终构建25716验证菜单图标、
+打开编辑器后外部删除文件，再从历史 Get 重建，界面仍可操作，打开文档显示恢复内容。
+通过原始字节和 SHA256 比较确认目标为 base\n，index、HEAD 引用及无关 binary.bin 不变。
+截图 `artifacts/workflow-closure-20261023/get-plico-{menu,confirm,restored}.png` 与
+`get-final-{menu,missing}.png`。原生 Rebased 的 clean/missing/rename/删除记录禁用仍未逐项补测，
+对应规则来自已读源码；不将核心测试当作这些原生参考场景的验收。
+
+核心六项回归覆盖二进制/CRLF、重命名当前路径、缺失文件与父目录、并发创建/修改、
+HEAD/index 改变、取消、ignored 文件确认及链接祖先；桌面新增跨仓库拒绝与真实恢复事件回归通过。
+核心全套、桌面79通过/2显式忽略（新增Get专项另1通过）、额外F7七项通过；
+Windows release 构建、格式检查、git diff --check 通过。Clippy有既有警告，未声明零警告；CI未运行。
+
+保留差异：历史仍是独立Tab；未提供JetBrains平台LocalHistory撤销服务。
+当前恢复复用编辑器5MiB大小预算，超限明确失败；不宣称大文件恢复完成对齐。
+新建文件需文件系统支持hard-link，失败不覆盖目标；失败时可能保留空父目录。
+这些限制不更改Git index或refs；大文件流式恢复及非hard-link文件系统适配仍需后续完善。

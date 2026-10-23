@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{title}} · Plico</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; color: #24262b; background: #f5f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: clamp(48px, 15vh, 140px) 24px 48px; }
+    main { width: 100%; max-width: 520px; margin-inline: auto; padding: 40px 32px; text-align: center; background: #fff; border: 1px solid #e0e3e8; border-radius: 16px; box-shadow: 0 8px 32px #17243b08; }
+    .brand { color: #6168d9; font-size: 18px; font-weight: 650; letter-spacing: .02em; margin-bottom: 28px; }
+    h1 { font-size: 24px; line-height: 1.4; margin: 0 0 16px; font-weight: 600; }
+    p { font-size: 16px; line-height: 1.7; margin: 0; color: #525966; overflow-wrap: anywhere; }
+    .hint { margin-top: 24px; font-size: 14px; color: #717885; }
+    @media (prefers-color-scheme: dark) {
+      :root { color: #e7e9ed; background: #191a1d; }
+      main { background: #23252a; border-color: #363941; box-shadow: none; }
+      .brand { color: #a5a9ff; }
+      p { color: #b8bec9; }
+      .hint { color: #929ba9; }
+    }
+    @media (max-width: 400px) { body { padding-inline: 16px; } main { padding: 32px 20px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">Plico</div>
+    <h1>{{title}}</h1>
+    <p>{{message}}</p>
+    <p class="hint">{{hint}}</p>
+  </main>
+</body>
+</html>

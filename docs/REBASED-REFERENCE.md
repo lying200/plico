@@ -3457,3 +3457,14 @@ Windows Plico 自有测试进程已实际验证：SSH口令/取消、主机确�
 保留差异及未覆盖项：安装版GitLab没有新源码OAuth设置，按源码实现；GitHub直接平台PKCE而非JetBrains中转，交互认证使用真实login而非上游x-oauth-basic替代用户名；GitLab只允许HTTPS，避免明文令牌传输。Plico为内嵌弹窗，账号设置尚无头像，列表行与弹窗尺寸尚非逐像素一致。GitHub Enterprise继续不做；Clone单账号切换、手动分页及未补组织公开仓库是既有列表差异。真实组织SSO、硬件PIN、自建GitLab授权、异常证书/代理本轮未实测；已有真实GitHub/GitLab授权记录不能代替这些覆盖。自定义SSH命令的后台远端检查仍保留原有保守禁用规则，未自行覆盖用户transport。
 
 验证结果：全量核心测试646项通过；最后补充AskPass提示分类回归后核心库268项通过，认证表单桌面测试3项通过；最终Windows release（主程序与AskPass）构建通过，格式化及diff whitespace检查通过。Clippy完成，仍有既有及样式建议warning（未宣称零警告）。当前项目默认账号在独立repo中Apply后重启复验；只关闭本次自有测试程序，Rebased测试profile的虚构账号与helper设置已清理还原。未对真实远端执行写操作。
+
+### 2026-10-23：OAuth 回调页与欢迎页按钮间距
+
+参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`。自有原生 Rebased 1.1.20 PID10544 通过 Close Project 返回欢迎页，确认 Open/Clone Repository 为有独立间隔的工具栏按钮；截图 `artifacts/oauth-page-20261023/ref-welcome-spacing.png`。读取 `platform/platform-impl/src/com/intellij/openapi/wm/impl/welcomeScreen/ProjectsTabFactory.kt::createActionsToolbar`：首组操作使用独立文本按钮。Plico `src/ui.rs` 对应横向容器补8 DIP间距，不改变按钮操作；Windows原生截图 `welcome.png` 已确认不再相贴。
+
+回调页面读取 `plugins/gitlab/gitlab-core/resources/html/oauth-response.html` 和 `authentication/GitLabOAuthService.kt::sendHTMLResponse/buildResponsePage`：HTML模板、system-ui、viewport、结果文案、no-referrer；安装版GitLab为旧Token流程，无法实机复现这份新源码OAuth页，本项以源码和用户实际Plico回调截图为依据。按用户明确要求采用Plico居中卡片样式，而非复制JetBrains品牌页。
+
+本地 `assets/html/oauth-result.html` 与 `src/hosting/oauth.rs::result_page`：max-width 520px、水平居中、移动端边距、浅/深色样式；文案通过 `i18n::t`，lang通过已解析的应用语言设置，不读取浏览器语言。`Content-Type` 改为text/html，保留UTF-8、no-store/no-referrer和有界监听；不将code/state/服务器返回内容插入HTML。页面继续表示“收到授权响应”，不能在令牌交换结束前宣称登录成功。
+
+验证：ego-browser在Windows预览同一模板的中文、英文及360px深色布局，确认居中且无横向溢出（`browser-*.png`）；这是模板预览，没有重新触发真实平台授权。OAuth现有6项测试通过，增加结果页HTTP类型、模板占位符清空与UTF-8字节长度断言；应用语言仍复用既有显式中文/英文/跟随系统解析。Windows原生欢迎页间距验收通过。并非整页逐像素复刻；字体使用系统字体，不加载远程资源。
+最终Windows release构建通过，格式与diff whitespace检查通过。截图与模板验收使用ego-browser skill；本轮未提交或重新发布preview。

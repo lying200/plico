@@ -180,6 +180,18 @@ fn callback(target: &str, state: &str) -> Result<String, String> {
 }
 /// Finish the browser on a code-free URL. The listener is still owned by this
 /// authorization and cannot outlive cancellation or keep the port indefinitely.
+fn result_page() -> String {
+    use crate::i18n::{is_chinese, t};
+    // Only trusted, static translations enter this template; no callback data.
+    include_str!("../../assets/html/oauth-result.html")
+        .replace("{{lang}}", if is_chinese() { "zh-CN" } else { "en" })
+        .replace("{{title}}", t("Authorization response received"))
+        .replace(
+            "{{message}}",
+            t("Return to Plico to view the sign-in result."),
+        )
+        .replace("{{hint}}", t("You can close this browser tab."))
+}
 fn finish_browser(listener: &TcpListener, cancel: &Cancel) {
     let deadline = Instant::now() + Duration::from_secs(2);
     while !cancel.cancelled() && Instant::now() < deadline {
@@ -204,14 +216,15 @@ fn finish_browser(listener: &TcpListener, cancel: &Cancel) {
                     .and_then(|s| s.lines().next())
                     .is_some_and(|s| s == format!("GET {RESULT_PATH} HTTP/1.1"));
                 let body = if valid {
-                    "Authorization response received. Return to Plico to see the result. You may close this page."
+                    result_page()
                 } else {
-                    "Not found"
+                    "Not found".to_owned()
                 };
+                let content_type = if valid { "text/html" } else { "text/plain" };
                 let status = if valid { "200 OK" } else { "404 Not Found" };
                 let _ = write!(
                     socket,
-                    "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
                     body.len()
                 );
                 if valid {
@@ -414,6 +427,13 @@ mod tests {
             assert!(reply.contains(expected));
             assert!(reply.contains("Referrer-Policy: no-referrer"));
             assert!(!reply.contains("fixture"));
+            if path == RESULT_PATH {
+                assert!(reply.contains("Content-Type: text/html; charset=utf-8"));
+                assert!(reply.contains("<main>"));
+                assert!(!reply.contains("{{"));
+                let (headers, body) = reply.split_once("\r\n\r\n").unwrap();
+                assert!(headers.contains(&format!("Content-Length: {}", body.len())));
+            }
         }
         worker.join().unwrap();
         assert!(TcpListener::bind(address).is_ok());

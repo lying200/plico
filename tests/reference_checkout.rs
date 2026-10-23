@@ -428,3 +428,103 @@ fn recovery_rejects_stale_refs_and_keeps_conflicting_saved_changes() {
     assert!(!r.state.unwrap().conflicts.is_empty());
     assert!(f.git(&["stash", "list"]).contains("Plico: checkout"));
 }
+
+#[test]
+fn checkout_during_resolved_merge_preserves_staged_content() {
+    for tag in [false, true] {
+        let f = Fixture::new();
+        let head = f.head();
+        f.git(&["tag", "audit-tag"]);
+        let reference = if tag {
+            "refs/tags/audit-tag"
+        } else {
+            "refs/remotes/origin/topic"
+        };
+        let repo = Repository::new(&f.0);
+        let token = Cancel::default();
+        let prepared = Prepared::read(&repo, reference, &head, &head, None, &token).unwrap();
+        f.git(&["checkout", "-b", "side"]);
+        f.commit("merged", "side content");
+        f.git(&["checkout", "main"]);
+        f.git(&["merge", "--no-ff", "--no-commit", "side"]);
+        assert!(f.0.join(".git/MERGE_HEAD").exists());
+        let staged = f.git(&["ls-files", "--stage"]);
+        let result = reference_checkout::execute(
+            &repo,
+            &prepared,
+            Choice::Checkout,
+            &token,
+            &Default::default(),
+        )
+        .unwrap();
+        assert!(result.verified);
+        assert_eq!(result.state.detached, tag);
+        assert_eq!(result.head, head);
+        assert!(!result.state.in_progress());
+        assert!(!f.0.join(".git/MERGE_HEAD").exists());
+        assert_eq!(f.git(&["ls-files", "--stage"]), staged);
+        assert_eq!(fs::read(f.0.join("merged")).unwrap(), b"side content");
+        if !tag {
+            assert_eq!(
+                f.git(&["rev-parse", "--symbolic-full-name", "@{upstream}"]),
+                reference
+            );
+        }
+    }
+}
+
+#[test]
+fn unresolved_merge_and_rebase_choice_remain_blocked() {
+    for unresolved in [false, true] {
+        let f = Fixture::new();
+        f.git(&["checkout", "-b", "topic"]);
+        f.commit("local", "local commit");
+        f.git(&["checkout", "main"]);
+        f.git(&["checkout", "-b", "side"]);
+        f.commit("base", "side version");
+        f.git(&["checkout", "main"]);
+        if unresolved {
+            f.commit("base", "main version");
+        }
+        let prepared = f.plan(if unresolved {
+            Some("fresh-topic")
+        } else {
+            None
+        });
+        assert_eq!(prepared.local_ahead, !unresolved);
+        let merge = Command::new("git")
+            .arg("-C")
+            .arg(&f.0)
+            .args(["merge", "--no-ff", "--no-commit", "side"])
+            .output()
+            .unwrap();
+        assert_eq!(merge.status.success(), !unresolved);
+        let marker = fs::read(f.0.join(".git/MERGE_HEAD")).unwrap();
+        let index = f.git(&["ls-files", "--stage"]);
+        let content = fs::read(f.0.join("base")).unwrap();
+        let head = f.head();
+        let result = reference_checkout::execute(
+            &Repository::new(&f.0),
+            &prepared,
+            if unresolved {
+                Choice::Checkout
+            } else {
+                Choice::Rebase
+            },
+            &Cancel::default(),
+            &Default::default(),
+        );
+        assert!(
+            matches!(result, Err(ref error) if error == "Resolve the current Git operation before checkout")
+        );
+        assert_eq!(f.head(), head);
+        assert_eq!(f.git(&["symbolic-ref", "HEAD"]), "refs/heads/main");
+        assert_eq!(f.git(&["ls-files", "--stage"]), index);
+        assert_eq!(fs::read(f.0.join("base")).unwrap(), content);
+        assert_eq!(fs::read(f.0.join(".git/MERGE_HEAD")).unwrap(), marker);
+        assert!(
+            f.git(&["for-each-ref", "refs/heads/fresh-topic"])
+                .is_empty()
+        );
+    }
+}

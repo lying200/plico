@@ -12,6 +12,8 @@ const LIMIT: usize = 16 * 1024 * 1024;
 
 #[derive(PartialEq, Eq)]
 pub struct Record {
+    /// Diagnostic origin, not a replay guard: the commit itself changes HEAD.
+    /// Explicit recovery validates affected index identities and path overlaps.
     pub before_head: Option<String>,
     pub prepared: Vec<u8>,
     pub restore: Vec<u8>,

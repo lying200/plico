@@ -44,11 +44,15 @@ impl Review {
                     )
                 })
                 .await;
-            let _ = this.update(wx, |s, cx| {
-                if s.finish_operation(operation, cx).is_none() {
+            let _ = this.update_in(wx, |s, w, cx| {
+                let Some(cancelled) = s.finish_operation(operation, cx) else {
                     return;
-                }
+                };
                 use plico::stash_operation::Status;
+                let resolve_conflicts = !cancelled
+                    && result
+                        .as_ref()
+                        .is_ok_and(|report| report.status == Status::Conflicts);
                 let (message, diagnostic) = match result {
                     Ok(report) => {
                         let message = match report.status {
@@ -98,6 +102,9 @@ impl Review {
                     view.update(cx, |v, cx| v.result(t(message).into(), diagnostic, cx));
                 }
                 s.refresh(false, cx);
+                if resolve_conflicts {
+                    s.open_conflicts(w, cx);
+                }
                 cx.notify();
             });
         });

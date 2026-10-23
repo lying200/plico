@@ -1,7 +1,7 @@
 use plico::process_tree::ProcessTree;
 use std::{
     io::{Read, Write},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -21,17 +21,20 @@ fn child_fixture() {
         std::io::stdout().flush().unwrap();
         thread::sleep(Duration::from_secs(20));
     } else {
-        let _child = fixture("descendant")
+        let mut child = fixture("descendant")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         if mode == "parent-exits" {
+            // Deliberately leave the descendant alive: this is the scenario
+            // proving that ProcessTree owns children after its leader exits.
+            drop(child);
             return;
         }
         println!("parent-ready");
         std::io::stdout().flush().unwrap();
-        thread::sleep(Duration::from_secs(20));
+        child.wait().unwrap();
     }
 }
 fn fixture(mode: &str) -> Command {
@@ -41,12 +44,23 @@ fn fixture(mode: &str) -> Command {
         .stdin(Stdio::null());
     c
 }
+// Independent of ProcessTree: if a readiness assertion panics, this unrelated
+// sentinel must still be reaped. Do not put it in the process tree under test.
+struct UnrelatedChild(Child);
+impl Drop for UnrelatedChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
 fn verify_cleanup(mode: &str, explicit: bool) {
-    let mut unrelated = fixture("descendant")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut unrelated = UnrelatedChild(
+        fixture("descendant")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
     let mut tree =
         ProcessTree::spawn(fixture(mode).stdout(Stdio::piped()).stderr(Stdio::null())).unwrap();
     let mut out = tree.child.stdout.take().unwrap();
@@ -85,9 +99,8 @@ fn verify_cleanup(mode: &str, explicit: bool) {
         tree.terminate().unwrap();
     }
     drop(tree);
-    let unrelated_alive = unrelated.try_wait().unwrap().is_none();
-    let _ = unrelated.kill();
-    let _ = unrelated.wait();
+    let unrelated_alive = unrelated.0.try_wait().unwrap().is_none();
+    drop(unrelated);
     assert!(
         unrelated_alive,
         "operation cleanup killed an unrelated process"

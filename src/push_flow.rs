@@ -21,39 +21,8 @@ pub trait Decisions {
     ) -> Result<Option<Method>, String>;
     fn published(&mut self, problem: &Result<Option<Target>, String>) -> bool;
 }
-pub enum Update {
-    Merge(merge_update::Report),
-    Rebase(rebase_update::Report),
-}
-impl Update {
-    pub fn ready(&self) -> bool {
-        match self {
-            Self::Merge(r) => r.ready_to_push(),
-            Self::Rebase(r) => r.ready_to_push(),
-        }
-    }
-    pub fn cancelled(&self) -> bool {
-        self.result() == crate::update_session::UpdateResult::Cancelled
-    }
-    pub fn has_saved_changes(&self) -> bool {
-        match self {
-            Self::Merge(r) => r.saved_oid.is_some(),
-            Self::Rebase(r) => r.saved_oid.is_some(),
-        }
-    }
-    fn head(&self) -> &Result<String, String> {
-        match self {
-            Self::Merge(r) => &r.head,
-            Self::Rebase(r) => &r.head,
-        }
-    }
-    fn result(&self) -> crate::update_session::UpdateResult {
-        match self {
-            Self::Merge(r) => r.result,
-            Self::Rebase(r) => r.result,
-        }
-    }
-}
+pub use crate::update_report::Report as Update;
+
 pub struct Report {
     pub attempts: usize,
     pub push: Option<ResultState>,

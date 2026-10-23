@@ -48,7 +48,11 @@ impl Manager {
             Err(_) => {
                 self.rows.clear();
                 self.selected = None;
-                self.error = Some(t("Could not reload remote configuration").into());
+                let reload = t("Could not reload remote configuration");
+                self.error = Some(match self.error.take() {
+                    Some(error) => format!("{error}\n{reload}"),
+                    None => reload.into(),
+                });
             }
         }
         cx.notify();
@@ -263,4 +267,35 @@ pub fn show(
                 ),
             )
     });
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+    #[gpui::test]
+    fn refresh_failure_preserves_operation_error_and_retry_clears_it(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let manager = cx.new(|_| Manager {
+                repo: Repository::new(std::env::temp_dir()),
+                rows: vec![],
+                selected: Some(0),
+                busy: true,
+                error: None,
+                apply: Rc::new(|_, _, _, _, _| {}),
+            });
+            manager.update(cx, |manager, cx| {
+                manager.complete(Err("read failure".into()), Some("write failure".into()), cx);
+                let error = manager.error.as_deref().unwrap();
+                assert!(error.contains("write failure"));
+                assert!(error.contains(t("Could not reload remote configuration")));
+                assert!(!manager.busy);
+                assert!(manager.selected.is_none());
+                manager.begin(cx);
+                assert!(manager.busy);
+                assert!(manager.error.is_none());
+            });
+        });
+    }
 }

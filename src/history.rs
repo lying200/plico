@@ -156,7 +156,7 @@ fn read_hashes(
 ) -> Result<Option<Window>, String> {
     let initial = repo.snapshot_at(None, 0, 1, fixed, token)?;
     let topology = read_topology(repo, &initial.tips, token)?;
-    let matched = hash_matches(&topology, hashes, token)?;
+    let matched = hash_matches(repo, &initial.tips, &topology, hashes, token)?;
     if matched.is_empty() {
         return Ok(None);
     }
@@ -241,11 +241,11 @@ pub fn locate_filtered(
     }
     let topology = read_topology(repo, roots, token)?;
     let mut matched = match filter.hashes() {
-        Some(hashes) => hash_matches(&topology, &hashes, token)?,
+        Some(hashes) => hash_matches(repo, roots, &topology, &hashes, token)?,
         None => std::collections::HashSet::new(),
     };
-    // A successful hash query overrides the other filters, including paths.
-    // When no hash matches, the normal text query is the fallback.
+    // ID and message-reference matches override other filters, including paths.
+    // When neither matches, the normal text query is the fallback.
     if matched.is_empty() {
         matched = read_matches(repo, roots, filter, token)?;
     }
@@ -302,20 +302,7 @@ fn read_topology(
     roots: &[String],
     token: &Cancel,
 ) -> Result<Vec<crate::git::TopologyCommit>, String> {
-    let mut topology = Vec::new();
-    let mut edges = 0usize;
-    loop {
-        let page = repo.topology_page(roots, topology.len(), HISTORY_PAGE, token)?;
-        edges = edges.saturating_add(page.commits.iter().map(|c| c.parents.len()).sum::<usize>());
-        if topology.len() + page.commits.len() > 100_000 || edges > 500_000 {
-            return Err("Filtered graph exceeds the temporary 100,000-commit / 500,000-edge budget. Narrow the branch filter; no partial history is shown.".into());
-        }
-        topology.extend(page.commits);
-        if !page.more {
-            break;
-        }
-    }
-    Ok(topology)
+    repo.bounded_topology(roots, None, token)
 }
 
 /// Read the same bounded, filtered graph used by Log navigation. Only target
@@ -338,7 +325,7 @@ pub fn adjacent(
     let matched = if let Some(filter) = filter {
         filter.validate_paths()?;
         let mut matched = match filter.hashes() {
-            Some(hashes) => hash_matches(&topology, &hashes, token)?,
+            Some(hashes) => hash_matches(repo, roots, &topology, &hashes, token)?,
             None => std::collections::HashSet::new(),
         };
         if matched.is_empty() {
@@ -364,24 +351,16 @@ fn read_matches(
     filter: &crate::git::LogFilter,
     token: &Cancel,
 ) -> Result<std::collections::HashSet<String>, String> {
-    let mut matched = std::collections::HashSet::new();
-    let mut scanned = 0;
-    loop {
-        let page =
-            repo.topology_filtered_page(roots, scanned, HISTORY_PAGE, Some(filter), token)?;
-        scanned += page.commits.len();
-        if scanned > 100_000 {
-            return Err("Filtered result exceeds graph budget".into());
-        }
-        matched.extend(page.commits.into_iter().map(|c| c.id));
-        if !page.more {
-            break;
-        }
-    }
-    Ok(matched)
+    Ok(repo
+        .bounded_topology(roots, Some(filter), token)?
+        .into_iter()
+        .map(|commit| commit.id)
+        .collect())
 }
 
 fn hash_matches(
+    repo: &Repository,
+    roots: &[String],
     topology: &[crate::git::TopologyCommit],
     hashes: &[String],
     token: &Cancel,
@@ -395,5 +374,14 @@ fn hash_matches(
             matched.insert(commit.id.clone());
         }
     }
+    // Rebased's default hash search includes message references, independently
+    // of the user's other filters and text toggles. Tokens are validated hex,
+    // so an ERE union is equivalent to its case-insensitive literal patterns.
+    let messages = crate::git::LogFilter {
+        text: hashes.join("|"),
+        regex: true,
+        ..Default::default()
+    };
+    matched.extend(read_matches(repo, roots, &messages, token)?);
     Ok(matched)
 }

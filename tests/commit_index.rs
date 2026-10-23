@@ -950,8 +950,9 @@ fn amend_message_load_uses_full_utf8_message_and_rejects_stale_head() {
 #[test]
 fn inclusion_from_real_status_commits_whole_file_and_excludes_review_only_files() {
     use plico::{
+        commit_changes::Snapshot,
+        commit_inclusion::{Identity, Inclusion},
         commit_operation,
-        commit_selection::Selection,
         git::{Cancel, Repository},
         operation_process::Progress,
     };
@@ -973,17 +974,19 @@ fn inclusion_from_real_status_commits_whole_file_and_excludes_review_only_files(
             .count(),
         2
     );
-    let mut s = Selection::default();
-    s.replace(&changes);
-    s.set(std::path::Path::new("selected"), true);
+    let snapshot = Snapshot::load(&repo, &token).unwrap();
+    let selected = Identity::of(
+        snapshot
+            .files
+            .iter()
+            .find(|file| file.change().path == std::path::Path::new("selected"))
+            .unwrap(),
+    );
+    let mut s = Inclusion::default();
+    s.replace(&snapshot);
+    s.set(&selected, true);
     assert_eq!(s.count(), 1);
-    let r = s
-        .request(
-            "chosen file".into(),
-            false,
-            commit_operation::head(&repo, &token).unwrap(),
-        )
-        .unwrap();
+    let r = s.request("chosen file".into(), false).unwrap();
     let report = commit_operation::execute(&repo, &r, &token, &Progress::default()).unwrap();
     assert!(report.succeeded());
     assert_eq!(f.git(&["show", "HEAD:selected"]), b"working selected\n");
@@ -998,8 +1001,9 @@ fn inclusion_from_real_status_commits_whole_file_and_excludes_review_only_files(
 #[test]
 fn inclusion_uses_recreated_file_instead_of_its_staged_deletion() {
     use plico::{
+        commit_changes::{File, Snapshot},
+        commit_inclusion::{Identity, Inclusion},
         commit_operation,
-        commit_selection::Selection,
         git::{Cancel, Repository},
         operation_process::Progress,
     };
@@ -1009,16 +1013,18 @@ fn inclusion_uses_recreated_file_instead_of_its_staged_deletion() {
     f.write("selected", "recreated\n");
     let repo = Repository::new(&f.0);
     let token = Cancel::default();
-    let mut s = Selection::default();
-    s.replace(&repo.local_changes(&token).unwrap());
-    s.set(std::path::Path::new("selected"), true);
-    let r = s
-        .request(
-            "recreated".into(),
-            false,
-            commit_operation::head(&repo, &token).unwrap(),
-        )
-        .unwrap();
+    let snapshot = Snapshot::load(&repo, &token).unwrap();
+    let recreated = Identity::of(
+        snapshot
+            .files
+            .iter()
+            .find(|file| matches!(file, File::Unversioned(_)))
+            .unwrap(),
+    );
+    let mut s = Inclusion::default();
+    s.replace(&snapshot);
+    s.set(&recreated, true);
+    let r = s.request("recreated".into(), false).unwrap();
     assert!(r.remove.is_empty());
     assert!(
         commit_operation::execute(&repo, &r, &token, &Progress::default())
@@ -1392,4 +1398,165 @@ fn commit_tree_bridge_groups_net_changes_and_opens_full_working_tree_target() {
     assert!(patch.contains("+staged\n") && patch.contains("+unstaged\n"));
     assert_eq!(Chain::new(&target, model.files()).unwrap().len(), 1);
     assert_eq!(model.selected(), None); // Preview fallback must not imply a tree or commit selection.
+}
+
+#[test]
+fn executor_ignores_stash_display_configuration_and_preserves_staging() {
+    for amend in [false, true] {
+        let f = Fixture::new();
+        f.base();
+        f.write("selected", "saved work\n");
+        f.git(&["stash", "push", "-qm", "saved work"]);
+        let stash = f.git(&["rev-parse", "refs/stash"]);
+        f.git(&["config", "status.showStash", "true"]);
+        f.write("selected", "chosen\n");
+        f.write("excluded", "excluded staged\n");
+        f.git(&["add", "excluded"]);
+        let report = execute(&f, &request(&f, amend));
+        assert!(report.succeeded());
+        assert_eq!(f.git(&["show", "HEAD:selected"]), b"chosen\n");
+        assert_eq!(f.git(&["show", "HEAD:excluded"]), b"base\n");
+        assert_eq!(f.git(&["show", ":excluded"]), b"excluded staged\n");
+        assert_eq!(f.git(&["rev-parse", "refs/stash"]), stash);
+    }
+}
+
+#[test]
+fn explicit_recovery_after_checkout_validates_content_instead_of_only_head() {
+    use plico::{
+        commit_recovery,
+        git::{Cancel, Repository},
+        operation_process::Progress,
+    };
+    for changed in [false, true] {
+        let f = Fixture::new();
+        f.base();
+        f.git(&["checkout", "-b", "destination"]);
+        if changed {
+            f.write("excluded", "destination content\n");
+            f.git(&["add", "excluded"]);
+        } else {
+            f.write("destination-only", "other branch\n");
+            f.git(&["add", "destination-only"]);
+        }
+        f.git(&["commit", "-m", "destination"]);
+        f.git(&["checkout", "main"]);
+        f.write("excluded", "saved staged\n");
+        f.git(&["add", "excluded"]);
+        f.write("selected", "chosen\n");
+        hook(&f, "post-commit", "echo owned-lock > .git/index.lock");
+        let report = execute(&f, &request(&f, false));
+        assert!(report.restore.is_err());
+        let recovery_path = report.recovery_record.unwrap();
+        let record = fs::read(&recovery_path).unwrap();
+        fs::remove_file(f.0.join(".git/index.lock")).unwrap();
+        // An external Git client can change branches while our recovery record
+        // exists. The explicit replay must still inspect the current index.
+        f.git(&["checkout", "--force", "destination"]);
+        f.write("unrelated", "new staging\n");
+        f.git(&["add", "unrelated"]);
+        let head = f.git(&["rev-parse", "HEAD"]);
+        let before_index = f.git(&["write-tree"]);
+        let worktree = fs::read(f.0.join("excluded")).unwrap();
+        let result = commit_recovery::restore(
+            &Repository::new(&f.0),
+            &Cancel::default(),
+            &Progress::default(),
+        );
+        if changed {
+            assert!(
+                result
+                    .unwrap_err()
+                    .contains("Affected index content changed")
+            );
+            assert_eq!(f.git(&["write-tree"]), before_index);
+            assert_eq!(fs::read(&recovery_path).unwrap(), record);
+        } else {
+            result.unwrap();
+            assert_eq!(f.git(&["show", ":excluded"]), b"saved staged\n");
+            assert!(!recovery_path.exists());
+        }
+        assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+        assert_eq!(
+            f.git(&["symbolic-ref", "HEAD"]),
+            b"refs/heads/destination\n"
+        );
+        assert_eq!(f.git(&["show", ":unrelated"]), b"new staging\n");
+        assert_eq!(fs::read(f.0.join("excluded")).unwrap(), worktree);
+    }
+}
+
+#[test]
+fn commit_collector_treats_copied_file_as_addition_even_with_copy_detection_configured() {
+    use plico::{
+        commit_changes::Snapshot,
+        commit_inclusion::{Identity, Inclusion},
+        git::{Cancel, Repository},
+    };
+    let f = Fixture::new();
+    f.base();
+    f.git(&["config", "diff.renames", "copies"]);
+    f.write("copied", "base\n");
+    f.git(&["add", "copied"]);
+    let repo = Repository::new(&f.0);
+    let snapshot = Snapshot::load(&repo, &Cancel::default()).unwrap();
+    let copied = snapshot
+        .files
+        .iter()
+        .find(|f| f.change().path == std::path::Path::new("copied"))
+        .unwrap();
+    let id = Identity::of(copied);
+    assert!(id.before.is_none());
+    let mut inclusion = Inclusion::default();
+    inclusion.replace(&snapshot);
+    inclusion.set(&id, true);
+    let request = inclusion.request("copy".into(), false).unwrap();
+    assert!(request.remove.is_empty());
+    assert!(execute(&f, &request).succeeded());
+    assert_eq!(f.git(&["show", "HEAD:selected"]), b"base\n");
+    assert_eq!(f.git(&["show", "HEAD:copied"]), b"base\n");
+}
+
+#[test]
+fn explicit_recovery_does_not_replace_a_new_staged_ancestor() {
+    use plico::{
+        commit_recovery,
+        git::{Cancel, Repository},
+        operation_process::Progress,
+    };
+    let f = Fixture::new();
+    f.base();
+    fs::create_dir(f.0.join("nested")).unwrap();
+    f.write("nested/excluded", "saved staged child\n");
+    f.git(&["add", "nested/excluded"]);
+    f.write("selected", "chosen\n");
+    hook(&f, "post-commit", "echo owned-lock > .git/index.lock");
+    let report = execute(&f, &request(&f, false));
+    assert!(report.restore.is_err());
+    let path = report.recovery_record.unwrap();
+    fs::remove_file(f.0.join(".git/index.lock")).unwrap();
+    // Prepared index has no nested/excluded entry. A later writer stages its
+    // parent as a file; replaying the old child would silently remove it.
+    fs::remove_file(f.0.join("nested/excluded")).unwrap();
+    fs::remove_dir(f.0.join("nested")).unwrap();
+    f.write("nested", "new staged parent\n");
+    f.git(&["add", "nested"]);
+    let index = fs::read(f.0.join(".git/index")).unwrap();
+    let record = fs::read(&path).unwrap();
+    let head = f.git(&["rev-parse", "HEAD"]);
+    let error = commit_recovery::restore(
+        &Repository::new(&f.0),
+        &Cancel::default(),
+        &Progress::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("overlaps"), "{error}");
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    assert_eq!(fs::read(path).unwrap(), record);
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(f.git(&["show", ":nested"]), b"new staged parent\n");
+    assert_eq!(
+        fs::read(f.0.join("nested")).unwrap(),
+        b"new staged parent\n"
+    );
 }

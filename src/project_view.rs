@@ -799,6 +799,7 @@ pub struct FileTab {
     reading_position: Option<ReadingPosition>,
     markdown: Option<Entity<crate::markdown_preview::MarkdownPreview>>,
     markdown_mode: crate::markdown_preview::Mode,
+    markdown_subscription: Option<Subscription>,
     markdown_split: Option<Entity<gpui_kit::component::resizable::ResizableState>>,
     pending: Option<Vec<u8>>,
     pub documents: crate::editing::Documents,
@@ -833,6 +834,7 @@ impl FileTab {
             viewer: None,
             reading_position: None,
             markdown: None,
+            markdown_subscription: None,
             markdown_mode: crate::markdown_preview::Mode::load(),
             markdown_split: None,
             pending: None,
@@ -884,25 +886,9 @@ impl FileTab {
                 |_, _, event: &crate::source_changes::CommitChunk, cx| cx.emit(event.clone()),
             ));
         }
-        if crate::markdown_preview::supported(&self.path) {
-            let editor = editing.read(cx).editor.clone();
-            let path = self.root.join(&self.path);
-            self.markdown =
-                Some(cx.new(|cx| crate::markdown_preview::MarkdownPreview::new(&editor, path, cx)));
-            if let Some(preview) = &self.markdown {
-                self.editing_subscriptions.push(cx.subscribe(
-                    preview,
-                    |s, _, event: &crate::markdown_preview::OpenLink, cx| {
-                        if let Ok(path) = event.0.strip_prefix(&s.root) {
-                            cx.emit(crate::markdown_preview::OpenLink(path.to_path_buf()));
-                        }
-                    },
-                ));
-            }
-            self.markdown_split.get_or_insert_with(|| {
-                cx.new(|_| gpui_kit::component::resizable::ResizableState::default())
-            });
-        }
+        self.markdown = None;
+        self.markdown_subscription = None;
+        self.sync_markdown(cx);
         self.editing_subscriptions.push(cx.subscribe(
             &editing,
             |s, editing, _: &crate::editing::Reloaded, cx| {
@@ -914,8 +900,38 @@ impl FileTab {
         ));
         self.editing = Some(editing);
     }
+    fn has_markdown_document(&self) -> bool {
+        !self.history && self.viewer.is_some() && crate::markdown_preview::supported(&self.path)
+    }
+    fn sync_markdown(&mut self, cx: &mut Context<Self>) {
+        if !self.has_markdown_document()
+            || self.markdown_mode == crate::markdown_preview::Mode::Source
+        {
+            self.markdown_subscription = None;
+            self.markdown = None;
+            return;
+        }
+        if self.markdown.is_some() {
+            return;
+        }
+        let editor = self.viewer.as_ref().unwrap().clone();
+        let path = self.root.join(&self.path);
+        let preview = cx.new(|cx| crate::markdown_preview::MarkdownPreview::new(&editor, path, cx));
+        self.markdown_subscription = Some(cx.subscribe(
+            &preview,
+            |s, _, event: &crate::markdown_preview::OpenLink, cx| {
+                if let Ok(path) = event.0.strip_prefix(&s.root) {
+                    cx.emit(crate::markdown_preview::OpenLink(path.to_path_buf()));
+                }
+            },
+        ));
+        self.markdown = Some(preview);
+        self.markdown_split.get_or_insert_with(|| {
+            cx.new(|_| gpui_kit::component::resizable::ResizableState::default())
+        });
+    }
     pub fn markdown_toolbar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.history || self.markdown.is_none() {
+        if !self.has_markdown_document() {
             return None;
         }
         Some(
@@ -934,6 +950,7 @@ impl FileTab {
                                 .tooltip(t(mode.label()))
                                 .on_click(cx.listener(move |s, _, window, cx| {
                                     s.markdown_mode = mode;
+                                    s.sync_markdown(cx);
                                     mode.save();
                                     if mode == crate::markdown_preview::Mode::Preview {
                                         if let Some(preview) = &s.markdown {
@@ -1067,6 +1084,10 @@ impl FileTab {
     }
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.changes = None;
+        // Retaining editor undo history must not retain an invisible preview's
+        // parser and document subscription. attach_document rebuilds it on return.
+        self.markdown_subscription = None;
+        self.markdown = None;
         if let Some(view) = &self.history_view {
             self.history_position = Some(view.read(cx).reading_state());
         }
@@ -1090,7 +1111,6 @@ impl FileTab {
             .is_some_and(|d| d.read(cx).edited || d.read(cx).pending(cx))
         {
             self.viewer = None;
-            self.markdown = None;
             self.editing = None;
             self.editing_subscriptions.clear();
         }
@@ -1262,7 +1282,7 @@ impl Render for FileTab {
             .on_action(
                 cx.listener(|s, _: &ShowSelectionHistory, _, cx| s.history_requested(true, cx)),
             )
-            .when(self.markdown.is_none(), |v| {
+            .when(!self.has_markdown_document(), |v| {
                 v.child(
                     h_flex()
                         .h(px(36.))
@@ -1461,6 +1481,145 @@ mod source_navigation_tests {
     use super::FileTab;
     use gpui::AppContext as _;
     use std::path::PathBuf;
+    #[gpui::test]
+    fn hidden_markdown_releases_preview_but_retains_edited_document(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut handles = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let root = std::env::temp_dir().join("plico-preview-lifecycle");
+            let path = PathBuf::from("README.md");
+            let documents = crate::editing::Documents::default();
+            let editing = documents.get_or_create(
+                root.clone(),
+                path.clone(),
+                plico::file_document::Document::new(b"# Saved draft".to_vec()).unwrap(),
+                |text, cx| {
+                    cx.new(|cx| {
+                        gpui::component::input::EditorState::new(window, cx)
+                            .default_value(text.to_owned())
+                    })
+                },
+                cx,
+            );
+            // An edited, successfully saved document still retains its undo history.
+            editing.update(cx, |s, _| s.edited = true);
+            let tab = cx.new(|cx| {
+                let mut tab = FileTab::new(root, path);
+                tab.documents = documents;
+                tab.markdown_mode = crate::markdown_preview::Mode::Split;
+                tab.attach_document(editing.clone(), cx);
+                tab
+            });
+            handles = Some((tab.clone(), editing));
+            gpui::component::Root::new(tab, window, cx)
+        });
+        let (tab, editing) = handles.unwrap();
+        let preview = cx.update(|_, cx| {
+            tab.update(cx, |s, cx| {
+                let preview = s.markdown.as_ref().unwrap().downgrade();
+                let editor_id = s.viewer.as_ref().unwrap().entity_id();
+                s.deactivate(cx);
+                assert!(
+                    s.markdown.is_none(),
+                    "hidden preview must not retain parsing state"
+                );
+                assert_eq!(s.viewer.as_ref().unwrap().entity_id(), editor_id);
+                assert_eq!(s.editing.as_ref().unwrap().entity_id(), editing.entity_id());
+                preview
+            })
+        });
+        cx.update(|_, _| {});
+        assert!(preview.upgrade().is_none());
+        cx.update(|_, cx| {
+            tab.update(cx, |s, cx| {
+                s.activate(cx);
+                assert!(s.markdown.is_some());
+                assert_eq!(s.editing.as_ref().unwrap().entity_id(), editing.entity_id());
+                assert_eq!(
+                    s.viewer.as_ref().unwrap().read(cx).text().to_string(),
+                    "# Saved draft"
+                );
+            })
+        });
+    }
+    #[gpui::test]
+    fn source_markdown_does_not_create_preview(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut handles = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let root = std::env::temp_dir().join("plico-preview-lifecycle");
+            let path = PathBuf::from("README.md");
+            let documents = crate::editing::Documents::default();
+            let editing = documents.get_or_create(
+                root.clone(),
+                path.clone(),
+                plico::file_document::Document::new(b"# Saved draft".to_vec()).unwrap(),
+                |text, cx| {
+                    cx.new(|cx| {
+                        gpui::component::input::EditorState::new(window, cx)
+                            .default_value(text.to_owned())
+                    })
+                },
+                cx,
+            );
+            // An edited, successfully saved document still retains its undo history.
+            editing.update(cx, |s, _| s.edited = true);
+            let tab = cx.new(|cx| {
+                let mut tab = FileTab::new(root, path);
+                tab.documents = documents;
+                tab.markdown_mode = crate::markdown_preview::Mode::Source;
+                tab.attach_document(editing.clone(), cx);
+                tab
+            });
+            handles = Some((tab.clone(), editing));
+            gpui::component::Root::new(tab, window, cx)
+        });
+        let (tab, editing) = handles.unwrap();
+        cx.update(|_, cx| {
+            tab.update(cx, |s, cx| {
+                assert!(
+                    s.markdown.is_none(),
+                    "source mode must not create a preview"
+                );
+                assert!(
+                    s.markdown_toolbar(cx).is_some(),
+                    "mode controls must remain available"
+                );
+                assert_eq!(s.editing.as_ref().unwrap().entity_id(), editing.entity_id());
+            });
+        });
+        let released = cx.update(|_, cx| {
+            tab.update(cx, |s, cx| {
+                s.markdown_mode = crate::markdown_preview::Mode::Split;
+                s.sync_markdown(cx);
+                let preview = s.markdown.as_ref().unwrap().downgrade();
+                let split = s.markdown_split.as_ref().unwrap().entity_id();
+                s.markdown_mode = crate::markdown_preview::Mode::Source;
+                s.sync_markdown(cx);
+                assert!(s.markdown.is_none());
+                assert!(s.markdown_subscription.is_none());
+                assert!(s.markdown_toolbar(cx).is_some());
+                assert_eq!(s.markdown_split.as_ref().unwrap().entity_id(), split);
+                preview
+            })
+        });
+        cx.update(|_, _| {});
+        assert!(released.upgrade().is_none());
+        cx.update(|window, cx| {
+            tab.update(cx, |s, cx| {
+                let editor = s.viewer.as_ref().unwrap().clone();
+                editor.update(cx, |state, cx| {
+                    state.set_value("# Updated source", window, cx)
+                });
+                s.markdown_mode = crate::markdown_preview::Mode::Preview;
+                s.sync_markdown(cx);
+                assert!(s.markdown.is_some());
+                assert_eq!(s.viewer.as_ref().unwrap().entity_id(), editor.entity_id());
+                assert_eq!(s.editing.as_ref().unwrap().entity_id(), editing.entity_id());
+                assert_eq!(editor.read(cx).text().to_string(), "# Updated source");
+            });
+        });
+    }
     #[gpui::test]
     fn source_jump_waits_for_the_editor_to_load(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

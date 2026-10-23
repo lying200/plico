@@ -791,9 +791,14 @@ impl Review {
                         "Merge operation cancelled"
                     } else {
                         match result {
-                            Ok(_) if restore_error.is_some() => {
-                                "Merge completed; saved changes require attention"
-                            }
+                            Ok(_) if restore_error.is_some() => match action {
+                                plico::merge_operation::Action::Commit => {
+                                    "Merge completed; saved changes require attention"
+                                }
+                                plico::merge_operation::Action::Abort => {
+                                    "Merge aborted; saved changes require attention"
+                                }
+                            },
                             Ok(result) => match (result.command, result.state) {
                                 (Ok(outcome), Ok(state))
                                     if outcome.status.success()

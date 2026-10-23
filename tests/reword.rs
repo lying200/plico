@@ -313,3 +313,164 @@ fn post_rewrite_receives_mapping_and_failure_does_not_repeat_commit() {
             .starts_with("plico-post-rewrite-")
     }));
 }
+
+#[test]
+fn prepared_message_cannot_be_published_in_another_worktree() {
+    let f = Fixture::new();
+    let head = f.commit("original");
+    // Both worktrees have identical detached HEADs, so only repository
+    // identity can reject applying this prepared operation to the other one.
+    f.git(&["checkout", "--detach", &head]);
+    let prepared = f.prepare(&head);
+    let other = f.0.join("linked");
+    f.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        other.to_str().unwrap(),
+        &head,
+    ]);
+    let repo = Repository::new(&other);
+    assert!(
+        prepared
+            .execute(
+                &repo,
+                "wrong repository",
+                &Cancel::default(),
+                &Default::default()
+            )
+            .is_err()
+    );
+    assert_eq!(f.text(&["rev-parse", "HEAD"]), head);
+    let actual = Command::new("git")
+        .arg("-C")
+        .arg(&other)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(actual.status.success());
+    assert_eq!(String::from_utf8(actual.stdout).unwrap().trim(), head);
+    f.git(&["worktree", "remove", other.to_str().unwrap()]);
+}
+
+#[test]
+fn reword_keeps_other_branch_and_tag_references_at_original_commits() {
+    let f = Fixture::new();
+    let target = f.commit("original");
+    f.git(&["branch", "shared", &target]);
+    f.git(&["tag", "saved", &target]);
+    f.commit("descendant");
+    let old_head = f.text(&["rev-parse", "HEAD"]);
+    f.git(&["branch", "old-tip", &old_head]);
+    let tree = f.text(&["rev-parse", "HEAD^{tree}"]);
+    let result = f.rewrite(&f.prepare(&target), "edited");
+    assert_ne!(result.target, target);
+    assert_eq!(f.text(&["rev-parse", "HEAD^"]), result.target);
+    assert_eq!(f.text(&["rev-parse", "HEAD^{tree}"]), tree);
+    assert_eq!(f.text(&["rev-parse", "refs/heads/shared"]), target);
+    assert_eq!(f.text(&["rev-parse", "refs/tags/saved"]), target);
+    assert_eq!(f.text(&["rev-parse", "refs/heads/old-tip"]), old_head);
+}
+
+#[test]
+fn locked_reference_failure_preserves_state_and_allows_explicit_retry() {
+    for detached in [false, true] {
+        let f = Fixture::new();
+        f.write("file", "base\n");
+        let target = f.commit("original");
+        f.commit("descendant");
+        if detached {
+            f.git(&["checkout", "--detach"]);
+        }
+        f.git(&["config", "notes.rewriteRef", "refs/notes/commits"]);
+        f.git(&["notes", "add", "-m", "keep note", &target]);
+        f.write("file", "staged\n");
+        f.git(&["add", "file"]);
+        f.write("file", "unstaged\n");
+        let prepared = f.prepare(&target);
+        let head = f.text(&["rev-parse", "HEAD"]);
+        let refs = f.git(&["show-ref"]);
+        let index = fs::read(f.0.join(".git/index")).unwrap();
+        let head_log = fs::read(f.0.join(".git/logs/HEAD")).unwrap();
+        let lock = f.0.join(if detached {
+            ".git/HEAD.lock"
+        } else {
+            ".git/refs/heads/main.lock"
+        });
+        fs::write(&lock, b"another writer owns this lock\n").unwrap();
+        let error = prepared
+            .execute(
+                &Repository::new(&f.0),
+                "edited",
+                &Cancel::default(),
+                &Default::default(),
+            )
+            .err()
+            .expect("publication must fail while the reference is locked");
+        assert!(error.contains("cannot lock ref"), "{error}");
+        assert_eq!(fs::read(&lock).unwrap(), b"another writer owns this lock\n");
+        assert_eq!(f.text(&["rev-parse", "HEAD"]), head);
+        assert_eq!(f.git(&["show-ref"]), refs);
+        assert_eq!(fs::read(f.0.join(".git/logs/HEAD")).unwrap(), head_log);
+        assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+        assert_eq!(fs::read(f.0.join("file")).unwrap(), b"unstaged\n");
+        fs::remove_file(&lock).unwrap(); // Only the fixture's simulated writer releases it.
+        let result = f.rewrite(&prepared, "edited");
+        assert!(result.warning.is_none());
+        assert_eq!(
+            f.text(&["show", "-s", "--format=%s", &result.target]),
+            "edited"
+        );
+        assert_eq!(f.text(&["notes", "show", &result.target]), "keep note");
+        assert_eq!(f.text(&["show", ":file"]), "staged");
+        assert_eq!(fs::read(f.0.join("file")).unwrap(), b"unstaged\n");
+        assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    }
+}
+
+#[test]
+fn prepared_message_rechecks_external_merge_without_head_change() {
+    let f = Fixture::new();
+    f.write("base", "base\n");
+    let head = f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    f.write("added", "topic\n");
+    f.commit("topic");
+    f.git(&["checkout", "main"]);
+    let repo = Repository::new(&f.0);
+    let prepared = f.prepare(&head);
+    let refs = f.git(&["show-ref"]);
+    f.git(&["merge", "--no-ff", "--no-commit", "topic"]);
+    assert_eq!(f.text(&["rev-parse", "HEAD"]), head);
+    assert_eq!(f.git(&["show-ref"]), refs);
+    let index = fs::read(f.0.join(".git/index")).unwrap();
+    let merge_head = fs::read(f.0.join(".git/MERGE_HEAD")).unwrap();
+    let reflog = f.git(&["reflog", "show", "HEAD"]);
+    let error = prepared
+        .execute(
+            &repo,
+            "must not publish",
+            &Cancel::default(),
+            &Default::default(),
+        )
+        .err()
+        .expect("external merge must reject publication");
+    assert!(error.contains("another Git operation"), "{error}");
+    assert!(Prepared::prepare(&repo, head.clone(), &Cancel::default()).is_err());
+    assert_eq!(f.git(&["show-ref"]), refs);
+    assert_eq!(f.git(&["reflog", "show", "HEAD"]), reflog);
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    assert_eq!(fs::read(f.0.join(".git/MERGE_HEAD")).unwrap(), merge_head);
+    assert_eq!(fs::read(f.0.join("added")).unwrap(), b"topic\n");
+    f.git(&["merge", "--quit"]);
+    assert_eq!(f.git(&["show-ref"]), refs);
+    assert!(Prepared::prepare(&repo, head, &Cancel::default()).is_ok());
+    let done = f.rewrite(&prepared, "explicit retry after quit");
+    assert!(done.warning.is_none());
+    assert_eq!(
+        f.text(&["show", "-s", "--format=%s", "HEAD"]),
+        "explicit retry after quit"
+    );
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    assert_eq!(fs::read(f.0.join("added")).unwrap(), b"topic\n");
+}

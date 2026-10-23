@@ -10,6 +10,7 @@ pub(super) struct AutoRefresh {
     pub(super) token: Cancel,
     remote_token: Cancel,
     pub references: Option<References>,
+    operation_observation: Option<plico::operation_state::Observation>,
     pub counts: Counts,
     pub remote: RemoteState,
     remote_busy: bool,
@@ -24,6 +25,7 @@ impl Default for AutoRefresh {
             token: Cancel::default(),
             remote_token: Cancel::default(),
             references: None,
+            operation_observation: None,
             counts: Counts::default(),
             remote: RemoteState::Unknown,
             remote_busy: false,
@@ -66,6 +68,10 @@ impl Review {
                         .read_with(cx, |s, _| s.updates.references.clone())
                         .ok()
                         .flatten();
+                    let previous_operation = this
+                        .read_with(cx, |s, _| s.updates.operation_observation.clone())
+                        .ok()
+                        .flatten();
                     let result = cx
                         .background_spawn(async move {
                             let refs = References::read(&repo, &query_token)?;
@@ -74,7 +80,12 @@ impl Review {
                             } else {
                                 None
                             };
-                            Ok::<_, String>((refs, counts))
+                            let operation = plico::operation_state::observe(
+                                &repo,
+                                previous_operation.as_ref(),
+                                &query_token,
+                            );
+                            Ok::<_, String>((refs, counts, operation))
                         })
                         .await;
                     if this
@@ -86,7 +97,7 @@ impl Review {
                             {
                                 return;
                             }
-                            let Ok((refs, counts)) = result else {
+                            let Ok((refs, counts, operation)) = result else {
                                 return;
                             };
                             let changed = s.updates.references.as_ref().map_or_else(
@@ -107,6 +118,16 @@ impl Review {
                                 s.updates.next_remote = Instant::now();
                             }
                             s.updates.references = Some(refs);
+                            if let Ok(Some((observation, state))) = operation {
+                                s.updates.operation_observation = Some(observation);
+                                if s.operation_state.as_ref() != Some(&state) {
+                                    s.operation_state = Some(state);
+                                    if !changed {
+                                        s.refresh_reword_gate(cx);
+                                    }
+                                    cx.notify();
+                                }
+                            }
                             if changed {
                                 s.refresh_impl(false, true, None, cx);
                             }

@@ -812,7 +812,9 @@ fn message_filter_queries_history_before_paging_and_keeps_real_parents() {
     };
     assert!(
         repo.snapshot_filtered_at(None, 0, 10, None, Some(&invalid), &token)
-            .is_err()
+            .unwrap()
+            .commits
+            .is_empty()
     );
     let whitespace = LogFilter {
         text: "  ".into(),
@@ -835,6 +837,27 @@ fn message_filter_queries_history_before_paging_and_keeps_real_parents() {
             .unwrap()
             .commits
             .is_empty()
+    );
+}
+
+#[test]
+fn git_unsupported_regex_is_not_silently_retried_as_literal() {
+    let f = Fixture::new();
+    f.git(&[
+        "commit",
+        "--allow-empty",
+        "-m",
+        "literal (?=marker) and marker",
+    ]);
+    let filter = LogFilter {
+        text: "(?=marker)".into(),
+        regex: true,
+        ..Default::default()
+    };
+    assert!(
+        f.repo()
+            .snapshot_filtered_at(None, 0, 10, None, Some(&filter), &Cancel::default())
+            .is_err()
     );
 }
 
@@ -1460,9 +1483,13 @@ fn author_filter_uses_raw_identities_and_composes_before_paging() {
         vec![&new, &other, &old]
     );
     // Git's shared case/regexp flags apply to text and author, like GitLogProvider.
-    for regex in [false, true] {
+    for (regex, pattern, effective_regex) in [
+        (false, "Needle", false),
+        (true, "Needle", false),
+        (true, "^Needle", true),
+    ] {
         let text = LogFilter {
-            text: "Needle".into(),
+            text: pattern.into(),
             regex,
             match_case: true,
             authors: Some(vec![alice.clone(), bob.clone()]),
@@ -1473,7 +1500,7 @@ fn author_filter_uses_raw_identities_and_composes_before_paging() {
             .unwrap();
         // Fixed-string mode in the reference uses substring matching for the
         // full identity; regex mode additionally anchors it at both ends.
-        let expected = if regex {
+        let expected = if effective_regex {
             vec![&other, &old]
         } else {
             vec![&prefixed, &other, &old]
@@ -1491,7 +1518,7 @@ fn author_filter_uses_raw_identities_and_composes_before_paging() {
                 .unwrap()
                 .commits
                 .len(),
-            if regex { 3 } else { 4 }
+            if effective_regex { 3 } else { 4 }
         );
     }
     let empty = LogFilter {
@@ -2256,7 +2283,10 @@ fn filtered_navigation_preserves_display_order_filters_and_real_parents() {
         regex: true,
         ..Default::default()
     };
-    assert!(history::locate_filtered(&repo, &roots, &base, 1, &invalid, &token).is_err());
+    assert!(matches!(
+        history::locate_filtered(&repo, &roots, &base, 1, &invalid, &token).unwrap(),
+        FilteredLocation::Hidden
+    ));
     assert!(history::locate_filtered(&repo, &roots, "HEAD", 1, &fallback, &token).is_err());
     assert!(
         history::locate_filtered(&repo, &["--all".into()], &base, 1, &fallback, &token).is_err()
@@ -8306,4 +8336,175 @@ fn push_tag_modes_match_rebased_all_and_current_branch() {
         Status::Success
     );
     assert_eq!(remote.git(&["tag", "--list"]), "annotated\nlightweight");
+}
+
+#[test]
+fn squash_preparation_is_worktree_scoped() {
+    use plico::{
+        published_commits::Protection,
+        squash_check::{prepare, revalidate},
+    };
+    let f = Fixture::new();
+    for name in ["base", "one", "two"] {
+        f.write(name, name);
+        f.commit(name);
+    }
+    let head = f.git(&["rev-parse", "HEAD"]);
+    let first = f.git(&["rev-parse", "HEAD^"]);
+    f.git(&["checkout", "--detach"]);
+    let linked = f.0.join("linked");
+    f.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        linked.to_str().unwrap(),
+        &head,
+    ]);
+    let token = Cancel::default();
+    let source = f.repo();
+    let other = Repository::new(linked.clone());
+    let prepared = prepare(
+        &source,
+        &head,
+        &[head.clone(), first],
+        Protection::Defaults,
+        &token,
+    )
+    .unwrap();
+    assert_ne!(
+        source.editor_directory(&token).unwrap(),
+        other.editor_directory(&token).unwrap()
+    );
+    assert!(revalidate(&source, &prepared, Protection::Defaults, &token).is_ok());
+    let error = revalidate(&other, &prepared, Protection::Defaults, &token).unwrap_err();
+    f.git(&["worktree", "remove", linked.to_str().unwrap()]);
+    assert!(error.contains("repository changed"), "{error}");
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+}
+
+#[test]
+fn hash_filter_includes_message_references_in_pages_and_navigation() {
+    use plico::{git::LogFilter, history};
+    let f = Fixture::new();
+    f.write("a", "base\n");
+    f.commit("base");
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("a", "middle\n");
+    f.commit("unrelated middle");
+    f.write("a", "reference\n");
+    f.commit(&format!(
+        "reference\n\nBackport of {}",
+        &base[..8].to_uppercase()
+    ));
+    let reference = f.git(&["rev-parse", "HEAD"]);
+    let filter = LogFilter {
+        text: format!("{}; deadbee", &base[..8]),
+        match_case: true,
+        authors: Some(vec![]),
+        paths: vec!["absent.txt".into()],
+        ..Default::default()
+    };
+    let repo = f.repo();
+    let token = Cancel::default();
+    let first = history::read_filtered(&repo, None, 0, 1, None, &filter, &token).unwrap();
+    assert_eq!(first.snapshot.commits[0].id, reference);
+    assert!(first.snapshot.more);
+    let roots = first.snapshot.tips;
+    // A new matching commit must not leak into a page pinned to the old roots.
+    f.git(&[
+        "commit",
+        "--allow-empty",
+        "-m",
+        &format!("new {}", &base[..8]),
+    ]);
+    let second = history::read_filtered(&repo, None, 1, 1, Some(&roots), &filter, &token).unwrap();
+    assert_eq!(second.snapshot.commits[0].id, base);
+    assert!(!second.snapshot.more);
+    let history::FilteredLocation::Found(found) =
+        history::locate_filtered(&repo, &roots, &reference, 1, &filter, &token).unwrap()
+    else {
+        panic!("message reference must remain navigable")
+    };
+    assert_eq!(found.offset, 0);
+    assert_eq!(found.window.snapshot.commits[found.selected].id, reference);
+    assert_eq!(
+        history::adjacent(&repo, &roots, &reference, true, Some(&filter), &token).unwrap(),
+        vec![base]
+    );
+}
+
+#[test]
+fn invalid_regex_falls_back_to_literal_across_history_queries() {
+    use plico::history::{self, FilteredLocation};
+    let f = Fixture::new();
+    for message in [
+        "old [ marker",
+        "hidden parent",
+        "recent [ marker",
+        "unrelated",
+    ] {
+        f.git(&["commit", "--allow-empty", "-m", message]);
+    }
+    let repo = f.repo();
+    let token = Cancel::default();
+    let all = repo.snapshot(None, 10, None, &token).unwrap();
+    let filter = LogFilter {
+        text: "[".into(),
+        regex: true,
+        ..Default::default()
+    };
+    let first = repo
+        .snapshot_filtered_at(None, 0, 1, Some(&all.tips), Some(&filter), &token)
+        .expect("invalid regex must fall back to literal text, not fail the repository");
+    assert_eq!(first.commits[0].id, all.commits[1].id);
+    assert!(first.more);
+    let second =
+        history::read_filtered(&repo, None, 1, 1, Some(&all.tips), &filter, &token).unwrap();
+    assert_eq!(second.snapshot.commits[0].id, all.commits[3].id);
+    assert!(!second.snapshot.more);
+    assert!(matches!(
+        history::locate_filtered(&repo, &all.tips, &all.commits[2].id, 1, &filter, &token).unwrap(),
+        FilteredLocation::Hidden
+    ));
+    // Git shares grep/author mode: literal fallback must not retain ERE
+    // anchors or escaping around the selected identity.
+    let author = Author {
+        name: f.git(&["config", "user.name"]),
+        email: f.git(&["config", "user.email"]),
+    };
+    let combined = LogFilter {
+        authors: Some(vec![author]),
+        match_case: true,
+        ..filter.clone()
+    };
+    let matches = repo
+        .snapshot_filtered_at(None, 0, 10, Some(&all.tips), Some(&combined), &token)
+        .unwrap();
+    assert_eq!(matches.commits.len(), 2);
+    let case_sensitive = LogFilter {
+        text: "[ MARKER".into(),
+        ..combined.clone()
+    };
+    assert!(
+        repo.snapshot_filtered_at(None, 0, 10, None, Some(&case_sensitive), &token)
+            .unwrap()
+            .commits
+            .is_empty()
+    );
+    let case_insensitive = LogFilter {
+        match_case: false,
+        ..case_sensitive
+    };
+    assert_eq!(
+        repo.snapshot_filtered_at(None, 0, 10, None, Some(&case_insensitive), &token)
+            .unwrap()
+            .commits
+            .len(),
+        2
+    );
+    token.cancel();
+    assert!(
+        repo.snapshot_filtered_at(None, 0, 1, Some(&all.tips), Some(&filter), &token)
+            .is_err()
+    );
 }

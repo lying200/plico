@@ -24,6 +24,36 @@ jobs:
       - name: Core lint checks
         run: cargo clippy --locked --no-default-features --all-targets
       - run: cargo test --locked --no-default-features
+  desktop-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev
+      - run: rustup show
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: linux-desktop-deps-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: linux-desktop-deps-
+      - name: Desktop state and lifecycle regressions
+        run: cargo test --locked --features desktop-tests --bin plico
+      # Keep debug assertions enabled above; real toolbar rendering encounters
+      # the upstream duplicate-hover assertion in focus and pointer tests.
+      - name: Cross-file keyboard and pointer regressions
+        run: cargo test --locked --config 'profile.test.debug-assertions=false' --features desktop-tests --bin plico diff_tab::editable_navigation_tests
   windows:
     runs-on: windows-2022
     timeout-minutes: 60
@@ -49,6 +79,13 @@ jobs:
       # Offline packaging also reads metadata for test/build dependencies.
       - name: Fetch locked Windows dependencies
         run: cargo fetch --locked --target x86_64-pc-windows-msvc
+      # Accepted socket mode differs from Linux; compile-only cannot catch it.
+      - name: Test Windows hosting and OAuth transport
+        run: 'cargo test --locked --no-default-features --lib --target x86_64-pc-windows-msvc hosting::'
+      - name: Test Windows credential persistence
+        run: 'cargo test --locked --no-default-features --lib --target x86_64-pc-windows-msvc credential_store::windows_tests::'
+      - name: Test Windows process-tree cleanup
+        run: 'cargo test --locked --no-default-features --test process_tree --target x86_64-pc-windows-msvc'
       - name: Build Windows executable and helpers
         env:
           PLICO_GITHUB_CLIENT_SECRET: ${{ secrets.PLICO_GITHUB_CLIENT_SECRET }}
@@ -71,7 +108,7 @@ jobs:
           retention-days: 14
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, windows]
+    needs: [test, desktop-test, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

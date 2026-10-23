@@ -76,6 +76,18 @@ impl Report {
     pub fn succeeded(&self) -> bool {
         self.commands.iter().all(success)
     }
+    /// Preserve failed command details even when an earlier step succeeded.
+    pub fn diagnostic(&self) -> String {
+        crate::rebase_operation::display_text(
+            &self
+                .commands
+                .iter()
+                .filter(|out| !success(out))
+                .map(command_diagnostic)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
 }
 fn success(outcome: &Outcome) -> bool {
     outcome.status.success() && outcome.stopped.is_none() && outcome.input_error.is_none()
@@ -171,7 +183,7 @@ pub fn execute(
 }
 
 /// Mirrors Define Remote's asynchronous access check. A failed check is a
-/// warning that the dialog may explicitly override, not permission to write.
+/// retryable validation error; it does not authorize a configuration write.
 pub fn check_access(
     repo: &Repository,
     url: &str,
@@ -196,7 +208,30 @@ pub fn check_access(
     )
 }
 
+/// Bounded, display-safe command diagnostics for remote configuration and access checks.
+/// Keep this separate from success/cancellation policy; a cancelled form must not
+/// accept a successful-looking command or display a stale result.
+pub fn command_diagnostic(output: &Outcome) -> String {
+    let mut text = crate::rebase_operation::collect_errors(
+        &String::from_utf8_lossy(&output.stdout.bytes()),
+        &String::from_utf8_lossy(&output.stderr.bytes()),
+    );
+    if let Some(error) = &output.input_error {
+        text.push('\n');
+        text.push_str(&error.to_string());
+    }
+    if output.stopped == Some(operation_process::StopReason::TimedOut) {
+        text.push_str("\nGit operation timed out");
+    }
+    crate::rebase_operation::display_text(&text)
+}
+
 /// Redact credentials before showing a remote URL in the manager table.
 pub fn display_url(url: &str) -> String {
     crate::rebase_operation::display_text(url)
+}
+
+/// Apply the same output budget and credential redaction to non-command errors.
+pub fn display_error(error: &str) -> String {
+    crate::rebase_operation::display_text(error)
 }

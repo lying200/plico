@@ -40,6 +40,7 @@ pub mod auth_request;
 pub mod authenticated_command;
 pub mod credential_store;
 pub mod http_auth;
+mod http_credential_scope;
 
 pub mod askpass;
 
@@ -101,6 +102,7 @@ pub mod branch_search;
 pub mod branch_navigation;
 
 pub mod project_update;
+pub mod update_report;
 
 pub mod project_update_preferences;
 
@@ -112,7 +114,6 @@ pub mod commit_index;
 pub mod commit_operation;
 pub mod commit_recovery;
 pub mod commit_result;
-pub mod commit_selection;
 pub mod local_changes;
 
 pub mod commit_changes;
@@ -206,3 +207,6 @@ pub mod text_merge;
 pub mod hosting;
 
 pub mod ssh_auth;
+
+mod log_pattern;
+mod topology;

@@ -93,12 +93,24 @@ impl Review {
                 let success=!cancelled&&result.as_ref().is_ok_and(|r|r.succeeded());
                 let error=if cancelled{Some(t("Remote configuration cancelled; check the current configuration").into())}
                     else if !success{Some(t("Could not update remote configuration; some changes may already have been applied").into())}else{None};
+                let mut details = match &result {
+                    Ok(report) => report.diagnostic(),
+                    Err(error) => plico::remote_management::display_error(error),
+                };
+                if let Err(error) = &rows {
+                    details.push('\n');
+                    details.push_str(&plico::remote_management::display_error(error));
+                }
+                let details = plico::remote_management::display_error(&details);
                 let fetch_name=fetch_name.filter(|(name,url)|
                     result.as_ref().is_ok_and(|r|!r.commands.is_empty()) &&
                     rows.as_ref().is_ok_and(|rows|rows.iter().any(|r|r.name==*name&&r.urls.contains(url))))
                     .map(|(name,_)|name);
                 manager.update(cx,|s,cx|s.complete(rows,error,cx));
                 if s.repo.path!=path{return;}
+                if !cancelled && !details.trim().is_empty() {
+                    crate::error_ui::show_details(details, "Git Remotes", w, cx);
+                }
                 s.user_menu.update(cx,|menu,cx|menu.refresh(cx));
                 s.refresh_impl(false,true,None,cx);
                 if success{if let Some(name)=fetch_name{s.start_fetch_named(Some(name),w,cx);}}

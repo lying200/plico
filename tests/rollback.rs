@@ -193,5 +193,45 @@ fn symlink_target_is_not_modified_and_symlink_parent_is_rejected() {
     f.git(&["commit", "-qm", "dir"]);
     fs::remove_dir_all(f.0.join("dir")).unwrap();
     symlink(".", f.0.join("dir")).unwrap();
-    assert!(rollback::prepare(&f.repo(), &Cancel::default()).is_err());
+    let p = rollback::prepare(&f.repo(), &Cancel::default()).unwrap();
+    assert!(rollback::execute(&f.repo(), &p, &selected(&p, &["dir/file"]), false).is_err());
+}
+
+#[test]
+fn unrelated_gitlink_does_not_block_ordinary_file_rollback() {
+    let f = Fixture::new();
+    f.base();
+    f.write("nested/file", "nested base\n");
+    f.git(&["-C", "nested", "init", "-q"]);
+    f.git(&["-C", "nested", "config", "user.name", "Fixture"]);
+    f.git(&[
+        "-C",
+        "nested",
+        "config",
+        "user.email",
+        "fixture@example.test",
+    ]);
+    f.git(&["-C", "nested", "config", "commit.gpgsign", "false"]);
+    f.git(&["-C", "nested", "add", "file"]);
+    f.git(&["-C", "nested", "commit", "-qm", "nested base"]);
+    f.git(&["add", "nested"]);
+    f.git(&["commit", "-qm", "gitlink"]);
+    f.write("nested/file", "nested changed\n");
+    f.git(&["-C", "nested", "commit", "-qam", "nested change"]);
+    let nested_head = f.git(&["-C", "nested", "rev-parse", "HEAD"]);
+    f.write("a", "ordinary change\n");
+    let prepared = rollback::prepare(&f.repo(), &Cancel::default())
+        .expect("an unrelated gitlink must not block the rollback dialog");
+    let choice = selected(&prepared, &["a"]);
+    assert_eq!(choice.len(), 1);
+    let all = (0..prepared.changes.len()).collect();
+    assert!(rollback::execute(&f.repo(), &prepared, &all, false).is_err());
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), b"ordinary change\n");
+    rollback::execute(&f.repo(), &prepared, &choice, false).unwrap();
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), b"base\n");
+    assert_eq!(f.git(&["-C", "nested", "rev-parse", "HEAD"]), nested_head);
+    assert_eq!(
+        fs::read(f.0.join("nested/file")).unwrap(),
+        b"nested changed\n"
+    );
 }

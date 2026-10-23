@@ -1,5 +1,6 @@
 //! Application window, shared state, construction and top-level composition.
 mod auto_refresh;
+mod binary_merge;
 mod branch_management;
 mod branch_merge;
 mod checkout;

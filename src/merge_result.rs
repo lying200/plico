@@ -135,25 +135,36 @@ impl Prepared {
             inputs,
         })
     }
-    /// Bounded text inputs for the native three-way editor, in yours/base/theirs order.
-    pub fn text_inputs(&self) -> Result<[String; 3], String> {
-        let read = |path: &std::path::Path| -> Result<crate::file_document::Document, String> {
+    /// Bounded inputs for the native viewer. Binary content has a side-selection
+    /// viewer; IO, encoding and size failures remain errors, not empty previews.
+    pub fn native_text_inputs(&self) -> Result<Option<[String; 3]>, String> {
+        let read = |path: &std::path::Path| -> Result<Option<String>, String> {
             let mut bytes = Vec::new();
             fs::File::open(path)
                 .map_err(|e| e.to_string())?
                 .take(crate::project_files::FILE_LIMIT as u64 + 1)
                 .read_to_end(&mut bytes)
                 .map_err(|e| e.to_string())?;
-            crate::file_document::Document::new(bytes)
-                .map_err(|e| format!("Unsupported merge text: {e:?}"))
+            match crate::file_document::Document::new(bytes) {
+                Ok(document) => Ok(Some(document.text().to_owned())),
+                Err(crate::file_document::Error::Binary) => Ok(None),
+                Err(e) => Err(format!("Unsupported merge text: {e:?}")),
+            }
         };
-        // Validate the working copy too: its encoding/EOL is used for write-back.
-        read(&self.expected)?;
-        Ok([
-            read(&self.inputs[0])?.text().to_owned(),
-            read(&self.inputs[2])?.text().to_owned(),
-            read(&self.inputs[1])?.text().to_owned(),
-        ])
+        // Read every input even if one is binary: do not hide another IO error.
+        let working = read(&self.expected)?;
+        let yours = read(&self.inputs[0])?;
+        let base = read(&self.inputs[2])?;
+        let theirs = read(&self.inputs[1])?;
+        Ok(match (working, yours, base, theirs) {
+            (Some(_), Some(yours), Some(base), Some(theirs)) => Some([yours, base, theirs]),
+            _ => None,
+        })
+    }
+    /// Text-only callers still reject binary input explicitly.
+    pub fn text_inputs(&self) -> Result<[String; 3], String> {
+        self.native_text_inputs()?
+            .ok_or_else(|| "Unsupported merge text: Binary".into())
     }
     /// Encode an explicitly accepted native result using the original file's
     /// separator/BOM. This only touches the isolated output, not the worktree.

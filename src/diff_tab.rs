@@ -1027,6 +1027,7 @@ impl Render for DiffTab {
                             .disabled(
                                 self.loading || self.error.is_some() || self.unavailable.is_some(),
                             )
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|s, _, w, cx| s.navigate(false, w, cx))),
                     )
                     .child(
@@ -1038,6 +1039,7 @@ impl Render for DiffTab {
                             .disabled(
                                 self.loading || self.error.is_some() || self.unavailable.is_some(),
                             )
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_click(cx.listener(|s, _, w, cx| s.navigate(true, w, cx))),
                     )
                     .child(
@@ -1222,9 +1224,9 @@ impl Render for DiffTab {
                         .bg(rgb(0x34373c))
                         .text_size(px(12.))
                         .child(t(if next {
-                            "Press F7 again to go to the next file"
+                            "Press again to go to the next file"
                         } else {
-                            "Press Shift+F7 again to go to the previous file"
+                            "Press again to go to the previous file"
                         })),
                 )
             })
@@ -1448,6 +1450,80 @@ mod editable_navigation_tests {
             assert!(!s.try_move_change(false, cx));
         });
     }
+    // Exercise real pointer events: calling navigate twice skips mouse-down handlers.
+    #[gpui::test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "GPUI toolbar duplicate-hover assertion; run without debug assertions"
+    )]
+    fn toolbar_difference_buttons_can_cross_file_boundary(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut tab = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let change = |name: &str| plico::git::Change {
+                area: Area::Unstaged,
+                path: name.into(),
+                old_path: None,
+                status: "M".into(),
+            };
+            let target = Target::new(
+                plico::git::Repository::new("missing-fixture"),
+                None,
+                change("a.txt"),
+            )
+            .unwrap();
+            let chain = Chain::new(&target, &[change("a.txt"), change("b.txt")]).unwrap();
+            let view = cx.new(|_| DiffTab::new(target, chain));
+            tab = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        let tab = tab.unwrap();
+        for embedded in [false, true] {
+            tab.update(cx, |s, _| s.embedded = embedded);
+            for next in [true, false] {
+                let position = gpui::point(gpui::px(if next { 60. } else { 24. }), gpui::px(22.));
+                for click in 0..2 {
+                    cx.update(|window, cx| {
+                        let _ = window.draw(cx);
+                    });
+                    cx.simulate_mouse_move(position, None, Default::default());
+                    cx.simulate_click(position, Default::default());
+                    if click == 0 {
+                        tab.read_with(cx, |s, _| {
+                            assert_eq!(
+                                s.navigation_boundary,
+                                Some(next),
+                                "click must reach difference action"
+                            );
+                            assert!(!s.loading, "first boundary click must not load a file");
+                        });
+                        // A content click cancels confirmation, while another arrow click must not.
+                        cx.simulate_click(
+                            gpui::point(gpui::px(200.), gpui::px(200.)),
+                            Default::default(),
+                        );
+                        tab.read_with(cx, |s, _| assert_eq!(s.navigation_boundary, None));
+                        cx.simulate_click(position, Default::default());
+                        tab.read_with(cx, |s, _| assert_eq!(s.navigation_boundary, Some(next)));
+                    }
+                }
+                tab.read_with(cx, |s, _| {
+                    assert_eq!(
+                        s.chain.index(),
+                        usize::from(next),
+                        "repeated toolbar clicks must cross files"
+                    );
+                });
+                // Freeze asynchronous Git loading: this test covers pointer dispatch at the boundary.
+                tab.update(cx, |s, cx| {
+                    s.deactivate(cx);
+                    s.error = None;
+                    s.unavailable = None;
+                });
+            }
+        }
+    }
+
     #[gpui::test]
     fn f7_boundary_hint_expires_without_another_key(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

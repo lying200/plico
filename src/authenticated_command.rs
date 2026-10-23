@@ -23,6 +23,7 @@ pub(crate) fn run(
     if !helper.is_absolute() || !helper.is_file() {
         return Err("Authentication helper is unavailable".into());
     }
+    requests.configure_http_scope(command);
     let helper_available = has_helper(command, token);
     // Preserve inherited command-level config instead of replacing the caller's
     // keys (e.g. an explicit test proxy); our overrides are appended once.
@@ -45,12 +46,15 @@ pub(crate) fn run(
         requests.clear_credentials();
         requests.auth().begin(helper_available);
         let use_helper = requests.auth().helper();
+        // Keep the complete target for hosted accounts and failure ownership.
+        // Generic app credentials resolve their scope from the original config;
+        // external helpers receive Git's unmodified useHttpPath policy.
         let mut settings = if use_helper {
-            vec![("credential.useHttpPath", "true")]
+            vec![]
         } else {
             vec![
-                ("credential.useHttpPath", "true"),
                 ("credential.helper", ""),
+                ("credential.useHttpPath", "true"),
             ]
         };
         // Silent app authentication still needs Git to invoke AskPass; silence
@@ -102,7 +106,7 @@ pub(crate) fn run(
         }
     }
 }
-fn has_helper(command: &Command, token: &Cancel) -> bool {
+pub(crate) fn config_command(command: &Command) -> Option<Command> {
     let mut query = Command::new(command.get_program());
     // Only take the leading Git global arguments, before the subcommand.
     let args: Vec<_> = command.get_args().collect();
@@ -111,7 +115,7 @@ fn has_helper(command: &Command, token: &Cancel) -> bool {
         let arg = args[i];
         if arg == "-c" || arg == "-C" || arg == "--git-dir" || arg == "--work-tree" {
             if i + 1 >= args.len() {
-                return false;
+                return None;
             }
             query.arg(arg).arg(args[i + 1]);
             i += 2;
@@ -137,6 +141,12 @@ fn has_helper(command: &Command, token: &Cancel) -> bool {
         use std::os::windows::process::CommandExt;
         query.creation_flags(0x08000000);
     }
+    Some(query)
+}
+fn has_helper(command: &Command, token: &Cancel) -> bool {
+    let Some(mut query) = config_command(command) else {
+        return false;
+    };
     query.args(["config", "--get-all", "credential.helper"]);
     operation_process::run(
         &mut query,

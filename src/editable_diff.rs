@@ -1556,8 +1556,20 @@ mod lifecycle_tests {
         }
         let third_y = third_y.unwrap();
         cx.update(|_, cx| editor.update(cx, |e, cx| e.set_block_gaps(vec![(1, 5)], cx).unwrap()));
+        let weak = diff.as_ref().unwrap().downgrade();
         drop(diff.take());
         cx.run_until_parked();
+        // Dropping outside an App update queues release effects. Flush the release
+        // observer before drawing the surviving editor's new display layout.
+        cx.update(|_, _| {});
+        cx.update(|_, cx| {
+            assert!(weak.upgrade().is_none(), "Diff entity must be released");
+            assert_eq!(
+                editor.read(cx).source_boundary_row(4),
+                4,
+                "release must remove all five display-only rows"
+            );
+        });
         cx.update(|window, cx| {
             let _ = window.draw(cx);
         });

@@ -457,9 +457,11 @@ impl Review {
             let result = wx
                 .background_spawn(async move {
                     let prepared = Prepared::read(&repo, &snapshot, &file, &token)?;
-                    let texts = prepared.text_inputs()?;
-                    let model = Merge::new(&texts[1], &texts[0], &texts[2]);
-                    Ok::<_, String>((Arc::new(prepared), texts, model))
+                    let content = prepared.native_text_inputs()?.map(|texts| {
+                        let model = Merge::new(&texts[1], &texts[0], &texts[2]);
+                        (texts, model)
+                    });
+                    Ok::<_, String>((Arc::new(prepared), content))
                 })
                 .await;
             let _ = this.update_in(wx, |s, w, cx| {
@@ -473,7 +475,16 @@ impl Review {
                     Err(e) => {
                         crate::error_ui::show_details(e, "Could not open merge editor", w, cx)
                     }
-                    Ok((prepared, texts, model)) => {
+                    Ok((prepared, None)) => {
+                        super::binary_merge::show(
+                            cx.entity().downgrade(),
+                            s.repo.path.clone(),
+                            prepared,
+                            w,
+                            cx,
+                        );
+                    }
+                    Ok((prepared, Some((texts, model)))) => {
                         let owner = cx.entity().downgrade();
                         let path = s.repo.path.clone();
                         let editor = cx

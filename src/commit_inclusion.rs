@@ -193,3 +193,85 @@ mod summary_tests {
         assert_eq!(inclusion.summary(), Summary::default());
     }
 }
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::git::{Area, Change};
+    fn file(path: &str, status: &str, area: Area, old: Option<&str>) -> File {
+        File::from_change(&Change {
+            path: path.into(),
+            old_path: old.map(Into::into),
+            status: status.into(),
+            area,
+        })
+        .unwrap()
+    }
+    fn snapshot(files: Vec<File>) -> Snapshot {
+        Snapshot {
+            head: Some("a".repeat(40)),
+            files,
+            review_versions: vec![],
+        }
+    }
+    #[test]
+    fn group_changes_leave_outside_inclusion_and_conflicts_untouched() {
+        let snapshot = snapshot(vec![
+            file("src/a", "M", Area::WorkingTree, None),
+            file("src/b", "M", Area::WorkingTree, None),
+            file("src/conflict", "UU", Area::Conflict, None),
+            file("outside", "?", Area::Untracked, None),
+        ]);
+        let ids: Vec<_> = snapshot.files.iter().map(Identity::of).collect();
+        let scope: HashSet<_> = ids[..3].iter().cloned().collect();
+        let mut inclusion = Inclusion::default();
+        inclusion.replace(&snapshot);
+        inclusion.set(&ids[3], true);
+        inclusion.set(&ids[0], true);
+        assert_eq!(inclusion.scope_counts(&scope), (1, 2));
+        inclusion.set_scope(&scope, true);
+        assert_eq!(inclusion.scope_counts(&scope), (2, 2));
+        assert_eq!(inclusion.count(), 3);
+        inclusion.set_scope(&scope, false);
+        assert_eq!(inclusion.scope_counts(&scope), (0, 2));
+        assert!(inclusion.included(&ids[3]));
+        assert!(!inclusion.included(&ids[2]));
+        assert!(inclusion.request("message".into(), true).is_err());
+    }
+    #[test]
+    fn refresh_does_not_inherit_inclusion_for_new_files_or_rename_sources() {
+        let first = snapshot(vec![file("new", "R", Area::WorkingTree, Some("old"))]);
+        let id = Identity::of(&first.files[0]);
+        let mut inclusion = Inclusion::default();
+        inclusion.replace(&first);
+        inclusion.set(&id, true);
+        let mut next = first.clone();
+        next.files
+            .push(file("untracked", "?", Area::Untracked, None));
+        inclusion.replace(&next);
+        assert!(inclusion.included(&id));
+        assert!(!inclusion.included(&Identity::of(&next.files[1])));
+        next.files[0] = file("new", "R", Area::WorkingTree, Some("different"));
+        inclusion.replace(&next);
+        assert_eq!(inclusion.count(), 0);
+        inclusion.set(&Identity::of(&next.files[0]), true);
+        inclusion.replace(&snapshot(vec![]));
+        inclusion.replace(&next);
+        assert_eq!(inclusion.count(), 0);
+    }
+    #[test]
+    fn rename_and_deletion_remove_only_original_paths() {
+        let snapshot = snapshot(vec![
+            file("renamed", "R", Area::WorkingTree, Some("old")),
+            file("deleted", "D", Area::WorkingTree, None),
+        ]);
+        let mut inclusion = Inclusion::default();
+        inclusion.replace(&snapshot);
+        for file in &snapshot.files {
+            inclusion.set(&Identity::of(file), true);
+        }
+        let request = inclusion.request("chosen files".into(), false).unwrap();
+        assert_eq!(request.add, vec![PathBuf::from("renamed")]);
+        assert_eq!(request.remove, vec![PathBuf::from("deleted"), "old".into()]);
+    }
+}

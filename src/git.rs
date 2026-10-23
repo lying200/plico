@@ -81,7 +81,7 @@ impl LogFilter {
         }
         // Git shares regexp/case flags between --grep and --author, as does
         // Rebased GitLogProvider. Without TEXT_FILTER it uses extended regex.
-        let regexp = !has_text || self.regex;
+        let regexp = !has_text || (self.regex && crate::log_pattern::use_regex(&self.text));
         if has_text {
             args.push(format!("--grep={}", self.text));
         }
@@ -1141,6 +1141,49 @@ impl Repository {
         let more = commits.len() > limit;
         commits.truncate(limit);
         Ok(TopologyPage { commits, more })
+    }
+    /// Complete filtered topology in one traversal; rejects an oversized graph.
+    pub(crate) fn bounded_topology(
+        &self,
+        roots: &[String],
+        filter: Option<&LogFilter>,
+        token: &Cancel,
+    ) -> Result<Vec<TopologyCommit>> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if roots.iter().any(|id| !is_oid(id)) {
+            return Err("Invalid history root".into());
+        }
+        if let Some(filter) = filter {
+            filter.validate_paths()?;
+        }
+        if roots.is_empty() || filter.is_some_and(LogFilter::matches_no_authors) {
+            return Ok(Vec::new());
+        }
+        let count = format!("--max-count={}", crate::topology::COMMIT_LIMIT + 1);
+        let filter_args = filter.map(LogFilter::arguments).unwrap_or_default();
+        let mut args = vec![
+            "-c",
+            "log.mailmap=false",
+            "log",
+            "--date-order",
+            "--no-show-signature",
+            "--no-decorate",
+            "--format=%H %P",
+            &count,
+        ];
+        args.extend(filter_args.iter().map(String::as_str));
+        args.extend(roots.iter().map(String::as_str));
+        args.push("--");
+        if let Some(filter) = filter {
+            args.extend(filter.paths.iter().map(String::as_str));
+        }
+        self.read_stream(
+            &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+            token,
+            |out, _| crate::topology::read(out),
+        )
     }
     pub fn snapshot(
         &self,

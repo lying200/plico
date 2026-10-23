@@ -124,12 +124,19 @@ pub fn accounts() -> Result<Vec<Account>, String> {
     load(&Store::system())
 }
 pub fn save(account: &Account, credentials: &Credentials, cancel: &Cancel) -> Result<(), String> {
+    save_to(&Store::system(), account, credentials, cancel)
+}
+fn save_to(
+    store: &Store,
+    account: &Account,
+    credentials: &Credentials,
+    cancel: &Cancel,
+) -> Result<(), String> {
     let _g = ACCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
     if cancel.cancelled() {
         return Err("Cancelled".into());
     }
-    let store = Store::system();
-    let mut entries = load(&store)?;
+    let mut entries = load(store)?;
     if !entries.contains(account) {
         entries.push(account.clone());
     }
@@ -147,9 +154,11 @@ pub fn save(account: &Account, credentials: &Credentials, cancel: &Cancel) -> Re
     Ok(())
 }
 pub fn remove(account: &Account) -> Result<(), String> {
+    remove_from(&Store::system(), account)
+}
+fn remove_from(store: &Store, account: &Account) -> Result<(), String> {
     let _g = ACCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
-    let store = Store::system();
-    let mut entries = load(&store)?;
+    let mut entries = load(store)?;
     entries.retain(|a| a != account);
     store.set(
         "hosting:accounts",
@@ -162,24 +171,39 @@ pub fn remove(account: &Account) -> Result<(), String> {
     Ok(())
 }
 pub fn credentials(account: &Account, cancel: &Cancel) -> Result<Credentials, String> {
+    credentials_from(&Store::system(), account, cancel, oauth::refresh)
+}
+fn credentials_from(
+    store: &Store,
+    account: &Account,
+    cancel: &Cancel,
+    refresh: impl FnOnce(&Account, &Credentials, &Cancel) -> Result<Credentials, String>,
+) -> Result<Credentials, String> {
     // Serialize token rotation without holding the UI account-list lock during HTTP.
     let _refresh = REFRESH.lock().unwrap_or_else(|e| e.into_inner());
     if cancel.cancelled() {
         return Err("Cancelled".into());
     }
-    let store = Store::system();
     let key = format!("hosting:token:{}", account.id());
-    let raw = store.get(&key)?.ok_or("Account needs to log in again")?;
+    let raw = {
+        let _g = ACCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+        // A failed credential deletion may leave a token behind. The account
+        // index, not the existence of that token, determines login membership.
+        if !load(store)?.contains(account) {
+            return Err("Account needs to log in again".into());
+        }
+        store.get(&key)?.ok_or("Account needs to log in again")?
+    };
     let mut c =
         Credentials::parse(serde_json::from_str(&raw).map_err(|_| "Invalid account credentials")?)?;
     if c.expires_at.is_some_and(|e| e <= oauth::now() + 60) {
-        c = oauth::refresh(account, &c, cancel)?;
+        c = refresh(account, &c, cancel)?;
         if cancel.cancelled() {
             return Err("Cancelled".into());
         }
         let _g = ACCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
         // A logout or new login during the request must win over this response.
-        if store.get(&key)?.as_deref() != Some(raw.as_str()) {
+        if !load(store)?.contains(account) || store.get(&key)?.as_deref() != Some(raw.as_str()) {
             return Err("Account changed during authorization".into());
         }
         store.set(&key, &c.value().to_string())?;
@@ -370,3 +394,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod storage_tests;

@@ -549,3 +549,147 @@ fn native_merge_retry_after_staging_failure_keeps_external_edit_guard() {
     );
     assert!(Snapshot::read(&repo, &token).unwrap().files.is_empty());
 }
+
+#[test]
+fn native_merge_classifies_binary_versions_without_changing_files() {
+    use plico::merge_result::Prepared;
+    for binary_version in 0..4 {
+        let f = Fixture::new();
+        let content = |index, name: &str| {
+            if index == binary_version {
+                format!("{name}\0data").into_bytes()
+            } else {
+                format!("{name}\n").into_bytes()
+            }
+        };
+        fs::write(f.0.join("file"), content(0, "base")).unwrap();
+        f.git(&["add", "."], true);
+        f.git(&["commit", "-m", "base"], true);
+        f.git(&["checkout", "-b", "task"], true);
+        fs::write(f.0.join("file"), content(1, "theirs")).unwrap();
+        f.git(&["commit", "-am", "theirs"], true);
+        f.git(&["checkout", "main"], true);
+        fs::write(f.0.join("file"), content(2, "yours")).unwrap();
+        f.git(&["commit", "-am", "yours"], true);
+        f.git(&["merge", "task"], false);
+        let working = content(3, "working");
+        fs::write(f.0.join("file"), &working).unwrap();
+        let repo = Repository::new(&f.0);
+        let token = Cancel::default();
+        let snapshot = Snapshot::read(&repo, &token).unwrap();
+        let prepared = Prepared::read(&repo, &snapshot, &snapshot.files[0], &token).unwrap();
+        assert!(prepared.native_text_inputs().unwrap().is_none());
+        assert!(prepared.text_inputs().unwrap_err().contains("Binary"));
+        if binary_version == 0 {
+            // Finding a binary base must not mask a later unreadable or
+            // unsupported side. Such errors cannot become a valid chooser.
+            let theirs = prepared.temporary_directory().join("theirs");
+            fs::write(&theirs, [0xff, 0xfe, b'a', 0]).unwrap();
+            assert!(
+                prepared
+                    .native_text_inputs()
+                    .unwrap_err()
+                    .contains("UnsupportedEncoding")
+            );
+            fs::write(&theirs, vec![b'x'; plico::project_files::FILE_LIMIT + 1]).unwrap();
+            assert!(
+                prepared
+                    .native_text_inputs()
+                    .unwrap_err()
+                    .contains("TooLarge")
+            );
+            fs::remove_file(&theirs).unwrap();
+            assert!(prepared.native_text_inputs().is_err());
+        }
+        drop(prepared); // Cancel does not stage or overwrite the working result.
+        assert_eq!(fs::read(f.0.join("file")).unwrap(), working);
+        snapshot
+            .revalidate(&repo, &snapshot.files[0], &token)
+            .unwrap();
+    }
+}
+
+#[test]
+fn operation_observation_detects_merge_quit_without_reference_changes() {
+    use plico::operation_state::{Operation, observe};
+    let f = Fixture::new();
+    fs::write(f.0.join("base"), "base\n").unwrap();
+    f.git(&["add", "."], true);
+    f.git(&["commit", "-m", "base"], true);
+    f.git(&["checkout", "-b", "topic"], true);
+    fs::write(f.0.join("added"), "topic\n").unwrap();
+    f.git(&["add", "."], true);
+    f.git(&["commit", "-m", "topic"], true);
+    f.git(&["checkout", "main"], true);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let (initial, state) = observe(&repo, None, &token).unwrap().unwrap();
+    assert_eq!(state.operation, Operation::None);
+    assert!(observe(&repo, Some(&initial), &token).unwrap().is_none());
+    let refs = plico::branch_updates::References::read(&repo, &token).unwrap();
+    f.git(&["merge", "--no-ff", "--no-commit", "topic"], true);
+    assert_eq!(
+        plico::branch_updates::References::read(&repo, &token).unwrap(),
+        refs
+    );
+    let (merging, state) = observe(&repo, Some(&initial), &token).unwrap().unwrap();
+    assert_eq!(state.operation, Operation::Merge);
+    let index = fs::read(f.0.join(".git/index")).unwrap();
+    f.git(&["merge", "--quit"], true);
+    assert_eq!(
+        plico::branch_updates::References::read(&repo, &token).unwrap(),
+        refs
+    );
+    let (finished, state) = observe(&repo, Some(&merging), &token).unwrap().unwrap();
+    assert_eq!(state.operation, Operation::None);
+    assert!(observe(&repo, Some(&finished), &token).unwrap().is_none());
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    assert_eq!(fs::read(f.0.join("added")).unwrap(), b"topic\n");
+    let cancelled = Cancel::default();
+    cancelled.cancel();
+    assert!(observe(&repo, Some(&finished), &cancelled).is_err());
+}
+
+#[test]
+fn operation_observation_tracks_linked_worktree_markers_and_nested_metadata() {
+    use plico::operation_state::{Operation, observe};
+    let f = Fixture::new();
+    f.git(&["commit", "--allow-empty", "-m", "base"], true);
+    f.git(&["worktree", "add", "--detach", "linked"], true);
+    let main = Repository::new(&f.0);
+    let linked = Repository::new(f.0.join("linked"));
+    let token = Cancel::default();
+    let (main_key, _) = observe(&main, None, &token).unwrap().unwrap();
+    let (mut key, _) = observe(&linked, Some(&main_key), &token).unwrap().unwrap();
+    let directory = linked.editor_directory(&token).unwrap();
+    for (marker, operation) in [
+        ("CHERRY_PICK_HEAD", Operation::CherryPick),
+        ("REVERT_HEAD", Operation::Revert),
+    ] {
+        fs::write(directory.join(marker), "fixture\n").unwrap();
+        let (next, state) = observe(&linked, Some(&key), &token).unwrap().unwrap();
+        assert_eq!(state.operation, operation);
+        fs::remove_file(directory.join(marker)).unwrap();
+        (key, _) = observe(&linked, Some(&next), &token).unwrap().unwrap();
+    }
+    fs::create_dir(directory.join("rebase-merge")).unwrap();
+    let (next, state) = observe(&linked, Some(&key), &token).unwrap().unwrap();
+    assert_eq!(state.operation, Operation::RebaseMerge);
+    fs::write(
+        directory.join("rebase-merge/head-name"),
+        "refs/heads/topic\n",
+    )
+    .unwrap();
+    let (_, state) = observe(&linked, Some(&next), &token).unwrap().unwrap();
+    assert_eq!(state.rebase_branch.as_deref(), Some("topic"));
+    fs::remove_dir_all(directory.join("rebase-merge")).unwrap();
+    fs::create_dir(directory.join("sequencer")).unwrap();
+    let (next, state) = observe(&linked, None, &token).unwrap().unwrap();
+    assert_eq!(state.operation, Operation::Sequencer);
+    fs::write(directory.join("sequencer/todo"), "pick fixture subject\n").unwrap();
+    let (_, state) = observe(&linked, Some(&next), &token).unwrap().unwrap();
+    assert_eq!(state.operation, Operation::CherryPick);
+    assert!(observe(&main, Some(&main_key), &token).unwrap().is_none());
+    fs::remove_dir_all(directory.join("sequencer")).unwrap();
+    f.git(&["worktree", "remove", "linked"], true);
+}

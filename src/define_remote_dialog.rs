@@ -26,6 +26,7 @@ struct Form {
     busy: bool,
     closed: bool,
     error: Option<String>,
+    details: Option<String>,
     token: Cancel,
     task: Task<()>,
     accepted: Accepted,
@@ -67,12 +68,14 @@ impl Form {
             }
         };
         let token = self.token.clone();
-        let requests = plico::auth_request::Requests::new(token.clone());
+        let requests = plico::auth_request::Requests::persistent(token.clone());
+        requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
         let repo = self.repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         self.busy = true;
         self.error = None;
+        self.details = None;
         cx.background_spawn(async move {
             let result = remotes::validate_edit(&repo, &edit, &token).and_then(|_| {
                 remotes::check_access(
@@ -84,9 +87,13 @@ impl Form {
                     &Default::default(),
                 )
                 .map(|output| {
-                    output.status.success()
+                    let success = output.status.success()
                         && output.stopped.is_none()
-                        && output.input_error.is_none()
+                        && output.input_error.is_none();
+                    let details = (!success)
+                        .then(|| remotes::command_diagnostic(&output))
+                        .filter(|text| !text.trim().is_empty());
+                    (success, details)
                 })
             });
             let _ = tx.send((edit, result));
@@ -126,8 +133,12 @@ impl Form {
                                 cx.notify(); return;
                             }
                             match result {
-                                Ok(true) => accept=Some((s.accepted.clone(),s.fetch)),
-                                Ok(false) => s.error=Some(t("Could not access the remote. Check the URL and authentication, then retry.").into()),
+                                Ok((true, _)) => accept=Some((s.accepted.clone(),s.fetch)),
+                                Ok((false, details)) => {
+                                    s.error=Some(t("Could not access the remote. Check the URL and authentication, then retry.").into());
+                                    s.details=details;
+                                    s.url.read(cx).focus_handle(cx).focus(w,cx);
+                                },
                                 Err(error) => s.error=Some(t_error(&error)),
                             }
                             cx.notify();
@@ -180,6 +191,9 @@ impl Render for Form {
                     .child(Input::new(&self.url).disabled(self.busy).flex_1()),
             )
             .when(self.busy, |v| v.child(t("Checking remote access…")))
+            .when_some(self.details.clone(), |v, details| {
+                v.child(crate::error_ui::details_button("remote-access", details))
+            })
             .when_some(self.error.clone(), |v, error| {
                 v.child(
                     div()
@@ -221,6 +235,7 @@ pub fn show(
             cx.subscribe(input, |s: &mut Form, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     s.error = None;
+                    s.details = None;
                     cx.notify();
                 }
             })
@@ -235,6 +250,7 @@ pub fn show(
             busy: false,
             closed: false,
             error: None,
+            details: None,
             token: Cancel::default(),
             task: Task::ready(()),
             accepted: Rc::new(RefCell::new(Some(Box::new(accepted)))),

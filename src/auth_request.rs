@@ -44,6 +44,7 @@ fn target(mut url: url::Url) -> String {
 }
 // No Debug: prompts can contain URLs/user identities; responses contain secrets.
 pub struct Pending {
+    credential_target: Option<String>,
     pub kind: Kind,
     pub prompt: String,
     reply: Option<mpsc::SyncSender<String>>,
@@ -137,8 +138,10 @@ impl Pending {
             .flatten()
     }
     pub fn suggested_username(&self) -> Option<String> {
-        self.known_username()
-            .or_else(|| self.auth.suggested_login(&self.http_target()?))
+        self.known_username().or_else(|| {
+            self.auth
+                .suggested_login(self.credential_target.as_deref()?)
+        })
     }
     pub fn remember_default(&self) -> bool {
         self.auth.remember_default()
@@ -182,7 +185,9 @@ impl Pending {
         }
         self.auth
             .remember(
-                &self.http_target().ok_or(Error::InvalidPrompt)?,
+                self.credential_target
+                    .as_deref()
+                    .ok_or(Error::InvalidPrompt)?,
                 username,
                 password,
                 remember,
@@ -255,6 +260,7 @@ pub enum Error {
     Storage,
 }
 struct Shared {
+    scope: Mutex<Option<crate::http_credential_scope::Scope>>,
     pending: Mutex<Option<Pending>>,
     gate: Mutex<()>,
     cancel: Cancel,
@@ -265,6 +271,10 @@ struct Shared {
 #[derive(Clone)]
 pub struct Requests(Arc<Shared>);
 impl Requests {
+    pub(crate) fn configure_http_scope(&self, command: &std::process::Command) {
+        *self.0.scope.lock().unwrap_or_else(|e| e.into_inner()) =
+            crate::http_credential_scope::Scope::new(command);
+    }
     pub fn set_project(&self, path: &std::path::Path) {
         self.0.auth.set_project(path);
     }
@@ -284,6 +294,7 @@ impl Requests {
         store: crate::credential_store::Store,
     ) -> Self {
         Self(Arc::new(Shared {
+            scope: Mutex::new(None),
             pending: Mutex::new(None),
             gate: Mutex::new(()),
             cancel,
@@ -369,15 +380,25 @@ impl Requests {
         } else if kind == Kind::HttpUsername {
             self.clear_credentials();
         }
+        let mut credential_target = None;
         if matches!(kind, Kind::HttpUsername | Kind::HttpPassword) {
             if let Some(url) = http_url(&prompt) {
+                let scope = self
+                    .0
+                    .scope
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_mut()
+                    .map(|scope| scope.target(url.clone(), &self.0.cancel))
+                    .unwrap_or_else(|| target(url.clone()));
+                credential_target = Some(scope.clone());
                 let known = crate::http_auth::username(&url);
                 let target = target(url);
                 if let Some((login, password)) = self
                     .0
                     .auth
                     .lookup(
-                        &target,
+                        &scope,
                         (kind == Kind::HttpPassword).then_some(known.as_str()),
                     )
                     .or_else(|| {
@@ -408,6 +429,7 @@ impl Requests {
         }
         let (tx, rx) = mpsc::sync_channel(1);
         *self.0.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pending {
+            credential_target,
             kind,
             prompt,
             reply: Some(tx),

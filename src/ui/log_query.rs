@@ -125,6 +125,95 @@ mod tests {
     use std::{path::PathBuf, sync::Arc};
 
     #[gpui::test]
+    fn clearing_an_empty_filter_does_not_select_an_unrelated_commit(cx: &mut gpui::TestAppContext) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "plico-log-selection-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )));
+        std::fs::create_dir(&fixture.0).unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec![
+                "-c",
+                "user.name=Audit",
+                "-c",
+                "user.email=audit@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "base",
+            ],
+        ] {
+            let result = std::process::Command::new("git")
+                .current_dir(&fixture.0)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(fixture.0.clone(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        review.update(cx, |s, cx| s.refresh(false, cx));
+        cx.run_until_parked();
+        review.update(cx, |s, cx| {
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.selected, Some(0), "retain existing initial-open behavior");
+            s.select_commit(0, cx);
+            s.refresh(false, cx);
+        });
+        cx.run_until_parked();
+        review.update(cx, |s, cx| {
+            assert_eq!(s.selected, Some(0), "refresh preserves visible selection");
+            s.text_filter = Some(plico::git::LogFilter {
+                text: "absent-audit-selection".into(),
+                ..Default::default()
+            });
+            s.refresh(false, cx);
+        });
+        cx.run_until_parked();
+        review.update(cx, |s, cx| {
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert!(s.commits.is_empty());
+            assert!(s.selected.is_none());
+            assert!(s.message.is_empty());
+            s.text_filter = None;
+            s.refresh(false, cx);
+        });
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert_eq!(s.commits.len(), 1);
+            assert!(
+                s.selected.is_none(),
+                "clearing filters must preserve empty selection"
+            );
+            assert!(s.message.is_empty());
+            assert!(s.files.is_empty());
+        });
+    }
+
+    #[gpui::test]
     fn opening_diff_during_refresh_releases_log_loading_state(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut review = None;

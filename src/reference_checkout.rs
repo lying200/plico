@@ -150,7 +150,7 @@ impl Prepared {
         }
         Ok(result)
     }
-    fn validate(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
+    fn validate(&self, repo: &Repository, choice: Choice, token: &Cancel) -> Result<(), String> {
         let current = repo.text(&["rev-parse", "--verify", "HEAD"], token)?;
         let symbolic = repo.text(&["rev-parse", "--symbolic-full-name", "HEAD"], token)?;
         if current.trim() != self.head || symbolic.trim() != self.symbolic_head {
@@ -168,7 +168,13 @@ impl Prepared {
             }
         }
         let state = repo.operation_state(token)?;
-        if state.in_progress() || !state.conflicts.is_empty() {
+        // A merge awaiting its commit may still be checked out, as in
+        // GitCheckoutOperation. Git preserves the staged changes and ends the
+        // merge. This does not authorize starting another rebase or proceeding
+        // with unmerged index entries.
+        let checkout_from_merge =
+            state.operation == crate::operation_state::Operation::Merge && choice != Choice::Rebase;
+        if (state.in_progress() && !checkout_from_merge) || !state.conflicts.is_empty() {
             return Err("Resolve the current Git operation before checkout".into());
         }
         if self.naming_conflict {
@@ -205,7 +211,7 @@ fn attempt(
     token: &Cancel,
     progress: &Progress,
 ) -> Result<Report, String> {
-    prepared.validate(repo, token)?;
+    prepared.validate(repo, choice, token)?;
     if prepared.local_ahead && choice == Choice::Checkout {
         return Err("Choose how to handle local commits".into());
     }
@@ -372,7 +378,7 @@ pub fn recover(
         return Err("Checkout recovery cannot replace a rebase".into());
     }
     let mut session = crate::update_session::Session::begin(repo, token)?;
-    prepared.validate(repo, token)?;
+    prepared.validate(repo, choice, token)?;
     // Validate every user choice before saving any local changes.
     if prepared.local_ahead && choice == Choice::Checkout {
         return Err("Choose how to handle local commits".into());

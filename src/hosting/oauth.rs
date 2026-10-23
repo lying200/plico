@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 const PORT: u16 = 34561;
@@ -192,13 +192,22 @@ fn result_page() -> String {
         )
         .replace("{{hint}}", t("You can close this browser tab."))
 }
+// Windows accepted sockets inherit the listener's nonblocking mode. Receive
+// timeouts alone do not make reads wait for a browser's delayed TCP packets.
+fn configure_callback_socket(socket: &TcpStream, timeout: Duration) -> std::io::Result<()> {
+    socket.set_nonblocking(false)?;
+    socket.set_read_timeout(Some(timeout))?;
+    socket.set_write_timeout(Some(timeout))
+}
+
 fn finish_browser(listener: &TcpListener, cancel: &Cancel) {
     let deadline = Instant::now() + Duration::from_secs(2);
     while !cancel.cancelled() && Instant::now() < deadline {
         match listener.accept() {
             Ok((mut socket, _)) => {
-                let _ = socket.set_read_timeout(Some(Duration::from_millis(250)));
-                let _ = socket.set_write_timeout(Some(Duration::from_millis(250)));
+                if configure_callback_socket(&socket, Duration::from_millis(250)).is_err() {
+                    continue;
+                }
                 let mut bytes = [0u8; 8192];
                 let mut count = 0;
                 while count < bytes.len()
@@ -238,6 +247,16 @@ fn finish_browser(listener: &TcpListener, cancel: &Cancel) {
         }
     }
 }
+fn check_authorization_wait(cancel: &Cancel, deadline: Instant) -> Result<(), String> {
+    if cancel.cancelled() {
+        return Err("Cancelled".into());
+    }
+    if Instant::now() >= deadline {
+        return Err("Authorization timed out".into());
+    }
+    Ok(())
+}
+
 pub fn authorize(
     provider: Provider,
     host: &str,
@@ -265,24 +284,24 @@ pub fn authorize(
     open(authorize_url(provider, &host, c, &state, &verifier))?;
     let deadline = Instant::now() + Duration::from_secs(180);
     let code = loop {
-        if cancel.cancelled() {
-            return Err("Cancelled".into());
-        }
-        if Instant::now() >= deadline {
-            return Err("Authorization timed out".into());
-        }
+        check_authorization_wait(cancel, deadline)?;
         match listener.accept() {
             Ok((mut socket, _)) => {
-                let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
-                let _ = socket.set_write_timeout(Some(Duration::from_millis(500)));
+                if configure_callback_socket(&socket, Duration::from_millis(500)).is_err() {
+                    continue;
+                }
                 let mut bytes = Vec::new();
                 let mut b = [0u8; 1024];
                 while bytes.len() < 8192 && !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
-                    match socket.read(&mut b) {
+                    check_authorization_wait(cancel, deadline)?;
+                    let remaining = (8192 - bytes.len()).min(b.len());
+                    match socket.read(&mut b[..remaining]) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => bytes.extend_from_slice(&b[..n]),
                     }
                 }
+                // Cancellation also wins when the final read completes the headers.
+                check_authorization_wait(cancel, deadline)?;
                 let line = std::str::from_utf8(&bytes)
                     .unwrap_or("")
                     .lines()
@@ -421,7 +440,12 @@ mod tests {
             client
                 .set_read_timeout(Some(Duration::from_secs(3)))
                 .unwrap();
-            write!(client, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            // TCP may be accepted before the browser writes, and headers may
+            // arrive in multiple packets (notably on Windows).
+            std::thread::sleep(Duration::from_millis(100));
+            client.write_all(b"GET ").unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            write!(client, "{path} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
             let mut reply = String::new();
             client.read_to_string(&mut reply).unwrap();
             assert!(reply.contains(expected));
@@ -472,6 +496,45 @@ mod tests {
         assert!(matches!(result, Err(ref e) if e == "Cancelled"));
         let listener = TcpListener::bind(("127.0.0.1", PORT)).unwrap();
         drop(listener);
+
+        // Keep both listener scenarios in one test: authorize uses the registered
+        // fixed callback port, so parallel tests must not compete for it.
+        let cancel = Cancel::default();
+        let trigger = cancel.clone();
+        let began = Instant::now();
+        let mut sender = None;
+        let result = authorize(
+            Provider::GitLab,
+            "https://gitlab.com",
+            &Config {
+                client_id: "local-fixture".into(),
+                client_secret: String::new(),
+            },
+            &cancel,
+            |_| {
+                let mut socket = std::net::TcpStream::connect(("127.0.0.1", PORT)).unwrap();
+                socket.write_all(b"GET /").unwrap();
+                sender = Some(std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(100));
+                    trigger.cancel();
+                    for _ in 0..15 {
+                        if socket.write_all(b"x").is_err() {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(150));
+                    }
+                }));
+                Ok(())
+            },
+        );
+        let elapsed = began.elapsed();
+        sender.unwrap().join().unwrap();
+        assert_eq!(result.err().as_deref(), Some("Cancelled"));
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "cancel waited for partial headers: {elapsed:?}"
+        );
+        drop(TcpListener::bind(("127.0.0.1", PORT)).unwrap());
     }
     #[test]
     fn token_rotation_keeps_expiration_and_new_refresh_token() {

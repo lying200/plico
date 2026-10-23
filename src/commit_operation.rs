@@ -234,6 +234,8 @@ fn execute_impl(
             "--porcelain=2",
             "-z",
             "--no-renames",
+            "--no-ahead-behind",
+            "--no-show-stash",
             "--untracked-files=no",
             "--ignored=no",
         ]

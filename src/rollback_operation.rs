@@ -17,7 +17,7 @@ use std::{
 pub struct Prepared {
     pub head: Option<String>,
     pub changes: Vec<Change>,
-    fingerprints: Vec<Vec<(PathBuf, Fingerprint)>>,
+    fingerprints: Vec<Result<Vec<(PathBuf, Fingerprint)>, String>>,
     index: Vec<u8>,
 }
 #[derive(PartialEq, Eq)]
@@ -43,9 +43,14 @@ pub fn prepare(repo: &Repository, cancel: &Cancel) -> Result<Prepared, String> {
     }
     let mut fingerprints = Vec::new();
     for change in &changes {
-        let mut values = Vec::new();
-        for path in paths(change) {
-            values.push((path.clone(), fingerprint(repo, &path, cancel)?));
+        // The dialog contains all candidates, not only the eventual selection.
+        // Retain a candidate's error without blocking unrelated valid files.
+        let values = paths(change)
+            .into_iter()
+            .map(|path| fingerprint(repo, &path, cancel).map(|value| (path, value)))
+            .collect();
+        if cancel.cancelled() {
+            return Err("Cancelled".into());
         }
         fingerprints.push(values);
     }
@@ -214,7 +219,8 @@ pub fn execute(
     let mut added = BTreeSet::new();
     for i in selected {
         let change = &prepared.changes[*i];
-        for (path, expected) in &prepared.fingerprints[*i] {
+        let fingerprints = prepared.fingerprints[*i].as_ref().map_err(Clone::clone)?;
+        for (path, expected) in fingerprints {
             if fingerprint(repo, path, &token)? != *expected {
                 return Err(format!(
                     "File changed; reopen Rollback Changes: {}",

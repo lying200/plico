@@ -30,7 +30,31 @@ EditorConfig 统一自有文件的缩进、UTF-8 与 LF；Markdown 保留有意�
 Windows 原生验收。已知失败必须记录具体用例和复现条件，不能扩大忽略范围。
 
 核心回归：`cargo test --locked --no-default-features`。
-桌面回归：`cargo test --locked --features desktop-tests --bin plico <filter>`。
+桌面定向回归：`cargo test --locked --features desktop-tests --bin plico <filter>`。
+修改 Tab、焦点、编辑器或共享文档生命周期后，完整桌面验收包含两条命令：
+
+```sh
+cargo test --locked --features desktop-tests --bin plico
+cargo test --locked --config 'profile.test.debug-assertions=false' --features desktop-tests --bin plico diff_tab::editable_navigation_tests
+```
+
+第二条覆盖 Diff 导航测试，包括跨文件 F7 焦点与工具栏实际鼠标点击：这两个用例在默认配置下因 GPUI 工具栏重复 hover
+调试断言而被显式忽略，普通 `assert!` 在第二条命令中仍生效。不能只报告第一条
+通过便声称所有桌面用例已覆盖；也不能全局关闭调试断言运行第一条来代替，因为
+其他测试依赖调试布局信息。测试不代替 Windows 原生界面验收。
+CI 的 `desktop-test` 独立任务执行这两条命令，并作为 preview 发布的前置门槛。
+它使用 GPUI 测试平台检查状态、焦点和生命周期，不替代 Windows 原生交互验收。
+提交记录分别注明本地测试、CI 运行与原生验收结果；修改流水线但尚未运行时不能称为 CI 已通过。
+Windows CI 另执行 `cargo test --locked --no-default-features --lib --target x86_64-pc-windows-msvc hosting::`，
+覆盖 Windows socket 模式、分段 OAuth 请求及取消释放；Linux 通过或 Windows 仅编译均不能替代。
 CI 同时执行 `cargo clippy --locked --no-default-features --all-targets`，本地使用相同命令；
 现有警告尚未清零，暂不作为全仓 `-D warnings` 门槛，也不通过全局 allow 隐藏债务。
 新增行为测试覆盖实际调用路径及取消、迟到结果等相关边界；不为纯格式变化编写镜像测试。
+
+Windows CI 另运行 `credential_store::windows_tests::`（与上述 hosting 测试使用相同 Cargo 参数），
+通过唯一测试键验证原生凭据读写、超限失败保留旧值、条件删除和清理；只操作测试自建凭据，
+不枚举或修改真实账号。该用例不覆盖系统凭据库不可用、账号索引与 Token 的多条写入事务或跨进程竞争。
+
+Windows CI 执行 `cargo test --locked --no-default-features --test process_tree --target x86_64-pc-windows-msvc`，
+覆盖 Job Object 取消、父进程先退出时的后代清理、继承管道关闭、无关进程保留和重复启动的句柄释放。
+测试只创建自有子进程；其中 parent-exits fixture 必须保留“父进程先退出”的行为，不得为消除静态警告而等待其后代。

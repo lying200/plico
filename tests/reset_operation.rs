@@ -353,3 +353,48 @@ fn rechecks_unmerged_index_without_operation_marker() {
         head
     );
 }
+
+#[test]
+fn same_head_lock_failure_remains_a_failure() {
+    let (f, _, head) = history();
+    let repo = Repository::new(&f.0);
+    let prepared = Prepared::prepare(&repo, head.clone(), &Cancel::default()).unwrap();
+    f.write("file", "valuable\n");
+    let index = f.git(&["ls-files", "--stage"]);
+    fs::write(f.0.join(".git/index.lock"), "held").unwrap();
+    let result = prepared.execute(&repo, Mode::Hard, &Cancel::default(), &Default::default());
+    let report = result.as_ref().unwrap();
+    // HEAD already matches the destination; only the command outcome proves
+    // whether the requested worktree/index reset actually succeeded.
+    assert!(report.recovery_error.is_none());
+    assert!(!report.command.as_ref().unwrap().status.success());
+    assert!(plico::rebase_operation::diagnostic(&result).is_some());
+    assert_eq!(f.git(&["ls-files", "--stage"]), index);
+    assert_eq!(fs::read(f.0.join("file")).unwrap(), b"valuable\n");
+    assert_eq!(fs::read(f.0.join(".git/index.lock")).unwrap(), b"held");
+}
+
+#[test]
+fn prepared_reset_cannot_be_reused_in_a_clone_with_the_same_head() {
+    let (f, base, head) = history();
+    let prepared = Prepared::prepare(&Repository::new(&f.0), base, &Cancel::default()).unwrap();
+    let clone = f.0.join("clone");
+    f.git(&["clone", "--no-hardlinks", ".", clone.to_str().unwrap()]);
+    fs::write(clone.join("file"), "clone draft\n").unwrap();
+    let repo = Repository::new(&clone);
+    assert!(
+        prepared
+            .execute(&repo, Mode::Hard, &Cancel::default(), &Default::default())
+            .is_err()
+    );
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&clone)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), head);
+    assert_eq!(fs::read(clone.join("file")).unwrap(), b"clone draft\n");
+    assert_eq!(fs::read(f.0.join("file")).unwrap(), b"second\n");
+}

@@ -6,13 +6,14 @@ use crate::{
     published_commits::{Protection, default_protected},
     squash_plan::Plan,
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, path::PathBuf};
 
 /// A snapshot for the message dialog, never a durable authorization to write.
 /// The executor must prepare again under its operation guard immediately before
-/// starting Git and compare HEAD/branch/range to the dialog's original snapshot.
+/// starting Git and compare worktree identity/HEAD/branch/range to the dialog's original snapshot.
 #[derive(Debug)]
 pub struct Prepared {
+    directory: PathBuf,
     pub head: String,
     /// Full symbolic ref, or None for detached HEAD (not rejected by this gate).
     pub branch: Option<String>,
@@ -44,6 +45,7 @@ pub fn prepare(
     if head != expected_head {
         return Err("HEAD changed; refresh before squashing".into());
     }
+    let directory = repo.editor_directory(token)?;
     let refs = inventory(repo, token)?;
     let branch = symbolic_head(repo, token)?;
     let shallow = repo.shallow_boundaries(token)?;
@@ -107,6 +109,7 @@ pub fn prepare(
     }
     let plan = Plan::new(&replay, selected)?;
     Ok(Prepared {
+        directory,
         head,
         branch,
         base,
@@ -123,6 +126,9 @@ pub fn revalidate(
     protection: Protection<'_>,
     token: &Cancel,
 ) -> Result<Prepared, String> {
+    if repo.editor_directory(token)? != expected.directory {
+        return Err("Squash repository changed; reopen the message dialog".into());
+    }
     let checked = prepare(
         repo,
         &expected.head,
@@ -130,7 +136,8 @@ pub fn revalidate(
         protection,
         token,
     )?;
-    if checked.base != expected.base
+    if checked.directory != expected.directory
+        || checked.base != expected.base
         || checked.branch != expected.branch
         || checked.plan.entries() != expected.plan.entries()
     {

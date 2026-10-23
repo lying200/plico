@@ -38,32 +38,7 @@ pub fn prepare(repo: &Repository, token: &Cancel) -> Result<Request, String> {
     Ok(request)
 }
 
-pub enum Report {
-    Merge(crate::merge_update::Report),
-    Rebase(crate::rebase_update::Report),
-}
-impl Report {
-    pub fn result(&self) -> crate::update_session::UpdateResult {
-        match self {
-            Self::Merge(r) => r.result,
-            Self::Rebase(r) => r.result,
-        }
-    }
-    /// Success includes restoration of saved changes, not merely a successful
-    /// merge/rebase command. A restore conflict must remain visible to the UI.
-    pub fn complete(&self) -> bool {
-        match self {
-            Self::Merge(r) => r.ready_to_push(),
-            Self::Rebase(r) => r.ready_to_push(),
-        }
-    }
-    pub fn saved_oid(&self) -> Option<&str> {
-        match self {
-            Self::Merge(r) => r.saved_oid.as_deref(),
-            Self::Rebase(r) => r.saved_oid.as_deref(),
-        }
-    }
-}
+pub use crate::update_report::Report;
 
 /// Runs once after an explicit Update Project choice. The request is the
 /// identity captured before confirmation; never recapture a new branch here.

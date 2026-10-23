@@ -2,7 +2,8 @@
 //! GitIndexInfoStagingAreaStateManager (4aec35256d765c217aa0d662b82ac4e860c396fd).
 //! This is a plan only: the commit executor must hold repository ownership from
 //! capture through restore, check preparation errors, and restore even on cancel.
-//! Input: `status --porcelain=2 -z --no-renames --untracked-files=no --ignored=no`.
+//! Input: `status --porcelain=2 -z --no-renames --no-ahead-behind --no-show-stash
+//! --untracked-files=no --ignored=no`.
 use std::collections::HashSet;
 
 const LIMIT: usize = 8 * 1024 * 1024;

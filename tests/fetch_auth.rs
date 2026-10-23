@@ -107,6 +107,27 @@ fn http_server(repository: Option<PathBuf>) -> (String, Cancel, thread::JoinHand
                         && value.trim() == "Basic Zml4dHVyZS11c2VyOmZpeHR1cmUtcGFzc3dvcmQ="
                 })
             });
+            // These endpoints fail only after authentication, so the tests
+            // exercise cleanup of a credential actually supplied to Git.
+            if authenticated {
+                let first_line = request.lines().next().unwrap_or_default();
+                let failure = if first_line.starts_with("GET /unavailable.git/") {
+                    Some("500 Internal Server Error")
+                } else if first_line.starts_with("GET /forbidden.git/") {
+                    Some("403 Forbidden")
+                } else {
+                    None
+                };
+                if let Some(status) = failure {
+                    let _ = stream.write_all(
+                        format!(
+                            "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        )
+                        .as_bytes(),
+                    );
+                    continue;
+                }
+            }
             if let Some(root) = repository.as_ref().filter(|_| authenticated) {
                 let path = request
                     .lines()
@@ -115,7 +136,12 @@ fn http_server(repository: Option<PathBuf>) -> (String, Cancel, thread::JoinHand
                     .and_then(|line| line.split_once(' '))
                     .map(|(path, _)| path)
                     .and_then(|path| path.split('?').next())
-                    .and_then(|path| path.strip_prefix("/repo.git/"));
+                    .and_then(|path| {
+                        path.strip_prefix("/repo.git/")
+                            .or_else(|| path.strip_prefix("/other.git/"))
+                            .or_else(|| path.strip_prefix("/gitlab/repo.git/"))
+                            .or_else(|| path.strip_prefix("/gitlab/other.git/"))
+                    });
                 let body = path
                     .filter(|path| {
                         !path.is_empty()
@@ -602,6 +628,7 @@ fn access_with_store(
     let repo = Repository::new(fixture.0.clone());
     let url = url.to_owned();
     let helper = fixture.helper();
+    let expected_target = url.clone();
     let worker = thread::spawn(move || {
         plico::remote_management::check_access(
             &repo,
@@ -616,6 +643,11 @@ fn access_with_store(
     let mut prompts = 0;
     while !worker.is_finished() {
         if let Some(pending) = requests.take_pending() {
+            assert_eq!(
+                pending.http_target().as_deref(),
+                Some(expected_target.as_str()),
+                "platform account selection must retain the complete repository target"
+            );
             let Some((password, remember)) = answers.get(prompts) else {
                 drop(pending);
                 panic!("Unexpected authentication prompt");
@@ -730,7 +762,9 @@ fn explicit_helper_switch_rebuilds_command_and_none_never_uses_helper() {
     let fixture = Fixture::new();
     let source = Fixture::new();
     source.git(&["update-server-info"]);
-    fixture.git(&["config","credential.helper", "!f() { if test \"$1\" = get; then printf '%s\\n' username=fixture-user password=fixture-password; fi; }; f"]);
+    fixture.git(&["config", "credential.useHttpPath", "false"]);
+    // A helper that only accepts host-scoped requests detects forced path overrides.
+    fixture.git(&["config", "credential.helper", r#"!f() { if test "$1" = get; then while IFS= read -r entry; do case "$entry" in path=*) exit 0;; esac; done; printf '%s\n' username=fixture-user password=fixture-password; fi; }; f"#]);
     let (url, stop, server) = http_server(Some(source.0.join(".git")));
     let store = Store::default();
     assert_eq!(
@@ -801,4 +835,281 @@ fn fetch_routes_native_ssh_prompt_and_cancel_without_http_retry() {
         thread::sleep(Duration::from_millis(10));
     }
     assert!(!worker.join().unwrap().unwrap().status.success());
+}
+
+#[test]
+fn batch_auth_cancellation_preserves_completed_remote_and_skips_remaining() {
+    use plico::fetch::{self, RemoteState};
+    let source = Fixture::new();
+    source.git(&["config", "user.name", "Fixture"]);
+    source.git(&["config", "user.email", "fixture@example.invalid"]);
+    source.git(&["config", "commit.gpgsign", "false"]);
+    fs::write(source.0.join("review.txt"), "completed fetch\n").unwrap();
+    source.git(&["add", "review.txt"]);
+    source.git(&["commit", "-m", "source"]);
+    let fixture = Fixture::new();
+    let helper = fixture.helper();
+    let (url, http_stop, http) = http_server(None);
+    fixture.git(&["remote", "add", "a-complete", source.0.to_str().unwrap()]);
+    fixture.git(&["remote", "add", "b-auth", &url]);
+    fixture.git(&["remote", "add", "c-skipped", source.0.to_str().unwrap()]);
+    let repo = Repository::new(fixture.0.clone());
+    let cancel = Cancel::default();
+    let requests = Requests::new(cancel.clone());
+    let worker_requests = requests.clone();
+    let worker_cancel = cancel.clone();
+    let worker = thread::spawn(move || {
+        let specs = repo.fetch_specs(&worker_cancel).unwrap();
+        fetch::execute_authenticated(
+            &repo,
+            &specs,
+            &worker_cancel,
+            &Default::default(),
+            &worker_requests,
+            &helper,
+        )
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut dismissed = false;
+    while !worker.is_finished() && Instant::now() < deadline {
+        if let Some(prompt) = requests.take_pending() {
+            assert_eq!(prompt.kind, Kind::HttpUsername);
+            dismissed = true;
+            drop(prompt);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let timed_out = !worker.is_finished();
+    if timed_out {
+        cancel.cancel();
+    }
+    let result = worker.join().unwrap().unwrap();
+    http_stop.cancel();
+    let authorized = http.join().unwrap();
+    assert!(
+        !timed_out,
+        "batch did not finish after dismissing authentication"
+    );
+    assert!(dismissed && !authorized);
+    assert!(!result.successful());
+    assert_eq!(
+        result
+            .remotes
+            .iter()
+            .map(|r| (r.remote.as_str(), &r.state))
+            .collect::<Vec<_>>(),
+        [
+            ("a-complete", &RemoteState::Succeeded),
+            ("b-auth", &RemoteState::Cancelled),
+            ("c-skipped", &RemoteState::NotStarted),
+        ]
+    );
+    let refs = Command::new("git")
+        .arg("-C")
+        .arg(&fixture.0)
+        .args(["for-each-ref", "--format=%(refname)", "refs/remotes/"])
+        .output()
+        .unwrap();
+    assert!(refs.status.success());
+    let refs = String::from_utf8(refs.stdout).unwrap();
+    assert!(refs.lines().any(|r| r == "refs/remotes/a-complete/main"));
+    // Newer Git also records the remote's symbolic HEAD on the first fetch.
+    assert!(refs.lines().all(|r| matches!(
+        r,
+        "refs/remotes/a-complete/main" | "refs/remotes/a-complete/HEAD"
+    )));
+    let content = Command::new("git")
+        .arg("-C")
+        .arg(&fixture.0)
+        .args(["show", "a-complete/main:review.txt"])
+        .output()
+        .unwrap();
+    assert!(content.status.success());
+    assert_eq!(content.stdout, b"completed fetch\n");
+    assert!(!fixture.0.join("review.txt").exists());
+    assert!(requests.take_pending().is_none());
+}
+
+#[test]
+fn remembered_http_credentials_follow_git_path_scope_across_projects() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let other_url = url.replace("/repo.git", "/other.git");
+    let first = Fixture::new();
+    let second = Fixture::new();
+    for fixture in [&first, &second] {
+        fixture.git(&["config", "credential.useHttpPath", "false"]);
+    }
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &first,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("fixture-password", true)]
+        ),
+        (true, 1)
+    );
+    let reused = access_with_store(&second, &other_url, store, Mode::Silent, &[]);
+    stop.cancel();
+    server.join().unwrap();
+    assert_eq!(
+        reused,
+        (true, 0),
+        "same server credentials must work across projects when Git path scoping is disabled"
+    );
+}
+
+#[test]
+fn explicit_http_path_scope_prevents_cross_repository_reuse() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let other_url = url.replace("/repo.git", "/other.git");
+    let first = Fixture::new();
+    let second = Fixture::new();
+    for fixture in [&first, &second] {
+        fixture.git(&["config", "credential.useHttpPath", "true"]);
+    }
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &first,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("fixture-password", true)]
+        ),
+        (true, 1)
+    );
+    assert_eq!(
+        access_with_store(&second, &other_url, store.clone(), Mode::Silent, &[]),
+        (false, 0)
+    );
+    assert_eq!(
+        access_with_store(&second, &url, store.clone(), Mode::Silent, &[]),
+        (true, 0)
+    );
+    assert_eq!(
+        access_with_store(
+            &second,
+            &other_url,
+            store,
+            Mode::Full,
+            &[("fixture-password", true)]
+        ),
+        (true, 1)
+    );
+    stop.cancel();
+    server.join().unwrap();
+}
+
+#[test]
+fn url_specific_http_path_scope_is_respected() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let other_url = url.replace("/repo.git", "/other.git");
+    let fixture = Fixture::new();
+    fixture.git(&["config", "credential.useHttpPath", "false"]);
+    fixture.git(&[
+        "config",
+        &format!("credential.{other_url}.useHttpPath"),
+        "true",
+    ]);
+    let store = Store::default();
+    assert_eq!(
+        access_with_store(
+            &fixture,
+            &url,
+            store.clone(),
+            Mode::Full,
+            &[("fixture-password", true)]
+        ),
+        (true, 1)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &other_url, store.clone(), Mode::Silent, &[]),
+        (false, 0)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &url, store, Mode::Silent, &[]),
+        (true, 0)
+    );
+    stop.cancel();
+    server.join().unwrap();
+}
+
+#[test]
+fn subpath_hosting_target_survives_shared_generic_credentials() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let first_url = url.replace("/repo.git", "/gitlab/repo.git");
+    let second_url = url.replace("/repo.git", "/gitlab/other.git");
+    let fixture = Fixture::new();
+    fixture.git(&["config", "credential.useHttpPath", "false"]);
+    let store = Store::default();
+    // access_with_store asserts that Pending.http_target remains the full URL,
+    // so hosted matching and per-repository rejection retain their identity.
+    assert_eq!(
+        access_with_store(
+            &fixture,
+            &first_url,
+            store.clone(),
+            Mode::Full,
+            &[("fixture-password", true)]
+        ),
+        (true, 1)
+    );
+    assert_eq!(
+        access_with_store(&fixture, &second_url, store, Mode::Silent, &[]),
+        (true, 0)
+    );
+    stop.cancel();
+    server.join().unwrap();
+}
+
+#[test]
+fn shared_credentials_distinguish_server_failure_from_authentication_rejection() {
+    use plico::{credential_store::Store, http_auth::Mode};
+    let source = Fixture::new();
+    source.git(&["update-server-info"]);
+    let (url, stop, server) = http_server(Some(source.0.join(".git")));
+    let first = Fixture::new();
+    let second = Fixture::new();
+    for fixture in [&first, &second] {
+        fixture.git(&["config", "credential.useHttpPath", "false"]);
+    }
+    for (endpoint, retained) in [("unavailable.git", true), ("forbidden.git", false)] {
+        let store = Store::default();
+        assert_eq!(
+            access_with_store(
+                &first,
+                &url,
+                store.clone(),
+                Mode::Full,
+                &[("fixture-password", true)]
+            ),
+            (true, 1)
+        );
+        let failed_url = url.replace("repo.git", endpoint);
+        assert_eq!(
+            access_with_store(&second, &failed_url, store.clone(), Mode::Silent, &[]),
+            (false, 0)
+        );
+        assert_eq!(
+            access_with_store(&first, &url, store, Mode::Silent, &[]),
+            (retained, 0),
+            "shared credential lifetime after {endpoint} must follow Git authentication classification"
+        );
+    }
+    stop.cancel();
+    assert!(server.join().unwrap());
 }

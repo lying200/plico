@@ -306,10 +306,7 @@ impl Review {
             .cloned()
             .or_else(|| self.pending_preview_file.clone());
         self.pending_preview_file = preferred.clone();
-        let previous = self
-            .selected
-            .and_then(|i| self.commits.get(i))
-            .map(|c| c.id.clone());
+        let initial_history = self.snapshot.is_none();
         self.reset_log_presentation();
         let (generation, token) = self.log_query.begin(log_query::Kind::History);
         self.files = Arc::default();
@@ -473,9 +470,6 @@ impl Review {
                             this.window_start = start;
                             this.window_end = end;
                             this.limit = limit;
-                            let selected = previous
-                                .and_then(|id| s.commits.iter().position(|c| c.id == id))
-                                .unwrap_or(0);
                             this.rows = Arc::new(rows);
                             this.graph_model = result.2;
                             this.commits = Arc::new(std::mem::take(&mut s.commits));
@@ -492,8 +486,9 @@ impl Review {
                             if this.log_selection.ordered(&ids).is_empty()
                                 && !ids.is_empty()
                                 && !preserve
+                                && initial_history
                             {
-                                this.log_selection.select(&ids, selected, false, false);
+                                this.log_selection.select(&ids, 0, false, false);
                             }
                             this.pending_preview_file = preferred;
                             this.load_log_selection(cx);

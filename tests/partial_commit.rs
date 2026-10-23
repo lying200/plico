@@ -300,3 +300,83 @@ fn partial_selection_rejects_stale_or_unselected_file_before_staging() {
     );
     assert_eq!(index, f.git(&["ls-files", "--stage"]));
 }
+
+#[test]
+fn partial_amend_preserves_author_parents_and_excluded_staging_even_on_failure() {
+    use plico::{
+        commit_operation,
+        partial_selection::{File, Selection},
+    };
+    for reject in [false, true] {
+        let f = Fixture::new();
+        let original = "a\nkeep\nb\n";
+        let current = "A\nkeep\nB\n";
+        f.base("review", original);
+        f.write("marker", "previous commit\n");
+        f.git(&["add", "marker"]);
+        f.git(&[
+            "-c",
+            "user.name=Original Author",
+            "commit",
+            "-m",
+            "to amend",
+        ]);
+        let head = f.git(&["rev-parse", "HEAD"]);
+        let parents = f.git(&["show", "-s", "--format=%P", "HEAD"]);
+        let author = f.git(&["show", "-s", "--format=%an <%ae> %at", "HEAD"]);
+        f.git(&[
+            "config",
+            "user.name",
+            if reject { "" } else { "Current Committer" },
+        ]);
+        f.write("review", current);
+        f.write("other", "staged only\n");
+        f.git(&["add", "other"]);
+        let excluded = f.git(&["ls-files", "--stage", "--", "other"]);
+        f.write("other", "unstaged too\n");
+        let mut selection = Selection::new(original.into(), current.into(), false);
+        selection.toggle_block(0);
+        let request = commit_operation::Request {
+            add: vec!["review".into()],
+            remove: vec![],
+            message: "amended partial\n\nmessage body".into(),
+            amend: true,
+            expected_head: commit_operation::head(&f.repo(), &Cancel::default()).unwrap(),
+        };
+        let report = commit_operation::execute_partial(
+            &f.repo(),
+            &request,
+            &[File {
+                path: "review".into(),
+                selection,
+            }],
+            &Cancel::default(),
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(report.succeeded(), !reject);
+        assert!(report.restore.is_ok());
+        assert!(report.recovery_record.is_none());
+        assert_eq!(f.git(&["ls-files", "--stage", "--", "other"]), excluded);
+        assert_eq!(f.git(&["show", "HEAD:other"]), b"base\n");
+        assert_eq!(fs::read(f.0.join("other")).unwrap(), b"unstaged too\n");
+        assert_eq!(fs::read(f.0.join("review")).unwrap(), current.as_bytes());
+        assert_eq!(f.git(&["show", ":review"]), b"A\nkeep\nb\n");
+        assert_eq!(f.git(&["show", "-s", "--format=%P", "HEAD"]), parents);
+        assert_eq!(
+            f.git(&["show", "-s", "--format=%an <%ae> %at", "HEAD"]),
+            author
+        );
+        if reject {
+            assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+            assert_eq!(f.git(&["show", "HEAD:review"]), original.as_bytes());
+        } else {
+            assert_ne!(f.git(&["rev-parse", "HEAD"]), head);
+            assert_eq!(f.git(&["show", "HEAD:review"]), b"A\nkeep\nb\n");
+            assert_eq!(
+                f.git(&["show", "-s", "--format=%cn", "HEAD"]),
+                b"Current Committer\n"
+            );
+        }
+    }
+}

@@ -221,6 +221,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Merging branch…" => "正在合并分支…",
         "Branch merged" => "分支已合并",
         "Merge completed; saved changes require attention" => "合并操作已结束，保存的修改需要处理",
+        "Merge aborted; saved changes require attention" => "已中止合并，保存的修改需要处理",
         "Merge requires attention" => "合并需要处理",
         "Saved changes retained" => "已保留暂存的修改",
         "Git Merge Problem" => "Git 合并问题",
@@ -283,6 +284,9 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Next Change" => "下一处更改",
         "Discard" => "放弃",
         "Merge Conflicts" => "合并冲突",
+        "Accept Left" => "采纳左侧",
+        "Accept Right" => "采纳右侧",
+        "Cannot show diff for a binary file" => "无法显示二进制文件的差异",
         "Merge Result" => "合并结果",
         "Accept Both" => "接受双方",
         "Keep Base" => "保留共同祖先版本",
@@ -519,8 +523,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "未清除恢复记录，请刷新并检查仓库状态。"
         }
         "Refresh" => "刷新",
-        "Press F7 again to go to the next file" => "再次按 F7 转到下一个文件",
-        "Press Shift+F7 again to go to the previous file" => "再次按 Shift+F7 转到上一个文件",
+        "Press again to go to the next file" => "再次操作以转到下一个文件",
+        "Press again to go to the previous file" => "再次操作以转到上一个文件",
         "Load more files…" => "加载更多文件…",
         "Folder changed. Refresh to reload its files." => "目录已变化，请刷新后重新加载文件。",
         "Local changes" => "本地变更",

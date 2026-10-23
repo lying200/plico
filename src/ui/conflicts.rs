@@ -222,7 +222,7 @@ impl Review {
             });
         });
     }
-    fn resolve_conflict(
+    pub(super) fn resolve_conflict(
         &mut self,
         snapshot: Arc<Snapshot>,
         file: plico::conflicts::File,

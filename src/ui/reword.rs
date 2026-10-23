@@ -39,6 +39,15 @@ impl Gate {
     }
 }
 impl Review {
+    pub(super) fn refresh_reword_gate(&mut self, cx: &mut Context<Self>) {
+        let ids = self.commit_ids();
+        let selected = self.log_selection.ordered(&ids);
+        self.reword_gate = if selected.len() == 1 {
+            Some(cx.new(|cx| Gate::new(self.repo.clone(), selected[0].to_owned(), cx)))
+        } else {
+            None
+        };
+    }
     pub(super) fn can_reword(&self, target: &str, cx: &App) -> bool {
         !self.operation.busy()
             && !self.operation.saving_documents()

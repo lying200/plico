@@ -4847,6 +4847,7 @@ dependencies = [
  "gpui-component",
  "gpui-kit",
  "notify",
+ "regex-syntax",
  "serde_json",
  "sha2 0.10.9",
  "similar",

@@ -21,6 +21,7 @@ pub enum Kind {
     ConfigureRemote,
     Tag,
     Clone,
+    Init,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {

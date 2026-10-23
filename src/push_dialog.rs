@@ -33,7 +33,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("shift-f7", PreviousDifference, Some("PushDiff")),
     ]);
 }
+pub struct DefineRemote;
+impl EventEmitter<DefineRemote> for PushDialog {}
+
 pub struct PushDialog {
+    pub closed: bool,
     pub push_tags: bool,
     pub tag_mode: push::TagMode,
     collapsed_directories: std::collections::HashSet<std::path::PathBuf>,
@@ -93,6 +97,7 @@ impl PushDialog {
         });
         let watch = cx.observe(&branch, |_, _, cx| cx.notify());
         let mut s = Self {
+            closed: false,
             push_tags: false,
             tag_mode: push::TagMode::All,
             collapsed_directories: Default::default(),
@@ -124,11 +129,63 @@ impl PushDialog {
             token: Cancel::default(),
             task: Task::ready(()),
         };
-        s.load(0, false, cx);
+        if !s.snapshot.targets.remotes.is_empty() {
+            s.load(0, false, cx);
+        }
         s
     }
+    pub fn close(&mut self) {
+        self.closed = true;
+        self.token.cancel();
+        self.generation += 1;
+    }
+    pub fn configuring_remote(&mut self, cx: &mut Context<Self>) {
+        self.token.cancel();
+        self.generation += 1;
+        self.busy = true;
+        self.error = None;
+        cx.notify();
+    }
+    pub fn remote_configured(
+        &mut self,
+        snapshot: Result<Option<Snapshot>, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.closed {
+            return;
+        }
+        self.busy = false;
+        match snapshot {
+            Ok(Some(snapshot)) => {
+                self.target = snapshot.default.clone();
+                self.remote = self
+                    .target
+                    .as_ref()
+                    .map(|t| t.remote.clone())
+                    .unwrap_or_default();
+                let branch = self
+                    .target
+                    .as_ref()
+                    .map(|t| t.branch.clone())
+                    .unwrap_or_default();
+                self.branch
+                    .update(cx, |s, cx| s.set_value(branch, window, cx));
+                self.snapshot = snapshot;
+                self.references = None;
+                self.applied_upstream = false;
+                self.explicit_upstream = false;
+                self.editing = false;
+                if !self.snapshot.targets.remotes.is_empty() {
+                    self.load(0, false, cx);
+                }
+            }
+            _ => self.error = Some("Could not reload remote configuration"),
+        }
+        cx.notify();
+    }
     pub fn spec(&self) -> Option<push::Spec> {
-        if self.busy || self.editing || self.error.is_some() {
+        if self.closed || self.busy || self.editing || self.error.is_some() {
             return None;
         }
         let target = self.target.clone()?;
@@ -405,7 +462,17 @@ impl Render for PushDialog {
             }))
             .child(self.snapshot.source_branch.clone())
             .child("→");
-        if self.editing {
+        if self.snapshot.targets.remotes.is_empty() {
+            header = header.child(
+                Button::new("define-push-remote")
+                    .link()
+                    .h(row_height)
+                    .px_0()
+                    .label(t("Define Remote"))
+                    .disabled(self.busy)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(DefineRemote))),
+            );
+        } else if self.editing {
             let owner = cx.entity().downgrade();
             let remotes = self.snapshot.targets.remotes.clone();
             header = header
@@ -426,7 +493,13 @@ impl Render for PushDialog {
                                     },
                                 ));
                             }
-                            menu
+                            let owner = owner.clone();
+                            menu.separator()
+                                .item(PopupMenuItem::new(t("Define Remote")).on_click(
+                                    move |_, _, cx| {
+                                        let _ = owner.update(cx, |_, cx| cx.emit(DefineRemote));
+                                    },
+                                ))
                         }),
                 )
                 .child(
@@ -812,7 +885,11 @@ impl Render for PushDialog {
             .child(h_flex().flex_1().min_h_0().child(left).child(right))
             .when(self.busy, |v| v.child(t("Loading outgoing commits…")))
             .when(
-                !self.busy && !self.editing && self.commits.is_empty() && self.error.is_none(),
+                !self.busy
+                    && !self.editing
+                    && self.target.is_some()
+                    && self.commits.is_empty()
+                    && self.error.is_none(),
                 |v| {
                     v.child(
                         div()
@@ -829,5 +906,55 @@ impl Render for PushDialog {
             .when_some(self.error, |v, error| {
                 v.child(div().text_color(rgb(0xf2a6a6)).child(t(error)))
             })
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use gpui::component::Root;
+
+    #[gpui::test]
+    fn no_remote_is_an_actionable_state_and_closed_dialog_ignores_refresh(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui::component::init);
+        let snapshot = Snapshot {
+            source_branch: "main".into(),
+            source_oid: "a".repeat(40),
+            default: None,
+            targets: plico::pull::Targets {
+                remotes: vec![],
+                branches: vec![],
+                current_branch: Some("main".into()),
+                tracked: None,
+            },
+        };
+        let mut draft = None;
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let view = cx.new(|cx| {
+                PushDialog::new(Repository::new("nonexistent-push-fixture"), snapshot, w, cx)
+            });
+            draft = Some(view.clone());
+            Root::new(view, w, cx)
+        });
+        let draft = draft.unwrap();
+        cx.run_until_parked();
+        draft.read_with(cx, |s, _| {
+            assert!(!s.busy);
+            assert!(s.error.is_none());
+            assert!(!s.editing);
+            assert!(s.spec().is_none());
+        });
+        cx.update(|w, cx| {
+            draft.update(cx, |s, cx| {
+                s.close();
+                s.remote_configured(Err("late failure".into()), w, cx);
+                assert!(s.error.is_none());
+                assert!(s.spec().is_none());
+            })
+        });
     }
 }

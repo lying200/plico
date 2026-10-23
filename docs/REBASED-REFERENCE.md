@@ -4224,3 +4224,75 @@ Windows release与Clippy通过（既有警告保留，无新增tag警告）；CI
 无额外全体根节点，布局结构已验收但不声明像素级还原。上游Force实机执行、6个remote折叠菜单、
 网络认证失败与取消未逐一做新增原生截图；核心测试和既有认证机制覆盖不能代替这些视觉状态。
 签名标签沿用用户Git配置，没有新增GPG身份配置界面。后续功能不以增加签名配置为前置条件。
+
+### 5. 初始化到首次推送：初始化前置依据（2026-10-24，进行中）
+
+Rebased 1.1.20，独立空目录 init-reference-20261024。Actions 搜索 Create Git Repository，
+打开 Windows 单目录选择器，允许选择已有非空目录；选择新建空目录后后台创建 .git，
+Windows Git status --porcelain=v2 --branch 确认 branch.oid (initial)、branch.head main。
+再次选择同目录弹 Git Init 警告，说明已受 Git 管理并询问创建新 VCS root，Yes/No；
+本轮选择 No 取消。截图 artifacts/workflow-closure-20261024/init-reference-{action,picker,current,existing}.png。
+选择器第一次 Enter 导航到目录，第二次确认，不能将导航误判为初始化失败。
+
+已完整阅读参考 4aec352 的 plugins/git4idea/backend/src/actions/GitInit.java，
+以及 commands/GitImpl.java::init：单目录选择、已有 Git 管理时确认、后台 git init 无附加参数，
+失败通知；成功刷新并增加当前项目 VCS mapping，默认项目不增加 mapping。
+因此本地保留 Git 的 init.defaultBranch/template/object-format 默认，不硬编码 main，
+不要求目录为空，不自动提交或添加文件。Plico 单仓库窗口没有多 root mapping，成功后
+沿用现有打开仓库/选择窗口机制作为保留差异。初始化入口拟放欢迎页与 Git 菜单。
+初次提交、配置远端与首次推送还需串联验收；当前未完成第 5 项，不提交。
+
+初始化核心 src/init_repository.rs 与欢迎页/Git 菜单入口 src/ui/init.rs 已接入。
+补读 GitUtil::isUnderGit/findGitRootFor：上游向父级查找 Git root。当地采用 .git 标记向上检查，
+包括 worktree 的 gitfile；对损坏/悬空标记也要求确认，较上游更保守，避免静默覆盖。
+执行前复查标记路径；它不是跨进程文件系统事务，不声称阻止复查后的外部替换。
+未新增 init.defaultBranch 或模板覆盖，保留 git init 默认。取消不删除目录或部分 .git。
+
+3 项真实 Git 测试通过：非空目录/默认分支不变/不暂存，已有与嵌套确认/准备后状态变化/取消，
+以及初始化→产品 commit_operation 首次提交→remote_management 配置→push 首次推送与上游设置。
+完整核心测试通过；桌面 81 通过/2 显式忽略，F7 7 项通过，Clippy 通过（既有警告），Windows 构建通过，CI 未运行。
+Windows 关闭旧 Plico43968 后启动43712，仅一个Plico；Rebased34276保持一个。
+原生 Plico 欢迎页创建 init-plico-20261024，已有README保持未跟踪，空Log显示0/0；
+勾选README，Initial commit→提交并推送，首提交成功且Log自动刷新1/1。
+截图 init-plico-{welcome,created,changes,commit-ready,first-push,remote}.png。
+发现无remote时Push的Select remote进入空编辑器，没有Define Remote入口；这不是初始化失败，
+但首次推送入口不闭环。下一步先实测并读取Rebased无remote的Push流程，再补齐入口后提交第5项。
+Plico已有目录确认框、取消/失败原生状态尚未逐一验收。
+
+第5项首次Push缺口前置：原生Rebased34276，移除仅用于tag验收的tag-audit remote，
+Ctrl+Shift+K显示 main→Define remote 链接（空仓库第二root显示Empty repository并禁用），
+点击打开Define Remote，Name默认origin，URL默认焦点，Fetch remote默认勾选；
+填写独立bare init-reference-remote-20261024.git，确认后返回Push并刷新目标。
+截图init-reference-{push-empty,define,target-ready}.png。
+已读4aec352 GitPushTargetPanel.java构造、updateComponents、showDefineRemoteDialog、
+addRemoteUnderModal、showRemoteSelector、getPopupItems及GitDefineRemoteDialog.kt完整文件。
+无remote不展示branch编辑器，不伪报加载失败；已有remote菜单末尾同样包含Define remote。
+添加执行后台git remote add，成功更新默认目标并触发提交重载。
+源码PushTargetPanel未消费DefineRemoteDialog.shouldFetch，Plico会保留勾选框真实行为，
+勾选时在后台fetch后重载目标与提交，复用既有认证，作为明确保留差异。
+
+### 5. 初始化到首次推送：交付验收（2026-10-24）
+
+初始化入口与核心沿用上述规则；首次Push无remote时不执行无效outgoing查询，
+源分支后提供Define Remote链接，已存在remote的选择菜单也有分隔后的Define Remote。
+src/ui/push_remote.rs复用DefineRemoteDialog与remote_management、认证fetch执行；
+写入参加Review操作归属，关闭后的Push不再接纳迟到快照；新增配置后重新读取实际
+Push snapshot并加载提交。fetch失败仍保留已成功添加的remote，不做隐式删除。
+Define Remote两个输入框取消外层focus ring，避免双框。无目标时不显示误导的No outgoing commits。
+
+原生Plico32076：无remote链接→Define Remote（origin默认、URL焦点、Fetch默认勾选），
+填写独立bare init-plico-remote-20261024.git，确认后自动回到origin:main及Initial commit。
+点击Push成功，bare show-ref只有refs/heads/main=f03e64ad014964d8cd2a653f934b92b6439dd28e；
+本地status确认upstream origin/main、+0/-0且无工作区变更，Log自动刷新origin与main标签。
+Git菜单Create Git Repository选择同目录显示已有Git确认，Escape取消，原提交与工作区保持。
+最终构建2720替换并关闭32076，验证有remote菜单的Define Remote入口及单层URL焦点边框，
+取消不新增remote。截图init-plico-{define-entry,define-form,target-ready,pushed,menu-open,existing-confirm,remote-menu,final-define}.png。
+
+初始化到推送3项真实Git测试、完整核心回归通过；桌面82通过/2显式忽略，F7七项通过；
+最终仅调整焦点框/空状态后定向Push测试通过，最终Windows构建通过。格式检查通过，
+Clippy核心全部target通过（既有警告）；CI未运行。新增原生网络认证失败/初始化权限失败
+未逐个截图，沿用既有错误/认证机制，不声称覆盖所有原生异常状态。
+保留差异：单仓库窗口成功后走已有Open Project窗口选择而非Rebased增加多root mapping；
+目录选择器按钮文案本地化但标题由系统提供；确认框复用应用模态而非独立系统警告，
+未复制警告图标/精确间距。功能和结构验收完成，不宣称像素级还原。
+本项完成，下一项子模块导航与父仓库gitlink提交。

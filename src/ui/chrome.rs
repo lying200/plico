@@ -24,6 +24,7 @@ impl Review {
                         ("Reflog", 6),
                         ("New Tag…", 7),
                         ("Clone Repository…", 5),
+                        ("Create Git Repository…", 8),
                     ] {
                         let owner = owner.clone();
                         menu = menu.item(PopupMenuItem::new(t(label)).disabled(disabled).on_click(
@@ -41,6 +42,7 @@ impl Review {
                                         5 => s.open_clone(window, cx),
                                         6 => s.open_reflog(window, cx),
                                         7 => s.open_tag(window, cx),
+                                        8 => s.open_init(window, cx),
                                         _ => s.start_fetch(window, cx),
                                     }
                                 });

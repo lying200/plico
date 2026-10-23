@@ -199,6 +199,7 @@ pub mod identity_config;
 pub mod remote_management;
 
 pub mod clone_repository;
+pub mod init_repository;
 
 pub mod clone_destination;
 

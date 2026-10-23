@@ -390,3 +390,12 @@ Tag workflow behavioral adaptations (Rebased commit 4aec352):
   platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/ChangeListViewerDialog.java
   Copyright JetBrains s.r.o. and contributors, Apache-2.0.
   Local mappings: src/tag_create.rs, src/tag_push.rs, src/ui/tag*.rs.
+
+Repository initialization / first-push behavioral adaptations (Rebased 4aec352):
+  plugins/git4idea/backend/src/actions/GitInit.java
+  plugins/git4idea/backend/src/commands/GitImpl.java::init
+  plugins/git4idea/backend/src/push/GitPushTargetPanel.java
+  plugins/git4idea/backend/src/remote/GitDefineRemoteDialog.kt
+  Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+  Local mappings: src/init_repository.rs, src/ui/init.rs, src/ui/push_remote.rs,
+  src/push_dialog.rs; remote configuration and authentication reuse existing modules.

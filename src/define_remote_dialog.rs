@@ -180,7 +180,12 @@ impl Render for Form {
                     .items_center()
                     .items_center()
                     .child(div().w(px(70.)).child(t("Remote name")))
-                    .child(Input::new(&self.name).disabled(self.busy).flex_1()),
+                    .child(
+                        Input::new(&self.name)
+                            .external_focus_ring(false)
+                            .disabled(self.busy)
+                            .flex_1(),
+                    ),
             )
             .child(
                 h_flex()
@@ -188,7 +193,12 @@ impl Render for Form {
                     .items_center()
                     .items_center()
                     .child(div().w(px(70.)).child("URL"))
-                    .child(Input::new(&self.url).disabled(self.busy).flex_1()),
+                    .child(
+                        Input::new(&self.url)
+                            .external_focus_ring(false)
+                            .disabled(self.busy)
+                            .flex_1(),
+                    ),
             )
             .when(self.busy, |v| v.child(t("Checking remote access…")))
             .when_some(self.details.clone(), |v, details| {

@@ -87,6 +87,16 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         };
     }
     match english {
+        "Create Git Repository" => "创建 Git 仓库",
+        "Create Git Repository…" => "创建 Git 仓库…",
+        "Creating Git repository…" => "正在创建 Git 仓库…",
+        "Git Init" => "初始化 Git 仓库",
+        "Git init failed" => "初始化 Git 仓库失败",
+        "The selected directory is already under Git" => "所选目录已受 Git 管理",
+        "Are you sure you want to create a new VCS root?" => "确定要创建新的版本控制根目录吗？",
+        "Initialization cancelled. The directory remains on disk; inspect it before retrying." => {
+            "已取消初始化。目录仍保留在磁盘上，请检查后再重试。"
+        }
         "Could not connect to hosting service" => "无法连接到代码托管服务",
         "Account needs to log in again" => "账号需要重新登录",
         "Authorization timed out" => "授权超时，请重试",

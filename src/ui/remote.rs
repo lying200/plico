@@ -24,13 +24,16 @@ impl Review {
                 match result {
                     Ok(Some(snapshot)) => {
                         let draft = cx.new(|cx| crate::push_dialog::PushDialog::new(repo.clone(), snapshot, window, cx));
+                        cx.subscribe_in(&draft, window, |s, draft, _: &crate::push_dialog::DefineRemote, w, cx| {
+                            s.define_push_remote(draft.clone(), w, cx);
+                        }).detach();
                         let callback=s.diff_source_callback(cx);draft.update(cx,|s,_|s.source_callback=Some(callback));
                         cx.observe_in(&draft, window, |_, _, w, _| w.refresh()).detach();
                         let owner = cx.entity().downgrade(); let path = repo.path.clone();
                         window.open_dialog(cx, move |dialog, window, cx| {
                             let control_height = text_row_height(28., 10., cx);
                             let dialog_height = px(540.).min((window.viewport_size().height - px(48.)).max(px(0.)));
-                            let owner = owner.clone(); let confirm = draft.clone(); let path = path.clone();
+                            let owner = owner.clone(); let confirm = draft.clone(); let path = path.clone(); let closing = draft.clone();
                             dialog.title(h_flex().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(16.))).child(div().font_weight(FontWeight::NORMAL).child(format!("{} {}", t("Push Commits to"), repo.path.file_name().unwrap_or_default().to_string_lossy())))).w(px(800.)).h(dialog_height).pb_0().centered(true).overlay_closable(false)
                                 .content({ let draft = draft.clone(); move |body, _, _| body.p_0().min_h_0().overflow_hidden().child(draft.clone()) })
                                 .footer({
@@ -74,6 +77,7 @@ impl Review {
                                             }))
                                         .child(gpui_kit::component::dialog::DialogClose::new().trigger(|b| b.label(t("Cancel")).min_w(px(72.)).h(control_height).with_size(control_height).rounded(px(4.))))
                                 })
+                                .on_close(move |_, _, cx| closing.update(cx, |s, _| s.close()))
                                 .on_ok(move |_, window, cx| {
                                     let Some(spec) = confirm.read(cx).spec() else { return false; };
                                     let _ = owner.update(cx, |s, cx| { if s.repo.path == path { s.start_push(spec, window, cx); } }); true

@@ -13,6 +13,7 @@ mod files_options;
 mod get_revision;
 mod history_operations;
 mod identity;
+mod init;
 mod log_branches;
 mod log_count;
 mod log_history;
@@ -23,6 +24,7 @@ mod merge_recovery;
 mod merge_result;
 mod operation;
 mod preview;
+mod push_remote;
 mod reference_checkout;
 mod reflog;
 mod remote;
@@ -777,6 +779,7 @@ impl Render for Review {
                         .child(div().px_3().py_2().rounded(px(6.)).bg(rgb(SELECT)).child(t("Projects"))))
                     .child(v_flex().flex_1().h_full().min_w_0().p_4().gap_3()
                         .child(h_flex().h(px(40.)).gap_2().flex_shrink_0().border_b_1().border_color(rgb(BORDER)).child(div().flex_1().child(t("Recent Projects")))
+                            .child(Button::new("init-repository").label(t("Create Git Repository…")).disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.open_init(w,cx))))
                             .child(Button::new("clone-repository").label(t("Clone Repository…")).disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.open_clone(w,cx))))
                             .child(Button::new("open-repository").label(t("Open Repository…")).on_click(cx.listener(|s, _, w, cx| s.open(w, cx)))))
                         .when(self.recent_projects.is_empty(), |v| v.child(div().text_color(rgb(MUTED)).child(t("Browse history. Review changes."))))

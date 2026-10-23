@@ -19,6 +19,7 @@ pub enum Kind {
     Restore,
     Recovery,
     ConfigureRemote,
+    Tag,
     Clone,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -35,6 +35,9 @@ mod reword;
 mod saved_changes;
 mod sequencer;
 mod settings;
+mod tag;
+mod tag_details;
+mod tag_general;
 mod text_merge;
 mod tool_rail;
 mod worktree_sync;
@@ -249,6 +252,7 @@ pub struct Review {
     repository_child_selection: Option<plico::branch_search::Selection>,
     repository_child_menu: Option<WeakEntity<gpui_kit::component::menu::PopupMenu>>,
     repository_recent: Vec<String>,
+    repository_push_remotes: Vec<String>,
     repository_favorites: plico::branch_popup::Favorites,
     repository_favorites_path: Option<PathBuf>,
     repository_favorites_saving: bool,
@@ -509,6 +513,7 @@ impl Review {
             repository_child_selection: None,
             repository_child_menu: None,
             repository_recent: Vec::new(),
+            repository_push_remotes: Vec::new(),
             repository_favorites: Default::default(),
             repository_favorites_path: None,
             repository_favorites_saving: false,

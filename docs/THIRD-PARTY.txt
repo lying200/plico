@@ -380,3 +380,13 @@ platform/collaboration-tools/resources/icons/expui/review/defaultAvatar_dark.svg
 Copyright JetBrains s.r.o. and contributors. Apache License 2.0.
 
 Authentication/account alignment (Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd): NativeSshGuiAuthenticator, SshPrompts, AccountUrlAuthenticationFailuresHolder, AccountsPanelFactory and GitLabOAuthService rules adapted to Rust/GPUI. Implementation/source mapping in docs/REBASED-REFERENCE.md. JetBrains s.r.o. and contributors, Apache-2.0. checked_dark.svg copied unchanged from platform/icons/src/expui/actions/checked_dark.svg; license assets/icons/LICENSE.txt.
+
+Tag workflow behavioral adaptations (Rebased commit 4aec352):
+  plugins/git4idea/backend/src/actions/GitCreateTagAction.java
+  plugins/git4idea/backend/src/ui/GitTagDialog.java
+  plugins/git4idea/backend/src/ui/GitReferenceValidator.java
+  plugins/git4idea/backend/src/actions/tag/GitPushTagsActionGroup.kt
+  plugins/git4idea/backend/src/actions/tag/GitPushTagsAction.kt
+  platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/ChangeListViewerDialog.java
+  Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+  Local mappings: src/tag_create.rs, src/tag_push.rs, src/ui/tag*.rs.

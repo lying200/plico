@@ -22,6 +22,7 @@ impl Review {
                         ("Fetch", 2),
                         ("Git Remotes", 4),
                         ("Reflog", 6),
+                        ("New Tag…", 7),
                         ("Clone Repository…", 5),
                     ] {
                         let owner = owner.clone();
@@ -39,6 +40,7 @@ impl Review {
                                         4 => s.open_remotes(window, cx),
                                         5 => s.open_clone(window, cx),
                                         6 => s.open_reflog(window, cx),
+                                        7 => s.open_tag(window, cx),
                                         _ => s.start_fetch(window, cx),
                                     }
                                 });

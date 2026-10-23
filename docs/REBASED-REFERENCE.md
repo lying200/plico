@@ -4122,3 +4122,105 @@ Windows release构建通过。Clippy执行完成，修正本模块constant chunk
 当前展示commit/ref/action/time，未提供独立过滤和差异预览，创建分支后可在Log审阅。
 Rebased选中commit专属新建分支实机对照尚未补齐，既有HEAD新建分支已核对；
 本轮恢复核心路径和Plico原生通过，不宣称像素级完全对齐。
+
+
+### 4. 标签创建与推送：前置依据（2026-10-24，进行中）
+
+参考4aec352、原生Rebased1.1.20。独立cherry-pick-reference-20261024，Log选中feature的
+83d7d4a8，右键New Tag在New Branch之下；弹窗标题包含目标hash，只有名称输入、OK/Cancel，
+空名时OK禁用。输入audit-v1确认，Git验证refs/tags/audit-v1精确指向83d7d4a8，HEAD未切换。
+截图artifacts/workflow-closure-20261024/tag-reference-{menu,dialog,created}.png。
+
+已读GitCreateTagAction.java：单提交动作，名称非空无空白；GitBranchWorker.createNewTag
+调用GitImpl.createNewTag（git tag name reference，无-f/消息）后刷新tags，失败通知。
+另读GitTagDialog.java主要构建、runAction/validateFields：通用Git Tag界面含root/current branch、
+name/force/commit+validate/message；消息非空才-a -F，重名才启用force，空名禁用。
+这两个入口不能混为同一个弹窗。本轮先实现Log同款轻量标签入口，再补通用标签和单标签推送。
+GitPushTagAction.preparePushSpec使用createTag来源和同名完整refs/tags目标，false force；
+GitPushTagsActionGroup按repo/remote生成动作，6项起折叠菜单。GitPushOptionsPanel保留
+随分支推送All/Current Branch选项（本地已有），不能以此替代单标签推送。
+尚未实机验证通用弹窗、重名与单标签推送；这些部分保持待验收。
+
+
+Log轻量标签核心已实现于tag_create.rs：固定commit OID、名称check-ref-format、同名拒绝，
+执行持有仓库操作锁并复验；不使用-f，Git拒绝其他写者在预检后创建的同名tag。
+两项真实Git测试通过，覆盖旧commit目标、HEAD/index/工作区不变、重复与并发重名、非法名和取消。
+src/ui/tag.rs接入单名称弹窗，Log New Branch之后New Tag，后台执行及刷新；关闭取消token，
+关闭后的结果不关闭后续弹窗。中英文与operation Kind::Tag接入，桌面编译检查通过。
+正在运行桌面回归及Windows构建，原生Plico尚未验收，不提交。
+
+补读GitPushOperationSingleRepoTest.kt的test push tags/single tag/existing tag：单tag首次NEW_BRANCH，
+再次UP_TO_DATE，远端不同同名tag为REJECTED_OTHER，不自动覆盖。GitPushOperation.doPush/createPushSpec
+对非branch来源保持完整目标ref，未启用force。原生Log Tag audit-v1子菜单当前只显示Merge/Delete，
+截图tag-reference-push-menu.png；与源码有差异，尚需检查顶部branch popup入口。
+测试remote仅新建本地bare tag-remote-reference-20261024.git并配置tag-audit，无外部远端写入。
+
+单标签推送原生入口已确认：顶部分支弹窗→Tags→audit-v1→Push to tag-audit；
+不弹确认框，执行后bare remote只包含refs/tags/audit-v1=83d7d4a8，没有分支。
+截图tag-reference-{branches,branches-expanded,branch-actions,pushed}.png（同上artifacts目录）。
+此前Log标签菜单的观察不代表顶部入口缺失。再次核对GitPushTagsActionGroup.kt与
+GitPushTagsAction.kt：每个remote一个动作，达到6个时折叠，后台任务允许取消。
+
+本地tag_push.rs保存原始tag对象OID（附注标签不剥离），执行复验tag与remote配置，
+固定OID推送到同名refs/tags；显式禁用follow-tags/mirror，不强推、不设置branch upstream。
+固定OID是本地防并发移动的保留差异。复用push结果解析及既有认证重试规则。
+两项真实Git测试覆盖附注对象、只推单tag、再次up-to-date、同名拒绝、准备后tag/remote变化与取消。
+src/ui/tag.rs新增顶部tag子菜单按remote推送，6个起折叠菜单；remote列表随弹窗后台读取，
+取消/仓库切换沿用弹窗generation，执行复用操作归属、认证弹窗与结束刷新。
+桌面编译检查通过。Plico新增推送入口与通用Git Tag弹窗仍待原生验收/实现，当前不提交。
+
+通用弹窗前置实测已完成：Actions搜索Tag选择带Git分组的New Tag，显示Git Root、
+Current Branch、Tag Name、Force、Commit+Validate、Message，初始焦点名称，Create Tag禁用。
+输入已有audit-v1启用Force、底部显示同名错误且Create Tag仍禁用；未选Force，未覆盖该标签。
+改为audit-annotated，Commit填写HEAD~1、Message填写Annotation audit后创建，Git验证
+对象类型tag、剥离目标126c4944fbcc02d420b0a5ebe5963cba89b2790a，消息完全一致。
+截图tag-general-{results,dialog,duplicate,filled}.png。Validate点击后的详情和Force覆盖实机未验。
+再次读取GitTagDialog.java的runAction/validateFields/fetchTags：空白消息走轻量标签，非空消息
+使用UTF8临时文件-a -F，Force仅同名且勾选时-f；Commit trim后空则不传目标，使用HEAD。
+切换名称至非同名会取消Force。当地实现应保持这些输入规则与控件组织。
+
+单标签入口接线后，tag_create/tag_push共4项测试再次通过，Windows release构建通过；
+通用弹窗实现和本轮Plico原生验收未完成，尚不提交。
+
+通用标签已接入src/ui/tag_general.rs与Git主菜单：名称、强制、提交及验证、消息；
+名称变为非重名时重置Force，关闭取消验证/执行，晚到结果不关闭其他弹窗。
+tag_create::read_options支持默认HEAD、提交表达式、附注及显式覆盖，执行前复验目标和旧tag OID。
+消息用-a -F -经UTF8 stdin传入，避免临时消息文件；这是与上游-F临时文件的等价传输差异。
+覆盖沿用git tag -f，不声称能锁住其他Git进程在预检后的写入。
+新增真实Git测试覆盖UTF8多段消息、空白消息轻量tag、覆盖、tag/HEAD过期、非法revision；
+目前tag_create3项+tag_push2项通过，核心全套与桌面81通过/2显式忽略，Windows构建通过。
+
+原生Plico26588（替换并关闭旧33344，当前仅一个Plico）验证Git→新建标签、中文字段、空名禁用、
+填写plico-annotated/HEAD~1/Annotation audit后Create Tag；Git确认对象类型tag、剥离OID
+3bbe6ac5046ca7de1cb24f4de0b1b498c9cc0e05及消息一致。截图tag-plico-{menu-open,general,filled,created}.png。
+原生发现输入框外层focus ring与参考不同，已改external_focus_ring(false)，此细化尚待新构建复验。
+
+补读GitReferenceValidator.java并实际点击Rebased Validate：成功后打开Paths affected in commit弹窗，
+上方文件列表、下方提交消息、右下Close（tag-validate-details.png）；关闭后回到Tag对话框。
+本地目前仅解析提交并显示OID，该展示仍需补齐，不以验证命令成功当作界面已对齐。
+未完成本轮单标签Plico原生push、Log新tag原生、Force原生及Validate文件详情，当前不提交。
+
+### 4. 标签创建与单标签推送：本轮交付（2026-10-24）
+
+补读GitUtil.java::showSubmittedFiles、ChangeListViewerDialog.java与GitReferenceValidator.java。
+验证后文件浏览在src/ui/tag_details.rs实现：目录压缩折叠、展开/折叠全部、文件颜色、提交消息、
+Close，双击或Show Diff按需读取只读版本，复用现有Diff导航。tag_create::preview只读取元数据，
+新增真实Git测试覆盖历史rename两侧路径、root commit、工作区文件已删除仍可读取历史与取消。
+标签相关测试总计6项通过。父标签草稿关闭或编辑source时取消旧验证；启动写操作也取消验证。
+
+Windows Plico26588验证顶部Tags→plico-annotated→推送到tag-audit，独立bare remote只有
+refs/tags/plico-annotated=a5d3c33975f959bb491777a3a0406d9c090181d7，保留附注tag对象，无分支。
+最终构建43968替换并关闭26588，确认单层输入焦点框、重名时Force可选且Create禁用；
+Validate HEAD显示one.txt和pick one消息，Show Diff正确显示只读新增one，连续Escape返回原草稿。
+Force勾选后Create可用，消息留空覆盖为轻量标签80ff0ec43676fd5202c21766a6feb37df9e0bd42。
+Log选中base→新建标签→plico-log-tag→Enter，Git确认轻量tag指向3bbe6ac5046ca7de1cb24f4de0b1b498c9cc0e05。
+截图tag-plico-{branches,tags,push-menu,pushed,duplicate,validated-ready,details-diff,force,log-menu,log-dialog,log-created}.png。
+这些只写独立fixture与bare remote；当前只有Plico43968和Rebased34276各一个实例。
+
+完整核心回归通过（新增preview后再跑6项定向测试）；最终桌面81通过/2显式忽略，F7七项通过；
+Windows release与Clippy通过（既有警告保留，无新增tag警告）；CI未运行。
+保留差异：单仓库Git Root显示只读路径；错误保留在当前弹窗而非上游通知；验证详情使用模态栈，
+未复制上游禁用的rollback/history按钮、目录设置菜单或独立窗口偏好。展开折叠目前为文字按钮，
+无额外全体根节点，布局结构已验收但不声明像素级还原。上游Force实机执行、6个remote折叠菜单、
+网络认证失败与取消未逐一做新增原生截图；核心测试和既有认证机制覆盖不能代替这些视觉状态。
+签名标签沿用用户Git配置，没有新增GPG身份配置界面。后续功能不以增加签名配置为前置条件。

@@ -141,7 +141,7 @@ pub fn execute(
 pub fn force_allowed(target: &Target) -> bool {
     !matches!(target.branch.as_str(), "main" | "master")
 }
-fn classify(outcome: &Outcome, source: &str, target: &str, force: bool) -> Status {
+pub(crate) fn classify(outcome: &Outcome, source: &str, target: &str, force: bool) -> Status {
     use crate::push_result::{Kind, parse};
     if outcome.stopped == Some(operation_process::StopReason::Cancelled) {
         return Status::Cancelled;

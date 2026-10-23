@@ -494,6 +494,20 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Push" => "推送",
         "Push Commits" => "推送提交",
+        "Push to" => "推送到",
+        "Push Tag" => "推送标签",
+        "Git Root:" => "Git 根目录：",
+        "Current Branch:" => "当前分支：",
+        "Tag Name:" => "标签名称：",
+        "Force" => "强制",
+        "Commit:" => "提交：",
+        "Message:" => "消息：",
+        "Validate" => "验证",
+        "Tag" => "标签",
+        "Create Tag" => "创建标签",
+        "Invalid commit" => "无效的提交",
+        "A tag with this name already exists" => "已存在同名标签",
+        "Paths affected in commit" => "提交中受影响的路径",
         "Pushing…" => "正在推送…",
         "Push completed" => "推送完成",
         "Check out a local branch with commits before pushing" => {
@@ -510,6 +524,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Pop" => "弹出",
         "Restore changes and keep the stash" => "恢复更改并保留保存记录",
         "Restore changes and remove the stash on success" => "恢复更改，成功后移除保存记录",
+        "New Tag…" => "新建标签…",
+        "Create New Tag On" => "创建标签于",
+        "Enter the name of new tag" => "输入新标签的名称",
+        "Creating tag…" => "正在创建标签…",
+        "Tag created" => "标签已创建",
+        "Could not create tag" => "无法创建标签",
         "Reflog" => "引用历史（Reflog）",
         "Select a reflog entry to recover its commit as a branch." => {
             "选择一条引用历史，将对应提交恢复为分支。"

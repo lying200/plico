@@ -34,6 +34,7 @@ impl Review {
         }
         self.repository_recent_generation += 1;
         let generation = self.repository_recent_generation;
+        self.repository_push_remotes.clear();
         let Some(snapshot) = &self.snapshot else {
             return;
         };
@@ -51,6 +52,12 @@ impl Review {
                     (
                         plico::branch_popup::recent_branches(&repo, &branches, None, &token),
                         favorites,
+                        repo.fetch_specs(&token).map(|specs| {
+                            specs
+                                .into_iter()
+                                .map(|s| s.remote().to_owned())
+                                .collect::<Vec<_>>()
+                        }),
                     )
                 })
                 .await;
@@ -62,6 +69,7 @@ impl Review {
                     return;
                 }
                 s.repository_recent_token = None;
+                s.repository_push_remotes = result.2.unwrap_or_default();
                 if let Some(favorites) = result.1 {
                     match favorites {
                         Ok((path, prefs)) => {
@@ -699,7 +707,7 @@ impl Review {
                         .h(px(28.)).w_full().pl(indent).when(selected,|v|v.bg(rgb(0x2e4773))).child(star).child(div().flex_1().child(Button::new(SharedString::from(format!("repository-reference:{:?}:{}", row.section, full_ref))).custom(ButtonCustomVariant::new(cx)).h(px(28.)).w_full()
                         .child(h_flex().w_full().gap_1().child(s.repository_search_label(label))
                             .child(div().flex_1()).child(jb_icon("chevronRight_dark.svg")))
-                        .dropdown_menu_with_anchor(Anchor::LeftCenter, move |mut menu,_,menu_cx| {
+                        .dropdown_menu_with_anchor(Anchor::LeftCenter, move |mut menu,w,menu_cx| {
                             menu=menu.close_on_left(true);
                             let child=menu_cx.entity().downgrade();
                             let _=owner.update(menu_cx,|s,cx| {
@@ -730,6 +738,7 @@ impl Review {
                                     let _=merge_owner.update(cx,|s,cx|s.merge_branch(merge_ref.clone(),w,cx));
                                 }));
                             }
+                            if tag { menu = Review::tag_push_menu(menu, &owner, &full_ref, w, menu_cx); }
                             let create_owner = owner.clone(); let create_ref = full_ref.clone();
                             menu = menu.item(PopupMenuItem::new(t("New Branch…")).disabled(disabled).on_click(move |_, w, cx| {
                                 let _ = create_owner.update(cx, |s, cx| s.new_branch_dialog(create_ref.clone(), w, cx));
@@ -746,7 +755,7 @@ impl Review {
                                 cx.notify();
                             });
                         })))
-                        .context_menu(move |menu,_,cx| {
+                        .context_menu(move |menu,w,cx| {
                             let available=context_owner.upgrade().is_some_and(|s|s.read(cx).reference_checkout_target(&context_ref).is_some());
                             let disabled=context_owner.upgrade().is_none_or(|s|s.read(cx).operation.busy() || s.read(cx).operation.saving_documents());
                             let owner=context_owner.clone();let reference=context_ref.clone();
@@ -764,6 +773,7 @@ impl Review {
                                     let _=merge_owner.update(cx,|s,cx|s.merge_branch(merge_ref.clone(),w,cx));
                                 }));
                             }
+                            if tag { menu = Review::tag_push_menu(menu, &context_owner, &context_ref, w, cx); }
                             let create_owner=context_owner.clone(); let create_ref=context_ref.clone();
                             menu.item(PopupMenuItem::new(t("New Branch…")).disabled(disabled).on_click(move |_,w,cx| {
                                 let _=create_owner.update(cx,|s,cx|s.new_branch_dialog(create_ref.clone(),w,cx));

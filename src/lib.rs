@@ -216,3 +216,7 @@ pub mod get_revision;
 pub mod cherry_pick;
 
 pub mod reflog;
+
+pub mod tag_create;
+
+pub mod tag_push;

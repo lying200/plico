@@ -24,6 +24,7 @@ mod merge_result;
 mod operation;
 mod preview;
 mod reference_checkout;
+mod reflog;
 mod remote;
 mod remote_management;
 mod repository;

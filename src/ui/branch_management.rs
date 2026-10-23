@@ -113,6 +113,9 @@ impl Review {
                         .find(|c| c.id == source)
                         .map(|c| c.id.clone())
                 })
+                // Reflog commits can be absent from the visible Log. Prepared
+                // still resolves the full OID and revalidates before writing.
+                .or_else(|| plico::git::is_oid(&source).then(|| source.clone()))
         };
         let Some(displayed_target) = displayed_target else {
             return;

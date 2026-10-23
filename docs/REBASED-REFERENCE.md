@@ -4071,3 +4071,54 @@ Clippy执行完成，有既有警告；CI未运行。多选、冲突和空提交
 阻挡采用现有模态弹窗而非通知，查看文件打开完整本地更改列表而非仅阻挡文件弹窗；
 完成状态沿用通用操作完成文案。中断后保留stash并显式恢复，不在之后Continue时自动pop。
 来源后缀沿用应用现有受保护main/master策略，尚无单独偏好设置。不宣称像素级还原完成。
+
+
+### 3. Reflog 找回提交：参考边界（2026-10-24，进行中）
+
+同一参考4aec352/原生1.1.20。全树文件名与git4idea、vcs-log源码检索未找到独立Reflog浏览器；
+原生Actions搜索reflog（包含disabled actions）仅匹配Refresh，截图reflog-reference-search.png。
+这不是证明任意插件都无此能力；只说明当前参考版本没有找到可直接翻译的入口。
+本项Reflog列表应明确为Plico扩展，不伪称复刻上游；恢复写操作复用现有创建分支流程。
+
+已读 GitCreateNewBranchFromCommitAction.kt：仅单选提交，从选中hash创建分支，
+可由单一现存分支建议初始名；GitBranchActionsUtil.kt::createOrCheckoutNewBranch 打开
+GitNewBranchDialog，允许选择checkout和显式覆盖，再交GitBranchCheckoutOperation。
+已读GitNewBranchDialog.kt前170行，默认checkout=true/reset=false，名称输入清理并调整光标；
+GitCreateBranchOperation.kt执行branchCreate后更新仓库并通知，失败保留错误。
+原生Ctrl+Alt+N显示HEAD的新分支弹窗（预填main），不是选中提交专属入口，
+截图reflog-reference-branch.png；后续需从Log右键验证选中hash的新分支及取消，不能混淆两者。
+计划：有界异步读取Reflog，保留不可变OID供恢复，不能以易变HEAD@{n}作为延迟写入目标；
+从条目打开既有分支创建对话框，执行时复验目标对象与仓库状态。当前尚未实现/提交此项。
+
+
+实现进度：src/reflog.rs读取所有可用ref日志的有界前缀，保留同commit的不同事件，
+以NUL分隔字段，明确指定Unix时间避免用户日期配置干扰。每批200、上限10000，
+额外读取一条判断是否还有记录；加载更多重读前缀避免并发写入移动ordinal导致漏项。
+恢复始终传固定完整OID到branch_create，不使用HEAD@{n}作为写入目标。
+三项真实Git测试通过：reset后找回、读取后新增提交再恢复旧OID、保持HEAD/index/磁盘，
+分页与重复事件、日期配置、取消、空仓库和非法上限。
+
+src/ui/reflog.rs提供Git菜单入口、异步虚拟列表、刷新、加载更多、新建分支；
+关闭取消读取，迟到结果检查token，分支动作复验当前仓库；复用既有分支对话框与写入检查。
+src/ui/branch_management.rs允许来自Reflog且未在当前Log页中的完整OID，核心仍复验对象。
+中英文文案已接入。桌面编译检查通过；完整桌面/核心回归与Windows构建正在执行，
+原生Plico列表及恢复尚待验收，当前不提交、不声明完成。
+
+
+### 3. Reflog 找回提交：本轮验收（2026-10-24）
+
+Windows原生33344验证Git菜单、中文列表、刷新、选中与新建分支；独立fixture通过
+commit-tree生成9460da1d，临时移动HEAD再移回以形成失去分支引用的提交，index/worktree不变。
+列表选中旧OID后打开既有分支对话框，取消checkout勾选，创建recovered-reflog-audit；
+Git验证新分支精确指向9460da1d，HEAD仍80ff0ec4，原始index SHA256与base.txt内容均保持。
+Log自动刷新并显示恢复提交。再次打开列表按Escape关闭，界面回到Log。
+截图artifacts/workflow-closure-20261024/reflog-plico-{menu,list,lost,branch,restored,closed}.png。
+
+核心全套通过；桌面81通过/2显式忽略，额外F7七项通过；新增Reflog真实Git三项通过。
+Windows release构建通过。Clippy执行完成，修正本模块constant chunk建议，其余既有警告保留；
+该修改后重新执行Reflog三项通过。格式与diff检查通过；CI未运行。
+保留边界：列表为Plico扩展，并无已找到的Rebased直接参考界面；只读取仍保留的reflog，
+不扫描已被GC清理的对象，也不伪称能恢复已过期日志。最多10000条、8MiB执行器输出预算。
+当前展示commit/ref/action/time，未提供独立过滤和差异预览，创建分支后可在Log审阅。
+Rebased选中commit专属新建分支实机对照尚未补齐，既有HEAD新建分支已核对；
+本轮恢复核心路径和Plico原生通过，不宣称像素级完全对齐。

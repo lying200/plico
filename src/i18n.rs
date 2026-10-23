@@ -510,6 +510,13 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Pop" => "弹出",
         "Restore changes and keep the stash" => "恢复更改并保留保存记录",
         "Restore changes and remove the stash on success" => "恢复更改，成功后移除保存记录",
+        "Reflog" => "引用历史（Reflog）",
+        "Select a reflog entry to recover its commit as a branch." => {
+            "选择一条引用历史，将对应提交恢复为分支。"
+        }
+        "No reflog entries" => "没有引用历史记录",
+        "entries loaded" => "条记录已加载",
+        "Load More" => "加载更多",
         "Loading…" => "正在加载…",
         "Could not load comparison. Refresh to retry." => "无法加载比较，请刷新重试。",
         "Comparison unavailable. Refresh the Changes panel to retry." => {

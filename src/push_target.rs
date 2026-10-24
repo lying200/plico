@@ -42,6 +42,7 @@ pub enum Origin {
     PushSpec,
     TrackingBranch,
     Custom,
+    PushConfiguration,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
@@ -80,6 +81,18 @@ pub fn default_for_branch(
     specs: &[(String, Vec<String>)],
 ) -> Option<Target> {
     let remote = targets.default_remote()?;
+    configured_default(branch, targets, specs, remote, None, false)
+}
+
+// Keep pull tracking immutable: a push-only remote must never become the pull target.
+fn configured_default(
+    branch: &str,
+    targets: &crate::pull::Targets,
+    specs: &[(String, Vec<String>)],
+    remote: &str,
+    mode: Option<&str>,
+    explicit_remote: bool,
+) -> Option<Target> {
     let push_ref = specs
         .iter()
         .find(|(name, _)| name == remote)
@@ -99,21 +112,33 @@ pub fn default_for_branch(
             origin: Origin::PushSpec,
         });
     }
-    if let Some(tracked) = &targets.tracked {
-        return Some(Target {
-            remote: tracked.remote.clone(),
-            branch: tracked.branch.clone(),
-            special: false,
-            new_branch: false,
-            origin: Origin::TrackingBranch,
-        });
-    }
+    let tracked = targets.tracked.as_ref().filter(|t| t.remote == remote);
+    let destination = match mode {
+        // A single-target preview must not silently turn matching into one branch,
+        // or override an explicitly disabled default push.
+        Some("nothing" | "matching") => return None,
+        Some("upstream" | "tracking") => tracked?.branch.as_str(),
+        Some("simple") if targets.default_remote() == Some(remote) => {
+            let tracked = tracked?;
+            if tracked.branch != branch {
+                return None;
+            }
+            branch
+        }
+        Some("current" | "simple") => branch,
+        None => tracked.map_or(branch, |t| t.branch.as_str()),
+        Some(_) => return None,
+    };
     Some(Target {
         remote: remote.into(),
-        branch: branch.into(),
+        branch: destination.into(),
         special: false,
-        new_branch: !targets.contains(remote, branch),
-        origin: Origin::TrackingBranch,
+        new_branch: !targets.contains(remote, destination),
+        origin: if explicit_remote || mode.is_some() {
+            Origin::PushConfiguration
+        } else {
+            Origin::TrackingBranch
+        },
     })
 }
 
@@ -295,14 +320,35 @@ impl crate::git::Repository {
         else {
             return Ok(None);
         };
-        let mut specs = Vec::new();
-        // Only the selected remote's specs influence the upstream default policy.
-        if let Some(remote) = targets.default_remote() {
-            let key = format!("remote.{remote}.push");
-            let values = read_config_values(self, &key, token)?;
-            specs.push((remote.to_owned(), values));
-        }
-        let default = default_for_branch(branch, &targets, &specs);
+        // One bounded config query avoids adding several Git launches on Windows.
+        let config = read_push_config(self, token)?;
+        let explicit_remote = config
+            .get(&format!("branch.{branch}.pushremote"))
+            .or_else(|| config.get("remote.pushdefault"))
+            .and_then(|values| values.last());
+        let remote = explicit_remote
+            .map(String::as_str)
+            .or_else(|| targets.default_remote());
+        let mode = config.get("push.default").and_then(|values| values.last());
+        let default = if let Some(remote) = remote {
+            if !targets.remotes.iter().any(|name| name == remote) {
+                return Err(format!("Configured push remote does not exist: {remote}"));
+            }
+            let values = config
+                .get(&format!("remote.{remote}.push"))
+                .cloned()
+                .unwrap_or_default();
+            configured_default(
+                branch,
+                &targets,
+                &[(remote.to_owned(), values)],
+                remote,
+                mode.map(String::as_str),
+                explicit_remote.is_some(),
+            )
+        } else {
+            None
+        };
         let source_branch = branch.to_owned();
         let source_oid = oid.to_owned();
         if token.cancelled() {
@@ -317,14 +363,18 @@ impl crate::git::Repository {
     }
 }
 
-fn read_config_values(
+fn read_push_config(
     repo: &crate::git::Repository,
-    key: &str,
     token: &crate::git::Cancel,
-) -> Result<Vec<String>, String> {
+) -> Result<std::collections::BTreeMap<String, Vec<String>>, String> {
     use crate::operation_process::{self, Progress};
     let outcome = operation_process::run(
-        repo.command().args(["config", "--null", "--get-all", key]),
+        repo.command().args([
+            "config",
+            "--null",
+            "--get-regexp",
+            r"^(branch\..*\.pushremote|remote\.pushdefault|remote\..*\.push|push\.default)$",
+        ]),
         token,
         &Progress::default(),
         Some(std::time::Duration::from_secs(30)),
@@ -338,7 +388,7 @@ fn read_config_values(
     }
     let bytes = outcome.stdout.bytes();
     if outcome.status.code() == Some(1) && bytes.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Default::default());
     }
     if !outcome.status.success() {
         return Err("Could not read push configuration".into());
@@ -347,10 +397,13 @@ fn read_config_values(
     if !text.ends_with('\0') {
         return Err("Incomplete push configuration record".into());
     }
-    Ok(text[..text.len() - 1]
-        .split('\0')
-        .map(str::to_owned)
-        .collect())
+    let mut config = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for record in text[..text.len() - 1].split('\0') {
+        // Git -z uses a newline between the key and value, NUL between entries.
+        let (key, value) = record.split_once('\n').unwrap_or((record, ""));
+        config.entry(key.into()).or_default().push(value.into());
+    }
+    Ok(config)
 }
 
 /// `capped` means the upstream new-target ceiling was reached, not proof that

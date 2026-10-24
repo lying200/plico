@@ -129,7 +129,7 @@ impl PushDialog {
             token: Cancel::default(),
             task: Task::ready(()),
         };
-        if !s.snapshot.targets.remotes.is_empty() {
+        if s.target.is_some() {
             s.load(0, false, cx);
         }
         s
@@ -176,7 +176,7 @@ impl PushDialog {
                 self.applied_upstream = false;
                 self.explicit_upstream = false;
                 self.editing = false;
-                if !self.snapshot.targets.remotes.is_empty() {
+                if self.target.is_some() {
                     self.load(0, false, cx);
                 }
             }
@@ -479,7 +479,11 @@ impl Render for PushDialog {
                 .child(
                     Button::new("push-remote")
                         .disabled(self.busy)
-                        .label(self.remote.clone())
+                        .label(if self.remote.is_empty() {
+                            t("Select remote").to_owned()
+                        } else {
+                            self.remote.clone()
+                        })
                         .dropdown_menu(move |mut menu, _, _| {
                             for remote in &remotes {
                                 let owner = owner.clone();
@@ -927,6 +931,47 @@ mod tests {
             default: None,
             targets: plico::pull::Targets {
                 remotes: vec![],
+                branches: vec![],
+                current_branch: Some("main".into()),
+                tracked: None,
+            },
+        };
+        let mut draft = None;
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let view = cx.new(|cx| {
+                PushDialog::new(Repository::new("nonexistent-push-fixture"), snapshot, w, cx)
+            });
+            draft = Some(view.clone());
+            Root::new(view, w, cx)
+        });
+        let draft = draft.unwrap();
+        cx.run_until_parked();
+        draft.read_with(cx, |s, _| {
+            assert!(!s.busy);
+            assert!(s.error.is_none());
+            assert!(!s.editing);
+            assert!(s.spec().is_none());
+        });
+        cx.update(|w, cx| {
+            draft.update(cx, |s, cx| {
+                s.close();
+                s.remote_configured(Err("late failure".into()), w, cx);
+                assert!(s.error.is_none());
+                assert!(s.spec().is_none());
+            })
+        });
+    }
+    #[gpui::test]
+    fn configured_remotes_without_default_wait_for_explicit_selection(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui::component::init);
+        let snapshot = Snapshot {
+            source_branch: "main".into(),
+            source_oid: "a".repeat(40),
+            default: None,
+            targets: plico::pull::Targets {
+                remotes: vec!["origin".into()],
                 branches: vec![],
                 current_branch: Some("main".into()),
                 tracked: None,

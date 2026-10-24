@@ -90,6 +90,9 @@ impl Review {
                         // Keep the diagnostic available through the shared Details UI.
                         s.status_message = None;
                         s.error = Some(error);
+                        // A refresh can replace the shared status; keep a failed
+                        // explicit Push request visible until the user closes it.
+                        s.show_error_details(window, cx);
                     }
                 }
                 cx.notify();

@@ -4496,3 +4496,78 @@ IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，�
 不能把上游存在的限制直接当成我们的功能目标。
 
 当前状态：计划已记录，第1项进入原生前置验证，其余未开始。
+
+
+### 1. Fork推送目标：原生前置结果
+
+独立fork-reference-20261024/project，origin/upstream均为同目录本地bare，topic跟踪
+upstream/main，branch.topic.pushRemote及remote.pushDefault均为origin，push.default=current。
+Rebased1.1.20自有43328：Ctrl+Shift+K打开Push，实际默认topic→upstream:main，
+左侧列出feature，右侧readme.txt；remote链接菜单有origin/upstream及Define remote。
+截图artifacts/collaboration-workflows-20261024/fork-reference-{project,push,remote-menu}.png。
+仅打开/查看，未执行Push。信任仅针对自有fixture，已取消默认Defender排除项。
+
+实读参考4aec352的GitPushSupport.java::getDefaultTarget/getPushTargetIfExist与
+GitPushTarget.java::getFromPushSpec/getRemoteToPush，当前上游也是先对应remote的push refspec，
+再trackInfo，最后默认remote+同名branch；本地旧行为不是对该快照的翻译错误。
+但用户要求Fork分离目标，不能因此保留忽略显式Git推送配置的限制。本地计划保留Push布局、
+可编辑source→target、预览和确认流程，在目标选择层支持branch.pushRemote优先于
+remote.pushDefault，同时保留pull_targets的upstream不变；未配置时沿用既有上游策略。
+显式不存在的remote不得静默回落到upstream。选定remote的refspec继续优先；分离remote默认
+使用当前分支名，并进一步对照push.default的适用模式与Git行为。尚未实现或宣称验收通过。
+
+
+### 1. Fork推送目标：实现及原生正向验收（2026-10-24）
+
+src/push_target.rs保持pull::Targets不变，单次有界Git config查询读取branch.*.pushRemote、
+remote.pushDefault、对应remote.push及push.default，分支级优先，全局次之，最后既有默认。
+选定remote的refspec仍优先；显式current使用本分支名，upstream仅同remote跟踪目标，
+simple拒绝同remote异名跟踪；nothing/matching不擅自生成单分支默认目标，允许用户显式选定。
+未配置push.default时保留既有Rebased默认规则；无效显式remote返回错误、不回退写upstream。
+PushConfiguration来源与TrackingBranch分开，避免把推送目标当成拉取跟踪目标。
+
+真实Git回归先红（实际upstream、预期origin）后绿，覆盖remote优先级、对应refspec、
+配置末值、失效remote、取消、push.default及两个本地bare端到端推送：只新增origin/topic，
+保留upstream/main、当前upstream以及index/工作区分别未暂存/已暂存内容。
+19项既有及新增push筛选回归通过，新增端到端后3项fork_push通过；最新全核心重跑中。
+Clippy通过（既有警告），Windows release通过，桌面push定向测试运行中；CI未运行。
+
+原生Plico41732，独立fork-plico-20261024/project（复制前置fixture及两个bare隔离）：
+点击顶部Push→显示topic→origin:topic、新分支、feature及readme.txt；点击推送成功，
+Log自动出现origin/topic。实际bare核验origin/main与upstream/main仍为dea1da42，
+仅origin/topic为61c9ab61；@{upstream}仍refs/remotes/upstream/main。
+截图artifacts/collaboration-workflows-20261024/fork-plico-{start,push,done}.png。
+保留上游Push布局，本项改变默认目标解析而非重做弹窗；不宣称像素级还原。
+异常模式的原生提示与手动目标切换尚需补验，当前未提交，不将正向通过冒充全部完成。
+
+
+补验记录：最新全核心通过（/tmp/plico-fork-core-final.log），原桌面push用例通过。
+原生push.default=nothing显示选择远端、禁用推送，但错误地触发No push target加载错误；
+截图fork-plico-no-default.png证实此问题。已将PushDialog首次加载及重载条件收紧为
+实际target存在，增加已有remote但无default的GPUI回归（运行中）。该UI修正尚需新Windows
+构建和原生复验。失效remote确实阻止打开Push/写操作，但共享error在当前主窗口截图中
+不可见，需继续改善诊断呈现，不能把此状态算为完整UI验收通过。其余计划项目未开始。
+
+
+Fork收尾复验：实读同commit的platform/dvcs-impl/src/com/intellij/dvcs/push/PushController.java，
+loadCommits在target=null时stopLoading并返回，onTargetChanged清错后才load。
+本地PushDialog相同地等待显式目标，不把无默认目标作为Git读取失败；空remote编辑按钮
+明确显示“选择远端”。失效配置沿用本地错误详情弹窗自动呈现；这是Plico对Git显式配置
+的扩展状态，上游此版本不解析pushRemote，不能声称上游有同一失效配置界面。
+
+Windows37276已复验无默认目标不报错且推送禁用，点击选择远端→origin→输入topic→应用，
+显示origin:topic及“没有待推送提交”，推送恢复可用（此前已推送，未再次执行）。
+截图fork-plico-no-default-fixed、manual-menu、manual-applied-final；后者属于手动目标路径。
+失效remote显示可复制/关闭的Git错误详情，明确给出missing，截图invalid-fixed。
+底部瞬时错误被刷新替换的问题通过持久弹窗解决，不修改后台刷新行为。
+桌面push_dialog两项通过，最终label变更Windows构建仍在收尾；核心全量已通过。
+
+
+第1项最终交付：Windows最终构建通过，Plico45116原生复验选择远端按钮的中英文入口
+（当前中文截图fork-plico-select-label.png），不再出现无文字按钮。全核心通过；
+桌面PushDialog两项通过，Clippy通过（既有警告），fmt/diff通过，CI未运行。
+本项功能及结构验收完成，不宣称像素完全一致；错误详情保留原始英文诊断，按钮/标题
+沿用现有中英文。显式nothing/matching不自动选择目标，但用户仍可明确指定单分支推送；
+未配置push.default保留上游旧策略，不能将此称为对无参数git push全部模式的完全模拟。
+第2项开始前置：已创建rebase-branch-reference-20261024，topic/main各自一条提交，
+local.txt保留未暂存修改，等待原生Rebased入口/执行验证；尚未修改第2项产品代码。

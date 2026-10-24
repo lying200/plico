@@ -8594,3 +8594,184 @@ fn async_history_count_matches_pages_and_filter_precedence() {
     token.cancel();
     assert!(history::count(&repo, &roots, None, &token).is_err());
 }
+
+#[test]
+fn fork_push_remote_is_independent_from_pull_upstream() {
+    let f = Fixture::new();
+    f.write("base.txt", "base\n");
+    f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    for remote in ["origin", "upstream"] {
+        f.git(&["remote", "add", remote, "https://example.invalid/repo"]);
+        f.git(&["update-ref", &format!("refs/remotes/{remote}/main"), "HEAD"]);
+    }
+    f.git(&["config", "branch.topic.remote", "upstream"]);
+    f.git(&["config", "branch.topic.merge", "refs/heads/main"]);
+    f.git(&["config", "remote.pushDefault", "origin"]);
+    f.git(&["config", "push.default", "current"]);
+    let token = Cancel::default();
+    let snapshot = f.repo().push_snapshot(&token).unwrap().unwrap();
+    assert_eq!(
+        snapshot.targets.tracked.as_ref().unwrap().remote,
+        "upstream"
+    );
+    let target = snapshot.default.unwrap();
+    assert_eq!(target.remote, "origin");
+    assert_eq!(target.branch, "topic");
+    assert!(target.new_branch);
+}
+
+#[test]
+fn fork_push_configuration_precedence_and_invalid_remote() {
+    let f = Fixture::new();
+    f.write("base.txt", "base\n");
+    f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    for remote in ["origin", "upstream", "personal"] {
+        f.git(&["remote", "add", remote, "https://example.invalid/repo"]);
+        f.git(&["update-ref", &format!("refs/remotes/{remote}/main"), "HEAD"]);
+    }
+    f.git(&["config", "branch.topic.remote", "upstream"]);
+    f.git(&["config", "branch.topic.merge", "refs/heads/main"]);
+    f.git(&["config", "remote.pushDefault", "origin"]);
+    f.git(&["config", "branch.topic.pushRemote", "personal"]);
+    let token = Cancel::default();
+    let repo = f.repo();
+    let snapshot = repo.push_snapshot(&token).unwrap().unwrap();
+    let target = snapshot.default.unwrap();
+    assert_eq!((&*target.remote, &*target.branch), ("personal", "topic"));
+    assert!(!target.should_set_upstream(true, true, false));
+    assert_eq!(snapshot.targets.tracked.unwrap().remote, "upstream");
+
+    for mode in ["nothing", "matching", "upstream"] {
+        f.git(&["config", "push.default", mode]);
+        assert!(
+            repo.push_snapshot(&token)
+                .unwrap()
+                .unwrap()
+                .default
+                .is_none(),
+            "{mode}"
+        );
+    }
+    // A refspec takes precedence over push.default, but only on the selected remote.
+    f.git(&["config", "remote.origin.push", "HEAD:refs/heads/wrong"]);
+    f.git(&["config", "remote.personal.push", "HEAD:refs/heads/review"]);
+    let target = repo
+        .push_snapshot(&token)
+        .unwrap()
+        .unwrap()
+        .default
+        .unwrap();
+    assert_eq!((&*target.remote, &*target.branch), ("personal", "review"));
+    assert!(!target.should_set_upstream(true, true, false));
+
+    f.git(&["config", "branch.topic.pushRemote", "missing"]);
+    assert!(
+        repo.push_snapshot(&token)
+            .err()
+            .unwrap()
+            .contains("missing")
+    );
+    assert_eq!(
+        repo.pull_targets(&token).unwrap().tracked.unwrap().remote,
+        "upstream"
+    );
+}
+
+#[test]
+fn push_default_modes_preserve_distinct_source_and_tracking_names() {
+    let f = Fixture::new();
+    f.write("base.txt", "base\n");
+    f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    f.git(&["remote", "add", "origin", "https://example.invalid/repo"]);
+    f.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    f.git(&["config", "branch.topic.remote", "origin"]);
+    f.git(&["config", "branch.topic.merge", "refs/heads/main"]);
+    let token = Cancel::default();
+    let repo = f.repo();
+    for (mode, expected) in [
+        ("current", Some("topic")),
+        ("upstream", Some("main")),
+        ("simple", None),
+        ("nothing", None),
+        ("matching", None),
+    ] {
+        f.git(&["config", "push.default", mode]);
+        let snapshot = repo.push_snapshot(&token).unwrap().unwrap();
+        assert_eq!(
+            snapshot.default.as_ref().map(|t| t.branch.as_str()),
+            expected,
+            "{mode}"
+        );
+        assert_eq!(snapshot.targets.tracked.unwrap().branch, "main");
+    }
+    // Last assignment wins, including included/multi-valued configuration.
+    f.git(&["config", "--add", "push.default", "current"]);
+    assert_eq!(
+        repo.push_snapshot(&token)
+            .unwrap()
+            .unwrap()
+            .default
+            .unwrap()
+            .branch,
+        "topic"
+    );
+    token.cancel();
+    assert!(repo.push_snapshot(&token).is_err());
+}
+
+#[test]
+fn fork_push_writes_only_personal_remote_and_keeps_pull_tracking_and_local_edits() {
+    use plico::push::{self, Spec, Status};
+    let origin = Fixture::new();
+    origin.git(&["config", "core.bare", "true"]);
+    let upstream = Fixture::new();
+    upstream.git(&["config", "core.bare", "true"]);
+    let f = Fixture::new();
+    f.write("a", "base");
+    f.commit("base");
+    let base = f.git(&["rev-parse", "HEAD"]);
+    for (name, remote) in [("origin", &origin), ("upstream", &upstream)] {
+        f.git(&["remote", "add", name, remote.0.to_str().unwrap()]);
+        f.git(&["push", name, "main"]);
+    }
+    f.git(&["checkout", "-b", "topic"]);
+    f.git(&["branch", "--set-upstream-to", "upstream/main"]);
+    f.git(&["config", "branch.topic.pushRemote", "origin"]);
+    f.git(&["config", "push.default", "current"]);
+    f.write("a", "feature");
+    f.commit("feature");
+    f.write("a", "staged");
+    f.git(&["add", "a"]);
+    f.write("a", "unstaged");
+    let index = f.git(&["write-tree"]);
+    let token = Cancel::default();
+    let repo = f.repo();
+    let snapshot = repo.push_snapshot(&token).unwrap().unwrap();
+    let target = snapshot.default.unwrap();
+    let spec = Spec {
+        tags: None,
+        force: false,
+        source_branch: snapshot.source_branch,
+        source_oid: snapshot.source_oid,
+        set_upstream: target.should_set_upstream(true, snapshot.targets.tracked.is_some(), false),
+        target,
+    };
+    let result = push::execute(&repo, &spec, &token, &Default::default(), None).unwrap();
+    assert_eq!(result.status, Status::NewBranch);
+    assert_eq!(origin.git(&["rev-parse", "topic"]), spec.source_oid);
+    assert_eq!(origin.git(&["rev-parse", "main"]), base);
+    assert_eq!(
+        upstream.git(&["for-each-ref", "--format=%(refname)"]),
+        "refs/heads/main"
+    );
+    assert_eq!(upstream.git(&["rev-parse", "main"]), base);
+    assert_eq!(
+        f.git(&["rev-parse", "--symbolic-full-name", "@{upstream}"]),
+        "refs/remotes/upstream/main"
+    );
+    assert_eq!(f.git(&["write-tree"]), index);
+    assert_eq!(fs::read_to_string(f.0.join("a")).unwrap(), "unstaged");
+}

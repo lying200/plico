@@ -193,6 +193,7 @@ pub mod revert_operation;
 
 pub mod branch_merge;
 pub mod branch_rebase;
+pub mod branch_rename;
 
 pub mod merge_saved;
 

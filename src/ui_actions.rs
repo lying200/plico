@@ -9,6 +9,7 @@ actions!(
         Open,
         OpenSettings,
         CreateBranch,
+        RenameBranch,
         Older,
         Newer,
         ExtendOlder,

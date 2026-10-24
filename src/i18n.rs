@@ -552,6 +552,14 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Comparison unavailable. Refresh the Changes panel to retry." => {
             "比较内容不可用，请在更改面板中刷新重试。"
         }
+        "Rename…" => "重命名…",
+        "Rename" => "重命名",
+        "Rename Branch" => "重命名分支",
+        "Unset upstream branch" => "取消上游分支跟踪",
+        "Renaming branch…" => "正在重命名分支…",
+        "Branch renamed" => "分支已重命名",
+        "Branch renamed; upstream settings need attention" => "分支已重命名；上游设置需要处理",
+        "Could not rename branch" => "无法重命名分支",
         "Saved changes from Rebase still need review." => "Rebase 保存的更改仍需确认处理。",
         "Already handled externally…" => "已在外部处理…",
         "Could not inspect the Rebase recovery record." => "无法读取 Rebase 恢复记录。",

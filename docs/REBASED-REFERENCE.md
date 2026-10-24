@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态：第1项已实现并提交6505a25；第2项已实现，完成下述核心、桌面及Windows主要流程验收；第3—8项待实现。
+当前状态：第1项已提交6505a25；第2项已提交030edf1；第3项已完成下述核心、桌面及Windows主要流程验收；第4—8项待实现。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -4727,3 +4727,92 @@ rejected,recovery,recovered}.png位于前述artifacts目录。恢复页曾错误
 （/tmp/plico-rebase-windows-final.log），新构建已启动并确认中文恢复，PID48388；旧自有
 Plico46596/11816已关闭，仅保留一个Plico和一个Rebased。最终通用恢复文案编译与桌面
 测试通过，其出现状态的更新截图尚未补拍，不宣称像素级验收全部完成。CI未运行。
+
+
+### 3. 分支重命名前置：原生与源码
+
+参考版本仍为4aec352，原生Rebased1.1.20/IC-262.10968.SNAPSHOT，自有44688。
+在rebase-branch-reference-20261024当前remote-rebase菜单末项Rename…（F2），
+弹窗标题包含旧名，单行Branch Name输入默认全选，底部Rename/Cancel；没有upstream
+时没有复选框。输入已有main并Enter后红框且Rename禁用；改为renamed-reference成功，
+顶部和Log分支标签刷新，local.txt dirty和.idea未跟踪保留。
+用Windows Git给测试分支设置origin/main upstream后，首次菜单缓存未更新；执行原生
+Reload All from Disk再打开，出现未勾选的Unset upstream branch。输入renamed-untracked，
+Tab+空格勾选后Enter，实际分支重命名且for-each-ref确认upstream为空。
+截图rename-reference-{start,menu,actions-popup,dialog,duplicate,result,tracking,
+tracking-refreshed,unset-result}.png已保存到本节artifacts目录；tracking为刷新前状态。
+
+实读plugins/git4idea/backend/src/actions/branch/GitRenameBranchAction.kt：仅本地，
+按hasUpstream决定选项；branch/GitNewBranchDialog.kt：RENAME隐藏仓库选择，不显示
+checkout/overwrite，默认unset=false，输入清理及重复/目录/远端名称冲突校验。
+branch/GitRenameBranchOperation.java：branch -m成功后再可选unset-upstream，分别处理
+两步错误，不把重命名成功而清理upstream失败当整体成功；更新repository并发rename事件。
+commands/GitImpl.java确认-m、不强制覆盖；validators/GitBranchValidator.kt确认名称规则。
+实读tests/git4idea/branch/GitBranchWorkerTest.kt的保留upstream、取消upstream、多仓库
+失败回滚三例。Plico为单仓库窗口，不新增多仓库事务；使用既有操作锁、准备信息复验和
+后台执行，分别报告rename与unset结果，保持工作区/index不动。工作树占用、非当前分支
+和失败原生尚待补验；UI与本地实现尚未完成，不算第3项交付。
+
+第3项执行层初版：新增branch_rename::Prepared/execute，固定目录、HEAD、symbolic HEAD、
+源分支tip和有效分支配置，持锁后重新核对；名称检查拒绝覆盖、目录冲突和远端同名，
+执行branch -m后可选unset-upstream。返回两步原始结果以及fresh token读取的实际ref状态，
+取消不等同未发生写入。未引入checkout/stash，不触碰index/worktree。
+真实临时仓库定向2项通过（/tmp/plico-rename-core.log）：当前/非当前分支重命名，
+暂存和未暂存内容分别保留，upstream默认保留/显式取消、pushRemote/description继承，
+非法/重复名称拒绝、弹窗期间配置变化拒绝。fmt及diff检查通过。
+此处为执行层进展，菜单/弹窗、工作树与两步部分失败测试及Plico原生验收待续，尚未提交。
+
+
+### 3. 菜单与弹窗初版、Windows正向验收
+
+新增ui/branch_rename，顶部下拉/右键和Log分支右键共用入口，仅本地分支可见。
+后台读取Prepared后显示旧名称且全选，输入复用clean_name_on_typing并避开IME预编辑；
+有upstream才显示默认不选的取消跟踪，确认前后台校验名称，关闭取消校验且不接纳迟到结果。
+执行使用独立RenameBranch生命周期，分别显示成功、取消、重命名后upstream失败；完成刷新Log。
+中英文标签齐备。尚未补齐F2入口、rename事件对过滤/收藏/最近分支引用的迁移，不能算交付完成。
+
+Rebased补验：创建自有rename-linked-reference-20261024，使用rename-occupied分支。
+主仓库菜单提供Open Worktree且Rename可用；Rename弹窗提交rename-occupied-done，
+Windows Git确认linked worktree的当前分支随之更新。参考截图rename-worktree-reference-*。
+真实Git新增锁失败/执行前取消、linked worktree重命名且保留draft用例；共4项rename测试通过
+（/tmp/plico-rename-core.log）。桌面测试85通过、2既有忽略（/tmp/plico-rename-desktop.log）；
+Windows release构建通过（/tmp/plico-rename-windows.log），不是CI结果。
+
+Plico自有41756/窗口1247570：顶部当前rejected-rebase→重命名，输入renamed-plico并Enter，
+执行后当前分支和Log标签均更新，Windows Git status仍仅M local.txt。
+截图rename-plico-{search,actions,dialog,result}.png已保存。结构对照：输入/按钮及可选
+upstream组织一致；Plico使用现有应用内弹窗，标题字重、宽度、焦点描边尚有视觉差异。
+Plico原生upstream选项、错误/取消、快捷键及过滤状态迁移仍待验收，暂不提交。
+本轮关闭旧Plico48388，现仅保留Plico41756和Rebased44688；无额外测试窗口。
+
+第3项状态衔接：实读同一4aec352的ui/branch/GitBranchManager.kt、平台
+DvcsBranchManager.java与BranchStorage.kt，收藏按类型/仓库/名称存储；没有在这些实现或
+全仓BranchRenameListener引用中读到收藏迁移消费者，所以保留既有按名收藏语义，不推断
+为随OID迁移。最近分支继续使用既有reflog查询，不新增独立持久化历史。
+Plico已将选中的精确branch过滤及selected_tree_ref随实际重命名结果更新，避免旧ref查询
+失败；这是本地查询模型的显式保障，未宣称上游具有相同的过滤迁移实现。
+新增分支树F2和BranchPopup专属F2命令，History的F2仍是编辑提交说明。
+
+补充真实Git include配置用例：本地unset-upstream成功后，include文件中的upstream仍
+有效，不能据退出码宣称完整成功。执行层新增有效upstream复查及部分成功诊断；5项rename
+定向测试通过。桌面回归85通过、2既有忽略（/tmp/plico-rename-desktop-followup.log）。
+最终Windows构建及原生快捷键/upstream验收继续进行，当前尚未提交。
+
+
+### 3. 最终验证与交付
+
+最终Windows构建通过（/tmp/plico-rename-windows-final.log）。自有Plico42392，
+当前分支菜单搜索后F2打开带upstream选项的重命名弹窗；勾选取消跟踪后重命名为
+renamed-no-upstream，Windows Git确认新名称和空upstream，工作区修改保留。
+随后在Log分支树选择并过滤该分支，F2重命名为rename-filtered，顶部、分支树选中项、
+精确分支过滤及Log标签全部更新，过滤结果保持2/2条，无旧ref错误。
+截图artifacts/collaboration-workflows-20261024/rename-plico-{f2-upstream,unset-selected,
+unset-result,filter-dialog,filter-result}.png。仅保留自有Plico42392和Rebased44688。
+
+完整核心回归通过（/tmp/plico-rename-full-core.log），重命名定向5项通过；
+桌面85通过、2既有忽略（/tmp/plico-rename-desktop-followup.log）。Clippy通过且保留
+既有警告，fmt检查及diff检查通过；本项未修改Tab/编辑器生命周期，未重复F7专项配置。
+CI未运行。原生英文、错误/取消弹窗及进行中帧未完整截图验证，不能据核心用例声称
+这些视觉状态已验收；前述标题字重、弹窗宽度、焦点描边差异仍保留。
+相对上游，本地对unset失败保守显示部分成功，并复查include配置中仍有效的跟踪，
+不把rename成功误报为整项未发生，也不改写外部include配置。第3项功能交付完成。

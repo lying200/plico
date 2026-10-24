@@ -607,6 +607,12 @@ impl Review {
             branch_popup::visible_rows(&self.repository_groups(), &self.repository_expansion, true)
                 .len();
         v_flex().id("repository-menu-body")
+            .key_context("BranchPopup")
+            .capture_action(cx.listener(|s, _: &RenameBranch, w, cx| {
+                if let Some(plico::branch_search::Selection::Reference(_, reference)) = s.repository_selection.clone() {
+                    if reference.starts_with("refs/heads/") { s.prepare_rename_branch(reference,w,cx); }
+                }
+            }))
             .capture_action(cx.listener(|s, action: &gpui_kit::component::input::Enter, w, cx| {
                 if action.secondary || action.shift { cx.propagate(); } else { s.repository_activate_selection(true,w,cx); }
             }))
@@ -726,6 +732,7 @@ impl Review {
                                 }));
                             }
                             if full_ref.starts_with("refs/heads/") {
+                                menu=menu.item(Review::branch_rename_item(&owner,&full_ref,menu_cx));
                                 let delete_owner=owner.clone();let delete_ref=full_ref.clone();
                                 menu=menu.item(PopupMenuItem::new(t("Delete…")).disabled(disabled || current).on_click(move |_,w,cx| {
                                     let _=delete_owner.update(cx,|s,cx|s.prepare_delete_branch(delete_ref.clone(),w,cx));
@@ -762,6 +769,7 @@ impl Review {
                             let owner=context_owner.clone();let reference=context_ref.clone();
                             let mut menu=menu;
                             if context_ref.starts_with("refs/heads/") {
+                                menu=menu.item(Review::branch_rename_item(&context_owner,&context_ref,cx));
                                 let delete_owner=context_owner.clone();let delete_ref=context_ref.clone();
                                 menu=menu.item(PopupMenuItem::new(t("Delete…")).disabled(disabled || current).on_click(move |_,w,cx| {
                                     let _=delete_owner.update(cx,|s,cx|s.prepare_delete_branch(delete_ref.clone(),w,cx));

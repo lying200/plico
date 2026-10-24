@@ -761,3 +761,159 @@ fn existing_name_without_extra_commits_does_not_implicitly_checkout_or_overwrite
         .verified
     );
 }
+
+#[test]
+fn rename_preserves_dirty_index_and_tracking_or_explicitly_unsets_it() {
+    use plico::branch_rename::{self, Prepared};
+    let f = Fixture::new();
+    let token = Cancel::default();
+    f.git(&["remote", "add", "origin", "."]);
+    f.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    f.git(&["branch", "--set-upstream-to=origin/main", "main"]);
+    f.git(&["config", "branch.main.pushRemote", "origin"]);
+    fs::write(f.0.join("a"), "staged\n").unwrap();
+    f.git(&["add", "a"]);
+    fs::write(f.0.join("a"), "draft\n").unwrap();
+    let head = f.git(&["rev-parse", "HEAD"]);
+    for (old, new, unset) in [("main", "renamed", false), ("renamed", "final", true)] {
+        let p = Prepared::read(&f.repo(), &format!("refs/heads/{old}"), &token).unwrap();
+        assert!(p.has_upstream);
+        let report =
+            branch_rename::execute(&f.repo(), &p, new, unset, &token, &Default::default()).unwrap();
+        assert!(report.succeeded());
+        assert_eq!(f.git(&["branch", "--show-current"]), new);
+        assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+        assert_eq!(f.git(&["show", ":a"]), "staged");
+        assert_eq!(fs::read_to_string(f.0.join("a")).unwrap(), "draft\n");
+        assert_eq!(
+            f.git(&["config", &format!("branch.{new}.pushRemote")]),
+            "origin"
+        );
+        let tracking = f.git(&[
+            "for-each-ref",
+            "--format=%(upstream)",
+            &format!("refs/heads/{new}"),
+        ]);
+        assert_eq!(
+            tracking,
+            if unset {
+                ""
+            } else {
+                "refs/remotes/origin/main"
+            }
+        );
+    }
+}
+
+#[test]
+fn rename_rejects_invalid_duplicate_and_stale_preparations() {
+    use plico::branch_rename::{self, Prepared};
+    let f = Fixture::new();
+    let token = Cancel::default();
+    f.git(&["branch", "topic"]);
+    let p = Prepared::read(&f.repo(), "refs/heads/topic", &token).unwrap();
+    for name in [
+        "main",
+        "topic",
+        "main/child",
+        "HEAD",
+        "@{-1}",
+        "-oops",
+        "bad name",
+    ] {
+        assert!(
+            branch_rename::execute(&f.repo(), &p, name, false, &token, &Default::default())
+                .is_err(),
+            "{name}"
+        );
+    }
+    f.git(&[
+        "config",
+        "branch.topic.description",
+        "changed after dialog opened",
+    ]);
+    assert!(
+        branch_rename::execute(&f.repo(), &p, "new", false, &token, &Default::default()).is_err()
+    );
+    let p = Prepared::read(&f.repo(), "refs/heads/topic", &token).unwrap();
+    let report =
+        branch_rename::execute(&f.repo(), &p, "new", false, &token, &Default::default()).unwrap();
+    assert!(report.succeeded());
+    assert_eq!(f.git(&["branch", "--show-current"]), "main");
+    assert_eq!(
+        f.git(&["config", "branch.new.description"]),
+        "changed after dialog opened"
+    );
+}
+
+#[test]
+fn rename_reports_lock_failure_and_cancel_without_changing_refs() {
+    use plico::branch_rename::{self, Prepared};
+    let f = Fixture::new();
+    let token = Cancel::default();
+    let p = Prepared::read(&f.repo(), "refs/heads/main", &token).unwrap();
+    fs::write(f.0.join(".git/refs/heads/renamed.lock"), "owned test lock").unwrap();
+    let r = branch_rename::execute(&f.repo(), &p, "renamed", false, &token, &Default::default())
+        .unwrap();
+    assert!(!r.succeeded());
+    assert!(!r.renamed);
+    assert!(!r.diagnostic().is_empty());
+    assert_eq!(f.git(&["branch", "--show-current"]), "main");
+    fs::remove_file(f.0.join(".git/refs/heads/renamed.lock")).unwrap();
+    token.cancel();
+    assert!(
+        branch_rename::execute(&f.repo(), &p, "renamed", false, &token, &Default::default())
+            .is_err()
+    );
+    assert_eq!(f.git(&["branch", "--show-current"]), "main");
+}
+
+#[test]
+fn rename_checked_out_branch_updates_linked_worktree_without_touching_edits() {
+    use plico::branch_rename::{self, Prepared};
+    let f = Fixture::new();
+    let token = Cancel::default();
+    let linked = f.0.join("linked");
+    f.git(&["worktree", "add", "-b", "topic", linked.to_str().unwrap()]);
+    fs::write(linked.join("a"), "linked draft\n").unwrap();
+    let p = Prepared::read(&f.repo(), "refs/heads/topic", &token).unwrap();
+    let r = branch_rename::execute(&f.repo(), &p, "renamed", false, &token, &Default::default())
+        .unwrap();
+    assert!(r.succeeded(), "{}", r.diagnostic());
+    assert_eq!(
+        f.git(&["-C", linked.to_str().unwrap(), "branch", "--show-current"]),
+        "renamed"
+    );
+    assert_eq!(f.git(&["branch", "--show-current"]), "main");
+    assert_eq!(
+        fs::read_to_string(linked.join("a")).unwrap(),
+        "linked draft\n"
+    );
+}
+
+#[test]
+fn rename_reports_remaining_included_upstream_as_partial_success() {
+    use plico::branch_rename::{self, Prepared};
+    let f = Fixture::new();
+    let token = Cancel::default();
+    f.git(&["remote", "add", "origin", "."]);
+    f.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    f.git(&["branch", "--set-upstream-to=origin/main", "main"]);
+    fs::write(
+        f.0.join(".git/included-config"),
+        "[branch \"renamed\"]\nremote = origin\nmerge = refs/heads/main\n",
+    )
+    .unwrap();
+    f.git(&["config", "include.path", "included-config"]);
+    let p = Prepared::read(&f.repo(), "refs/heads/main", &token).unwrap();
+    let r = branch_rename::execute(&f.repo(), &p, "renamed", true, &token, &Default::default())
+        .unwrap();
+    assert!(r.renamed);
+    assert!(!r.succeeded());
+    assert!(r.diagnostic().contains("upstream"));
+    assert_eq!(f.git(&["branch", "--show-current"]), "renamed");
+    assert_eq!(
+        f.git(&["for-each-ref", "--format=%(upstream)", "refs/heads/renamed"]),
+        "refs/remotes/origin/main"
+    );
+}

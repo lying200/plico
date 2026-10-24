@@ -647,6 +647,17 @@ impl Review {
             return;
         }
         let key = event.keystroke.key.as_str();
+        if key == "f2" {
+            if let Some(reference) = self
+                .selected_tree_ref
+                .clone()
+                .filter(|r| r.starts_with("refs/heads/"))
+            {
+                self.prepare_rename_branch(reference, window, cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
         if key == "enter" {
             self.filter_selected_tree_ref(cx);
         } else if matches!(key, "up" | "down" | "home" | "end") {
@@ -906,6 +917,10 @@ impl Review {
                                                     }),
                                             )
                                             .separator();
+                                    }
+                                    if name.starts_with("refs/heads/") {
+                                        menu = menu
+                                            .item(Review::branch_rename_item(&owner, &name, cx));
                                     }
                                     if name.starts_with("refs/heads/")
                                         || name.starts_with("refs/remotes/")

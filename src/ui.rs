@@ -4,6 +4,7 @@ mod binary_merge;
 mod branch_management;
 mod branch_merge;
 mod branch_rebase;
+mod branch_rename;
 mod checkout;
 mod chrome;
 mod clone;
@@ -76,6 +77,7 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc};
 pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("f2", EditCommitMessage, Some("History")),
+        KeyBinding::new("f2", RenameBranch, Some("BranchPopup")),
         KeyBinding::new("ctrl-o", Open, Some("Review")),
         KeyBinding::new("ctrl-alt-s", OpenSettings, Some("Review")),
         KeyBinding::new("ctrl-alt-n", CreateBranch, Some("Review")),

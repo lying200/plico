@@ -139,6 +139,13 @@ fn repeated_spawns_release_snapshot_and_job_handles() {
         );
         count
     }
+    // Windows process/snapshot APIs initialize process-wide handles on first use.
+    // Measure repeated ownership after that initialization, including when this
+    // test is run alone rather than warmed by another parallel test.
+    let mut warmup =
+        ProcessTree::spawn(fixture("exit").stdout(Stdio::null()).stderr(Stdio::null())).unwrap();
+    assert!(warmup.child.wait().unwrap().success());
+    drop(warmup);
     let before = handles();
     for _ in 0..32 {
         let mut tree =
@@ -147,8 +154,9 @@ fn repeated_spawns_release_snapshot_and_job_handles() {
         assert!(tree.child.wait().unwrap().success());
         drop(tree);
     }
+    let after = handles();
     assert!(
-        handles() <= before + 4,
-        "process/snapshot/job handles leaked across repeated spawns"
+        after <= before + 4,
+        "process/snapshot/job handles leaked across repeated spawns: {before} -> {after}"
     );
 }

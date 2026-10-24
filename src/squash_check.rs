@@ -150,7 +150,7 @@ pub fn revalidate(
     if crate::commit_recovery::pending(&gitdir)?.is_some() {
         return Err("Resolve pending index recovery before Squash".into());
     }
-    if crate::squash_saved::read(&gitdir)?.is_some() {
+    if crate::rebase_saved::read(&gitdir)?.is_some() {
         return Err(
             "Resolve previously saved Squash changes before starting another Squash".into(),
         );

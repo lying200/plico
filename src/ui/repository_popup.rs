@@ -732,6 +732,7 @@ impl Review {
                                 }));
                             }
                             if !tag && !current {
+                                menu=menu.item(Review::branch_rebase_item(&owner, &full_ref, menu_cx));
                                 let merge_owner=owner.clone();let merge_ref=full_ref.clone();
                                 let enabled=owner.upgrade().is_some_and(|s|s.read(menu_cx).can_merge_branch(&full_ref));
                                 menu=menu.item(PopupMenuItem::new(t("Merge into Current")).disabled(!enabled).on_click(move |_,w,cx| {
@@ -767,6 +768,7 @@ impl Review {
                                 }));
                             }
                             if !tag && !current {
+                                menu=menu.item(Review::branch_rebase_item(&context_owner, &context_ref, cx));
                                 let merge_owner=context_owner.clone();let merge_ref=context_ref.clone();
                                 let enabled=context_owner.upgrade().is_some_and(|s|s.read(cx).can_merge_branch(&context_ref));
                                 menu=menu.item(PopupMenuItem::new(t("Merge into Current")).disabled(!enabled).on_click(move |_,w,cx| {

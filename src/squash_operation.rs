@@ -8,8 +8,9 @@ use crate::{
     operation_process::{self, Outcome, Progress},
     operation_state::State,
     published_commits::Protection,
+    rebase_saved,
     squash_check::{self, Prepared},
-    squash_message, squash_saved,
+    squash_message,
     update_session::Session,
 };
 use std::{path::Path, thread, time::Duration};
@@ -109,7 +110,7 @@ pub fn execute(
         .text(&["status", "--porcelain", "--untracked-files=no"], token)?
         .is_empty();
     let save = dirty.then(|| session.save("GitReview: before Squash", token, progress));
-    let record = session.saved_oid().map(|stash| squash_saved::Record {
+    let record = session.saved_oid().map(|stash| rebase_saved::Record {
         head: checked.head.clone(),
         base: checked.base.clone(),
         branch: checked.branch.clone(),
@@ -117,7 +118,7 @@ pub fn execute(
     });
     let mut recovery_error = record
         .as_ref()
-        .and_then(|r| squash_saved::create(&gitdir, r).err());
+        .and_then(|r| rebase_saved::create(&gitdir, r).err());
     let saved_ok = save.as_ref().is_none_or(|r| r.as_ref().is_ok_and(good));
     let (command, editor_error) = if !saved_ok {
         (
@@ -186,7 +187,7 @@ pub fn execute(
     if session.saved_oid().is_none() {
         if let Some(record) = &record {
             if recovery_error.is_none() {
-                recovery_error = squash_saved::remove(&gitdir, record).err();
+                recovery_error = rebase_saved::remove(&gitdir, record).err();
             }
         }
     }

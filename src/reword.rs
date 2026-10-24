@@ -102,7 +102,7 @@ impl Prepared {
             );
         }
         if crate::commit_recovery::pending(&self.directory)?.is_some()
-            || crate::squash_saved::read(&self.directory)?.is_some()
+            || crate::rebase_saved::read(&self.directory)?.is_some()
         {
             return Err(
                 "Cannot edit selected commits: recover the previous operation first".into(),

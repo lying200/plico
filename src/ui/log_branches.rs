@@ -910,6 +910,8 @@ impl Review {
                                     if name.starts_with("refs/heads/")
                                         || name.starts_with("refs/remotes/")
                                     {
+                                        menu = menu
+                                            .item(Review::branch_rebase_item(&owner, &name, cx));
                                         let merge_owner = owner.clone();
                                         let merge_ref = name.clone();
                                         let enabled = owner

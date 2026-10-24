@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态：计划已记录，第1项进入原生前置验证，其余未开始。
+当前状态：第1项已实现并提交6505a25；第2项已实现，完成下述核心、桌面及Windows主要流程验收；第3—8项待实现。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -4571,3 +4571,159 @@ Windows37276已复验无默认目标不报错且推送禁用，点击选择远�
 未配置push.default保留上游旧策略，不能将此称为对无参数git push全部模式的完全模拟。
 第2项开始前置：已创建rebase-branch-reference-20261024，topic/main各自一条提交，
 local.txt保留未暂存修改，等待原生Rebased入口/执行验证；尚未修改第2项产品代码。
+
+
+### 2. 独立分支Rebase：原生正向前置与源码（2026-10-24）
+
+Rebased1.1.20自有44688，rebase-branch-reference-20261024：main=2d1e6fe、topic=a4cbf3f
+分别从477c32b分叉，local.txt未暂存。顶部topic→main子菜单，已有Checkout and Rebase
+onto topic与Rebase topic onto main两个相反方向动作；本项是后者，在Compare/Diff之后、
+Merge之前。点击后没有额外正常确认，自动保存local.txt，执行后通知Rebased topic on main。
+topic变成d4787c2、parent=main，Windows Git status仅local.txt及IDE创建的.idea未跟踪，
+local.txt仍为unstaged work；未修改跟踪配置。截图rebase-reference-{log,branches,actions,
+action-popup,success}.png。最初全窗口坐标点击未命中操作，最终使用实际子菜单窗口点击
+后确认Git状态变化；只把最终操作作为成功证据。信任仅自有fixture，已取消Defender排除。
+
+实读4aec352：GitRebaseBranchAction.kt仅非当前分支、所有repo附着分支才启用；
+GitBrancherImpl.doRebase后台→GitBranchWorker.rebase→GitRebaseUtils.rebase→GitRebaseProcess。
+GitRebaseParams.kt的普通构造仅指定upstream，不主动开启interactive/rebase-merges等选项。
+GitRebaseProcess.saveDirtyRootsInitially先保存dirty roots；遗漏dirty只允许一次按需保存重试；
+未跟踪覆盖报错；冲突进入resolver并保留进行中状态；成功加载保存修改，失败保留恢复入口。
+GitSingleRepoRebaseTest.kt已读普通冲突/多次冲突、continue、skip、自动保存/漏检保存、
+错误不恢复保存、重试成功恢复、abort恢复本地修改等断言。
+
+本地映射拟新增branch_rebase核心与UI协调，复用update_session的保存/恢复及现有rebase
+继续/中止协调；不能直接把本地分支伪装成pull::Target（目前Session只接受remote目标）。
+执行前固定目标OID、当前branch/HEAD并复验，保留文档保存屏障、取消和迟到结果规则。
+本次仅完成正常带dirty场景原生前置；冲突/中止、远端分支和detached禁用尚待原生补验，
+产品代码未开始，不能据此宣称第2项已完成。
+
+
+### 2. 独立Rebase冲突/中止前置补充及执行边界
+
+同一自有Windows fixture：conflict-main=211d409、conflict-topic=babee4df，
+从477c32b分别修改shared.txt，同时保留local.txt未暂存修改。
+Rebased执行Rebase conflict-topic onto conflict-main后显示Conflicts，列出shared.txt，
+支持Resolve Manually及两侧Accept。关闭冲突窗口不会中止操作；主窗口保留Rebasing状态，
+通知提供Resolve/Continue/Abort及View Shelf，说明local changes已shelved。
+Abort会再次确认；确认后回到conflict-topic的babee4df，Windows Git status恢复
+local.txt修改，未跟踪.idea保留。截图位于artifacts/collaboration-workflows-20261024/
+rebase-reference-{conflicts,suspended,abort-confirm,aborted}.png。
+本次未验收冲突解决后Continue、远端目标或detached菜单，不能扩大实机结论。
+源码补充GitAbortRebaseProcess：确认后执行abort，成功再加载保存修改。
+
+本地第一步：update_session::Session::rebase_onto_commit接收经过调用方验证的固定OID，
+拒绝detached；与Pull共用start_rebase的状态检查、editor、取消后abort及结果读取。
+不Fetch、不变更upstream，不把本地目标伪装为pull::Target。原Pull入口保留remote存在检查。
+后续仍需Prepared的HEAD/目标复验、持久恢复记录、菜单及Windows同条件验收；此处不是功能完成记录。
+
+本次执行边界验证：真实临时仓库的独立Rebase定向测试通过，覆盖无remote、固定OID、分支身份、重复执行拒绝及detached拒绝。完整核心回归`cargo test --locked --no-default-features`通过（/tmp/plico-independent-rebase-core.log），fmt检查及git diff --check通过。尚未新增UI，未进行Plico原生功能验收；未提交。
+
+
+### 2. 独立Rebase的保存归属与跨会话恢复
+
+实读同一4aec352的GitRebaseProcess：先saveDirtyRootsInitially，SUCCESS或NOT_STARTED
+才load；冲突暂停保留saver。GitAbortRebaseProcess在确认并成功abort后load。
+本地branch_rebase::Prepared绑定worktree目录、当前分支、原HEAD及完整目标ref/OID，
+执行持有现有操作锁，保存前后复验。自动保存tracked编辑，不带走未跟踪文件。
+恢复存储从squash_saved更名为rebase_saved，统一普通Rebase/Squash/Checkout-and-Rebase；
+保留gitui-squash-saved文件名与v1格式兼容已发布版本，避免破坏用户尚未完成的恢复。
+for_rebase核对orig-head/onto/head-name，扩展到rebase-merge及rebase-apply；
+若两套目录同时存在则不猜测归属。正常Rebase不创建Squash origin/Undo。
+成功后恢复index与worktree；冲突保留stash及记录，现有Continue/Abort可跨会话读取。
+发生状态不确定、保存记录持久化失败或目标并发变化时保留stash，报告恢复信息；
+这是比上游内存saver更保守的归属保护，不能自动恢复到别的分支。
+
+新增真实Git用例覆盖merge/apply两个后端各自的success、continue、abort：
+执行后丢弃原Repository对象，重新建立对象继续/中止，确认原分支、HEAD/parent、
+暂存与未暂存内容分离、untracked保留、stash和记录清理，并确认没有Squash Undo。
+另测目标ref在准备后变动时，在保存前拒绝，不创建stash、不修改HEAD或工作区。
+3项independent_rebase测试已通过。新UI与Windows完整验收仍待完成，不作整项交付声明。
+
+共享恢复模块调整后，完整核心回归通过（/tmp/plico-branch-rebase-recovery-core.log），桌面入口cargo check --locked --features desktop-tests --bin plico通过（/tmp/plico-branch-rebase-desktop-check.log）。桌面编译不代替原生验收；本项仍待菜单、提示文案与完整Windows流程验证，暂未提交。
+
+
+### 2. 菜单接入与Windows正向验收
+
+新增ui/branch_rebase，顶部弹出菜单/右键与Log分支右键共用branch_rebase_item，
+动态显示Rebase {current} onto {target}及中文“将…变基到…”，放在Merge之前。
+当前分支/标签不提供可执行Rebase，detached、busy、未结束Git操作时禁用；
+菜单是已验证的Rebased GitRebaseBranchAction对应方向，不是Checkout and Rebase。
+文档保存屏障前固定UI显示的HEAD/target，后台Prepared再次核对；完成后工作区和Log刷新，
+冲突进入现有Resolve窗口，保留Continue/Abort恢复链路。恢复确认标题改为通用Rebase。
+
+补验Rebased detached HEAD：在自有fixture checkout --detach babee4df，顶部选择
+conflict-main后，Rebase babee4df onto conflict-main明确置灰，Merge仍可见。
+截图rebase-detached-action.png的子菜单右侧被主窗口截图边界裁切，但禁用项可辨认；
+未声称此图完整覆盖子菜单。参考源码禁用规则仍为GitRebaseBranchAction.isOnBranch。
+
+Windows构建/tmp/plico-branch-rebase-windows.log通过。独立rebase-branch-plico-20261024
+从a4cbf3f建立native-rebase，保留local.txt=unstaged work，顶部main菜单点击
+“将native-rebase变基到main”。无需额外确认，完成后提示“分支变基完成”，Log刷新。
+Windows Git读取HEAD=8ce97a8、parent=2d1e6fe(main)，status仅M local.txt，
+内容仍为unstaged work，stash list为空。截图rebase-plico-{initial,branches,action,result}.png。
+原生自有Plico PID46596/窗口43912172，测试构建rebase-branch-build-20261024。
+Rebased参考PID44688仍在detached fixture，另一旧参考PID43328尚未关闭。
+
+桌面测试/tmp/plico-branch-rebase-desktop-tests.log：85通过、2既有忽略。
+本次未修改Diff焦点/Tab代码；Windows编译和正向原生不替代剩余场景。
+远端分支原生、Plico冲突继续/中止、取消/失败提示、英文菜单仍待验证；第2项未提交。
+
+
+### 2. Windows冲突中止与继续验收
+
+自有Plico46596，同一fixture切换conflict-topic=babee4df，保留local.txt未暂存修改。
+顶部conflict-main→“将conflict-topic变基到conflict-main”，自动进入冲突窗口，
+Windows Git status为UU shared.txt；顶部Resolve、禁用Continue、Abort可见。
+关闭冲突窗口后点击Abort，出现仓库确认；确认后HEAD恢复babee4df，当前分支
+conflict-topic，local.txt仍为unstaged work，stash为空，gitui-squash-saved已清理。
+截图rebase-plico-{conflict-action,conflicts,abort-confirm,aborted}.png。
+
+再次从同一菜单进入冲突，点击“接受你的版本”，冲突列表变成“所有冲突已解决”，
+顶部Continue启用。关闭窗口→Continue→提交说明编辑器保留topic conflict→确定。
+最终HEAD=2850819、parent=211d409(conflict-main)，当前分支conflict-topic；
+shared.txt=topic conflict，local.txt仍为unstaged work，status仅M local.txt，stash与
+保存记录清理完成。截图rebase-plico-{accept,continue-editor,continued}.png。
+此项是真实Windows UI点击与Git结果核对，不是以核心测试代替原生流程。
+原生进程重启恢复尚未本次手测；核心跨对象恢复的验证范围保持前述记录。
+
+
+### 2. 远端目标原生对照
+
+使用自有rebase-branch-remote-20261024.git bare作为两套fixture的origin，预先fetch，
+两套仓库均从a4cbf3f新建remote-rebase。Rebased搜索origin/main后，其菜单分别提供
+Rebase remote-rebase onto origin/main、Merge、Pull Using Rebase、Pull Using Merge；
+验证独立Rebase不是Pull入口。点击独立Rebase后成功通知，HEAD=9d2f655，parent=2d1e6fe，
+local.txt修改恢复，.idea未跟踪保持。Plico相同入口操作后HEAD=af55b9e、parent=2d1e6fe，
+当前分支remote-rebase，status仅M local.txt，Log自动刷新并提示分支变基完成。
+截图rebase-{reference,plico}-remote-{search,action,result}.png。
+与参考相比Plico菜单尚未具备本轮其他计划中的Compare/Worktree等项，未用假入口占位；
+本次新增Rebase在Merge前，操作方向与行为一致。成功通知仍使用现有状态栏而非浮动通知。
+原生执行过程很快，本轮未截到进行中帧，不能把结束截图算作loading验收。
+已关闭旧Fork自有Rebased43328，仅保留参考44688与Plico46596两个测试实例。
+第2项仍待英文/失败取消反馈检查及提交前最终检查，未提交。
+
+
+### 2. 失败恢复、英文与最终验证
+
+Plico英文菜单实际显示Rebase rejected-rebase onto origin/main，布局无截断；
+在自有fixture的pre-rebase hook输出fatal并exit 1，原生操作进入Rebase requires attention，
+完整显示hook错误，底部保留Saved changes retained及stash短OID，不误报成功。
+HEAD仍为a4cbf3f、branch仍为rejected-rebase；Stash页选中自动保存项后点击Pop，
+提示Saved changes restored，local.txt恢复unstaged work，stash及恢复记录均清理。
+测试hook已删除；没有修改真实仓库或远端。截图rebase-plico-{english-action,reject-action,
+rejected,recovery,recovered}.png位于前述artifacts目录。恢复页曾错误沿用Squash提示，
+本次将提示和读取失败文案统一为Rebase，中英文同时修正；recovery截图保留发现时状态。
+
+真实Git新增hook拒绝及执行中取消用例，检查原HEAD/分支、保留stash和持久归属记录，
+不会将取消当成功或删除待恢复修改；共4项independent_rebase定向测试通过。
+最终完整核心回归通过（/tmp/plico-rebase-final-core.log）。英文验证后恢复应用中文设置。
+原生取消、进程重启恢复和进行中动画未在本轮完整截图验收：取消及跨对象恢复由真实Git
+回归覆盖，已有Continue/Abort机制由前述原生场景覆盖。功能验收与未完成的视觉验证分开记录。
+
+最终桌面回归85通过、2既有忽略（/tmp/plico-rebase-desktop-final.log）；未改Tab/焦点，
+本次未重跑debug-assertions=false的F7专用配置。Clippy通过但保留既有警告
+（/tmp/plico-rebase-clippy-final.log）；fmt与diff检查通过。最终Windows release构建通过
+（/tmp/plico-rebase-windows-final.log），新构建已启动并确认中文恢复，PID48388；旧自有
+Plico46596/11816已关闭，仅保留一个Plico和一个Rebased。最终通用恢复文案编译与桌面
+测试通过，其出现状态的更新截图尚未补拍，不宣称像素级验收全部完成。CI未运行。

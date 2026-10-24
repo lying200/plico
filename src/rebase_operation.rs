@@ -198,7 +198,7 @@ pub fn execute(
         return Err("Repository is not rebasing".into());
     }
     let directory = repo.editor_directory(token)?;
-    let saved = crate::squash_saved::for_rebase(&directory);
+    let saved = crate::rebase_saved::for_rebase(&directory);
     let origin = crate::squash_session::read(&directory);
     let aborted = matches!(&action, Action::Abort);
     let command = match action {
@@ -230,7 +230,7 @@ pub fn execute(
                     .as_ref()
                     .is_ok_and(|s| !s.in_progress() && s.conflicts.is_empty()) =>
         {
-            crate::squash_saved::restore(repo, &directory, &record, aborted, progress).err()
+            crate::rebase_saved::restore(repo, &directory, &record, aborted, progress).err()
         }
         _ => None,
     };

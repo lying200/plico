@@ -1206,7 +1206,7 @@ fn squash_conflicts_continue_through_existing_rebase_action_without_reusing_cons
         assert_eq!(f.git(&["ls-files", "--stage"]), index);
         assert_eq!(fs::read_to_string(f.0.join("local")).unwrap(), "unstaged\n");
         assert!(
-            plico::squash_saved::read(&f.0.join(".git"))
+            plico::rebase_saved::read(&f.0.join(".git"))
                 .unwrap()
                 .is_none()
         );
@@ -1242,8 +1242,8 @@ fn squash_conflicts_continue_through_existing_rebase_action_without_reusing_cons
 #[test]
 fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
     use plico::{
-        git::Repository, operation_process::Progress, published_commits::Protection, squash_check,
-        squash_operation, squash_saved,
+        git::Repository, operation_process::Progress, published_commits::Protection, rebase_saved,
+        squash_check, squash_operation,
     };
     for mode in [
         "success",
@@ -1322,7 +1322,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
         if mode.starts_with("conflict") {
             assert!(!report.succeeded());
             assert!(report.state.as_ref().unwrap().in_progress());
-            let record = squash_saved::read(&f.0.join(".git")).unwrap().unwrap();
+            let record = rebase_saved::read(&f.0.join(".git")).unwrap().unwrap();
             assert_eq!(Some(record.stash.as_str()), report.saved_oid.as_deref());
             assert_eq!(f.git(&["rev-parse", "stash@{0}"]), record.stash);
             assert_eq!(f.git(&["rev-parse", "stash@{1}"]), previous);
@@ -1357,7 +1357,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
                 )
                 .unwrap();
                 assert!(report.recovery_error.is_none());
-                let remaining = squash_saved::read(&f.0.join(".git")).unwrap();
+                let remaining = rebase_saved::read(&f.0.join(".git")).unwrap();
                 if mode == "conflict-manual-blocked" {
                     assert_ne!(report.status, Status::Success);
                     assert_eq!(remaining, Some(record));
@@ -1390,7 +1390,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
                 f.git(&["update-ref", "refs/stash", &previous]);
             }
             if mode == "conflict-record" {
-                let path = squash_saved::path(&f.0.join(".git"));
+                let path = rebase_saved::path(&f.0.join(".git"));
                 let text = fs::read_to_string(&path)
                     .unwrap()
                     .replace(&record.base, &record.head);
@@ -1406,7 +1406,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
             assert!(aborted.command.unwrap().status.success());
             if mode != "conflict" {
                 assert!(aborted.recovery_error.is_some(), "{mode}");
-                assert!(squash_saved::read(&f.0.join(".git")).unwrap().is_some());
+                assert!(rebase_saved::read(&f.0.join(".git")).unwrap().is_some());
                 assert_eq!(fs::read_to_string(f.0.join("local")).unwrap(), "base\n");
                 assert_eq!(
                     f.git(&["show", &format!("{}:local", record.stash)]),
@@ -1423,7 +1423,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
             assert_eq!(f.git(&["ls-files", "--stage"]), index);
             assert_eq!(fs::read_to_string(f.0.join("local")).unwrap(), "unstaged\n");
             assert_eq!(f.git(&["rev-parse", "refs/stash"]), previous);
-            assert!(squash_saved::read(&f.0.join(".git")).unwrap().is_none());
+            assert!(rebase_saved::read(&f.0.join(".git")).unwrap().is_none());
         } else {
             assert_eq!(
                 report.succeeded(),
@@ -1432,7 +1432,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
                 report.command
             );
             assert!(report.saved_oid.is_none());
-            assert!(squash_saved::read(&f.0.join(".git")).unwrap().is_none());
+            assert!(rebase_saved::read(&f.0.join(".git")).unwrap().is_none());
             assert_eq!(f.git(&["ls-files", "--stage"]), index, "{mode}");
             assert_eq!(f.git(&["status", "--porcelain"]), status, "{mode}");
             assert_eq!(fs::read_to_string(f.0.join("local")).unwrap(), "unstaged\n");

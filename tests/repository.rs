@@ -7968,7 +7968,7 @@ fn revision_comparison_uses_two_trees_literal_paths_and_immutable_endpoints() {
 
 #[test]
 fn squash_external_recovery_acknowledges_only_the_confirmed_record() {
-    use plico::squash_saved;
+    use plico::rebase_saved;
     for mode in [
         "valid",
         "corrupt",
@@ -7989,7 +7989,7 @@ fn squash_external_recovery_acknowledges_only_the_confirmed_record() {
         f.write("file", "working\n");
         let index = f.git(&["ls-files", "--stage"]);
         let status = f.git(&["status", "--porcelain"]);
-        let path = squash_saved::path(&f.0.join(".git"));
+        let path = rebase_saved::path(&f.0.join(".git"));
         let record = if mode == "corrupt" {
             b"damaged record\0\xff".to_vec()
         } else {
@@ -7999,7 +7999,7 @@ fn squash_external_recovery_acknowledges_only_the_confirmed_record() {
         fs::write(&path, &record).unwrap();
         let repo = f.repo();
         let token = Cancel::default();
-        let expected = squash_saved::pending(&repo, &token).unwrap().unwrap();
+        let expected = rebase_saved::pending(&repo, &token).unwrap().unwrap();
         match mode {
             "changed" => fs::write(&path, b"new owner").unwrap(),
             "operation" => fs::write(f.0.join(".git/MERGE_HEAD"), format!("{head}\n")).unwrap(),
@@ -8008,7 +8008,7 @@ fn squash_external_recovery_acknowledges_only_the_confirmed_record() {
         }
         let other = Fixture::new();
         let other_repo = other.repo();
-        let result = squash_saved::acknowledge_external_recovery(
+        let result = rebase_saved::acknowledge_external_recovery(
             if mode == "other-repo" {
                 &other_repo
             } else {
@@ -8040,7 +8040,7 @@ fn squash_external_recovery_acknowledges_only_the_confirmed_record() {
 
 #[test]
 fn squash_external_recovery_is_worktree_scoped_even_with_identical_records() {
-    use plico::squash_saved;
+    use plico::rebase_saved;
     let f = Fixture::new();
     f.write("file", "base\n");
     f.commit("base");
@@ -8053,14 +8053,14 @@ fn squash_external_recovery_is_worktree_scoped_even_with_identical_records() {
     f.write("file", "saved\n");
     f.git(&["stash", "push"]);
     let stash = f.git(&["rev-parse", "refs/stash"]);
-    let main_path = squash_saved::path(&repo.editor_directory(&token).unwrap());
-    let linked_path = squash_saved::path(&linked_repo.editor_directory(&token).unwrap());
+    let main_path = rebase_saved::path(&repo.editor_directory(&token).unwrap());
+    let linked_path = rebase_saved::path(&linked_repo.editor_directory(&token).unwrap());
     assert_ne!(main_path, linked_path);
     for path in [&main_path, &linked_path] {
         fs::write(path, b"identical recovery record").unwrap();
     }
-    let main_pending = squash_saved::pending(&repo, &token).unwrap().unwrap();
-    let linked_pending = squash_saved::pending(&linked_repo, &token)
+    let main_pending = rebase_saved::pending(&repo, &token).unwrap().unwrap();
+    let linked_pending = rebase_saved::pending(&linked_repo, &token)
         .unwrap()
         .unwrap();
     let main_index = fs::read(f.0.join(".git/index")).unwrap();
@@ -8068,15 +8068,15 @@ fn squash_external_recovery_is_worktree_scoped_even_with_identical_records() {
     let linked_index = fs::read(&linked_index_path).unwrap();
     let refs = f.git(&["show-ref"]);
     assert!(
-        squash_saved::acknowledge_external_recovery(&linked_repo, &main_pending, &token).is_err()
+        rebase_saved::acknowledge_external_recovery(&linked_repo, &main_pending, &token).is_err()
     );
-    assert!(squash_saved::acknowledge_external_recovery(&repo, &linked_pending, &token).is_err());
+    assert!(rebase_saved::acknowledge_external_recovery(&repo, &linked_pending, &token).is_err());
     assert_eq!(fs::read(&main_path).unwrap(), b"identical recovery record");
     assert_eq!(
         fs::read(&linked_path).unwrap(),
         b"identical recovery record"
     );
-    squash_saved::acknowledge_external_recovery(&linked_repo, &linked_pending, &token).unwrap();
+    rebase_saved::acknowledge_external_recovery(&linked_repo, &linked_pending, &token).unwrap();
     assert!(!linked_path.exists());
     assert!(main_path.exists());
     assert_eq!(f.git(&["rev-parse", "refs/stash"]), stash);
@@ -8088,7 +8088,7 @@ fn squash_external_recovery_is_worktree_scoped_even_with_identical_records() {
 
 #[test]
 fn squash_external_recovery_refuses_stash_conflicts_without_merge_metadata() {
-    use plico::squash_saved;
+    use plico::rebase_saved;
     let f = Fixture::new();
     f.write("file", "base\n");
     f.commit("base");
@@ -8108,13 +8108,13 @@ fn squash_external_recovery_refuses_stash_conflicts_without_merge_metadata() {
     let state = repo.operation_state(&token).unwrap();
     assert!(!state.in_progress());
     assert!(!state.conflicts.is_empty());
-    let path = squash_saved::path(&repo.editor_directory(&token).unwrap());
+    let path = rebase_saved::path(&repo.editor_directory(&token).unwrap());
     fs::write(&path, b"saved changes recovery").unwrap();
-    let pending = squash_saved::pending(&repo, &token).unwrap().unwrap();
+    let pending = rebase_saved::pending(&repo, &token).unwrap().unwrap();
     let index = fs::read(f.0.join(".git/index")).unwrap();
     let file = fs::read(f.0.join("file")).unwrap();
     let refs = f.git(&["show-ref"]);
-    assert!(squash_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
+    assert!(rebase_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
     assert_eq!(fs::read(&path).unwrap(), b"saved changes recovery");
     assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
     assert_eq!(fs::read(f.0.join("file")).unwrap(), file);
@@ -8123,35 +8123,35 @@ fn squash_external_recovery_refuses_stash_conflicts_without_merge_metadata() {
 
 #[test]
 fn squash_external_recovery_rejects_oversized_and_non_file_replacements() {
-    use plico::squash_saved;
+    use plico::rebase_saved;
     let f = Fixture::new();
     f.write("file", "base\n");
     f.commit("base");
     let repo = f.repo();
     let token = Cancel::default();
-    let path = squash_saved::path(&repo.editor_directory(&token).unwrap());
-    assert!(squash_saved::pending(&repo, &token).unwrap().is_none());
+    let path = rebase_saved::path(&repo.editor_directory(&token).unwrap());
+    assert!(rebase_saved::pending(&repo, &token).unwrap().is_none());
     fs::write(&path, vec![b'x'; 8192]).unwrap();
-    let pending = squash_saved::pending(&repo, &token).unwrap().unwrap();
+    let pending = rebase_saved::pending(&repo, &token).unwrap().unwrap();
     fs::write(&path, vec![b'x'; 8193]).unwrap();
-    assert!(squash_saved::pending(&repo, &token).is_err());
-    assert!(squash_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
+    assert!(rebase_saved::pending(&repo, &token).is_err());
+    assert!(rebase_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
     assert_eq!(fs::metadata(&path).unwrap().len(), 8193);
     fs::remove_file(&path).unwrap();
     fs::create_dir(&path).unwrap();
     fs::write(path.join("keep"), b"must stay").unwrap();
-    assert!(squash_saved::pending(&repo, &token).is_err());
-    assert!(squash_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
+    assert!(rebase_saved::pending(&repo, &token).is_err());
+    assert!(rebase_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
     assert_eq!(fs::read(path.join("keep")).unwrap(), b"must stay");
     fs::remove_dir_all(&path).unwrap();
-    assert!(squash_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
+    assert!(rebase_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
     #[cfg(unix)]
     {
         let target = f.0.join("outside-record");
         fs::write(&target, b"do not remove").unwrap();
         std::os::unix::fs::symlink(&target, &path).unwrap();
-        assert!(squash_saved::pending(&repo, &token).is_err());
-        assert!(squash_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
+        assert!(rebase_saved::pending(&repo, &token).is_err());
+        assert!(rebase_saved::acknowledge_external_recovery(&repo, &pending, &token).is_err());
         assert!(
             fs::symlink_metadata(&path)
                 .unwrap()
@@ -8774,4 +8774,278 @@ fn fork_push_writes_only_personal_remote_and_keeps_pull_tracking_and_local_edits
     );
     assert_eq!(f.git(&["write-tree"]), index);
     assert_eq!(fs::read_to_string(f.0.join("a")).unwrap(), "unstaged");
+}
+
+#[test]
+fn independent_rebase_uses_fixed_commit_without_remote_and_rejects_detached_head() {
+    use plico::{operation_process::Progress, update_session::Session};
+    let f = Fixture::new();
+    f.write("base.txt", "base\n");
+    f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    f.write("topic.txt", "topic\n");
+    f.commit("topic");
+    f.git(&["checkout", "main"]);
+    f.write("main.txt", "main\n");
+    f.commit("main");
+    let target = f.git(&["rev-parse", "HEAD"]);
+    f.git(&["checkout", "topic"]);
+    let repo = f.repo();
+    let token = Cancel::default();
+    let progress = Progress::default();
+    let editor = std::ffi::OsStr::new("true");
+    {
+        let mut session = Session::begin(&repo, &token).unwrap();
+        assert!(
+            session
+                .rebase_onto_commit("main", editor, &token, &progress, None)
+                .is_err()
+        );
+        let step = session
+            .rebase_onto_commit(&target, editor, &token, &progress, None)
+            .unwrap();
+        assert!(step.outcome.status.success());
+        assert!(!step.state.unwrap().in_progress());
+        assert!(
+            session
+                .rebase_onto_commit(&target, editor, &token, &progress, None)
+                .is_err()
+        );
+    }
+    assert_eq!(f.git(&["rev-parse", "HEAD^"]), target);
+    assert_eq!(f.git(&["branch", "--show-current"]), "topic");
+    assert_eq!(f.git(&["remote"]), "");
+    assert_eq!(f.git(&["show", "HEAD:topic.txt"]), "topic");
+    assert_eq!(f.git(&["show", "HEAD:main.txt"]), "main");
+    f.git(&["checkout", "--detach"]);
+    let before = f.git(&["rev-parse", "HEAD"]);
+    let mut session = Session::begin(&repo, &token).unwrap();
+    assert!(
+        session
+            .rebase_onto_commit(&target, editor, &token, &progress, None)
+            .is_err()
+    );
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn independent_rebase_preserves_index_and_recovers_conflicts_across_sessions() {
+    use plico::{branch_rebase, rebase_operation, rebase_saved};
+    for backend in ["merge", "apply"] {
+        for action in ["success", "continue", "abort"] {
+            let f = Fixture::new();
+            f.write("shared.txt", "base\n");
+            f.write("local.txt", "base\n");
+            f.commit("base");
+            f.git(&["config", "rebase.backend", backend]);
+            f.git(&["checkout", "-b", "topic"]);
+            f.write("shared.txt", "topic\n");
+            f.commit("topic");
+            let original = f.git(&["rev-parse", "HEAD"]);
+            f.git(&["checkout", "main"]);
+            if action == "success" {
+                f.write("main.txt", "main\n");
+            } else {
+                f.write("shared.txt", "main\n");
+            }
+            f.commit("main");
+            let target = f.git(&["rev-parse", "HEAD"]);
+            f.git(&["checkout", "topic"]);
+            f.write("local.txt", "staged\n");
+            f.git(&["add", "local.txt"]);
+            f.write("local.txt", "unstaged\n");
+            f.write("untracked.txt", "keep\n");
+            let repo = f.repo();
+            let token = Cancel::default();
+            let progress = Default::default();
+            let prepared = branch_rebase::Prepared::read(&repo, "refs/heads/main", &token).unwrap();
+            let report = branch_rebase::execute(
+                &repo,
+                &prepared,
+                std::ffi::OsStr::new("true"),
+                None,
+                &token,
+                &progress,
+            )
+            .unwrap();
+            assert!(report.error.is_none(), "{:?}", report.error);
+            if action == "success" {
+                assert!(report.step.unwrap().unwrap().outcome.status.success());
+                assert!(report.saved_oid.is_none());
+                assert!(report.restore.unwrap().unwrap().unwrap().status.success());
+            } else {
+                assert!(report.state.unwrap().in_progress());
+                assert!(report.saved_oid.is_some());
+                assert!(
+                    rebase_saved::read(&repo.editor_directory(&token).unwrap())
+                        .unwrap()
+                        .is_some()
+                );
+                drop(repo);
+                let repo = f.repo();
+                if action == "continue" {
+                    f.write("shared.txt", "resolved\n");
+                    f.git(&["add", "shared.txt"]);
+                }
+                let action = if action == "continue" {
+                    rebase_operation::Action::Continue {
+                        editor: std::ffi::OsStr::new("true"),
+                        requests: None,
+                    }
+                } else {
+                    rebase_operation::Action::Abort
+                };
+                let result = rebase_operation::execute(&repo, action, &token, &progress).unwrap();
+                assert!(result.command.unwrap().status.success());
+                assert!(
+                    result.recovery_error.is_none(),
+                    "{:?}",
+                    result.recovery_error
+                );
+                assert!(!result.state.unwrap().in_progress());
+                assert!(result.squash_undo.is_none());
+            }
+            assert_eq!(f.git(&["branch", "--show-current"]), "topic");
+            if action == "abort" {
+                assert_eq!(f.git(&["rev-parse", "HEAD"]), original);
+            } else {
+                assert_eq!(f.git(&["rev-parse", "HEAD^"]), target);
+            }
+            assert_eq!(f.git(&["show", ":local.txt"]), "staged");
+            assert_eq!(
+                fs::read_to_string(f.0.join("local.txt")).unwrap(),
+                "unstaged\n"
+            );
+            assert_eq!(
+                fs::read_to_string(f.0.join("untracked.txt")).unwrap(),
+                "keep\n"
+            );
+            assert_eq!(f.git(&["stash", "list"]), "");
+            assert!(
+                rebase_saved::read(&f.repo().editor_directory(&token).unwrap())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
+fn independent_rebase_rejects_stale_target_before_saving_changes() {
+    use plico::branch_rebase;
+    let f = Fixture::new();
+    f.write("base.txt", "base\n");
+    f.commit("base");
+    f.git(&["branch", "target"]);
+    f.write("topic.txt", "topic\n");
+    f.commit("topic");
+    let repo = f.repo();
+    let token = Cancel::default();
+    let prepared = branch_rebase::Prepared::read(&repo, "refs/heads/target", &token).unwrap();
+    f.git(&["branch", "-f", "target", "HEAD"]);
+    f.write("base.txt", "precious\n");
+    let before = f.git(&["rev-parse", "HEAD"]);
+    assert!(
+        branch_rebase::execute(
+            &repo,
+            &prepared,
+            std::ffi::OsStr::new("true"),
+            None,
+            &token,
+            &Default::default()
+        )
+        .is_err()
+    );
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), before);
+    assert_eq!(
+        fs::read_to_string(f.0.join("base.txt")).unwrap(),
+        "precious\n"
+    );
+    assert_eq!(f.git(&["stash", "list"]), "");
+}
+
+#[test]
+#[cfg(unix)]
+fn independent_rebase_reports_hook_failure_and_cancel_without_losing_saved_edits() {
+    use plico::{branch_rebase, operation_process::Progress, rebase_saved};
+    use std::os::unix::fs::PermissionsExt;
+    for cancel_running in [false, true] {
+        let f = Fixture::new();
+        f.write("base.txt", "base\n");
+        f.commit("base");
+        f.git(&["checkout", "-b", "topic"]);
+        f.write("topic.txt", "topic\n");
+        f.commit("topic");
+        let head = f.git(&["rev-parse", "HEAD"]);
+        f.git(&["checkout", "main"]);
+        f.write("main.txt", "main\n");
+        f.commit("main");
+        f.git(&["checkout", "topic"]);
+        f.write("base.txt", "precious\n");
+        let hook = f.0.join(".git/hooks/pre-rebase");
+        fs::write(
+            &hook,
+            if cancel_running {
+                "#!/bin/sh\necho fixture-rebase-ready >&2\nwhile :; do sleep 1; done\n"
+            } else {
+                "#!/bin/sh\necho fixture-rebase-refused >&2\nexit 1\n"
+            },
+        )
+        .unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        let repo = f.repo();
+        let token = Cancel::default();
+        let progress = Progress::default();
+        let prepared = branch_rebase::Prepared::read(&repo, "refs/heads/main", &token).unwrap();
+        let watch = cancel_running.then(|| {
+            let token = token.clone();
+            let progress = progress.clone();
+            std::thread::spawn(move || {
+                let start = std::time::Instant::now();
+                loop {
+                    let ready = String::from_utf8_lossy(&progress.snapshot().bytes())
+                        .contains("fixture-rebase-ready");
+                    if ready || start.elapsed() > std::time::Duration::from_secs(10) {
+                        token.cancel();
+                        return ready;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            })
+        });
+        let report = branch_rebase::execute(
+            &repo,
+            &prepared,
+            std::ffi::OsStr::new("true"),
+            None,
+            &token,
+            &progress,
+        )
+        .unwrap();
+        if let Some(watch) = watch {
+            assert!(watch.join().unwrap());
+        }
+        assert!(!report.succeeded());
+        if !cancel_running {
+            assert!(
+                report.diagnostic().contains("pre-rebase"),
+                "{}",
+                report.diagnostic()
+            );
+        }
+        assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+        assert_eq!(f.git(&["branch", "--show-current"]), "topic");
+        assert!(!report.state.unwrap().in_progress());
+        let stash = report
+            .saved_oid
+            .expect("failed/not-started rebase retains the saved edits");
+        assert_eq!(f.git(&["show", &format!("{stash}:base.txt")]), "precious");
+        assert_eq!(
+            rebase_saved::read(&repo.editor_directory(&Cancel::default()).unwrap())
+                .unwrap()
+                .unwrap()
+                .stash,
+            stash
+        );
+    }
 }

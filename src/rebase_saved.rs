@@ -1,4 +1,4 @@
-//! Worktree-scoped ownership of local changes saved for Squash. Rebased keeps
+//! Worktree-scoped ownership of local changes saved for a rebase. Rebased keeps
 //! this identity in GitStashChangesSaver; this bounded record survives restart.
 use crate::git::is_oid;
 use std::{
@@ -6,6 +6,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
 };
+// Preserve the on-disk format used by released Squash recovery records.
 const NAME: &str = "gitui-squash-saved";
 const MAGIC: &str = "GitReview squash saved v1";
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,7 +35,7 @@ pub fn read(directory: &Path) -> Result<Option<Record>, String> {
         Err(e) => return Err(e.to_string()),
     };
     if !metadata.is_file() {
-        return Err("Squash saved-changes record is not a regular file".into());
+        return Err("Rebase saved-changes record is not a regular file".into());
     }
     let mut text = String::new();
     fs::File::open(path)
@@ -44,7 +45,7 @@ pub fn read(directory: &Path) -> Result<Option<Record>, String> {
         .map_err(|e| e.to_string())?;
     let parts = text.split('\n').collect::<Vec<_>>();
     if text.len() > 8192 || parts.len() != 6 || parts[0] != MAGIC || parts[5] != "" {
-        return Err("Invalid Squash saved-changes record".into());
+        return Err("Invalid rebase saved-changes record".into());
     }
     let record = Record {
         head: parts[1].into(),
@@ -53,13 +54,13 @@ pub fn read(directory: &Path) -> Result<Option<Record>, String> {
         branch: (!parts[4].is_empty()).then(|| parts[4].into()),
     };
     if !valid(&record) {
-        return Err("Invalid Squash saved-changes identities".into());
+        return Err("Invalid rebase saved-changes identities".into());
     }
     Ok(Some(record))
 }
 pub(crate) fn create(directory: &Path, record: &Record) -> Result<(), String> {
     if !valid(record) {
-        return Err("Invalid Squash saved-changes identities".into());
+        return Err("Invalid rebase saved-changes identities".into());
     }
     let path = path(directory);
     let mut options = OpenOptions::new();
@@ -89,7 +90,7 @@ pub(crate) fn create(directory: &Path, record: &Record) -> Result<(), String> {
 }
 pub(crate) fn remove(directory: &Path, record: &Record) -> Result<(), String> {
     if read(directory)?.as_ref() != Some(record) {
-        return Err("Squash saved-changes ownership changed".into());
+        return Err("Rebase saved-changes ownership changed".into());
     }
     fs::remove_file(path(directory)).map_err(|e| e.to_string())
 }
@@ -100,7 +101,13 @@ pub(crate) fn for_rebase(directory: &Path) -> Result<Option<Record>, String> {
     let Some(record) = read(directory)? else {
         return Ok(None);
     };
-    let rebase = directory.join("rebase-merge");
+    let merge = directory.join("rebase-merge");
+    let apply = directory.join("rebase-apply");
+    let rebase = match (merge.is_dir(), apply.is_dir()) {
+        (true, false) => merge,
+        (false, true) => apply,
+        _ => return Err("Cannot identify the rebase owning saved changes".into()),
+    };
     for (name, expected) in [
         ("orig-head", record.head.as_str()),
         ("onto", record.base.as_str()),
@@ -116,7 +123,7 @@ pub(crate) fn for_rebase(directory: &Path) -> Result<Option<Record>, String> {
             .read_to_string(&mut value)
             .map_err(|e| e.to_string())?;
         if value.trim_end() != expected {
-            return Err("Saved Squash changes belong to a different rebase".into());
+            return Err("Saved rebase changes belong to a different rebase".into());
         }
     }
     Ok(Some(record))
@@ -134,14 +141,14 @@ pub(crate) fn restore(
     use crate::{git::Cancel, operation_process};
     let token = Cancel::default();
     if read(directory)?.as_ref() != Some(record) {
-        return Err("Saved Squash ownership changed".into());
+        return Err("Saved rebase ownership changed".into());
     }
     let state = repo.operation_state(&token)?;
     if state.in_progress() || !state.conflicts.is_empty() {
         return Err("Finish the Git operation before restoring saved changes".into());
     }
     if crate::squash_check::symbolic_head(repo, &token)? != record.branch {
-        return Err("Branch changed; saved Squash changes were not restored".into());
+        return Err("Branch changed; saved rebase changes were not restored".into());
     }
     if aborted && crate::commit_operation::head(repo, &token)?.as_deref() != Some(&record.head) {
         return Err("Abort did not restore the original HEAD; saved changes were retained".into());
@@ -161,7 +168,7 @@ pub(crate) fn restore(
     let output = output?;
     if !output.status.success() || output.stopped.is_some() || output.input_error.is_some() {
         return Err(
-            "Could not restore saved Squash changes; inspect the retained stash and working tree"
+            "Could not restore saved rebase changes; inspect the retained stash and working tree"
                 .into(),
         );
     }

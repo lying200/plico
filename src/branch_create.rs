@@ -289,7 +289,7 @@ pub fn execute_choice(
         && !repo
             .text(&["status", "--porcelain", "--untracked-files=no"], token)?
             .is_empty();
-    if choice == Choice::Rebase && crate::squash_saved::pending(repo, token)?.is_some() {
+    if choice == Choice::Rebase && crate::rebase_saved::pending(repo, token)?.is_some() {
         return Err("Resolve the previously saved local changes before rebasing".into());
     }
     let save = dirty.then(|| session.save("Plico: before branch rebase", token, progress));
@@ -300,7 +300,7 @@ pub fn execute_choice(
     });
     let record = session
         .saved_oid()
-        .map(|stash| crate::squash_saved::Record {
+        .map(|stash| crate::rebase_saved::Record {
             head: prepared
                 .previous_tip
                 .clone()
@@ -311,7 +311,7 @@ pub fn execute_choice(
         });
     let mut recovery_error = record
         .as_ref()
-        .and_then(|r| crate::squash_saved::create(&directory, r).err());
+        .and_then(|r| crate::rebase_saved::create(&directory, r).err());
     let command = if !saved_ok {
         Err("Could not save local changes; rebase was not started. Inspect the stash and working tree".into())
     } else if recovery_error.is_some() {
@@ -363,7 +363,7 @@ pub fn execute_choice(
                 };
                 if session.saved_oid().is_none() {
                     recovery_error = recovery_error.or_else(|| {
-                        crate::squash_saved::remove(&directory, record.as_ref().unwrap()).err()
+                        crate::rebase_saved::remove(&directory, record.as_ref().unwrap()).err()
                     });
                 }
             }

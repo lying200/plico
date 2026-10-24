@@ -3,6 +3,7 @@ mod auto_refresh;
 mod binary_merge;
 mod branch_management;
 mod branch_merge;
+mod branch_rebase;
 mod checkout;
 mod chrome;
 mod clone;

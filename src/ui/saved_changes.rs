@@ -112,7 +112,7 @@ impl Review {
     }
     pub(super) fn confirm_external_recovery(
         &mut self,
-        pending: plico::squash_saved::Pending,
+        pending: plico::rebase_saved::Pending,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -123,7 +123,7 @@ impl Review {
         let path = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, _| {
             let owner = owner.clone(); let path = path.clone(); let pending = pending.clone();
-            dialog.title(t("Finish Squash recovery")).w(px(510.)).centered(true).overlay_closable(false)
+            dialog.title(t("Finish Rebase recovery")).w(px(510.)).centered(true).overlay_closable(false)
                 .child(div().child(t("Confirm only after handling the saved changes externally. This clears the app recovery record; it does not restore or delete any stash or change your files.")))
                 .child(div().truncate().child(path.display().to_string()))
                 .footer(gpui_kit::component::dialog::DialogFooter::new()
@@ -140,7 +140,7 @@ impl Review {
     }
     pub(super) fn acknowledge_external_recovery(
         &mut self,
-        pending: plico::squash_saved::Pending,
+        pending: plico::rebase_saved::Pending,
         cx: &mut Context<Self>,
     ) {
         if self.operation.busy() {
@@ -159,7 +159,7 @@ impl Review {
         self.operation_task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    plico::squash_saved::acknowledge_external_recovery(&repo, &pending, &token)
+                    plico::rebase_saved::acknowledge_external_recovery(&repo, &pending, &token)
                 })
                 .await;
             let _ = this.update(cx, |s, cx| {

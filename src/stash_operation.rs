@@ -61,7 +61,7 @@ pub fn execute(
     // Manual restoration can complete a Squash saver left by external Git.
     // Snapshot ownership before executing; clear only that exact record on success.
     let saved = repo.editor_directory(token).and_then(|directory| {
-        crate::squash_saved::read(&directory).map(|record| (directory, record))
+        crate::rebase_saved::read(&directory).map(|record| (directory, record))
     });
     if repo.operation_state(token)?.conflicts.is_empty() {
         crate::conflicts::clear_saved_context(repo, token)?;
@@ -86,7 +86,7 @@ pub fn execute(
     let recovery_error = if status == Status::Success {
         match saved {
             Ok((directory, Some(record))) if record.stash == entry.oid => {
-                crate::squash_saved::remove(&directory, &record).err()
+                crate::rebase_saved::remove(&directory, &record).err()
             }
             Err(error) => Some(error),
             _ => None,

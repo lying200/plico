@@ -140,7 +140,7 @@ pub mod squash_undo;
 
 mod rebase_editor;
 
-pub mod squash_saved;
+pub mod rebase_saved;
 mod squash_session;
 
 pub mod recent_projects;
@@ -192,6 +192,7 @@ pub mod merge_result;
 pub mod revert_operation;
 
 pub mod branch_merge;
+pub mod branch_rebase;
 
 pub mod merge_saved;
 

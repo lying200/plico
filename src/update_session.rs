@@ -123,15 +123,48 @@ impl<'a> Session<'a> {
         progress: &Progress,
         requests: Option<&crate::auth_request::Requests>,
     ) -> Result<RebaseStep, String> {
+        let targets = self.repo.pull_targets(cancel)?;
+        if targets.current_branch.is_none() || !targets.contains(&target.remote, &target.branch) {
+            return Err("Update requires an attached branch and an existing remote branch".into());
+        }
+        let reference = format!("refs/remotes/{}/{}", target.remote, target.branch);
+        self.start_rebase(&reference, editor, cancel, progress, requests)
+    }
+
+    /// Start an independent branch rebase using the commit captured by the
+    /// caller's validated branch selection. Does not fetch or change tracking.
+    /// The caller must revalidate its displayed HEAD and target before saving
+    /// changes; this session holds the operation guard through execution.
+    pub fn rebase_onto_commit(
+        &mut self,
+        commit: &str,
+        editor: &std::ffi::OsStr,
+        cancel: &Cancel,
+        progress: &Progress,
+        requests: Option<&crate::auth_request::Requests>,
+    ) -> Result<RebaseStep, String> {
+        if !crate::git::is_oid(commit) {
+            return Err("Rebase requires a full target commit ID".into());
+        }
+        if crate::squash_check::symbolic_head(self.repo, cancel)?.is_none() {
+            return Err("Rebase requires an attached branch".into());
+        }
+        self.start_rebase(commit, editor, cancel, progress, requests)
+    }
+
+    fn start_rebase(
+        &mut self,
+        reference: &str,
+        editor: &std::ffi::OsStr,
+        cancel: &Cancel,
+        progress: &Progress,
+        requests: Option<&crate::auth_request::Requests>,
+    ) -> Result<RebaseStep, String> {
         if self.rebase_started
             || self.merge_started
             || (self.save_attempted && !self.save_succeeded)
         {
             return Err("Update cannot start after a previous rebase or failed save".into());
-        }
-        let targets = self.repo.pull_targets(cancel)?;
-        if targets.current_branch.is_none() || !targets.contains(&target.remote, &target.branch) {
-            return Err("Update requires an attached branch and an existing remote branch".into());
         }
         let state = self.repo.operation_state(cancel)?;
         if state.in_progress() || !state.conflicts.is_empty() {
@@ -140,10 +173,9 @@ impl<'a> Session<'a> {
         if editor.is_empty() {
             return Err("Rebase editor is unavailable".into());
         }
-        let reference = format!("refs/remotes/{}/{}", target.remote, target.branch);
         let mut command = self.repo.operation_command();
         command
-            .args(["-c", "core.commentChar=\u{1}", "rebase", "--", &reference])
+            .args(["-c", "core.commentChar=\u{1}", "rebase", "--", reference])
             .env("GIT_EDITOR", editor);
         let server = requests
             .map(|requests| crate::askpass::Server::start(requests.clone()))

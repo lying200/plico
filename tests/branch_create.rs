@@ -508,7 +508,7 @@ fn rebase_preserves_staged_and_unstaged_changes_and_cleans_saved_record() {
     assert_eq!(fs::read_to_string(f.0.join("untracked")).unwrap(), "keep\n");
     assert!(f.git(&["stash", "list"]).is_empty());
     assert!(
-        plico::squash_saved::pending(&f.repo(), &Cancel::default())
+        plico::rebase_saved::pending(&f.repo(), &Cancel::default())
             .unwrap()
             .is_none()
     );
@@ -543,7 +543,7 @@ fn conflicted_branch_rebase_retains_saved_changes_until_abort() {
     assert!(result.state.unwrap().in_progress());
     assert!(!f.git(&["stash", "list"]).is_empty());
     assert!(
-        plico::squash_saved::pending(&f.repo(), &Cancel::default())
+        plico::rebase_saved::pending(&f.repo(), &Cancel::default())
             .unwrap()
             .is_some()
     );
@@ -562,7 +562,7 @@ fn conflicted_branch_rebase_retains_saved_changes_until_abort() {
     );
     assert!(f.git(&["stash", "list"]).is_empty());
     assert!(
-        plico::squash_saved::pending(&f.repo(), &Cancel::default())
+        plico::rebase_saved::pending(&f.repo(), &Cancel::default())
             .unwrap()
             .is_none()
     );
@@ -603,7 +603,7 @@ fn branch_rebase_restore_conflict_keeps_stash_and_recovery_record() {
         true
     );
     assert!(
-        plico::squash_saved::pending(&f.repo(), &Cancel::default())
+        plico::rebase_saved::pending(&f.repo(), &Cancel::default())
             .unwrap()
             .is_some()
     );
@@ -707,7 +707,7 @@ fn cancellation_during_save_restores_draft_without_starting_rebase() {
     assert_eq!(fs::read_to_string(f.0.join("a")).unwrap(), "draft\n");
     assert!(f.git(&["stash", "list"]).is_empty());
     assert!(
-        plico::squash_saved::pending(&f.repo(), &Cancel::default())
+        plico::rebase_saved::pending(&f.repo(), &Cancel::default())
             .unwrap()
             .is_none()
     );

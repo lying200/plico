@@ -26,7 +26,7 @@ pub fn init(cx: &mut App) {
 }
 pub struct OpenDiff(pub Target, pub Chain, pub crate::diff_tab::StashOrigin);
 pub struct Restore(pub stash::Entry, pub plico::stash_operation::Action);
-pub struct Acknowledge(pub plico::squash_saved::Pending);
+pub struct Acknowledge(pub plico::rebase_saved::Pending);
 pub struct ViewLocal;
 pub struct DropStash(pub stash::Entry);
 impl EventEmitter<DropStash> for StashView {}
@@ -40,7 +40,7 @@ enum Row {
     File { group: usize, index: usize },
 }
 pub struct StashView {
-    recovery: Option<plico::squash_saved::Pending>,
+    recovery: Option<plico::rebase_saved::Pending>,
     recovery_error: Option<String>,
     write_busy: bool,
     notice: Option<String>,
@@ -152,7 +152,7 @@ impl StashView {
                 .background_spawn(async move {
                     (
                         stash::list(&repo, stash::MAX_ENTRIES, &token),
-                        plico::squash_saved::pending(&repo, &token),
+                        plico::rebase_saved::pending(&repo, &token),
                     )
                 })
                 .await;
@@ -645,7 +645,7 @@ impl Render for StashView {
                         .px_3()
                         .py_2()
                         .gap_2()
-                        .child(div().child(t("Saved changes from Squash still need review.")))
+                        .child(div().child(t("Saved changes from Rebase still need review.")))
                         .child(
                             h_flex().child(
                                 Button::new("stash-acknowledge")
@@ -669,7 +669,7 @@ impl Render for StashView {
                 |v, error| {
                     v.child(crate::error_ui::notice(
                         "stash-recovery-error",
-                        "Could not inspect the Squash recovery record.",
+                        "Could not inspect the Rebase recovery record.",
                         error,
                         self.busy || self.write_busy,
                         cx.listener(|s, _, _, cx| s.refresh(cx)),

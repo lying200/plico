@@ -552,10 +552,14 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Comparison unavailable. Refresh the Changes panel to retry." => {
             "比较内容不可用，请在更改面板中刷新重试。"
         }
-        "Saved changes from Squash still need review." => "Squash 保存的更改仍需确认处理。",
+        "Saved changes from Rebase still need review." => "Rebase 保存的更改仍需确认处理。",
         "Already handled externally…" => "已在外部处理…",
-        "Could not inspect the Squash recovery record." => "无法读取 Squash 恢复记录。",
-        "Finish Squash recovery" => "结束 Squash 恢复",
+        "Could not inspect the Rebase recovery record." => "无法读取 Rebase 恢复记录。",
+        "Finish Rebase recovery" => "结束变基恢复",
+        "Rebase {current} onto {target}" => "将 {current} 变基到 {target}",
+        "Rebasing branch…" => "正在变基分支…",
+        "Branch rebased" => "分支变基完成",
+        "Rebase requires attention" => "变基需要处理",
         "Confirm only after handling the saved changes externally. This clears the app recovery record; it does not restore or delete any stash or change your files." => {
             "请在外部处理好保存的更改后再确认。此操作只清除应用恢复记录，不会恢复或删除 stash，也不会修改文件。"
         }

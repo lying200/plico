@@ -40,7 +40,7 @@ impl AssetSource for Assets {
             "jb/moreVertical_dark.svg" => {
                 Some(include_bytes!("../assets/icons/moreVertical_dark.svg"))
             }
-            "icons/close.svg" | "icons/x.svg" => {
+            "jb/close_dark.svg" | "icons/close.svg" | "icons/x.svg" => {
                 Some(include_bytes!("../assets/icons/close_dark.svg"))
             }
             "icons/chevron-down.svg" => {
@@ -78,6 +78,8 @@ impl AssetSource for Assets {
             }
             "branding/plico.svg" => Some(include_bytes!("../assets/branding/plico.svg")),
             "jb/warning_dark.svg" => Some(include_bytes!("../assets/icons/warning_dark.svg")),
+            "jb/clearCash_dark.svg" => Some(include_bytes!("../assets/icons/clearCash_dark.svg")),
+            "jb/delete_dark.svg" => Some(include_bytes!("../assets/icons/delete_dark.svg")),
             "jb/add_dark.svg" => Some(include_bytes!("../assets/icons/add_dark.svg")),
             "jb/remove_dark.svg" => Some(include_bytes!("../assets/icons/remove_dark.svg")),
             "jb/edit_dark.svg" => Some(include_bytes!("../assets/icons/edit_dark.svg")),

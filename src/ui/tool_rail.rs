@@ -145,6 +145,28 @@ impl Review {
             .h_full()
             .gap(px(4.))
             .children(children)
+            .child(div().flex_1())
+            .child(
+                Button::new("git-tool-window")
+                    .ghost()
+                    .selected(self.worktrees_visible)
+                    .when(self.worktrees_visible, |b| b.bg(rgb(0x3574f0)))
+                    .w(px(32.))
+                    .h(px(32.))
+                    .flex_shrink_0()
+                    .icon_size(px(20.))
+                    .icon(jb_icon("vcs_dark.svg"))
+                    .tooltip("Git")
+                    .accessibility_label("Git")
+                    .on_click(cx.listener(|s, _, w, cx| {
+                        if s.worktrees_visible {
+                            s.worktrees_visible = false;
+                            cx.notify();
+                        } else {
+                            s.open_worktrees(w, cx);
+                        }
+                    })),
+            )
             .on_drag_move(cx.listener(|s, event: &DragMoveEvent<DragSession>, _, cx| {
                 let drag = event.drag(cx);
                 if drag.owner != cx.entity_id() {

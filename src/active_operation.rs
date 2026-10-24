@@ -16,6 +16,7 @@ pub enum Kind {
     UndoSquash,
     Rebase,
     RenameBranch,
+    Worktree,
     Merge,
     Restore,
     Recovery,

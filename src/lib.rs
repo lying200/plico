@@ -223,3 +223,5 @@ pub mod reflog;
 pub mod tag_create;
 
 pub mod tag_push;
+
+pub mod worktrees;

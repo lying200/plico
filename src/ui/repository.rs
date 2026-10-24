@@ -218,6 +218,9 @@ impl Review {
         self.saved_changes_available = false;
         self.stash_open = false;
         self.stash_view = None;
+        self.worktrees = None;
+        self.worktree_open_task = Task::ready(());
+        self.worktrees_visible = false;
         self.commit_stash_selected = false;
         self.comparison = None;
         self.comparison_visible = false;

@@ -22,6 +22,7 @@ impl Review {
                         ("Fetch", 2),
                         ("Git Remotes", 4),
                         ("Reflog", 6),
+                        ("Worktrees", 9),
                         ("New Tag…", 7),
                         ("Clone Repository…", 5),
                         ("Create Git Repository…", 8),
@@ -43,6 +44,7 @@ impl Review {
                                         6 => s.open_reflog(window, cx),
                                         7 => s.open_tag(window, cx),
                                         8 => s.open_init(window, cx),
+                                        9 => s.open_worktrees(window, cx),
                                         _ => s.start_fetch(window, cx),
                                     }
                                 });

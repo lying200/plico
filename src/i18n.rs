@@ -1087,6 +1087,35 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Select…" => "选择…",
         "Select in Tree…" => "在树中选择…",
         "Version Control · Git" => "版本控制 · Git",
+        "Prunable" => "可清理",
+        "Locked" => "已锁定",
+        "Selected branch is checked out; create a new branch or open its worktree." => {
+            "所选分支已检出；请创建新分支或打开对应工作树。"
+        }
+        "Create & Open Worktree" => "创建并打开工作树",
+        "The worktree will be created in:" => "工作树将创建于：",
+        "Location:" => "位置：",
+        "Project name:" => "项目名称：",
+        "New branch:" => "新分支：",
+        "Select branch" => "选择分支",
+        "From branch:" => "来源分支：",
+        "Worktree operation needs attention" => "工作树操作需要处理",
+        "Worktrees updated" => "工作树已更新",
+        "Creating worktree…" => "正在创建工作树…",
+        "Deleting worktree…" => "正在删除工作树…",
+        "Delete worktree at" => "删除此位置的工作树：",
+        "Open Worktree" => "打开工作树",
+        "Delete Worktree" => "删除工作树",
+        "Prune Worktrees" => "清理失效工作树",
+        "Remove Git records for missing worktrees:" => "移除以下已不存在工作树的 Git 记录：",
+        "Pruning worktrees…" => "正在清理失效工作树…",
+        "New Worktree" => "新建工作树",
+        "This worktree is open. Close its window before deleting it?" => {
+            "此工作树已在窗口中打开。是否先关闭窗口再删除？"
+        }
+        "Close and Delete" => "关闭并删除",
+        "Do Not Delete" => "不删除",
+        "Worktrees" => "工作树",
         "Applies to the current worktree" => "仅应用于当前工作树",
         "Auto-update if push is rejected" => "推送被拒绝时自动更新",
         "Update" => "更新",

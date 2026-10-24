@@ -154,3 +154,10 @@ Action mapping: platform/vcs-impl/resources/META-INF/VcsActions.xml, Vcs.GetVers
 cherryPick_dark.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd
 platform/dvcs-impl/shared/resources/icons/new/cherryPick_dark.svg (unmodified)
 JetBrains s.r.o. and contributors, Apache-2.0; see LICENSE.txt.
+
+Worktree deletion: delete_dark.svg, platform/icons/src/expui/general/delete_dark.svg,
+detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd.
+Unmodified, JetBrains s.r.o. and contributors, Apache-2.0; see LICENSE.txt.
+
+Worktree prune: clearCash_dark.svg, platform/icons/src/expui/actions/clearCash_dark.svg, Rebased
+4aec35256d765c217aa0d662b82ac4e860c396fd. Unmodified Apache-2.0, JetBrains and contributors.

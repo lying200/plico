@@ -45,6 +45,7 @@ mod tag_general;
 mod text_merge;
 mod tool_rail;
 mod worktree_sync;
+mod worktrees;
 
 use crate::diff_tab::DiffTab;
 use crate::{ui_actions::*, ui_graph::*, ui_style::*};
@@ -198,6 +199,10 @@ pub struct Review {
     stash_open: bool,
     commit_stash_selected: bool,
     stash_view: Option<Entity<crate::stash_view::StashView>>,
+    worktrees: Option<Entity<worktrees::Browser>>,
+    worktrees_visible: bool,
+    worktree_open_task: Task<()>,
+    git_tool_split: Entity<ResizableState>,
     settings_open: bool,
     settings_session: u64,
     settings_draft: Option<SettingsDraft>,
@@ -445,6 +450,10 @@ impl Review {
             stash_open: false,
             commit_stash_selected: false,
             stash_view: None,
+            worktrees: None,
+            worktrees_visible: false,
+            worktree_open_task: Task::ready(()),
+            git_tool_split: cx.new(|_| ResizableState::default()),
             bottom_preview: layout_preferences::load_bottom_preview(),
             log_files_options: layout_preferences::load_log_files_options(),
             file_preview: layout_preferences::load_file_preview(),
@@ -903,7 +912,8 @@ impl Render for Review {
             .child(
                 h_flex().flex_1().min_h_0().items_stretch().px(px(8.)).gap(px(6.)).bg(rgb(SHELL))
                     .child(self.tool_rail(cx))
-                    .child(div().flex_1().min_w_0().h_full().child(h_resizable("tool-windows-width").with_state(&self.tool_windows_width)
+                    .child(div().flex_1().min_w_0().h_full().child(v_resizable("git-tool-window-height").with_state(&self.git_tool_split)
+                    .child(resizable_panel().size_range(px(160.)..px(4000.)).child(h_resizable("tool-windows-width").with_state(&self.tool_windows_width)
                     .child(resizable_panel().visible(self.local_visible || self.project_visible || self.stash_open || self.comparison_visible).flex_none().size(px(300.)).size_range(px(240.)..px(700.))
                         .child(div().size_full().pr(px(6.)).child(div().relative().size_full().overflow_hidden().child(self.left_tool_windows(cx)).children(island_corners(true)))))
                     .child(resizable_panel().child(v_flex().flex_1().min_w_0().h_full().child(self.git_toolbar(cx))
@@ -1000,7 +1010,10 @@ impl Render for Review {
                                 ),
                             ))
                             .into_any_element()
-                    })))))),
+                    }))))))
+                    .when(self.worktrees_visible, |layout| layout.child(resizable_panel().flex_none().size(px(280.)).size_range(px(100.)..px(1400.)).child(
+                        div().size_full().pt(px(6.)).children(self.worktrees.clone())
+                    ))))),
             )
             .child(
                 h_flex()

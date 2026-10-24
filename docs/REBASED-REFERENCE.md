@@ -4483,7 +4483,7 @@ Windows原生同条件验收→独立提交推进，不批量铺设未经参考�
 | 1 | Fork拉取/推送目标分离 | upstream/main拉取、origin/topic推送；pushRemote/pushDefault优先级、refspec、无跟踪/失效remote、手动目标；无意外写远端 | GitPushSupport、GitPushTarget、GitPushSpecParser及测试 |
 | 2 | 当前分支Rebase到所选分支 | 本地/远端分支、detached禁用、dirty保存、冲突继续/中止、空提交及刷新 | GitRebaseBranchAction、GitBrancher、GitRebaser及测试 |
 | 3 | 分支重命名 | 当前/其他本地分支、非法/重名、保留或取消upstream、工作树占用及刷新 | GitRenameBranchAction、GitNewBranchDialog、GitRenameBranchOperation |
-| 4 | Worktree管理 | 列表、创建新/已有分支、打开、dirty删除保护、已占用分支、失败/取消和跨窗口刷新 | workingTrees actions/dialogs/services、GitWorktreesViewModel及测试 |
+| 4 | Worktree管理 | 列表、创建新/已有分支、打开、确认删除含本地修改的工作树、已占用分支、失败/取消和跨窗口刷新 | workingTrees actions/dialogs/services、GitWorktreesViewModel及测试 |
 | 5 | 分支对比 | 任意两分支独有提交、整体文件差异、方向交换/空结果/按需Diff/引用刷新 | GitCompareBranchesHelper、CompareBranchesHelper、GitCompareBranchesUi |
 | 6 | 子模块初始化/同步/更新 | clone未递归后补初始化；父指针变化后更新；嵌套/dirty子模块/URL同步/失败恢复 | GitSubmoduleUpdater、GitSubmoduleTest及对应UI入口 |
 | 7 | 浅克隆获取完整历史 | 仅shallow仓库入口、确认remote、认证/取消/失败、完成后历史计数刷新 | GitUnshallowRepositoryAction、GitFetchSupport及测试 |
@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态：第1项已提交6505a25；第2项已提交030edf1；第3项已完成下述核心、桌面及Windows主要流程验收；第4—8项待实现。
+当前状态：第1项已提交6505a25；第2项已提交030edf1；第3项已提交e4046e0；第4项主流程已实现并通过验收（本次独立提交；来源搜索、键盘/右键、Windows权限重试等剩余对齐项见提交前记录）；第5—8项待实现。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -4816,3 +4816,243 @@ CI未运行。原生英文、错误/取消弹窗及进行中帧未完整截图�
 这些视觉状态已验收；前述标题字重、弹窗宽度、焦点描边差异仍保留。
 相对上游，本地对unset失败保守显示部分成功，并复查include配置中仍有效的跟踪，
 不把rename成功误报为整项未发生，也不改写外部include配置。第3项功能交付完成。
+
+### 4. Worktree前置：创建、列表与删除
+
+参考commit仍为4aec35256d765c217aa0d662b82ac4e860c396fd，原生版本1.1.20 /
+IC-262.10968.SNAPSHOT，自有44688。Find Action→Worktrees打开底部Git工具窗口的
+Worktrees页；列表为名称、分支、路径，当前项加勾，左侧竖排新增/删除/刷新/清理。
+新增弹窗依次From branch、New branch复选框及输入、Project name、Location和完整目标
+路径提示，底部Create & Open Worktree/Cancel。选择conflict-topic后自动建议目录名称，
+输入worktree-native后自动选中New branch且目录建议更新；确认后Git生成同OID的新分支
+及工作树，再弹New Project选择This Window/New Window/Cancel。取消打开不删除已创建
+工作树，原列表更新。Windows Git worktree list确认实际创建及原分支不变。
+
+随后仅在本次自建worktree-native内写入own-dirty-probe.txt，选中该工作树点击删除，
+原生只显示包含路径的Delete Worktree确认，不提示dirty；确认后目录及未跟踪探针被删除，
+Windows Git列表只剩原来的两个工作树。测试未触碰用户仓库或文件。
+截图artifacts/collaboration-workflows-20261024/worktree-reference-{search,list,create,
+selected,new-branch,open-choice,created,remove-confirm}.png。
+
+已实读workingTrees下ShowWorkingTreesAction、GitCreateWorkingTreeAction、
+GitWorkingTreeDialog、GitCreateWorkingTreeService、GitWorkingTreesService、
+GitWorktreeListParser、GitWorktreesViewModel、RemoveWorkingTreeAction及
+GitImpl.createWorkingTree/deleteWorkingTree/listWorktrees；测试读取
+RemoveWorkingTreeActionTest与GitWorkingTreeFromRemoteBranchesTest。
+规则：已有本地分支直接checkout；远端创建对应本地跟踪分支；tag是detached；新分支用-b
+而非-B。已有占用分支由Git拒绝后额外询问，不默认force。main/current不允许从列表删除；
+上游删除确认后实际使用--force，Windows权限失败还有递归删除重试。
+
+本地实现计划：执行层独立worktrees模块，列表按需后台查询，NUL分隔保留特殊路径；
+创建前复验源ref/OID和目标路径，串行化同仓库操作；取消后刷新实际工作树列表，不假定
+没有写入。删除遵从本轮明确的dirty保护目标，拒绝当前/main/locked及含修改或未跟踪文件
+的工作树，调用不带force的Git remove；不照搬递归删除兜底。该差异是明确保留的保护，
+不是宣称上游会阻止dirty删除。已有分支占用、打开已有树、原生失败/取消状态仍待续验。
+
+用户后续明确要求按Rebased逻辑并允许改计划：第4项删除规则已改为确认后使用
+worktree remove --force，main/current禁止，locked由Git单次force拒绝，不能自动升级
+为双force。撤销上一段额外dirty禁止规则；测试改为确认删除目标dirty/untracked，
+同时验证原工作树编辑不受影响。Windows权限失败重试仍需独立验证及打开窗口处理，
+不得未经二次确认递归删除。核心实现开始，UI尚未接入，不算整项交付。
+
+第4项执行层初版：新增worktrees模块，NUL列表保留换行/空格路径，常数次Git查询识别
+当前工作树（不对每一项启动Git）；Create准备固定来源OID/目录，执行持同仓库锁复验，
+已有本地分支保持分支身份、远端默认创建跟踪分支、标签detached。操作结束含取消均用
+新token重新读列表。删除遵从用户更新后的规则：非main/current在确认后单次--force，
+不额外阻挡dirty；locked仍由Git拒绝。尚未接入UI，不向用户暴露未经确认的删除入口。
+真实Git 4项通过（/tmp/plico-worktrees-core.log），覆盖原工作区dirty保留、删除目标dirty
+和untracked、当前/main拒绝、locked失败、源ref变化/取消不执行、路径空格/换行、远端
+跟踪和tag detached。仍待UI、跨窗口处理、完整核心及Windows原生本地功能验收。
+
+补验原生已占用分支：创建弹窗选择rename-occupied-done时橙色提示“Selected branch
+is checked out, so a new branch is required”，Create & Open禁用，截图
+worktree-reference-occupied.png。此处安装版与4aec352源码不同：源码已允许提交后由Git
+拒绝并询问force，安装版直接要求新分支。本地初版按安装版阻止重复checkout，提供从
+该分支创建新分支的路径；后续UI应保留打开已占用工作树入口，不把源码新行为误写为
+已在安装版验证。窗口打开与权限失败二次确认仍待验证，不能宣称完整对齐。
+
+执行层完整核心回归通过（/tmp/plico-worktrees-full-core.log）。当前只有核心模块及测试，
+尚无Plico界面改动或原生验收，不提交为完整功能。分支重命名已独立提交e4046e0，未推送。
+
+第4项原生补验打开/关闭删除：在Worktrees列表双击rename-linked-reference-20261024，
+出现This Window/New Window/Cancel。选New Window后信任仅本次自建fixture，取消勾选
+Defender排除（未更改系统设置），打开工作树窗口44762922。回到主仓库选中该树删除，
+第一次Delete Worktree确认后出现第二次“currently opened… close it first?”，按钮
+Close and Delete/Do Not Delete，截图worktree-reference-close-delete.png。确认后关闭
+本次自有工作树窗口并删除对应目录。对应源码GitWorkingTreesService.doDeleteWorkingTree/
+shouldStopDeletion/closeProject，与实测顺序一致。本地应按窗口状态复验、保存文档后关闭，
+再执行已确认删除；不得在工作树窗口未关闭时直接删除。原生取消删除和权限失败重试
+仍未截全。本轮仍只使用自有fixture及Rebased44688，未关闭用户窗口。
+
+第4项布局返工（2026-10-24）：用户指出创建弹窗和底部工作树面板未对齐，本轮优先纠正
+布局后再继续功能收尾。重新在 Rebased 1.1.20 原生点击左栏底部 Git 图标，确认同一按钮
+切换底部工具窗口显示/隐藏；面板在左侧工具条右侧，横跨 Project 和编辑区，工具条贯穿
+上下两区。截图 worktree-reference-{layout,hidden,dialog-layout}.png。新建弹窗实际宽约
+500 逻辑像素，来源下拉框、新分支输入、项目名、位置共用标签列；分支区和目录区之间
+有较大留白，下方路径提示从输入列起排。之前按整个窗口追加面板和按钮自收缩布局不符。
+
+再次读取参考 4aec352 的 GitWorkingTreeDialog（LABEL_ALIGNED、Align.FILL）、
+GitWorktreesTabPanel（纵向操作条）、GitWorkingTreeRowComponent。注意此版本源码已
+改为两行工作树单元格/左侧 500px 列表，安装版仍为名称、分支、路径的单行显示；本轮
+视觉采用已实测安装版，明确不把两者说成同一布局。Plico 将 Git 入口固定到左栏底部，
+面板改用左条右侧的纵向可调整分隔容器，隐藏保留列表状态，关闭标签释放列表；表头
+补足横向宽度、标签框及隐藏按钮，单行去掉名称/分支固定列宽。创建框收紧宽度、对齐
+标签列，完整下拉框显示箭头。原生重新验收待本轮构建后记录。
+
+此前初版原生验证：创建 worktree-plico 并在新窗口打开，删除先确认再 Close and Delete，
+关闭对应窗口后移除工作树（包括测试新建的 own-dirty-probe.txt）；最终列表只剩原树，
+截图 worktree-plico-removed.png。修复 Add 回调重借 Browser 导致的崩溃，回归测试先红后绿；
+86 桌面测试通过、2 个导航测试按既有配置另行运行，共 8 个导航通过。初版构建通过，
+这些结果不替代本轮布局变更的测试及原生验收。
+
+本轮布局实现后第一次 Windows 原生检查：Git 底部入口与面板横向范围已正确，工作树
+名称/分支/路径相邻显示；创建框已形成完整下拉框与统一输入列，并且位置输入保留真实
+绝对路径，不再错误填入仅供展示的 `~` 路径。截图 worktree-plico-layout-{start,panel}.png、
+worktree-plico-dialog-layout.png。继续按用户反馈调整纵向操作栏：36px 容器中居中放置
+24px 按钮，左右各留 6px；标题 Git 与 Worktrees 标签间距改为 16px。删除图标采用参考
+expui/general/delete_dark.svg（保留 Apache-2.0 来源），补齐关闭标签图标资源映射；创建
+框使用项目已有 JetBrains checkbox 展示，输入框底色/边框及上下留白再次校准。
+读取 GitWorkingTreesContentProvider/ShowWorkingTreesAction 确认 Worktrees 是 VCS
+工具窗口可关闭内容页；隐藏与销毁区分。保留差异：当前没有 Console 页，也没有伪造
+无行为的 Console/Prune/Help 控件；这部分不宣称已完全像素对齐，属于第4项后续收尾。
+
+最终本轮验证：Windows release 重建通过（/tmp/plico-worktree-layout-final-windows.log），
+原生截图 worktree-plico-layout-final.png、worktree-plico-dialog-final.png 显示按钮居中留白、
+16px 标题间距、关闭标签图标及复选框/输入列对齐；点击 Git 可收起面板，见
+worktree-plico-layout-hidden.png。截图均复制至 artifacts/collaboration-workflows-20261024。
+完整桌面86通过/2按既有配置单独运行，导航8通过；最后纯展示微调后 worktrees 回归1通过。
+格式和 diff 空白检查通过。调整高度的鼠标拖动、英文弹窗及 Prune/Console 页本轮未验收，
+不宣称整体 Worktrees 功能或像素对齐全部完成。保留一个本轮 Plico 和一个 Rebased 窗口。
+
+第4项 Prune 前置（2026-10-24）：原生 Rebased 自有参考仓库创建 detached
+worktree-prune-reference-20261024，随后仅删除该测试目录，刷新后显示 Prunable；扫帚
+启用，确认框列出该目录名称，Prune Worktrees/Cancel。确认后 Windows Git 列表只剩主树。
+截图 worktree-reference-prunable.png、worktree-reference-prune-confirm.png。
+实读 4aec352 PruneWorkingTreesAction、GitWorkingTreesService.pruneWorkingTrees、
+GitImpl.pruneWorktrees：以存在 isPrunable 为启用条件、列名称确认、后台普通 worktree
+prune（不添加 expire now）、失败通知、成功刷新。OpenWorkingTreeAction 禁用 current
+和 prunable。实现映射 worktrees::prune、ui/worktrees 工具条与确认入口；确认后复验已确认
+的失效路径集合，变化则要求重新确认，避免无关新增记录混入旧确认。
+
+Prune 实现与验收：worktrees::prune 持操作锁复验确认路径集合，调用普通 Git prune，
+返回实际刷新列表；UI 仅存在 prunable 且非 busy/loading 时启用，关闭确认不执行。
+5项真实 Git worktrees 测试通过，新增覆盖执行前取消、空/陈旧确认、目录恢复、锁定
+记录保留、其他工作树未提交修改保留；桌面 worktrees 回归1项通过，Windows构建通过。
+原生 Plico 在独立测试仓库删除自建 worktree-prune-plico-20261024 目录后显示可清理，
+点击确认并 Enter 后记录消失，Windows Git worktree list 确认只剩原树；截图
+worktree-plico-{prunable,prune-confirm,pruned}.png。首次图标误取旧 GC 垃圾桶；随后读取
+backend.xml 确认 action 使用 AllIcons.Actions.ClearCash，替换为 expui/actions/
+clearCash_dark.svg 扫帚资源（保留来源许可证），该资源替换原生复验待下轮。
+第4项仍有创建表单英文/失败/取消、已打开窗口复用、Windows删除失败恢复等收尾，未提交。
+
+工作树窗口复用前置：参考创建 worktree-open-reference-20261024，第一次双击提示 New
+Project，选择 New Window；信任对话框取消 Defender 排除后仅信任本次测试目录。
+窗口3606084打开后回主窗口再次双击该工作树，没有再次出现窗口选择弹窗；Win32读取
+前台 HWND=3606084，枚举仍只有两个项目窗口。截图 worktree-reference-open-choice-2.png、
+worktree-reference-reused.png。源码4aec352 GitWorkingTreesService.openWorkingTreeProject/
+openProjectInNewWindow→ProjectUtil.doOpenOrImportAsync先findAndFocusExistingProjectForPath，
+随后才询问新窗口。目录不存在时通知并重载工作树。Plico映射：工作树打开专用入口先
+复用同路径窗口；新目录检查放后台，仓库切换/后续请求取消前一任务，检查后再次复用，
+否则走已有选择窗口流程。不把兄弟工作树合并为同一仓库窗口。
+
+工作树窗口复用实现/验收：ui/worktrees::open_worktree_project 先查询同应用窗口，再后台
+验证目录、检查仓库身份和 busy 状态，回到 UI 后再次查询窗口，避免异步检查期间重复
+打开。Review 持有打开任务，切仓库及新请求释放前一任务；列表 current/prunable 禁止打开。
+新增双窗口桌面回归，区分同一路径和兄弟工作树，确认不生成选择弹窗/额外窗口。
+完整桌面87通过/2既有导航配置忽略；导航专用配置8通过；Windows release通过。
+原生 Plico 独立 worktree-open-plico-20261024：首次选择新窗口2426952；返回主窗口双击
+同一行，Win32前台确认为2426952，枚举仍仅两个项目窗口，无重复弹窗。截图
+worktree-plico-open-choice-2.png、worktree-plico-reused.png；本次额外测试窗口已关闭，
+参考额外窗口3606084也已关闭。扫帚资源修正亦随此构建原生显示确认。
+打开后目录被删除/恢复的竞态、Windows删除失败恢复及剩余英文/创建表单边界仍待验证。
+
+Windows删除失败原生补验（2026-10-24）：在自有 worktree-open-reference-20261024
+使用 .NET 文件句柄拒绝删除共享，Rebased确认删除后 Git 已移除 worktree 记录但目录
+残留，通知 Worktree deletion failed。再用全新的 worktree-permission-reference-20261024
+仅对测试目录/探针文件临时拒绝删除权限，结果相同；Console复制最后错误行确认两例
+均为 failed to delete '…': Invalid argument（不是permission denied）。本次锁持有进程
+已退出，临时ACL恢复确认RESTORED；未更改用户仓库或其他文件权限。
+
+源码4aec352 GitWorkingTreesService.doDeleteWorkingTree只在Windows且stderr含
+permission denied时显示Worktree Deletion Failed/Try Again/Cancel，用户再次确认后
+EelFileUtils.deleteRecursively；其他错误直接通知，不自动递归删目录。本机两种真实
+失败均不满足该分支，因此不能声称已实测Try Again，也不把Invalid argument纳入重试。
+Plico同条件 worktree-open-plico-20261024 测试返回完整原始错误、列表反映实际只剩主树，
+没有误报成功、没有残留运行中操作；截图worktree-plico-delete-failed.png。参考截图
+worktree-reference-{locked-delete,delete-error-console,permission-delete}.png。
+此场景已对齐。permission denied专用递归重试仍缺实机前置，不凭推测实现；不把它当作
+本机文件占用问题继续重复验证。后续独立实现需真实触发该错误与确认界面。
+
+另按同服务notifyWorkingTreeDeletedSuccess补齐成功删除后的最近项目清理，放在操作
+后台任务中，失败/取消/部分删除不移除最近项目记录；UI接纳返回列表。此小改动待当前
+桌面回归，原生成功删除后的最近项目列表检查仍待收尾。
+删除后最近项目清理改动的desktop worktrees回归2项通过；fmt/diff检查通过。
+三处本轮明确自建且Git元数据已移除的测试残留目录已清理，文件句柄持有任务均已终止。
+
+第4项创建来源补齐（2026-10-24）：再次读取参考4aec352的
+GitWorkingTreeDialog.kt::computeRefsWithWorkingTrees/RefWithTreeCellRenderer：
+本地分支、远端分支、标签分别排序并依次展示，引用身份不能仅用短名称。
+安装版Rebased原生创建框已验证选择worktree-reference-tag后自动建议项目名，
+未勾选New branch亦可创建；截图worktree-reference-tag-{options,selected}.png。
+本地src/ui/worktrees/form.rs此前只读取Snapshot.branches，现合并Snapshot.tags，
+保留完整refs身份并按本地/远端/标签排序，排除后端不接受的远端HEAD入口。
+核心5项真实Git测试通过（含remote追踪与tag游离身份），桌面工作树2项通过；
+格式及diff检查通过。此结果不替代Plico新标签入口的Windows原生验收，后者待重建。
+来源菜单尚未复刻参考的图标、占用工作树后缀及搜索，此差异仍保留待处理。
+
+创建来源菜单展示补齐：读取同参考GitBranchesTreeIconProvider.kt及
+PlatformIconMappings.json/AllIcons.java，确认BranchNode在现代UI映射为
+expui/general/vcs.svg；标签使用DvcsImplIcons.BranchLabel，当前分支使用
+CurrentBranchLabel。Plico复用既有相应暗色图标，在来源菜单展示图标及灰色
+占用工作树名称，不再只有无类型区分的短名称。Browser传递Tree快照，保留
+原来的占用校验；不在弹窗渲染阶段查询文件系统。桌面工作树2项测试通过。
+收藏分支标记与可搜索来源菜单仍未对齐；此处不宣称完整像素级还原。
+
+Windows来源菜单原生验收：新构建PID33660，独立rebase-branch-plico-20261024仓库，
+选择worktree-source-tag，未勾选新分支并执行创建。宿主Git确认新工作树HEAD为
+标签目标a4cbf3f1183dea1dafb5fdb2ff942f6c840b92aa且detached；主仓库仍为
+rename-filtered。打开窗口选择页取消后保留已创建工作树；验收完成使用普通
+worktree remove清理此干净测试树。截图worktree-plico-source-{menu,tag-selected,
+tag-open-choice}.png。菜单图标/灰色占用提示已显示；图标实际视觉偏小、来源按钮
+选择后还未显示图标，继续保留为视觉差异。原生进程仅保留一个Plico与一个Rebased。
+
+工作树图标与选择状态收尾：来源菜单原图标受PopupMenu::render_icon的xsmall
+覆盖，现仅在该菜单自绘16px图标；来源按钮也显示相同图标，避免修改通用菜单
+引起全局尺寸变化。再次读取4aec352 GitWorktreesTabPanel.kt::applyEntries/
+selectDefaultEntry：保留原路径，路径消失时优先当前工作树，否则第一项。
+本地Browser::reload按此恢复选中项，不再将刷新后的选择清空。桌面2项通过，
+Windows重建及视觉复测进行中。
+
+Windows PID48480原生复测：16px菜单图标及默认当前工作树选中已生效，
+见worktree-plico-icons-menu.png。来源按钮图标已出现，但发现通用Button在
+有图标/文本/caret时justify_between把文字挤到中间；已将图标与文字组合成
+一个左侧内容组，caret仍在右侧，保留可访问标签。该最后修正等待下一轮
+Windows重建复测，不将worktree-plico-icons-selected.png的中间态记为对齐完成。
+
+2026-10-25创建来源按钮原生收尾：重建后PID40432验证标签图标与名称靠左相邻，
+caret保持右侧；截图worktree-plico-source-aligned.png。取消弹窗无Git写操作。
+另补Report::diagnostic，保留取消/超时/非零退出/输入失败原因与Git输出、刷新错误，
+避免无stdout/stderr时产生空白详情。tests/worktrees.rs新增真实git diff --quiet
+非零且无输出案例，并核对取消/超时及刷新失败组合，6项工作树测试通过。
+此诊断修正晚于本次Windows构建，尚待最终构建；不声称已做原生超时故障注入。
+
+### 第4项提交前验收（2026-10-25）
+
+Windows自有PID40432通过设置切换English，创建框标签、复选框、路径说明与按钮
+没有截断/重叠；关闭后拖动Git工具窗口上边界，面板高度随拖动变化，Log/详情同步
+缩放而左侧入口保持底部。截图worktree-plico-english-form.png、worktree-plico-resized.png。
+验收结束通过设置恢复中文。此为调整分隔线验收，没有执行内容滚动自动化。
+
+完整核心测试通过，桌面87通过/2按既有配置忽略，另行导航8通过；Clippy通过但
+保留既有警告，格式与diff空白检查通过。日志/tmp/plico-worktrees-final-{core,
+desktop,navigation,clippy,format}.log；最终Windows构建结果待结束补录。
+
+交付范围为列表、创建本地/远端/标签或新分支、复用/新开窗口、关闭已打开窗口后
+确认删除（允许丢弃目标树本地修改）、清理失效记录、异步刷新和失败详情。
+保留差异明确记录：当前单仓库工具窗口无Console页；来源菜单无收藏/搜索，主仓库
+根目录作为关联工作树默认项目名前缀尚未复制；列表未支持参考的右键和键盘入口；
+Windows仅permission denied时的额外文件系统重试分支尚未实现，本机占用测试
+返回Invalid argument，两者均保留错误而不误报成功。上述不作为已对齐项，后续
+对齐继续保留，不将此提交描述为完整复制Rebased或完全像素一致。
+
+最终Windows release构建通过（1分24秒，/tmp/plico-worktrees-final-windows.log），包含诊断修正。完整核心743项通过；本次提交是工作树管理主流程交付，前述剩余对齐项仍保留，完整目标未完成。

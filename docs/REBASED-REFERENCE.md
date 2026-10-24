@@ -4468,3 +4468,31 @@ Cherry-pick合并提交不提供mainline选择；子模块初始化/递归更新
 仍要求hard-link。JetBrains LocalHistory、Shelf和额外签名配置不是本轮新增能力。
 原生异常状态未逐个截图的项目仍按各章标注，不把核心测试冒充视觉验收。
 本轮要求的六项实现及独立提交已完成；CI未运行，尚未推送或发布preview。
+
+
+## 协作工作流补全计划（2026-10-24）
+
+本轮目标：按用户确认的工作流缺口逐项补全；起点fb7aa58（preview.11）。
+每项按原生Rebased操作/截图→对应源码及测试→规则与本地映射→实现→回归和
+Windows原生同条件验收→独立提交推进，不批量铺设未经参考的临时界面。
+每项保留中英文、取消/迟到结果、文档保存屏障、工作区/index保护及刷新规则。
+不自动推送或发布；功能验收和像素差异分别记录。
+
+| 顺序 | 交付范围 | 必须验证的关键工作流 | 参考入口（未逐项深入前仅为线索） |
+| --- | --- | --- | --- |
+| 1 | Fork拉取/推送目标分离 | upstream/main拉取、origin/topic推送；pushRemote/pushDefault优先级、refspec、无跟踪/失效remote、手动目标；无意外写远端 | GitPushSupport、GitPushTarget、GitPushSpecParser及测试 |
+| 2 | 当前分支Rebase到所选分支 | 本地/远端分支、detached禁用、dirty保存、冲突继续/中止、空提交及刷新 | GitRebaseBranchAction、GitBrancher、GitRebaser及测试 |
+| 3 | 分支重命名 | 当前/其他本地分支、非法/重名、保留或取消upstream、工作树占用及刷新 | GitRenameBranchAction、GitNewBranchDialog、GitRenameBranchOperation |
+| 4 | Worktree管理 | 列表、创建新/已有分支、打开、dirty删除保护、已占用分支、失败/取消和跨窗口刷新 | workingTrees actions/dialogs/services、GitWorktreesViewModel及测试 |
+| 5 | 分支对比 | 任意两分支独有提交、整体文件差异、方向交换/空结果/按需Diff/引用刷新 | GitCompareBranchesHelper、CompareBranchesHelper、GitCompareBranchesUi |
+| 6 | 子模块初始化/同步/更新 | clone未递归后补初始化；父指针变化后更新；嵌套/dirty子模块/URL同步/失败恢复 | GitSubmoduleUpdater、GitSubmoduleTest及对应UI入口 |
+| 7 | 浅克隆获取完整历史 | 仅shallow仓库入口、确认remote、认证/取消/失败、完成后历史计数刷新 | GitUnshallowRepositoryAction、GitFetchSupport及测试 |
+| 8 | 交互式历史整理 | 补齐此前表中提到的完整交互式Rebase：顺序调整、pick/reword/edit/squash/fixup/drop、资格限制、冲突恢复；具体控件按上游实机确认 | Git交互式Rebase action/dialog/editor/model及测试（待定位） |
+
+第8项在前五个优先方向之后，不以已有Squash/Reword冒充完整交互式Rebase。
+此前明确后排的PR/评论、Git Flow专用向导、LFS、Bisect、补丁导入导出不纳入本轮。
+Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.20 /
+IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
+不能把上游存在的限制直接当成我们的功能目标。
+
+当前状态：计划已记录，第1项进入原生前置验证，其余未开始。

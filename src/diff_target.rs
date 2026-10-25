@@ -11,6 +11,7 @@ pub struct Identity {
     pub path: PathBuf,
     pub old_path: Option<PathBuf>,
     pub combined: Option<crate::combined_changes::Change>,
+    pub working_comparison: Option<crate::working_comparison::Change>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +41,7 @@ impl Target {
             path: change.path.clone(),
             old_path: change.old_path.clone(),
             combined: None,
+            working_comparison: None,
         };
         Ok(Self {
             identity,
@@ -97,6 +99,7 @@ impl Target {
             path: change.path.clone(),
             old_path: change.old_path.clone(),
             combined: Some(endpoints),
+            working_comparison: None,
         };
         Ok(Self {
             identity,
@@ -105,20 +108,91 @@ impl Target {
             change,
         })
     }
-    pub fn read_combined(
+    pub fn working_comparison(
+        repository: Repository,
+        endpoints: crate::working_comparison::Change,
+    ) -> Result<Self> {
+        let side = endpoints
+            .after
+            .as_ref()
+            .or(endpoints.before.as_ref())
+            .ok_or("Change has no endpoints")?;
+        for endpoint in endpoints.before.iter().chain(endpoints.after.iter()) {
+            if endpoint.path().as_os_str().is_empty()
+                || endpoint
+                    .path()
+                    .components()
+                    .any(|p| !matches!(p, std::path::Component::Normal(_)))
+            {
+                return Err("Invalid comparison path".into());
+            }
+            if let crate::working_comparison::Endpoint::Revision { commit, .. } = endpoint {
+                if !crate::git::is_oid(commit) {
+                    return Err("Invalid comparison revision".into());
+                }
+            }
+        }
+        let change = Change {
+            area: Area::WorkingTree,
+            path: side.path().to_path_buf(),
+            old_path: endpoints
+                .before
+                .as_ref()
+                .filter(|e| e.path() != side.path())
+                .map(|e| e.path().to_path_buf()),
+            status: endpoints.status().into(),
+        };
+        let identity = Identity {
+            repository: repository.path.clone(),
+            revision: None,
+            parents: vec![],
+            area: Area::WorkingTree,
+            path: change.path.clone(),
+            old_path: change.old_path.clone(),
+            combined: None,
+            working_comparison: Some(endpoints),
+        };
+        Ok(Self {
+            identity,
+            repository,
+            commit: None,
+            change,
+        })
+    }
+    pub fn content_paths(&self) -> Option<(Option<&std::path::Path>, Option<&std::path::Path>)> {
+        if let Some(c) = &self.identity.working_comparison {
+            return Some((
+                c.before.as_ref().map(|e| e.path()),
+                c.after.as_ref().map(|e| e.path()),
+            ));
+        }
+        self.identity.combined.as_ref().map(|c| {
+            (
+                c.before.as_ref().map(|e| e.path.as_path()),
+                c.after.as_ref().map(|e| e.path.as_path()),
+            )
+        })
+    }
+    pub fn read_contents(
         &self,
         cancel: &Cancel,
     ) -> Option<Result<crate::combined_changes::Contents>> {
+        if let Some(c) = &self.identity.working_comparison {
+            return Some(c.read(&self.repository, cancel));
+        }
         self.identity
             .combined
             .as_ref()
             .map(|c| crate::combined_changes::read_contents(&self.repository, c, cancel))
     }
 
-    /// Candidate local document for the modified side. The caller must still
+    /// Candidate local document, independent of display orientation. The caller must still
     /// validate the on-disk file (encoding, size, links and write permissions).
     /// Never infer editability from a translated side caption or its position.
     pub fn working_tree_document(&self) -> Option<&std::path::Path> {
+        if let Some(change) = &self.identity.working_comparison {
+            return change.working_path();
+        }
         if self.identity.combined.is_some()
             || !matches!(
                 self.change.area,
@@ -145,12 +219,11 @@ impl Target {
                 OsStr::new("--stage"),
                 OsStr::new("-z"),
                 OsStr::new("--"),
-                self.change.path.as_os_str(),
+                self.source_path().as_os_str(),
             ],
             cancel,
         )?;
-        let expected =
-            crate::commit_operation::path_input(std::slice::from_ref(&self.change.path))?;
+        let expected = crate::commit_operation::path_input(&[self.source_path().to_path_buf()])?;
         Ok(records.split(|b| *b == 0).any(|record| {
             record.iter().position(|b| *b == b'\t').is_some_and(|tab| {
                 record[..tab].starts_with(b"160000 ")
@@ -159,6 +232,21 @@ impl Target {
         }))
     }
 
+    /// Source navigation follows the local endpoint even when sides are reversed.
+    pub fn source_path(&self) -> &std::path::Path {
+        self.identity
+            .working_comparison
+            .as_ref()
+            .and_then(|c| {
+                c.before.iter().chain(c.after.iter()).find_map(|e| match e {
+                    crate::working_comparison::Endpoint::WorkingTree { path } => {
+                        Some(path.as_path())
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap_or(&self.identity.path)
+    }
     pub fn identity(&self) -> &Identity {
         &self.identity
     }
@@ -166,7 +254,7 @@ impl Target {
         &self.change
     }
     pub fn read_full(&self, cancel: &Cancel) -> Result<String> {
-        if self.identity.combined.is_some() {
+        if self.identity.working_comparison.is_some() || self.identity.combined.is_some() {
             return Err("Use revision contents for a combined target".into());
         }
         self.repository
@@ -174,7 +262,7 @@ impl Target {
     }
     /// Both embedded previews and editor tabs retain complete source context.
     pub fn read(&self, cancel: &Cancel) -> Result<String> {
-        if self.identity.combined.is_some() {
+        if self.identity.working_comparison.is_some() || self.identity.combined.is_some() {
             return Err("Use revision contents for a combined target".into());
         }
         self.repository
@@ -189,6 +277,7 @@ struct ChainData {
     commit: Option<Commit>,
     changes: Vec<Change>,
     combined: Option<Vec<crate::combined_changes::Change>>,
+    working_comparison: Option<Vec<crate::working_comparison::Change>>,
 }
 
 /// Only the cursor belongs to a tab. No file contents are cached here.
@@ -199,7 +288,7 @@ pub struct Chain {
 }
 impl Chain {
     pub fn new(target: &Target, changes: &[Change]) -> Result<Self> {
-        if target.identity.combined.is_some() {
+        if target.identity.working_comparison.is_some() || target.identity.combined.is_some() {
             return Err("Combined targets require their revision chain".into());
         }
         let changes: Vec<Change> = changes
@@ -217,6 +306,7 @@ impl Chain {
                 commit: target.commit.clone(),
                 changes,
                 combined: None,
+                working_comparison: None,
             }),
             index,
         })
@@ -243,13 +333,73 @@ impl Chain {
                 commit: None,
                 changes,
                 combined: Some(endpoints),
+                working_comparison: None,
             }),
             index,
         };
         Ok((target, chain))
     }
+    pub fn working_comparison(
+        repository: Repository,
+        endpoints: Vec<crate::working_comparison::Change>,
+        index: usize,
+    ) -> Result<(Target, Self)> {
+        let target = Target::working_comparison(
+            repository.clone(),
+            endpoints
+                .get(index)
+                .ok_or("Invalid diff file index")?
+                .clone(),
+        )?;
+        let changes = endpoints
+            .iter()
+            .map(|c| Target::working_comparison(repository.clone(), c.clone()).map(|t| t.change))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((
+            target,
+            Self {
+                data: std::sync::Arc::new(ChainData {
+                    repository,
+                    commit: None,
+                    changes,
+                    combined: None,
+                    working_comparison: Some(endpoints),
+                }),
+                index,
+            },
+        ))
+    }
+    /// Swap only the stored endpoints; do not reread Git or change the selected file.
+    pub fn reversed_working_comparison(&self) -> Result<Self> {
+        let endpoints = self
+            .data
+            .working_comparison
+            .as_ref()
+            .ok_or("Not a working tree comparison")?;
+        Self::working_comparison(
+            self.data.repository.clone(),
+            endpoints
+                .iter()
+                .map(crate::working_comparison::Change::reversed)
+                .collect(),
+            self.index,
+        )
+        .map(|(_, chain)| chain)
+    }
     /// Reuse only immutable committed snapshots. Local/index file lists can change.
     pub fn fork_for(&self, target: &Target) -> Option<Self> {
+        if let Some(endpoints) = &self.data.working_comparison {
+            if self.data.repository.path != target.repository.path {
+                return None;
+            }
+            let index = endpoints
+                .iter()
+                .position(|c| Some(c) == target.identity.working_comparison.as_ref())?;
+            return Some(Self {
+                data: self.data.clone(),
+                index,
+            });
+        }
         if let Some(endpoints) = &self.data.combined {
             if self.data.repository.path != target.repository.path {
                 return None;
@@ -262,7 +412,7 @@ impl Chain {
                 index,
             });
         }
-        if target.identity.combined.is_some() {
+        if target.identity.working_comparison.is_some() || target.identity.combined.is_some() {
             return None;
         }
         let commit = self.data.commit.as_ref()?;
@@ -284,10 +434,57 @@ impl Chain {
             index,
         })
     }
+    /// Reorder a complete chain without changing revision endpoints or the selected file.
+    pub fn reordered(&self, order: &[usize]) -> Option<Self> {
+        if order.len() != self.len() {
+            return None;
+        }
+        self.subset(order)
+    }
+    /// Select an ordered, unique subset containing the current target.
+    pub fn subset(&self, order: &[usize]) -> Option<Self> {
+        let mut seen = vec![false; self.len()];
+        for &i in order {
+            if i >= seen.len() || std::mem::replace(&mut seen[i], true) {
+                return None;
+            }
+        }
+        let index = order.iter().position(|&i| i == self.index)?;
+        Some(Self {
+            data: std::sync::Arc::new(ChainData {
+                repository: self.data.repository.clone(),
+                commit: self.data.commit.clone(),
+                changes: order
+                    .iter()
+                    .map(|&i| self.data.changes[i].clone())
+                    .collect(),
+                combined: self
+                    .data
+                    .combined
+                    .as_ref()
+                    .map(|items| order.iter().map(|&i| items[i].clone()).collect()),
+                working_comparison: self
+                    .data
+                    .working_comparison
+                    .as_ref()
+                    .map(|items| order.iter().map(|&i| items[i].clone()).collect()),
+            }),
+            index,
+        })
+    }
     pub fn changes(&self) -> &[Change] {
         &self.data.changes
     }
     pub fn select(&mut self, index: usize) -> Option<Target> {
+        if let Some(endpoints) = &self.data.working_comparison {
+            let target = Target::working_comparison(
+                self.data.repository.clone(),
+                endpoints.get(index)?.clone(),
+            )
+            .ok()?;
+            self.index = index;
+            return Some(target);
+        }
         if let Some(endpoints) = &self.data.combined {
             let target =
                 Target::combined(self.data.repository.clone(), endpoints.get(index)?.clone())

@@ -168,7 +168,6 @@ impl RenderOnce for ModeSelector {
                     } else {
                         transparent_black()
                     })
-                    .hover(|style| style.bg(rgba(0xffffff17)))
                     .text_color(rgb(0xced0d6))
                     .child(Icon::default().path(icon).size(px(16.)))
                     .tooltip(t(tooltip))

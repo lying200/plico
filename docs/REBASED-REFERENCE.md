@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态：第1项已提交6505a25；第2项已提交030edf1；第3项已提交e4046e0；第4项主流程已实现并通过验收（本次独立提交；来源搜索、键盘/右键、Windows权限重试等剩余对齐项见提交前记录）；第5—8项待实现。
+当前状态：第1项已提交6505a25；第2项已提交030edf1；第3项已提交e4046e0；第4项主流程已实现并通过验收（本次独立提交；来源搜索、键盘/右键、Windows权限重试等剩余对齐项见提交前记录）；第5项进行中（分支对比原生参考与有界查询）；第6—8项待实现。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -5056,3 +5056,1853 @@ Windows仅permission denied时的额外文件系统重试分支尚未实现，�
 对齐继续保留，不将此提交描述为完整复制Rebased或完全像素一致。
 
 最终Windows release构建通过（1分24秒，/tmp/plico-worktrees-final-windows.log），包含诊断修正。完整核心743项通过；本次提交是工作树管理主流程交付，前述剩余对齐项仍保留，完整目标未完成。
+
+### 5. 分支对比：原生与查询层（2026-10-25）
+
+安装版Rebased 1.1.20 / IC-262.10968.SNAPSHOT，自有仓库
+rebase-branch-reference-20261024，当前renamed-untracked，分支菜单选择
+conflict-topic → Compare with renamed-untracked，打开独立编辑区Compare页。
+上下两份Log分别显示topic独有1条、current独有2条，每份有自己的过滤栏、
+方向说明、提交区及右侧文件/详情区。分支菜单另外提供Show Diff with Working Tree，
+不能把该入口等同于纯提交树比较。只读查看，没有执行checkout或改写用户仓库。
+截图compare-reference-{branches,action-popup,dual-log}.png。
+
+实读4aec352：GitCompareBranchesUi.kt的create/createTopUi/createBottomUi、
+MyFilterUi及asReversed；GitBranchesUIHandler.kt比较入口默认另一端为当前分支，
+无共同分支时HEAD；GitCompareBranchesFilesManager.kt按range/root复用编辑页；
+GitCompareBranchesHelper.java/CompareBranchesHelper.java确认日志语义A..B。
+GitBranchWorker.java::loadTotalDiff明确工作区比较是另一条路径。
+规则：上下分区独立range和过滤状态，清除用户过滤仍保留range/root，反向查询
+交换两端，不将独有提交补丁累加成整体Diff。原生与读取版本差异继续保留。
+
+本地新增src/branch_compare.rs，Pair固定两个完整OID；两方向分页读取DateOrder日志，
+count独立查询，refresh重新resolve；changes复用revision_changes比较两棵树，
+与现有CompareWithLocal视图区分。复用git.rs::parse_history，未放宽现有history根
+校验，也未把任意用户输入直接作为Git选项。tests/branch_compare.rs真实Git验证
+3对1分叉、分页/末页、交换、固定版本与引用移动后刷新、相同版本空结果、
+整体两文件差异、工作区修改保持不变、失效引用/选项输入拒绝及取消，测试通过。
+新增代码尚未接UI；过滤、两区graph/详情、tab复用生命周期及原生Plico验收待实现。
+
+第5项双日志组件实现中（2026-10-25）：新增src/ui/branch_compare.rs，View持有
+上下两个独立Pane，复用graph_cell和Graph布局、Git提交元数据与log_commit_changes
+的merge-parent规则、Diff Target/Chain；不借用主Review的选中项或请求状态。
+每个Pane独立异步读取首批/总数/按需详情，取消与generation拒绝迟到详情。
+两区分别可调日志/文件区宽度，上下分隔可调；双击文件产生OpenDiff事件。
+列表每个保留窗口不超过HISTORY_MAX，继续向后时替换旧窗口，可返回前一窗口，
+没有通过删除后续历史入口来限制内存。数据层补shallow_boundary标记，避免把浅
+边界伪装成真实root比较空树。
+
+cargo check通过（因尚未接入Review入口有5个dead_code警告，未屏蔽），分支对比
+真实Git测试复跑通过，格式/diff检查通过。此组件尚不可从用户界面打开，不能据此
+宣称功能可用；下一步接Tab排序/关闭/切换仓库的生命周期、分支菜单、详情Diff事件，
+以及过滤、方向交换/刷新与整体差异入口。尚未进行Plico原生验收或提交。
+
+第5项编辑页生命周期接线（2026-10-25）：再次读取同一参考版本
+GitCompareBranchesFilesManager.kt，落实按范围/仓库复用页与关闭时移除身份。
+Review 新增独立分支对比页集合，接入统一 editor_tabs 排序、激活、标题、关闭按钮、
+右键批量关闭及 CloseFile 快捷动作；关闭活动页回到相邻编辑页，切仓释放集合及
+Pane 持有的取消令牌。Log 选中态和本地底部预览不再把对比页误认为主 Log。
+open_branch_comparison 以引用对复用页，双击文件接现有 DiffTab 文档和导航机制。
+当前尚未接分支菜单的异步引用解析入口，原生界面验收待完整入口后进行；本条
+只记录生命周期接线，不代表分支对比功能已交付。过滤和刷新等范围仍按上述计划保留。
+定向桌面回归 branch_comparison_reuses_tabs_and_closes_to_neighbor 通过：相同范围
+复用、反向范围独立页、关闭回退相邻页、最后一页清理；cargo fmt 及 diff 检查通过。
+本轮未运行完整桌面/导航回归，也未完成 Windows 原生验收，不提交本功能。
+
+第5项比较入口接线（2026-10-25）：再次实读同一版本
+GitBranchesUIHandler.kt::compareWithCurrent/compare，当前分支作为第二端，detached
+使用 HEAD。沿用已保存 compare-reference-action-popup.png 的入口，加入顶部本地/
+远端分支子菜单、右键菜单和 Log 分支树右键；当前分支自身不提供有效比较动作。
+文案“与 {current} 比较”按界面语言显示。引用解析在后台执行，Request 同时拥有
+任务与取消令牌，替换请求/切仓/销毁时取消；结果接纳检查该次令牌，错误走现有
+操作失败展示。已有相同引用对直接激活，避免重复解析打开多个页。
+cargo check 无警告通过，Tab 定向回归复跑通过；原生构建和界面验收继续进行。
+Windows 原生初步验收：release 构建完成，新自用 Plico29260 替换并正常关闭40432。
+独立 rebase-branch-plico-20261024 从顶部 conflict-topic 子菜单选择“与 rename-filtered
+比较”打开编辑页；两区分别2/1条，宿主 Git rev-list 两方向 --count 同为2/1。
+选中上区 topic conflict 后右侧读取 shared.txt，双击打开211d4091→28508190的
+只读Diff（main conflict→topic conflict），原比较页保留。截图
+compare-plico-{start,menu,action,dual-log,details,diff}.png 已复制 artifacts。
+实机发现选中行宽度未铺满、空状态文案漏翻译，已补 w_full 和复用已翻译提示；
+这两处最后改动待下次原生构建复验。尚未对齐过滤工具栏、日期/引用列、详情排版、
+空结果、刷新/交换及整体树差异入口，不以本次入口贯通替代第5项完整交付。
+
+第5项普通过滤查询层（2026-10-25）：再次读取4aec352的
+GitCompareBranchesUi.kt::MyFilterUi/setFilters/setCustomEmptyText，以及
+plugins/git4idea/backend/src/log/GitLogProvider.kt::getCommitsMatchingFilter/
+getGitLogParameters。规则：普通text/user/date/path与独有提交range相交；清除
+用户过滤不删除range；path使用full-history/simplify-merges；count与page必须
+同条件。本地Pair新增page_filtered/count_filtered，复用LogFilter参数生成及
+路径校验，显式literal-pathspecs；Some(empty authors)返回空集。路径匹配后
+按固定OID恢复真实提交元数据，不能让简化父链变成Diff基线。仍保留有界分页。
+
+实读platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VcsLogFiltererImpl.kt
+filter/applyHashFilter发现：命中哈希时优先返回，甚至绕过range及其他filters；
+未命中才回普通文本路径。与“所有查询必须交集”直觉不同。此时仅实现普通
+详情过滤查询；hash优先级属于后续query controller，不能把page_filtered的grep
+包装为已完成Text or hash。该特例尚未在原生Rebased实测，UI搜索入口暂未接入。
+普通过滤层沿用前置双Log实机结构记录，本轮没有新增可见控件。
+
+真实Git三项通过（/tmp/plico-compare-filter-test.log）：两方向固定引用与分页；
+文本大小写/正则、作者、日期、路径交集、清空恢复range、非法路径、空作者；
+路径过滤跳过中间提交后仍保留真实父OID；含方括号的路径按字面匹配，merge
+父提交恢复完整两端，page/count一致。cargo fmt与diff检查通过。新增过滤层
+尚未接UI，过滤图投影、hash实机验证及原生过滤交互仍待后续，未提交。
+
+第5项搜索前置补验（2026-10-25）：Rebased1.1.20自有44688仍在同一参考仓库
+Compare: conflict-topic and renamed-untracked；上区原有topic conflict一条，下区
+feature/main update两条。上区粘贴公共base哈希477c32b并Enter，显示范围外base，
+下区不变；清空并Enter恢复上区独有一条，下区仍两条。截图
+compare-reference-{filter-start,hash-pasted,search-cleared}.png。最初SendKeys受IME
+影响产生错误文本，故改用剪贴板粘贴；不以错误输入截图作语义证据。
+再次读取同一4aec352 VcsLogFiltererImpl.applyHashFilter：哈希ID优先及后续消息引用
+合并；复用本地主Log已实现的ID/消息匹配规则。Query固定仓库refs与比较两端OID，
+准备哈希匹配一次并保留有界ID结果，分页仅加载需要的元数据，count复用同一集合；
+无命中退回原range普通查询。沿用现有完整图预算，超过预算报错；大规模哈希扫描
+优化未完成，不宣称无界低成本查询。
+
+本地新增Query与history::ordered_hash_matches；真实Git四项通过，新增验证公共
+祖先哈希绕过range/空作者/日期/路径、另一分支消息引用合并、忽略大小写、分页、
+引用移动后固定结果、清空恢复range、无命中及取消。UI两Pane分别拥有InputState、
+LogFilter、Arc<Query>，Enter/模式按钮/清除操作取消旧请求并重置本侧页与详情，
+page/count从同一Query派生；未复用主Log选中或筛选状态。cargo check通过。
+作者/日期/路径控件仍未接入，搜索和清除控件像素位置尚需精调；原生搜索验收进行中。
+本轮Windows原生搜索验收：自有Plico6892替换并正常关闭29260。搜索框输入公共
+base哈希477c32b后上区显示base且计数1/1，下区feature及1/1不变；点击清除按钮
+恢复上区两条独有提交及2/2，下区不变。初始空状态现为中文，行宽已铺满。
+截图compare-plico-{search-start,hash-result,search-cleared}.png。Windows release
+构建与Tab定向回归通过；未完成User/Date/Paths控件和所有空结果/刷新/图投影等
+验收，不提交或声明第5项完成。仅保留此自用Plico和参考Rebased实例。
+
+第5项User/Date/Paths控件（2026-10-25）：实现前在原生Rebased44688同一Compare页
+依次打开上区User、Date、Paths，保存compare-reference-{user-menu,date-menu,
+paths-menu}.png。User为Select/me，Date为Select/Last24hours/Last7days，Paths为
+Select/Select in Tree；这些是每份Log自己的控件，不属于比较页全局筛选。
+再次实读4aec352的DateFilterPopupComponent.java::createActionGroup/SelectAction，
+UserFilterPopupComponent.java::createActionGroup/createSpeedSearchActionGroup及
+StructureFilterPopupComponent.java::createActionGroup。日期按本地日历减1/7天，
+自定义无上下界不覆盖既有过滤；User有身份选择/me/最近项，Paths支持文本和树。
+
+本地Pane各自持有UserMenu与PathsMenu实体，复用既有身份解析、路径选择、弹窗、
+取消和错误规则；日期复用date_filter::presets/Bounds及DateDialog。过滤应用从
+组件取条件，清除时同时清除组件状态而非只改LogFilter；旧请求令牌及详情失效。
+Date菜单与参考相同三个入口，激活日期后提供独立清除。未加入比较范围的Branch
+过滤入口。cargo check通过；本轮新控件尚未Windows原生验收，窄窗溢出处理待补。
+桌面定向回归pane_filters_cancel_old_work_without_touching_the_other_side通过：
+日期/输入正确进入Query条件，修改与清除均取消旧令牌，清除保留范围，另一侧
+状态及令牌不受影响。测试首次编译因GPUI测试宏通配导入递归失败，按已有测试
+显式导入core::prelude::v1::test修正，未增加递归上限。格式/diff检查通过。
+本轮控件原生验收及完整桌面回归仍待继续，功能未提交。
+
+第5项窄面板前置（2026-10-25）：原生Rebased44688拖动上区列表/详情分隔线，
+上区日志可用宽度减小后User/Date/Paths进入右箭头菜单，搜索保留；下区宽度与
+工具栏保持不变。仅拖分隔线，没有自动化内容滚动。截图compare-reference-narrow.png。
+重读4aec352 platform/editor-ui-api/src/com/intellij/openapi/actionSystem/
+toolbarLayout/AutoLayoutStrategy.kt::doCalculateBounds：预留溢出按钮位置，
+放不下的后续控件隐藏到溢出入口。本地Pane新增自身工具栏分配宽度观察，复用
+主Log的650px阈值与PopupMenu子弹层命中规则；窄时收起三个过滤控件，仍访问同一
+UserMenu/PathsMenu实体及DateDialog。保留差异：阈值适配，不是完整Swing逐项
+宽度策略；宽/窄原生操作验收继续进行。
+
+第5项窄面板原生验收：Plico11452在上区Paths选择feature.txt得到0/0，下区仍1/1；
+缩窄上区后打开溢出菜单→路径→选择，改为shared.txt并Ctrl+Enter，上区显示两条
+及2/2，下区保持1/1。子弹层未因父菜单外部点击判定误关。截图
+compare-plico-{full-filters,path-applied,narrow,overflow,overflow-path,overflow-applied}.png。
+
+第5项过滤空结果前置：原生Rebased44688同一比较页上区输入不存在的主题
+plico-no-such-subject-20261025，显示居中的“No commits matching filters”和
+“Reset filters”链接，下区不变。截图compare-reference-empty-filter.png。
+实读4aec352的GitCompareBranchesUi.MyFilterUi.setCustomEmptyText及
+VcsLogFilterUiEx.java::setCustomEmptyText：附加条件空结果用通用文案与重置入口，
+无附加条件才用范围为空的专有文案。本轮先补已实测的过滤空结果，重置复用Pane
+已有clear_filters，仅清除本侧条件并保留比较范围；原生复验待构建。
+
+过滤空结果实现后原生验收：Windows release通过，关闭旧自用Plico11452后启动
+45580/2099310（仍仅一个自用实例）。同一比较页上区输入上述不存在主题，显示
+中文空结果和重置链接；点击链接后输入清空，上区恢复两条及2/2，下区保持feature
+及1/1。截图compare-plico-empty-{filter,reset}.png。本轮未测试下区选中提交保持；
+过滤重置隔离已有桌面状态测试，不把截图扩大为未操作过的选择保留验收。
+保留视觉差异：当前通用link样式为下划线/浅色，参考为蓝色；无附加条件的空范围、
+详情面板结构、图投影、引用刷新和整体文件差异仍需补齐，不宣称第5项完成。
+完整核心747通过（/tmp/plico-compare-full-core.log），桌面89通过/2按既有配置忽略
+（/tmp/plico-compare-full-desktop.log），另跑导航8通过（/tmp/plico-compare-navigation.log）。
+最后ghost改link为纯展示调整，Windows重建与原生点击通过；格式检查通过。
+
+第5项引用刷新前置：Rebased44688上区保留topic文本筛选，对自有reference仓库
+conflict-topic用commit-tree创建同树子提交并update-ref（babee4d→2d4139d），
+未切换分支、未改变工作区/index。原生比较页自动出现topic comparison refresh probe，
+输入仍topic，下区仍原有两条。截图compare-reference-ref-refresh.png。
+实读4aec352 GitCompareBranchesUi.kt::MyLogUiFactory（创建独立VisiblePackRefresher）
+与VisiblePackRefresherImpl.java::setDataPack/setValid/refresh：数据包变化重算可见范围，
+保留过滤状态；不存在打开页时永久固定范围OID的规则。
+本地View拥有引用解析任务与取消令牌，仓库既有refresh_impl通知比较页；重新解析
+原始引用名后更新两侧固定查询，保留各自已应用条件。手动刷新强制重查，引用未变
+的自动通知不重载普通查询；哈希查询还需刷新其他引用根。关闭/切库取消View请求。
+
+引用刷新原生复验：关闭旧自用45580，Windows新构建26776/49484496打开比较页，
+上区应用topic筛选显示1/1。自有Plico仓库conflict-topic通过同树commit-tree/
+update-ref由2850819变为32e2693；未手动刷新，上区自动出现probe并变为2/2，
+输入仍topic，下区feature与1/1不变。截图compare-plico-ref-{before,after}.png。
+未修改fixture工作区/index。仅保留此自用Plico及参考Rebased44688。
+定向桌面2项通过（/tmp/plico-compare-refresh-desktop.log）：真实临时仓库引用推进，
+已应用条件/未提交输入草稿隔离、连续刷新旧令牌取消、引用删除后失效结果清理及
+引用恢复后重载；Windows release通过（/tmp/plico-compare-refresh-windows.log）。
+本轮未重跑完整桌面套件；刷新选择/视口保持仍需对照并补齐，不能视作完整刷新验收。
+继续源码阅读GitCompareWithBranchAction.kt发现其入口先saveAllDocuments，当前本地
+比较入口尚未接保存屏障，列为第5项待补；GitCompareWithBranchPopup.kt为独立选取
+比较分支的树（排除当前本地分支、优先选择、搜索），后续入口对齐需先原生操作。
+
+比较刷新选择前置：Rebased44688选中上区topic conflict（babee4d），为自有
+conflict-topic再追加同树提交9496ed0。自动刷新后新提交在顶部，babee4d仍选中，
+右侧shared.txt及topic conflict详情保留。截图compare-reference-selection-refresh.png。
+重读4aec352 SelectionSnapshot.kt全文与VcsLogGraphTable.java::updateDataPack：
+发布新模型前捕获选择/视口，按提交身份恢复仍可见的选择；顶部随新增提交保持顶部。
+本地复用log_viewport::restore，在新页发布前保留旧行和详情，引用刷新替换同一
+有界窗口，已选OID仍在时保留，否则取消详情请求并清空。过滤替换继续清空选择。
+
+刷新选择实现后原生验收：Windows新构建37240/5768742，旧自用26776正常关闭。
+上区选中topic conflict，独立fixture同树追加a562637（前32e2693），自动刷新后
+新增提交在顶部，topic conflict仍选中，右侧shared.txt与详情保持，下区未变。
+截图compare-plico-selection-{before,after}.png。刷新期间保留旧列表，发布时按OID
+恢复选择；同一有界窗口保留已加载规模，不恢复到默认首批。复用主Log视口机制，
+偏离参考之处是非顶部锚定首个可见提交而非优先可见选择；内容滚动不做自动化验证。
+真实Git桌面回归增加选中→新增提交保持、引用重写导致选择消失清理详情，再覆盖
+引用删除/恢复。完整桌面90通过/2既有导航配置忽略（/tmp/plico-compare-selection-all-desktop.log）；
+本轮未再运行导航专用配置。Windows构建及格式检查通过。第5项仍未提交，整体差异、
+入口保存屏障、任意两分支选择、图投影及剩余UI仍待补齐。
+
+第5项整体差异入口前置（2026-10-25）：原生Rebased44688打开conflict-topic分支
+子菜单，Compare with current与Show Diff with Working Tree为并列独立入口。点击
+后不是比较Tab内的Files子页，而是左侧Changes工具窗口，标题Changes Between
+conflict-topic and Current Working Tree；包含feature.txt、local.txt、main.txt、
+shared.txt四项。local.txt是当前独立fixture未提交修改，证明其比较的是工作区。
+顶部说明当前工作树分支及目标分支，Swap branches链接改变方向，新增/删除颜色
+随方向改变，工作树标签与文件树保留；双击Diff及Get from branch尚未本轮实测。
+截图compare-reference-{branch-options,submenu,working-tree-result,working-tree-swap}.png。
+
+实读4aec352 GitBranchesUIHandler.kt::compare、GitShowDiffWithBranchPanel.kt全文、
+GitBranchWorker.java::loadTotalDiff、GitChangeUtils.java::getDiffWithWorkingDir/
+getDiffOutput、CompareBranchesDiffPanel.java::swapSides/refreshView/updateLabelText/
+OnSwapSidesTreeStateStrategy与GitLocalCommitCompareInfo.java::copyChangesFromBranch。
+现代分支比较使用双Log编辑Tab；工作区差异加载前saveAllDocuments，后台读取，
+关闭disposable后不接收结果。默认工作区在左、目标分支在右（diff -R），-M检测
+重命名，未跟踪文件不在该Git diff范围；交换是在已加载Changes端点上反转且保留
+文件选择，并持久化方向。Get from branch单独确认/保存/写操作，不是Swap的副作用。
+旧CompareBranchesDialog.java含Log/Files标签但现代GitBranchesUIHandler不调用它，
+不能拿旧Dialog给当前比较页增加无实机依据的布局。
+
+计划第5项范围不缩减：任意两个分支的纯树差异继续保留，需明确独立入口与标签；
+另对齐已证实的分支对工作区Changes面板，不能用纯树差异替代工作区比较，也不能
+把未提交修改放入声称两个分支版本的结果。现有CompareView仅接受两端完整OID，
+combined_changes::Revision只读Git blob；不能用空字符串/HEAD占位代表本地文件。
+下一步在既有Diff目标中显式建模工作区端点并复用Changes面板/保存屏障，先覆盖
+增删改名、交换方向、已暂存与未暂存、未跟踪排除、取消/错误，再接原生界面。
+本轮新增为已操作的入口/方向证据与实现依据，未声称整体文件差异已实现。
+
+第5项工作区比较数据层：新增working_comparison.rs，Endpoint显式区分Revision
+（固定commit/path）与WorkingTree（path），缺失侧使用None。load使用完整OID的
+name-status/-z/-M，不写index，不包括未跟踪文件；默认将端点排列为工作区→分支。
+Change.reversed只交换端点；按需read读取固定Git blob或复用Project.read_bytes的
+有界磁盘读取/取消/读取中变化检查，不缓存本地内容，也不以HEAD冒充本地端点。
+复用git::parse_names，未另建Git输出解析器。核心真实仓库测试验证暂存后继续编辑
+读取磁盘最终内容、增删改名、方向交换、index字节与HEAD不变、未跟踪排除、文件
+后续编辑实时读取、磁盘删除报错、二进制文本预览拒绝、非法OID及取消。
+branch_compare集成5项通过（/tmp/plico-working-comparison-core.log）。
+尚未连接DiffTarget/Chain与界面，不宣称工作区比较可见功能已交付。当前文本内容
+读取不支持二进制、gitlink或符号链接；遇到unmerged状态会返回错误，这些边界仍需
+参考现有Diff支持与Rebased进一步完成，不能把数据层临时限制当最终功能范围。
+
+工作区Diff接入前置：Rebased44688在已交换方向的Changes面板双击local.txt，打开
+Changes: local.txt编辑Tab；左侧固定9496ed0e内容keep，右侧Current version内容
+unstaged work，文件导航2/4且左侧保持local.txt选中。截图
+compare-reference-working-tree-diff.png。实读4aec352 ChangeDiffRequestProducer.java
+的CurrentContentRevision身份比较及createContent/getRevisionTitle/MASTER_SIDE片段，
+ChangeDiffRequestChain.java的ListSelection/getRequests/createGoToChangeAction：
+每项包含明确两端来源，导航在同一变化列表，工作区侧并不必然位于右边。
+
+本地DiffTarget.Identity和ChainData新增独立working_comparison端点元数据，避免
+伪造Commit/HEAD；read_contents统一分派原有combined和新工作区端点，content_paths
+提供各侧真实路径，DiffTab复用from_sources及标题映射。源文件跳转按本地端点路径
+而非交换后的右端路径，避免重命名反向比较跳到已不存在的旧名。Chain导航保留
+固定端点方向；反向目标身份不同，不能复用同方向游标。暂不经HEAD编辑加载路径。
+核心回归增加导航step/fork、反向身份拒配、重命名source_path以及按需内容读取；
+旧read_combined调用和对应测试统一迁移到read_contents。左侧入口/编辑能力与
+Windows实际Plico界面仍待接入验收，不把只读数据连通宣称为整体功能完成。
+
+Diff端点接入回归结果：完整核心748通过（/tmp/plico-working-target-all-core.log），
+桌面90通过/2按既有配置忽略（/tmp/plico-working-target-all-desktop.log），导航专用
+配置8通过（/tmp/plico-working-target-navigation.log）。cargo check及格式检查通过。
+本轮没有启动额外Plico或重建Windows；当前原生Plico37240仍是上一轮选择保持构建，
+新工作区端点尚未有用户可操作入口，Windows功能验收不能沿用旧构建截图。
+
+第5项工作区比较入口接入（2026-10-25）：沿用上述Rebased原生入口、Changes面板及
+工作区Diff三组截图；重读4aec352 GitShowDiffWithBranchPanel.kt的saveAllDocuments、
+后台读取与disposed检查，以及actions/branch/GitCompareWithBranchAction.kt的保存顺序。
+CompareView新增明确的工作区来源，刷新重新解析目标分支OID，复用working_comparison
+与Chain；两端提交比较仍保留。提取Review.show_comparison共用现有Changes预览、
+选择同步、跨文件导航和关闭生命周期。顶部分支菜单与Log分支菜单增加独立“与工作树
+比较差异”入口，并提供中英文标题。读取前等待现有文档保存屏障；刷新按钮和错误
+重试均发事件交由Review保存后读取，旧面板被替换则不再响应迟到的保存回调。
+双Log比较也补上待保存文档屏障。引用解析提取为branch_compare::resolve_reference，
+仍只接纳HEAD/完整本地或远端分支引用，不引入任意revision表达式。
+新增桌面真实仓库回归覆盖工作区差异列表、导航目标路径、刷新保留选择、连续刷新取消、
+分支删除后的错误/清理与重建恢复。完整桌面91通过/2按既有配置忽略。
+方向交换说明/持久化、工作区侧编辑、特殊文件类型及剩余树控件仍待补齐；此次接入
+不代表第5项完成。原生新构建与导航专项结果另行记录。
+
+本轮入口原生验收：Windows release构建通过（/tmp/plico-working-panel-windows.log），
+只正常关闭旧自有Plico37240并替换构建；新44748/1247494，参考Rebased44688保留。
+顶部分支conflict-topic子菜单点击“与工作树比较差异”，左侧Changes显示feature.txt、
+local.txt、shared.txt，Windows Git同一fixture diff名称列表也为这三项（参考fixture
+当前分支不同，有额外main.txt，不能直接把两者文件数量当布局差异）。双击local.txt，
+左侧工作区unstaged work，右侧a562637c keep，导航2/3。点下一文件变3/3 shared.txt，
+复用同一预览Tab且左侧选择同步。截图working-panel-{menu,result,diff,next}.png已查看并
+复制到artifacts/collaboration-workflows-20261024。当前确认为只读预览；工作区标题仍有锁、
+Tab前缀仍“仓库差异”，需随编辑能力和展示细化继续对齐，未宣称完整像素还原。
+导航专项8通过（/tmp/plico-working-panel-navigation.log），核心分支比较5通过
+（/tmp/plico-working-panel-core.log），格式及diff空白检查通过。
+
+第5项方向交换（2026-10-25）：前置沿用compare-reference-working-tree-{result,swap,diff}
+原生截图与操作记录。重读4aec352 CompareBranchesDiffPanel.java::swapSides/refreshView/
+updateLabelText/OnSwapSidesTreeStateStrategy：读取后仅交换Revision端点，不重新查询；
+交换后的变更用于恢复树选择，说明文字随方向改变，读取时禁用交换。GitVcsSettings.java
+（plugins/git4idea/shared）使用项目WORKSPACE_FILE保存该偏好。
+本地Chain.reversed_working_comparison保持固定端点及文件游标；CompareView交换后
+重建树并发Reloaded替换既有Diff预览，展开选中文件的新路径祖先；刷新重新查询后
+应用保存的方向。新增方向说明/交换入口及中英文文案，保存偏好复用带项目身份校验
+的本地布尔设置，未写入版本库或Git配置。选中重命名项时按原变更索引交换，不靠
+交换前后可能不同的展示路径猜测身份。核心补充双次交换身份/游标测试，桌面补充
+选中项交换、重复交换恢复及刷新后的方向保持；91桌面测试通过、2按专用配置验证。
+说明与链接排版仍有差异，原生新构建核对与剩余项另记。
+
+方向交换本轮验收：核心完整748通过（/tmp/plico-compare-swap-all-core.log），桌面91
+通过/2按既有配置另跑，导航专项8通过；Windows release重建通过。正常关闭旧自有
+44748后，新Plico21760/29627122在同一fixture双击local.txt并交换方向：同一Tab保持
+2/3与左侧local.txt选择，左侧a562637c keep、右侧工作区unstaged work；刷新后方向与
+选择不变。截图working-swap-{initial,result,refresh}.png已查看并复制到上述artifacts。
+说明文字位于文件树上方；交换链接目前单独居中一行，与参考行内链接及分支加粗有差异，
+文件颜色、工作区编辑、锁图标与Tab前缀仍待下一步处理。仅保留自有Plico21760和
+Rebased44688；本轮未自动化滚动，未新增或修改fixture提交。格式及diff空白检查通过。
+
+第5项比较说明和文件颜色细化（2026-10-25）：重新查看此前原生working-tree-swap截图，
+实读4aec352 ChangesBrowserChangeNode.java::render（shared目录）按change.getFileStatus
+着色、CompareBranchesDiffPanel.updateLabelText使用加粗分支与行内链接、DvcsBranchUtil
+.swapRevisions单侧缺失时重建状态。CompareView复用ui_style::change_color；交换后新增/
+删除颜色随端点改变。说明使用StyledText+InteractiveText，分支加粗、行内蓝色交换链接
+随文字自然换行；加载/错误时不注册可点击范围。只扫描原始翻译模板做替换，避免真实
+分支名中的花括号被误作为另一个占位符。旧的整行居中按钮已移除。
+cargo check、Windows release构建通过。只关闭自有Plico21760，替换后22000/1706850
+打开同一比较；项目已保存方向在重启后恢复，feature.txt绿色、修改文件蓝色。点击
+行内交换链接后方向文字改变，feature.txt灰色，选中项保持。原生截图working-inline-
+{initial,swapped}.png已查看并复制。说明/颜色这次未重跑不相关核心测试，未宣称完整
+工具栏/文件树已全部还原；此前根节点/计数/分组/工具栏等差异仍在。
+
+工作区编辑前置实机验证：Rebased44688/29167666，仍为独立reference fixture，先在
+右侧Current version输入EDIT_PROBE、截图compare-reference-edit-right.png，再撤销；
+交换方向后在左侧Current version输入LEFT_PROBE，截图compare-reference-edit-left.png，
+固定9496ed0e侧keep未改且锁图标跟随提交侧，中间采纳箭头反向。撤销并保存后磁盘
+local.txt读取为精确b'unstaged work\\n'，测试内容已恢复。start/right/left截图均保存。
+本地EditableDiff.new/recompare、working_copy.read_base审查确认现有编辑路径将工作
+文档绑定modified侧、基线默认HEAD/index；不能直接启用working_tree_document绕过限制。
+下一步需将编辑端点、固定基线、显示方向及采纳方向一起接入；本轮未宣称编辑已实现。
+
+第5项编辑端点读取（2026-10-25）：沿用上一轮已操作的Rebased左/右Current version
+编辑与撤销截图。继续实读4aec352 ChangeDiffRequestProducer.java::createContent/
+createRequest：CurrentContentRevision经VirtualFile创建共享内容，固定版本走字节内容，
+MASTER_SIDE选择工作区实际所在侧；SimpleDiffViewer.isEditable/ApplySelectedChangesActionBase
+按目标侧判断编辑资格，替换操作只写目标编辑器Document。
+本地working_comparison新增WorkingSide与EditableContents，包含真实工作文件路径、
+显示侧与既有working_copy::Contents；read_editable要求恰好一个工作区端点，固定
+revision/path读取基线，Project读取磁盘并保留Document原始字节，不从HEAD/index
+推断比较基线。不允许将缺失的本地端点自动创建为可写文件；双工作区/无工作区端点
+拒绝。只提取共用端点文本读取，没有改变原有只读Diff入口或提前开启编辑。
+新增真实仓库测试：目标提交固定后HEAD前移并重命名，index与工作区内容各不同；
+两个方向都读取旧提交base和新路径磁盘内容；BOM/CRLF保留，未编辑begin_save无操作，
+编辑后Save.expected仍是磁盘原字节，Save.bytes保留编码/换行。验证仅本地新增、删除
+缺失、双本地端点、越界路径、二进制、磁盘删除及取消，并确认读取不写HEAD/index/
+工作文件。分支比较集成6通过（/tmp/plico-comparison-editable-core.log）。
+本轮是编辑数据准备，尚未连接EditableDiff左右侧渲染、统一模式、采纳/保存、文件事件
+及标题锁图标，不能视为工作区编辑功能交付。Windows现有22000仍是上一轮UI构建。
+
+第5项左右工作区编辑继续（2026-10-25）：EditableDiff 将显示侧与工作文档身份分开，
+双栏左侧工作区也绑定共享 Document，固定侧保持只读，采纳箭头方向随工作区改变。
+实际工作路径取 source_path，避免交换重命名方向后将固定版本旧路径当作保存路径。
+新增左侧编辑/采纳/撤销/旧结果拒绝/布局恢复测试；上一轮桌面92通过、导航专项8通过，
+见 /tmp/plico-comparison-oriented-all-desktop.log 和 oriented-navigation.log。
+目前加载入口仍未启用该能力，避免统一模式和文件事件尚未衔接时暴露半成品。
+
+统一模式前置：自有 Rebased44688/29167666（1.1.20，参考源码仍4aec352）比较相同
+local.txt，工作区在左侧。切统一模式，灰色旧行 unstaged work 可追加 UNIFIED_PROBE，
+绿色固定9496ed0e行 keep 不变；撤销后，在绿色行粘贴 FIXED_PROBE 被拒绝，内容未变。
+磁盘仍为 b'unstaged work\n'。截图 compare-reference-unified-left{,-edit,-readonly}.png
+保存于 artifacts/collaboration-workflows-20261024。布局仍旧行在前、新行在后，
+不能为了编辑绑定而倒置统一展示。未测试该参考模式下所有输入法组合状态。
+实读 platform/diff-impl/src/com/intellij/diff/tools/fragmented/UnifiedDiffViewer.java：
+构造器根据唯一可编辑侧设置 myMasterSide；installEditorListeners 将 Undo 关联 master
+文档；应用结果时按 masterSide 选择另一侧 change range 建立 guarded block，并保护
+fake newline。对应本地 UnifiedEditProjection 增加显式工作侧，保留旧→新显示顺序，
+固定片段与用于换行的虚拟字节不得映射到工作文件。UnifiedEditing 调用层及最终加载
+接入仍待完成，不能视为工作区比较编辑功能交付。
+统一映射本轮验证：unified_edit_projection 8项全部通过，覆盖左右显示方向、固定片段
+输入拒绝、中文/emoji字节映射、空文件、末尾无换行、编辑后只读区域保持和源位置往返；
+日志 /tmp/plico-left-projection-tests.log。cargo check --locked 通过，cargo fmt --package
+plico 与 git diff --check 通过。本轮仅修改映射基础设施，尚未构建新的 Windows Plico，
+原生 Plico 编辑验收待调用层接入后进行；不把参考程序截图计作本地功能验收。
+
+统一编辑器接入（2026-10-25）：继续依据上节 Rebased 原生左右工作区与统一模式截图、
+UnifiedDiffViewer 的 masterSide/guarded block/共享Undo规则。UnifiedEditing 构造器显式
+接收工作侧，刷新校验对应源文本，按显示侧设置高亮，但将编辑和Undo转到工作文档；
+从固定行跳源码时返回固定侧，从工作行返回实际工作侧。EditableDiff 创建统一视图、
+清除工作区布局间隙、F7定位与延后定位改为选择工作区实际侧，显示仍旧→新。
+新增左侧输入、固定行输入拒绝、共享Undo、两侧源位置及外部文本变更后拒绝旧映射
+用例；原双栏左工作区用例增加切换统一模式的展示内容核对。初次测试编译缺少测试
+模块 DiffSide 导入，已补齐后重跑。桌面93通过、2按专用配置另跑，导航专项8通过，
+日志 /tmp/plico-unified-side-{desktop,navigation}.log。git diff --check通过。
+加载入口仍保持原有限制：需一并接通固定比较基线刷新、真实磁盘路径、标题锁图标
+和部分提交资格后才开启工作区比较编辑。尚未新增Windows Plico构建或原生验收，
+不宣称第5项已交付；现有只读比较入口行为不变。
+
+第5项工作区加载接通（2026-10-25）：沿用已验证的 Rebased 左/右 Current version
+及统一模式原生证据，ChangeDiffRequestProducer 固定revision内容/共享本地Document、
+SimpleDiffViewer 目标侧编辑资格和 UnifiedDiffViewer masterSide 规则。
+Change::working_path/read_baseline 统一验证恰好一个工作端点；working_copy::read 对
+显式比较读取固定基线与真实磁盘文档，read_base 即使磁盘文件删除也只读固定提交。
+Target::working_tree_document 暴露实际工作路径，Gitlink检测也改用实际路径，避免
+交换重命名方向后误查旧路径。DiffTab 初次加载按工作侧排列源文档；只读显式比较的
+文件事件走端点读取，事件匹配取实际工作路径，标题锁图标按editable_side显示。
+分块提交作用域仅用于原本HEAD/工作树比较，不让任意分支基线进入提交选择模型。
+真实仓库验证两个方向经working_copy入口读取，HEAD/index/disk三个版本不同仍得到
+选定提交，删除磁盘文件后read_base成功而完整可写文档读取失败。核心分支比较6通过。
+新增DiffTab真实异步loader测试验证两个方向均生成可编辑Contents且源顺序正确；首次
+测试误将Chain工厂元组当Chain使用，修正后桌面94通过、2按专用配置另跑。
+本轮日志 /tmp/plico-working-loader-{core,desktop}.log；原生验收另记。
+本轮导航专项9通过（包含新增loader用例）；Windows release构建成功。
+正常关闭自有22000后启动新48844/4522358，保留Rebased44688。原生同一fixture，
+local.txt左侧工作区输入LEFT_SAVE_PROBE并Ctrl+S，磁盘精确读取为
+b'unstaged work LEFT_SAVE_PROBE\n'；撤销保存后交换方向，锁图标到左边、采纳箭头向右，
+右侧输入RIGHT_SAVE_PROBE保存亦只写同一文件。再次撤销保存、交换回左工作区，统一
+模式第一行输入UNIFIED_SAVE_PROBE保存，磁盘仅工作行更新，不含固定keep行；撤销保存后
+第二行keep粘贴FIXED_PROBE被拒绝，最终磁盘精确恢复b'unstaged work\n'。
+截图working-edit-{loader,left-start,left-saved,swapped,unified-left,unified-saved,
+unified-readonly}.png保存于既有artifacts目录。未新增测试实例堆积或自动化滚动。
+发现剩余展示差异：统一模式仍将替换块两行都画蓝色且只有统一行号，Rebased是旧行灰/
+新行绿与两侧行号；当前Tab前缀“仓库差异”也待改为Changes语义。上述差异尚未修复，
+本轮仅证明工作文档与固定版本隔离、编辑保存及左右方向，不宣称像素级完成。
+
+统一Diff着色修正（2026-10-25）：前置原生对照沿用上一轮已查看的
+compare-reference-unified-left-readonly.png 与 working-edit-unified-readonly.png：参考旧行灰/
+新行绿，本地误将替换块两行都画蓝色。实读4aec352 UnifiedDiffChangeUi.doInstallHighlighters
+委托DiffDrawUtil.createUnifiedChunkHighlighters；后者无论是否同时包含插入/删除，都按
+DELETED/INSERTED给对应行及inner fragment着色。双栏替换规则不能直接用于统一编辑器。
+本地DiffFile保留双栏editor_change_highlights接口，新增unified_editor_highlights，
+共用范围和词级inner计算、仅区分颜色语义；UnifiedEditing改用统一规则。定向测试
+验证替换块两侧的行底色/inner颜色及双栏仍为蓝色，9项projection测试全部通过。
+源码路径platform/diff-impl/src/com/intellij/diff/{tools/fragmented/UnifiedDiffChangeUi.java,
+util/DiffDrawUtil.java}。双侧行号仍待实现：已读UnifiedDiffViewer安装两套converter，
+UnifiedFragmentBuilder按旧→新顺序构建两侧映射，LineNumberConvertor.Corrector区分
+同步/异步编辑并立即修正受影响区间；不能只保存重新比较时的静态行号。
+着色原生验收：Windows构建通过，正常关闭自有48844后新41028/15863152打开同一fixture
+local.txt；统一模式第一行unstaged work灰色、第二行keep绿色，固定提交锁图标保持。
+截图working-unified-colors.png已查看并保存。旧/新颜色分类已修正，精确色深仍需连同
+inner高亮选项核对，不宣称全部像素一致。双侧行号、统一模式采纳图标仍未接通。
+另读取LineNumberConvertorCorrectorTest.kt的相同行区间增/减行、等长替换、多次修改和
+修改区间内部再次编辑用例，后续行号实现需覆盖这些即时修正行为。
+
+统一Diff双侧行号（2026-10-25）：沿用前置已查看的Rebased统一模式截图与编辑/撤销
+场景，重读UnifiedDiffViewer.MyOnesideDocumentListener：以编辑首行至末行+1为区间，
+工作侧同步修正，固定侧区间失去精确映射，之后重新比较。LineNumberConvertorCorrectorTest
+覆盖多次与区间内部修改。UnifiedEditProjection现在记录紧凑双侧行号（每行8字节），
+apply_edit同步替换受影响区间并移动后续工作侧行号，固定侧后续行号不变；渲染只查询
+可见行，不每帧扫描整篇源文件。UnifiedEditing关闭投影自身顺序行号，使用两列源码
+行号；遵循line_numbers显示偏好。10项projection测试通过，新增左右工作侧连续插行、
+等长替换、固定映射失效/后续保持测试。桌面94通过、导航专项9通过。
+补充Rebased原生插行：44688/29167666在工作行尾Enter并输入LINE_PROBE，左行号1/2、
+固定keep仍右1、末尾共同空行左3右2。截图reference-unified-insert-line.png含输入法候选
+窗口，因此不作为精确颜色样本；撤销并保存后磁盘精确恢复b'unstaged work\n'。
+首次原生32236/3607394发现行号空白（working-unified-lines-before-order-fix.png），原因
+为gutter在editor前prepaint，读取到尚未建立的source_geometry。改为DOM/绘制顺序先
+editor后gutter，并使用flex_row_reverse保持gutter视觉上仍在左侧，与现有双栏右侧
+外置gutter使用编辑器本帧几何的原则一致。编译通过；修正后原生验收另记。
+绘制顺序修正后的Windows构建与原生30424/21892266验收通过，正常替换自有32236。
+初始两行分别显示左1/右1，末尾空行2/2；工作行末粘贴换行+LINE_PROBE后左1/2、
+固定keep右1、末尾3/2，与参考插行结果一致。截图working-unified-lines-{fixed,insert}.png
+已查看并保存；撤销保存后磁盘精确恢复b'unstaged work\n'。未测试自动滚动。
+最终桌面94通过、导航专项9通过（/tmp/plico-unified-lines-final-{desktop,navigation}.log）。
+尚余统一模式采纳操作栏、gutter背景贯通和精确间距等差异；本轮只验收行号映射和
+同帧布局，分支比较整个第5项仍在进行中。
+
+统一模式采纳入口前置（2026-10-25）：自有Rebased44688/29167666，工作区在左的
+local.txt，点击差异块首行勾号，工作文档变为固定版本keep，显示Contents are identical；
+撤销保存后交换左右，首行图标变为回退箭头，点击并保存磁盘为b'keep\n'，再次撤销
+保存精确恢复b'unstaged work\n'。截图reference-unified-accept-{left,right-start}.png。
+实读4aec352 UnifiedDiffChangeUi.createOperation/getApplyIcon/createAcceptOperation：
+图标位于block首行；源侧LEFT使用Diff.Revert，源侧RIGHT使用Actions.Checked；过期
+比较或目标不可写时不提供操作，执行为目标文档WriteCommand并立即请求rediff。
+本地UnifiedEditing缓存每个变更块在统一投影的起始行；EditableDiff增加独立24px操作
+列，复用已有checked/rollback资源和revert_change的generation/当前文本/写锁保护。
+只在比较与工作文本一致时建立命中区；点击后焦点回到可见统一编辑器，Undo仍转到
+共享工作文档。行号隐藏偏好不隐藏采纳操作。原生本地验收与测试结果另记。
+
+### Worktrees 操作栏与标题间距修正（2026-10-25）
+
+本轮先操作自有 Rebased 1.1.20 / IC-262.10968.SNAPSHOT（44688），Find Action →
+Worktrees，截图 `artifacts/collaboration-workflows-20261024/worktree-spacing-reference.png`。
+操作栏在底部 Git 面板内部独立竖排，图标不贴容器边缘；Git 标题与内容页签分区。
+本轮读取参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd` 的
+`plugins/git4idea/backend/src/workingTrees/ui/GitWorktreesTabPanel.kt`：工具栏为独立
+VERTICAL action toolbar，置于 worktreeListPanel 左侧；读取
+`platform/platform-impl/src/com/intellij/openapi/wm/impl/content/TabContentLayout.java`
+的 getMinimumWidth，标题按首选宽度及 Insets 计入最小布局，不被当作可压缩列表内容。
+源码快照与安装版本不同，未将截图测量值声称为上游固定常量。
+
+Plico 修改前截图 `worktree-spacing-before.png`，同目录。`src/ui/worktrees.rs`：
+操作列宽度 36 → 44 逻辑像素，增加左右各 4px 内边距；Git 与 Worktrees 间距
+16 → 24px，标题和标签禁止 flex 收缩。保留已有按钮尺寸、顺序和点击行为。
+这是本轮按用户反馈的间距细化；未添加参考中独立 Console 页签及帮助按钮，
+不宣称整个工具窗口已逐像素一致。Windows 构建与修改后截图待下述验收。
+
+本轮验收：Windows release 构建通过（53.68s，`/tmp/plico-worktree-spacing-build.log`），
+fmt 检查及 diff whitespace 检查通过。仅正常关闭自有 Plico 30424，再启动 43608，
+点击左下 Git 打开 Worktrees；修改后截图 `worktree-spacing-after.png`，缩窄窗口截图
+`worktree-spacing-narrow.png`（均在上述 artifacts 目录），已查看确认操作列留白、
+标题与页签间距正常，缩窄后未压缩重叠。纯布局修改未新增镜像测试，未运行 CI。
+
+统一模式采纳与撤销验收（2026-10-25）：补上测试专用 debug_selector 后，鼠标点击
+回归暴露真实问题：过期映射期间将整个投影编辑器设为 readonly，阻断立即 Undo。
+再次读取同参考 UnifiedDiffViewer.java 的 ORIGINAL_DOCUMENT Undo 关联与
+isEditable/getDocument：撤销属于 master document；本地保留写锁 readonly，
+过期映射由 UnifiedEditing 的 edit_guard（有效标记、源文本一致性、可编辑区间及写锁）
+拒绝输入，而不阻断共享文档撤销。新增测试实际鼠标采纳、固定侧不变、可见编辑器
+焦点、过期输入拒绝及直接 Ctrl+Z；不是通过等待 rediff 掩盖此时序问题。
+
+完整桌面 95 通过、2 既有忽略（/tmp/plico-unified-accept-full.log），导航专项 9 通过
+（/tmp/plico-unified-accept-navigation.log）。Windows release 构建通过，替换并关闭
+自有 43608 后启动 32552 / HWND4131146。独立 fixture 的 local.txt，工作区在左点击
+勾号并 Ctrl+S，磁盘精确为 b'keep\n'；不另点编辑器，Ctrl+Z/Ctrl+S 精确恢复
+b'unstaged work\n'。交换方向后显示 rollback 图标，重复采纳、保存、撤销恢复成功。
+截图 artifacts/collaboration-workflows-20261024/unified-accept-{left-result,right-start}.png
+已查看。仅保留一个自有 Plico 与一个 Rebased。CI 未运行；行号/操作列背景连续高亮、
+悬停提示及 Contents are identical 横幅尚有视觉差异，分支比较整体仍未完成或提交。
+
+相同内容提示前置与实现（2026-10-25）：再次操作自有 Rebased44688 的 unified local.txt，
+工作侧在右，点击 rollback；截图 `reference-unified-identical.png` 已查看，信息条位于
+工具栏与版本标题之间，蓝色信息背景，右侧 Hide。之后 Ctrl+Z/Ctrl+S 恢复 fixture。
+同参考 commit 实读 UnifiedDiffViewer.java::apply、TextDiffViewerUtil.java::
+createEqualContentsNotification/areEqualCharsets/areEqualLineSeparators、
+platform/diff-impl/src/com/intellij/diff/tools/util/DiffNotifications.kt。
+上游在完整比较相同时按 charset/BOM/换行符生成不同消息；隐藏仅隐藏当前 notification。
+
+本地 DiffTab 将可编辑 Diff 的通知提升到版本标题之上，提供 Hide；新比较结果恢复提示，
+切文件重置隐藏状态。EditableDiff::equality_notice 要求缓存结果与当前工作文本一致，
+过期结果立即不显示；区分文本相同与仅换行符不同，统一/双栏共享此位置。
+当前 Contents 的基线读取已剥离 BOM，不能可靠判断编码标记差异，因此临时使用明确的
+“Text contents are identical / 文本内容相同”，不冒充字节一致；完整编码属性提示仍待补齐。
+信息图标和只读历史 Diff 的同类通知也尚未纳入本次，保持差异记录。
+
+本轮验收：完整桌面96通过、2既有忽略，导航专项9通过；补充基线一致性保护后
+定向 equality_notice 回归通过。Windows最终release构建通过（日志
+/tmp/plico-equality-windows-final.log）。自有27340/4131682：采纳全部差异后提示条
+位于工具栏与版本标题之间，点击右侧收起后内容上移，撤销恢复差异后无旧提示；
+截图 plico-unified-identical{,-hidden,-undo}.png 已查看，保存于上述 artifacts 目录。
+Ctrl+Z/Ctrl+S 后校验 fixture 精确恢复 b'unstaged work\n'。格式/空白检查通过，
+未运行CI；前述编码属性、图标、历史只读通知差异仍待处理，未宣称本项整体完成。
+
+合并冲突中的工作树比较（2026-10-25）：新增独立仓库
+compare-conflict-reference-20261025，main/topic 同行冲突，另一个文件有普通工作区修改。
+自有 Rebased1.1.20 25596；仅信任这个测试目录，取消 Defender 排除选项。
+分支 topic → Show Diff with Working Tree，在合并进行中仍可打开，列表显示两个蓝色修改
+文件；双击 conflict.txt 是工作区冲突标记文本与 topic 的普通双栏比较，不自动替换为
+三方解决器，也不要求先解决冲突。截图 compare-conflict-reference-{list,diff}.png
+已查看并保存于 artifacts/collaboration-workflows-20261024。
+实读4aec352 GitChangeUtils.java::getDiffWithWorkingDir/getDiffWithWorkingTree/parseChanges：
+U 记录具有前后内容；不过本次真实 Git diff <OID> 输出两个 M，不能把 load 中的 U 拒绝
+分支直接声称为已复现的全表失败。原先“整个列表遇到冲突一定失败”的推测被本轮证据否定。
+
+新增 tests/branch_compare.rs::working_comparison_during_merge_preserves_conflict_stages_and_other_files：
+真实合并产生冲突，双向比较读取固定 topic 内容与完整冲突标记，普通修改仍可读；检查
+全部 index stages、HEAD、MERGE_HEAD 和冲突文件字节未变化。7项 branch_compare 集成测试
+通过（/tmp/plico-working-conflict-tests.log）。本轮不添加无证据的全仓冲突门禁、不更改
+查询语义。U 分支的极端输入尚未原生复现，保留待核对而不冒称已修复。临时参考窗口已请求
+正常关闭，原有参考窗口保留。本轮只新增测试和记录，无产品二进制变化。
+退出补记：原生 Confirm Exit 点击 Exit（未勾选不再询问），等待自有25596退出；
+不终止原来的44688参考窗口。
+
+分支比较过滤图的数据层准备（2026-10-25）：本轮重新读取4aec352的
+platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/facade/FilteredController.kt
+及 collapsing/DottedFilterEdgesGenerator.kt，规则为完整永久拓扑上的可见集合，
+跨隐藏行以 dotted edge 连接，分页箭头不能由缺失父节点臆造；GitCompareBranchesHelper
+明确两侧使用相反的 first..second 范围。
+
+src/branch_compare.rs 新增 Query::graph_page，复用现有 filtered_graph::window，
+以固定 included OID 的完整祖先拓扑为图，以 excluded..included 加详情过滤选可见 ID；
+hash 命中继续使用 prepare 固定的 roots/IDs 并覆盖范围。原先尝试只取范围拓扑会被
+真实Git测试报“parent history is missing”，现已修正为完整祖先输入。投影后按原始ID
+读取 Commit 元数据，Commit.parents 不被虚线连接改写。分页先投影再切片，保留同一
+lane/segment；限制仍为已有100,000节点/500,000边与geometry预算，不静默截断。
+Repository 提取私有 bounded_topology_revisions，新增完整OID验证的范围入口；
+路径查询使用 literal-pathspecs，避免方括号等文件名被当成通配符。
+
+新增真实Git用例覆盖可见→隐藏→可见的虚线、原父提交、分页geometry一致、范围相反的
+空结果、取消；扩展路径过滤的merge双亲和hash覆盖用例。8项分支比较集成通过。
+本轮仅准备查询/投影数据层，尚未替换原生 BranchPane 的布局调用；原生分支比较过滤
+截图对齐和UI接入仍是下一步，不能据此声称界面已修复。全核心回归正在运行，另记结果。
+
+本轮全核心回归完成：751项通过（/tmp/plico-branch-projection-core.log），命令正常退出0；格式与diff空白检查通过。UI未接入，未新增Windows二进制或宣称原生验收完成。
+
+
+分支比较过滤图 UI 接入与原生验收（2026-10-25）：
+`Query::needs_graph_projection` 只在详情过滤或 hash 定位时启用完整拓扑投影；无过滤
+仍使用既有范围分页。`src/ui/branch_compare.rs::Pane::load_more` 接收投影行并按
+替换/追加窗口更新 graph，避免再次对过滤后的 Commit 数组直接布局。原始 parents
+仍供 Diff 使用。刷新测试增加可见—隐藏—可见链，验证刷新保留过滤且 graph 含虚线。
+
+原生参考沿用 Rebased 1.1.20（源码规则见上一节）。两份独立测试仓库均通过
+commit-tree 创建 graph-projection-test 三提交链，未切换 HEAD 或修改工作区/index。
+从分支菜单 Compare with current 打开比较，输入 projection-visible 并确认：上方
+从三条变为两条，以虚线跨越隐藏提交；下方无独有提交。参考截图
+`artifacts/collaboration-workflows-20261024/projection-reference-{compare,filtered}.png`。
+正常关闭自有 Plico 27340，替换本轮 Windows release 后启动 21924，按同样步骤操作，
+截图 `projection-plico-{compare,filtered}.png`（同目录）。已查看确认两条结果间虚线、
+计数 1–2 / 2、另一侧过滤独立；未进行滚动自动化。
+
+Windows 构建通过（/tmp/plico-projection-windows.log）；聚焦 UI 两项通过，全部桌面
+回归 96 项通过、2 项忽略（/tmp/plico-projection-desktop.log）。本轮验证的是过滤图
+接入，不代表整个比较界面完成：引用选择、文件区工具栏、空态布局和日期/引用展示等
+仍需逐项对齐。只保留自有 Plico 21924 和原参考 Rebased 44688，没有新增常驻实例。
+
+
+分支比较空态补齐（2026-10-25）：先在自有 Rebased 44688 的 graph-projection-test
+比较页输入 no-such-projection-commit。上方显示 No commits matching filters 和 Reset
+filters，下方未过滤的空范围显示 graph-projection-test contains all commits from
+renamed-untracked；见 artifacts/collaboration-workflows-20261024/compare-reference-empty.png。
+对应 4aec352 的 plugins/git4idea/backend/src/branch/GitCompareBranchesUi.kt：
+MyFilterUi.setCustomEmptyText 仅当存在 range/root 以外过滤时委托通用空态，否则使用
+range.start contains all commits from range.end。shared/resources/messages/GitBundle.properties
+确认该文案。旧 CompareBranchesLogPanel 属于另一实现，不作为当前原生布局依据。
+
+本地 src/ui/branch_compare.rs 将加载结束且无错误的空列表统一交给空态布局：有额外
+过滤时保留重置入口，无过滤时按当前比较方向显示包含关系。src/i18n.rs 增加对应中文。
+提示文本置于有左右内边距的全宽文本容器中；不把请求错误或加载中误报为已包含。
+本轮只改已有空态展示，无新 Git 查询。Windows 修改后验收待补。
+
+原生验收补记：Windows release 构建通过（/tmp/plico-compare-empty-build.log，66秒）。
+正常关闭自有21924并启动新构建39748，同一测试分支完成空结果和点击重置验证。
+截图 compare-plico-empty.png 同时显示上方过滤空态/重置与下方正确的包含方向；
+compare-plico-reset.png 确认点击后恢复三条提交，另一侧仍保留包含提示。均位于上述
+artifacts目录并已查看。本轮布局/文案改动未新增镜像测试，未重复全套回归；fmt和
+空白检查通过。英文代码文案已核对资源，英文原生截图及极窄宽度长名称仍待后续验收。
+
+
+分支比较提交元数据（2026-10-25）：原生 Rebased 44688 在同一测试比较页重置过滤，
+选择首条 projection-visible last，右侧上方为空文件区，下方显示加粗等宽正文、短hash、
+作者邮件及提交日期；截图 artifacts/collaboration-workflows-20261024/compare-reference-details.png。
+读取4aec352的 platform/vcs-log/impl/src/com/intellij/vcs/log/ui/details/commit/CommitDetailsPanel.kt：
+messagePanel 与 hashAndAuthorPanel 分离，先正文再元数据，侧边距14；refs及包含分支另列。
+本地 src/ui/branch_compare.rs 复用 plico::commit_presentation，后台详情请求一次生成
+双语正文/元数据；不在 render 中重新解析，不增加 Git 子进程。选择变化和刷新清空
+presentation，沿用详情generation拒绝迟到结果。正文使用已有等宽 TextView、元数据
+采用界面字体，两者支持选择复制；语言切换无需重读Git。refs/包含分支、可拖动的详情
+高度和文件区工具栏尚未接入，不宣称全部右侧布局已一致。修改后原生验收待补。
+
+验收补记：两项分支比较 UI 回归通过（/tmp/plico-compare-metadata-tests.log），其中
+刷新测试验证 presentation 含选中提交的正文/短hash，提交离开结果集时同步清空。
+测试曾发现 presentation 未写回，已修复并重跑通过。Windows release 构建通过
+（/tmp/plico-compare-metadata-build.log），fmt/空白检查通过。正常关闭自有39748，
+启动32176并打开同一比较、选择首条提交，截图 compare-plico-details.png（同目录）
+确认加粗等宽正文、短hash、作者邮件和本地日期显示。邮件链接颜色/下划线、详情可拖动
+高度及未选择时的占位区仍有视觉差异，保留待对齐；本轮没有覆盖文件工具栏交互。
+
+
+分支比较文件选择与键盘打开（2026-10-25）：先在 Rebased 44688 切回 conflict-topic
+比较页、选择 topic conflict 后单击 shared.txt：文件行蓝色选中且不打开；按 Enter 后
+打开 Repository Diff: shared.txt，内容 base → topic conflict。截图
+artifacts/collaboration-workflows-20261024/compare-reference-file-{selected,enter}.png。
+读取4aec352的 VcsLogChangesBrowser.kt 和 ChangesBrowserBase.java：ChangesBrowserTreeList
+把双击/Enter 都交给 onDoubleClick，canShowDiff 检查当前选择，再使用选中的 producer
+建立 Diff chain；ShowDiff action 复制通用Diff快捷键。本地沿用已有 compare_view 的
+Enter/Ctrl+D 约定，在 branch_compare.rs 独立 BranchCompareFiles 焦点上下文中绑定。
+单击保存 selected_file 并取得焦点，双击/快捷键打开同一索引；切换提交或清空详情时
+同步清空文件选择，防止旧索引打开新提交中的其他文件。选中行增加圆角高亮。
+本轮未实现树形分组、多选、上下键移动、工具栏及预览复用；这些仍列入本阶段后续。
+
+验收：Windows release 构建通过（54.81秒，/tmp/plico-compare-files-build.log），两项
+branch_compare UI回归通过（/tmp/plico-compare-files-tests.log），格式/空白检查通过。
+正常关闭自有32176并启动12020；在 conflict-topic 比较页选择 topic conflict，单击
+shared.txt 保留比较页且文件行选中，按Enter打开该文件Diff。截图
+compare-plico-file-{selected,enter}.png（同目录）均已查看。两fixture的该提交父链
+此前分别经历不同rebase，因此参考before为base、本地before为main conflict；本轮
+验证选择/焦点/打开，不把不同测试历史的内容差异误判为本轮Diff行为偏差。
+Ctrl+D和双击走同一已有handler，但本轮原生只验收Enter；多文件键盘导航仍待补。
+
+
+分支比较文件树与选项入口（2026-10-25）：原生Rebased 44688在比较页打开眼睛菜单，
+确认Group By/Directory、Layout/Show Details/Show Diff Preview层级及选中态；截图
+artifacts/collaboration-workflows-20261024/compare-reference-grouping.png。读取4aec352的
+VcsLogChangesBrowser.kt：使用统一ChangesBrowser及其toolbar；读取
+platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/DirectoryChangesGroupingPolicy.kt：
+按父路径缓存目录节点并保留真实change节点。路径压缩沿用此前已对照的本地file_tree。
+
+本地新模块src/ui/branch_compare/files.rs负责显示模型和工具栏：compact_rows保留原
+chain索引，目录含文件数，根节点可收起；平铺按文件名排序，目录路径紧跟名称以灰色
+显示。切换分组不改变selected_file或重新查询Git；点击目录清空文件选择，避免Enter
+打开已隐藏的文件。两pane独立group_files/show_details。工具栏有真实ShowDiff及眼睛
+菜单的Directory/Show Details，尚未接入预览开关、全部展开/折叠、历史/回滚、快捷键
+Ctrl+Alt+P、持久化及多选，不宣称工具栏完整。当前列表仍逐行构造，虚拟化待补。
+
+新增GPUI测试覆盖多目录紧凑折叠、折叠后隐藏子项、平铺排序保持chain索引与选择、
+清空详情同步清空rows。3项branch_compare测试通过（/tmp/plico-compare-tree-tests.log）；
+Windows构建通过（/tmp/plico-compare-tree-build.log），仅正常关闭自有12020并启动46060。
+原生截图compare-plico-{grouped,group-menu,flat}.png确认根文件数、菜单层级/勾选、点击
+Directory切到平铺；均在同一artifacts目录。多层目录在本轮由测试覆盖，尚未原生截图。
+ShowDetails隐藏动作及切换后键盘焦点恢复待下一轮验证。未增加常驻实例或提交。
+
+
+分支比较文件树键盘及可见行构造（2026-10-25）：先在Rebased44688的比较文件区
+选中shared.txt，Up选中根目录、Left收起；Right展开后Down重新选择文件。截图
+artifacts/collaboration-workflows-20261024/compare-reference-tree-{left,right}.png。
+读取4aec352的ChangesTree.java与treeStructure/Tree.java，ChangesTree继承平台Tree，
+安装SmartExpander及分组支持；本轮导航规则以原生观测为准，不把搜索结果当具体
+键位实现证据。Enter打开仍沿用上轮已读ChangesBrowserTreeList的处理器。
+本地files.rs用文件chain索引/目录路径作为选择身份，上下选可见行、左收起或选父目录、
+右展开或选首子行。branch_compare.rs使用uniform_list，只构造当前可见行；保留
+完整轻量行模型以支持目录操作，不新增Git查询。切换提交清空选择及滚动位置。
+测试扩展覆盖深目录文件回父节点、左收起/右展开、上下移动后Diff索引正确；3项通过
+（/tmp/plico-compare-tree-keys-tests.log）。本轮不声称滚动性能已测量，原生滚动留给用户。
+
+本轮原生验收补记：Windows release 构建通过（53.72s，
+/tmp/plico-compare-tree-keys-build.log）。自有 Plico 46084 在已选 topic conflict
+提交的文件区，Up/Left 选中并收起根节点，Right/Down 展开并选中 shared.txt，
+Enter 打开对应提交的只读 Diff；确认两侧 revision 为 211d4091 / 28508190，
+与所选提交父版本及提交版本一致。截图 compare-plico-tree-{left,right,enter}.png
+已保存至 artifacts/collaboration-workflows-20261024/，与上文原生 Rebased
+方向键行为一致。此处只验证键盘导航及打开 Diff，不代表多选、预览开关或完整
+工具栏已完成；多层目录的父子选择仍由上述测试覆盖，未做原生滚动自动化。
+
+分支比较内嵌预览：实现前原生与源码核对（2026-10-25）
+
+在自有 Rebased 1.1.20（44688）比较 conflict-topic / renamed-untracked，选中
+上半区 topic conflict 的 shared.txt。眼睛菜单中的 Show Diff Preview 起初未勾选；
+键盘选择该项开启后，预览出现在上半区完整列表/详情区域下方，占该半区的宽度，
+下半区不受影响。菜单切换后保留打开及勾选状态。截图
+artifacts/collaboration-workflows-20261024/compare-reference-preview-{before,menu,on}.png。
+底部独立 History 面板是之前打开的文件历史，不能误认为本次新建的分支比较预览。
+
+源码版本仍为 4aec35256d765c217aa0d662b82ac4e860c396fd：
+- plugins/git4idea/backend/src/branch/GitCompareBranchesUi.kt：两半区分别创建
+  VcsLogUiImpl，使用 GitCompareBranchesTopLogProperties / BottomLogProperties。
+- 同目录 GitCompareBranchesLogProperties.kt：各自 SHOW_DIFF_PREVIEW 默认 false，
+  项目工作区持久化，属性修改触发通知；不能借用主 Log 的同一个布尔值。
+- platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/MainFrame.java：
+  FrameDiffPreview 包裹完整 myChangesBrowserSplitter，处理器来自当前 ChangesBrowser，
+  不是仅在右侧文件列表内部加一个 Diff，也不是全窗口共享一个底部预览。
+- 同目录 FrameDiffPreview.kt：按需创建 viewer；关闭时移除 secondComponent、dispose
+  viewer 并置空；方向由 DIFF_PREVIEW_VERTICAL_SPLIT 控制，默认分割比例 0.7。
+
+本地接入位置确认：src/ui/branch_compare.rs 的 Pane 拥有独立 chain / selected_file，
+应各自拥有预览实体与分割状态；src/ui.rs 的 local_preview / bottom_preview 是主界面
+共享状态，不适合直接复用其所有权。可以复用 DiffTab::preview 的查看器实现，但需要
+为每半区接入选择同步、导航回写、切换提交时清空旧请求和关闭时释放。当前仅完成
+上述前置验收及设计核对，尚未添加菜单开关或宣称预览功能完成；关闭状态与持久化
+恢复的原生验证仍待后续补充。
+
+分支比较内嵌预览接入（2026-10-25）：在上述实机和源码前置核对后，
+新增 src/ui/branch_compare/preview.rs，Pane 分别保存 show_preview、DiffTab 实体及
+ResizableState；眼睛菜单增加真实 Show Diff Preview 开关。按当前 chain / 文件选择
+惰性创建只读 DiffTab::preview，不同目标释放旧查看器，相同目标复用；关闭时
+显式 deactivate 并移除实体。FileChanged 回写所属 Pane 的 chain 与 selected_file，
+不改变另一个比较区。当前没有文件选择时以链首文件为预览起点。
+
+GPUI 既有刷新测试改为真实文件提交，增加预览目标 revision、重复同步复用实体、
+关闭释放/重新开启新建实体及第二 Pane 不受影响的断言。最初空提交 fixture 导致
+“应存在预览”断言失败，改为真实文件提交后 3 项通过；不是绕过空提交行为。
+Windows release 构建通过（51.28s，/tmp/plico-compare-preview-build.log），正常关闭
+自有46084后启动38044。原生截图 compare-plico-preview-{menu,on}.png 验证菜单入口、
+上半区底部真实 Diff 及下半区无变化。截图暴露初始等分占比压缩列表，随后按上游
+默认0.7调整为70/30；该比例修正尚待下一次Windows构建截图确认。
+
+仍未完成：开关/分割比例的项目持久化、预览方向切换、目录选择限定子集、预览内
+完整文件导航工具栏与源码跳转、切换隐藏比较Tab的主动资源释放。当前只完成基础
+嵌入及开关生命周期，不宣称完整预览对齐；现存原生截图是比例修正前的状态。
+
+分支比较预览开关持久化（2026-10-25）：原生Rebased44688关闭 conflict-topic
+比较页后，从分支菜单 Compare with renamed-untracked 重新打开，上半区自动恢复预览，
+下半区保持关闭，未选提交时显示 Nothing to show。此前另一个已打开的
+ graph-projection-test 比较页也同步显示上半区预览。截图
+artifacts/collaboration-workflows-20261024/compare-reference-reopened-preview.png。
+重新阅读4aec352的 plugins/git4idea/backend/src/branch/GitCompareBranchesLogProperties.kt：
+项目级 Top/Bottom 服务分别持久化 SHOW_DIFF_PREVIEW，set 发属性通知。规则不是
+按分支对存储，也不是与主Log共用开关；本次本地实现前已完成以上实机步骤。
+
+本地 layout_preferences.rs 新增 load/save_branch_preview，复用有长度限制、项目
+身份复核的布尔设置格式；按仓库身份及上下区生成不同文件，不写入仓库。Pane创建
+时恢复开关，菜单先保存成功再改变状态；失败沿用详情错误展示。PreviewChanged
+通过View转发到Review，同窗口其他比较页的同一区同步更新，关闭同步释放已有预览。
+保留差异：尚未跨两个原生窗口广播；分割比例持久化及方向切换仍待实现。
+
+新增隔离测试在临时目录验证上下区、项目路径隔离、身份不匹配不读/不覆盖，1项
+通过（/tmp/plico-preview-settings-tests.log）；3项分支比较GPUI测试通过
+（/tmp/plico-preview-settings-desktop.log）。当前未完成Plico关闭重开原生验收，
+也未宣称跨窗口同步已完成；上轮70/30比例的截图复验随本次Windows构建继续进行。
+
+预览设置及比例原生复验（2026-10-25）：构建 /tmp/plico-preview-settings-build.log
+通过（1m08s），正常关闭自有38044后更新验证副本，启动33988（HWND6359906）。
+从 conflict-topic 分支菜单进入比较，选择 topic conflict 后开启上半区预览。
+compare-plico-preview-proportion.png 确认70/30默认分配，文件树shared.txt仍可见，
+预览revision为211d4091/28508190；下半区无预览。关闭此比较Tab，再从相同入口
+重新打开，compare-plico-preview-reopened.png 确认上半区恢复开关且下半区保持关闭。
+随后关闭上半区预览，compare-plico-preview-disabled.png 确认列表恢复占满上半区。
+以上截图均保存并查看于artifacts/collaboration-workflows-20261024/。
+
+当前与参考保留的可见差异：无选择时Plico使用靠左的“选择文件以查看差异”，
+Rebased显示居中的Nothing to show且保留禁用的预览工具栏；本次不把恢复开关验证
+等同于空态/完整工具栏对齐。应用重启恢复、跨窗口同步、分割比例持久化仍未完成
+原生验收。没有关闭用户进程或新增额外常驻测试实例；当前自有Plico33988与
+Rebased44688供后续使用。
+
+预览数据失效与隐藏生命周期核对（2026-10-25）：原生Rebased44688选中
+ topic conflict，切到Log再返回比较Tab，提交选择、文件及预览仍保留；截图
+artifacts/collaboration-workflows-20261024/compare-reference-return-selection.png。
+继续追踪4aec352源码，不能把FrameDiffPreview的dispose推断为隐藏即dispose：
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangeProcessor.kt 的
+VcsLogTreeChangeProcessorTracker监听模型变化；其基类
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/TreeHandlerDiffRequestProcessor.kt
+明确updateWhileShown：hideNotify取消待更新队列，showNotify执行FULL刷新；隐藏状态
+收到更新时clearPreview（clear/cleanBlocks），并非每次隐藏均销毁容器。故本轮没有
+加入无条件“切Tab销毁查看器”，避免未保存阅读位置的行为退化；后续隐藏资源优化
+应遵循失效时清理及显示时恢复，而不能冒称上游总是隐藏即释放。
+
+本地修复src/ui/branch_compare.rs：clear_details和select新提交时立即清空preview，
+不用等Pane再次render才能丢弃过期数据，隐藏Pane失效也适用；DiffTab::Drop取消
+请求token，实体丢弃释放其任务和查看器。保留show_preview用户选项。测试扩展
+真实文件提交fixture，在不经过render的情况下断言clear_details立即移除preview且
+开关保持开启，然后重新选择提交继续原有刷新场景。3项GPUI测试通过
+（/tmp/plico-preview-invalidation-tests.log），格式化完成；此次失效改动尚未更新
+原生验证二进制。无滚动自动化，未声称阅读位置恢复或内存收益已测量。
+
+分支比较文件树全部展开/折叠（2026-10-25）：先在Rebased44688的
+conflict-topic比较上半区点击右侧Collapse All，根节点保留、shared.txt隐藏，预览
+仍存在；再Expand All恢复文件。截图compare-reference-{collapse-all,expand-all}.png
+在artifacts/collaboration-workflows-20261024/。源码4aec352：
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/ChangesBrowserBase.java
+使用TreeActionsToolbarPanel包装；同目录TreeActionsToolbarPanel.java把ExpandAll、
+CollapseAll放在BorderLayout.EAST。shared/.../ChangesTree.java的MyTreeExpander
+在没有分组且模型扁平时隐藏两个action，expandAll使用TreeUtil.expandAll。
+
+本地src/ui/branch_compare/files.rs在工具栏右侧增加两按钮，按目录模式显示，
+无内容时禁用。折叠从完整chain生成目录集合，避免当前已隐藏子节点遗漏；展开清空
+集合，重建轻量可见行，不重新查询Git。折叠时原选择转根目录（原生多层选中文件
+折叠后的具体选择仍待验收），平铺模式直接忽略操作。扩展现有GPUI测试覆盖已隐藏
+深层目录、所有子目录折叠、恢复3个文件和原chain索引、平铺不受影响。此阶段
+尚未进行Plico原生按钮截图验收，不宣称工具栏已完整对齐。
+
+补充验收：原生Rebased先选择shared.txt再Collapse All，选中态转到根目录，
+预览保留，截图compare-reference-collapse-selection.png；该单层场景与本地处理一致。
+3项GPUI测试通过（/tmp/plico-compare-expand-tests.log）；Windows release构建通过
+（/tmp/plico-compare-expand-build.log）。下一步用该构建完成Plico原生工具栏验收。
+
+展开折叠及预览失效原生验收（2026-10-25）：正常关闭自有33988，替换最新
+构建后启动41012（HWND141952880）。比较conflict-topic，选中topic conflict中的
+shared.txt，Collapse All后根目录选中、文件隐藏；Expand All恢复文件，根目录选择
+保留。与上述Rebased单层场景一致，截图compare-plico-{expand-before,collapse-all,
+expand-all}.png。开启预览后改选空提交topic selection refresh probe（a562637c），
+文件树清空、旧shared.txt Diff消失，详情切到新提交；再选topic conflict，恢复
+211d4091/28508190的正确Diff。截图compare-plico-preview-{new-selection,
+selection-return}.png。均保存并查看于artifacts/collaboration-workflows-20261024/。
+
+此轮验证真实最终状态，不将截图声称为逐帧无闪烁证明；立即清理不依赖render由
+上一轮GPUI断言覆盖。多层目录主要由测试覆盖，未进行滚动自动化。仍有空态
+工具栏、目录子集预览、完整文件导航、分割设置等差异，本项验收不代表阶段5完成。
+
+分支比较预览文件导航与调试断言修复（2026-10-25）：继续以上原生
+compare-reference-expand-all.png / compare-reference-return-selection.png 中的预览
+工具栏结构；本轮重读参考4aec352的
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangeProcessor.kt，
+VcsLogDiffPreviewHandler提供selected/all迭代以及selectChange回写树选择。
+本地DiffTab增加可独立启用的文件导航工具栏，branch_compare/preview.rs显式启用，
+已有主窗口底部预览默认行为不变。FileChanged回写chain和选择，展开目标所有祖先，
+重建可见行并定位选择。真实两文件提交fixture通过move_file发出事件，断言目标、
+树索引、折叠根节点展开和另一半预览隔离。目录选择子集、多选语义仍待后续对齐，
+本次没有将整个chain导航声称为完整复刻。
+
+默认调试测试实际渲染预览时触发duplicate-hover；回溯定位到diff_settings.rs的
+ModeSelector：ButtonCustomVariant已有hover颜色，按钮又重复调用InteractiveElement
+的hover。移除冗余调用，保留已有variant颜色与交互，不更改按钮视觉设计。
+3项branch_compare测试通过；此前两项默认忽略的导航测试显式--ignored运行也通过，
+故移除过时ignore并更新贡献规范，不再关闭断言绕过此问题。
+日志/tmp/plico-compare-preview-navigation-tests.log和
+/tmp/plico-navigation-debug-ignored.log。本轮新增导航控件的Windows原生多文件操作
+及截图仍待验收，不以GPUI测试代替。未提交、未运行CI。
+
+预览导航Windows原生验收（2026-10-25）：Windows release构建通过44.99秒，
+/tmp/plico-preview-navigation-build.log。仅关闭自有41012，更新二进制后启动42676
+（HWND3475704）；Rebased仍使用44688。两个独立测试仓库通过临时index和commit-tree
+创建preview-navigation-fixture，父提交均为各自HEAD；增加preview-nav/alpha.txt与
+preview-nav/nested/beta.txt，不改当前HEAD、工作区或真实index。
+参考提交bb34f6d0，本地提交4b3f139c。Rebased比较该分支与当前分支，选择唯一提交，
+预览1/2显示nested/beta.txt，点击右箭头后2/2显示alpha.txt且树选中alpha.txt。
+Plico相同入口先显示alpha.txt；折叠全部目录后点击预览右箭头，2/2显示nested/beta.txt，
+祖先全部展开、beta.txt选中。截图preview-nav-reference.png、
+preview-nav-reference-next.png、preview-nav-plico-first.png、preview-nav-plico-next.png
+保存并查看于artifacts/collaboration-workflows-20261024/。
+
+本轮证明按钮/计数/目标内容/树选择同步及折叠后展开可用，同时发现尚未对齐的导航
+顺序：Rebased按照树顺序（目录优先）枚举，Plico仍沿Git路径顺序。后续需按
+VcsLogDiffPreviewHandler.iterateAllChanges / VcsTreeModelData树顺序生成预览chain，
+分组开关也应影响顺序；不能将本次成功切换声称为完整导航语义对齐。
+另外根目录合并、空态工具栏、目录子集/多选仍有已记录差异。本轮未自动化滚动。
+完整默认桌面测试99通过0忽略（/tmp/plico-preview-navigation-desktop.log），格式检查
+通过；此处没有用原生截图代替全部行为覆盖。未提交或运行CI。
+
+预览导航树顺序修正（2026-10-25）：以前述两文件原生截图为实现前依据，补读
+4aec352的platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/
+VcsTreeModelData.java：AllUnderData遍历myNode.traverse，iterateNodes筛选meaningful
+节点；不是可见行数组，所以折叠不应删去导航文件。与VcsLogDiffPreviewHandler的
+iterateAllChanges对应。本地files.rs生成完整compact_rows中的文件顺序，平铺使用
+现有文件名/路径排序；保留原chain索引作为树选择身份。
+
+Chain::reordered校验完整无重复排列，同时重排普通/combined/working-comparison
+端点并映射当前游标。只在创建预览或分组改变时生成独立导航chain，不在每次render
+复制整个列表。preview.rs首次无选择时采用树中的第一文件，已有预览则保留目标；
+切换分组时通过DiffTab::set_navigation_chain仅替换导航数据，保留实体/查看器及阅读
+位置，失效旧文件选择弹层。不开启预览时不计算排序。FileChanged仍映射回原chain。
+
+测试增加目录顺序、折叠不改导航、平铺排序、非法重复/越界/缺项排列拒绝、保留
+combined文件端点、首次预览nested/second.txt、分组切换后实体/目标不变且导航游标
+更新。分组切换的原生观察及本次排序修正后的Windows截图尚待验收；单独Diff Tab
+的导航顺序、目录子集、多选尚未在本轮处理。此改动不代表阶段5完成。
+本轮默认桌面回归99通过、0失败、0忽略（/tmp/plico-preview-order-desktop.log）；
+cargo fmt完成，git diff --check通过。未提交、未运行CI，本次原生构建仍待更新。
+
+预览排序原生验收补充（2026-10-25）：Rebased44688在两文件fixture中保持alpha.txt
+已选（目录模式2/2），打开眼睛菜单关闭Directory后，树变为alpha/beta，目标alpha
+不变、预览计数更新为1/2。截图preview-order-ref-{menu,flat}.png。说明分组切换应
+保留目标，同时更新完整导航顺序，而不是沿旧chain计数。
+
+Windows release构建通过1m07s（/tmp/plico-preview-order-build.log）。正常关闭自有
+42676，更新二进制并启动12016（HWND61084716）。新建相同比较并选择唯一提交，
+目录模式首次为nested/beta.txt（1/2）；点右箭头后为alpha.txt（2/2）。关闭目录分组，
+alpha.txt仍选中且预览保持first file，计数变为1/2；再次点右箭头为beta.txt（2/2），
+树选择同步。截图preview-order-plico-{grouped,menu,flat,flat-next}.png与参考截图均
+保存并实际查看于artifacts/collaboration-workflows-20261024/。这证明已验证两文件
+场景的初始顺序、下一文件、分组变更保留目标/更新顺序；实体保留由前轮GPUI测试
+覆盖，截图不代表逐帧无重载或长文档阅读位置测试。原有目录子集、多选、独立Tab
+链顺序等差异继续保留在阶段5待办；未提交或运行CI。
+
+目录选择预览规则核对（2026-10-25，实现前）：Rebased44688两文件fixture先预览
+alpha.txt，再切回目录分组并选择nested（折叠状态），预览切到nested/beta.txt，计数
+仍1/2，右箭头可用。截图preview-folder-ref-selected.png已保存并查看于
+artifacts/collaboration-workflows-20261024/。因此“目录选择一律缩成目录内chain”
+不是准确规则。参考4aec352的platform/vcs-impl/src/com/intellij/openapi/vcs/changes/
+ChangeViewDiffRequestProcessor.java，refresh从selectedChanges中保留当前项，若不存在
+取第一项；空选择默认all。getSelectionStrategy在selectedChanges.size>1时限定范围，
+否则遍历all并更新树选择。多个子文件的目录范围尚需进一步实机验证。
+本轮先修复单目录选择目标：只在目录包含当前文件时保留它，否则切到目录内按树
+顺序的第一文件，目录折叠不影响这个选择。多文件目录导航范围仍明确待实现。
+本地preview.rs已按所选目录过滤保留目标/寻找第一个后代；测试使用真实两文件提交，
+先切到review.txt，再选折叠的nested，断言切到nested/second.txt且完整导航仍2文件；
+重复同步复用实体，选择父根目录继续保留该文件。3项定向GPUI测试通过
+（/tmp/plico-folder-preview-tests.log），格式化及diff whitespace检查通过。此修复
+尚未更新Windows原生二进制，验收待补。
+
+额外Rebased原生观察：选中包含两文件的preview-nav父目录，再按右箭头，从beta
+切到alpha，树中仍保持父目录选中，而非改选alpha。截图
+preview-folder-ref-parent-next.png同目录。这补充确认了源码ChangesNavigatable的
+多项选择updateSelection=false规则；下一步目录多文件范围需同时保留树选择，
+不能只缩小chain却在FileChanged中清掉目录选择。当前该差异仍未修复。
+
+多文件目录导航范围（2026-10-25）：实现前在原生Rebased44688扩展独立fixture为
+alpha.txt、nested/beta.txt、nested/gamma.txt，参考提交ac3e65ad，本地fixture9772398e。
+仅通过临时index/commit-tree更新测试分支，不改HEAD/工作区/实际index。选nested后
+点下一文件，预览gamma.txt、计数2/2、下一文件禁用，nested目录仍选中；截图
+preview-scope-reference-next.png（同artifacts目录）实际查看。点击文件计数后的
+截图未取得弹层，因此不声称已验收弹窗内容。
+源码4aec352的ChangeViewDiffRequestProcessor.java：getSelectionStrategy多项时使用
+selectedChanges并updateSelection=false；getGroupOrMultiSelectionListSelection在多项
+选择时同样返回selectedChanges（由registry控制新路径，实机计数已观察为2）。
+
+本地Chain::subset为有序不重复子集保留各文件revision endpoints与当前游标，
+reordered继续要求完整排列。preview.rs在所选目录含多文件时构造子集chain，单文件
+目录仍全链；preview_folder参与导航数据失效判断，即使目标未变，变更目录选择
+也必须更新范围。目录内FileChanged保留目录选择和折叠状态；单文件导航继续同步
+选中文件。退出目录选择恢复完整顺序，复用当前查看器。不支持任意Ctrl/Shift多选
+仍是独立待办。本轮新增GPUI场景只验证状态/事件/导航范围，使用不存在的fixture
+路径，不冒称测试了Git内容读取；真实读取由此前真实fixture和后续原生验收覆盖。
+本轮4项分支比较定向测试通过（/tmp/plico-preview-scope-tests.log），完整桌面100通过、
+0忽略（/tmp/plico-preview-scope-desktop.log）。fmt检查和diff whitespace检查通过。
+首次新增测试缺少项目既有gpui_kit别名/内建test宏导入导致宏递归，已按现有测试模块
+方式修正；没有提高递归限制或忽略测试。新增状态测试验证范围2项、末尾不越界、
+导航后仍选中折叠目录、切回文件选择恢复3项全链及当前viewer复用。Windows原生
+本地二进制仍为上一轮版本，目录选择目标与本轮范围改动须一起更新后验收。
+未提交、未运行CI；完整计划保持进行中。
+
+目录范围及目标选择原生验收（2026-10-25）：Windows release构建通过1m07s
+（/tmp/plico-preview-scope-build.log）。正常关闭自有12016，更新构建后启动47860，
+HWND5113914。比较三文件fixture9772398e，选中nested并折叠，预览beta.txt，1/2；
+点击右箭头到gamma.txt，2/2、下一文件灰色，目录仍选中且保持折叠。选择外部
+alpha.txt后全列表恢复3/3；重新选择nested后切到beta.txt、1/2，不再保留目录外
+alpha.txt。截图preview-scope-plico-{folder,next,outside,return}.png在
+artifacts/collaboration-workflows-20261024/，均实际查看，与参考多文件目录规则一致。
+本轮覆盖上一轮目标修复与本轮范围修复的真实文件读取/计数/选择/按钮状态；边界
+越界拒绝同时由GPUI测试覆盖。不声称单文件夹全部边界或任意多选已完成。
+
+准备独立Tab后续对照时，对Rebased选中nested按Enter，未产生新Diff Tab，仍是
+目录选中、预览gamma.txt（preview-scope-reference-enter.png）；不能把该操作声称
+为已验证“目录Enter打开Tab”。下一步需针对文件Enter/双击及Ctrl+D分别核对入口。
+当前Plico独立Tab仍使用基础chain顺序，是已知待修正项。未提交、未运行CI。
+
+分支比较独立 Diff Tab 导航同步（2026-10-25）：实现前操作原生 Rebased
+1.1.20 / IC-262.10968.SNAPSHOT（44688），从三文件 fixture 双击 alpha.txt，
+独立 Tab 显示 3/3；上一文件切换 gamma.txt 后返回比较页，文件树选中 gamma，
+底部预览同步 2/3。截图 compare-tab-reference{,-return}.png 保存在
+artifacts/collaboration-workflows-20261024/。参考源码仍为 4aec352：
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangesBrowser.kt
+的 createChangeProcessor / selectChange，以及
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/TreeHandlerDiffRequestProcessor.kt
+的 collectDiffProducers / selectChange；树顺序决定 producer 顺序，导航选择回写来源树。
+
+本地 src/ui/branch_compare.rs 的 open_file 使用完整文件树导航顺序重排 chain；
+创建独立 Tab 时将 FileChanged 连接到来源比较 View 的 Pane，而非主 Log 的导航选择。
+src/ui/branch_compare/preview.rs 共用 track_diff_navigation / select_diff_target，
+以完整端点身份匹配当前 chain，防止旧提交事件修改新提交选择；展开目标祖先目录，
+定位选中行，由现有预览同步机制更新内容。订阅归属 Pane 生命周期。
+测试通过真实 OpenDiff / move_file 事件核对顺序、选中、展开及过期提交保护。
+
+验证：定向 4 项及完整 desktop-tests 100 项通过，无忽略；fmt 与 diff whitespace
+检查通过，Windows release 构建通过。正常关闭自有 47860，更新验证副本并启动
+47864（HWND6425056），原生重复 alpha 3/3 → 上一文件 → 返回比较页，确认 gamma
+选中、nested 展开、预览内容 third file 与 2/3 同步。
+截图 compare-tab-plico-{open,return}.png 同目录，均已查看。
+CI 未运行；任意多选、来源树反向更新已打开 Tab 及更广泛生命周期仍属后续核对范围，
+不将本项验收等同于分支比较阶段全部完成。
+
+分支比较独立 Tab 反向同步（2026-10-25）：先原生操作 Rebased44688，在比较页从
+选中的gamma改选beta，切回已打开的Repository Diff后显示beta及1/3，未新开Tab。
+compare-reverse-reference-{before,after}.png已保存查看。源码4aec352的
+TreeHandlerDiffRequestProcessor.kt / TreeHandlerChangesTreeTracker.track监听selection及
+model变更，refreshPreview区分来源模型更新；VcsLogChangesBrowser.kt:createChangeProcessor
+以!isInEditor传updateWhileShown，因此独立Tab持续跟踪树状态。安装版与源码快照区别同上。
+
+本地branch_compare.rs创建Tab时，仅连接完整端点匹配的来源Pane；弱引用Tab，关闭后
+事件不再更新已移除的Tab。观察来源状态，以active_diff_index决定是否加载可见Diff。
+preview.rs抽取navigation_selection，嵌入预览与独立Tab共用树排序、保留文件、目录范围
+规则；diff_tab.rs:sync_source_selection相同文件仅更新导航chain，不重建viewer，目标改变
+取消旧读取并替换，隐藏Tab延迟读取，来源暂为空则清空旧内容显示已有中英文选择提示。
+没有引入上游100ms debounce：本地通知合并由GPUI处理，隐藏Tab不执行内容查询。
+任意多选、重复打开Tab策略、关闭来源比较页后的Tab生命周期仍需后续核对。
+
+测试：补充选择文件反向更新与多文件目录缩小chain断言；完整desktop-tests100通过，
+无忽略，日志/tmp/plico-reverse-desktop.log；fmt检查及git diff --check通过，Windows
+release构建通过（/tmp/plico-reverse-build.log）。正常关闭自有47864后更新验证副本，
+启动38264（HWND2557476）。原生从alpha打开Tab后返回比较页选beta，再回原Tab：
+标题beta、1/3、second file均同步；再选nested目录，原Tab保持beta，导航变成1/2。
+截图compare-reverse-plico-{after,folder}.png已查看，均在
+artifacts/collaboration-workflows-20261024/。仅保留这个自有Plico与原Rebased44688。
+CI未运行；这不是分支比较全阶段完成声明。
+
+分支比较独立Tab复用与来源关闭（2026-10-25）：实现前原生Rebased44688从beta预览
+返回比较页双击alpha，复用原Repository Diff Tab，显示alpha/3 of 3；关闭该比较页后，
+关联Repository Diff也消失，其他比较页和Changes Tab保留。截图
+compare-reuse-reference.png、compare-close-reference.png已查看并保存到
+artifacts/collaboration-workflows-20261024/。
+读取参考4aec352的platform/diff-impl/src/com/intellij/openapi/vcs/changes/EditorTabDiffPreview.kt：
+每个preview对象持有唯一previewFile，openPreview通过showDiffFile打开该文件；
+TabPreviewDiffVirtualFile将viewer.disposable注册到preview，preview销毁后虚拟文件失效。
+GitCompareBranchesUi.kt分别创建top/bottom Log UI，因此预览按来源面板归属。
+
+本地Pane增加editor_preview弱引用，OpenDiff按端点匹配来源Pane，并查找仍存在于
+Review.tabs的预览，存在则更新目标和激活；关闭后重新创建。View仅提供关联预览ID，
+editor_tabs.rs关闭比较页时通过原有close_diff_tab_from_header清理关联Tab及任务。
+测试independent_preview_is_reused_reopened_and_closed_with_source驱动实际OpenDiff事件，
+验证同一entity复用、关闭重开得到新entity、关闭来源清空关联Tab。
+完整desktop-tests101通过，无忽略（/tmp/plico-reuse-desktop.log）。原生修改后验收见下文。
+
+本项原生验收：Windows release构建通过（/tmp/plico-reuse-build.log），fmt与diff检查
+通过。正常关闭自有38264后更新验证副本，启动46760（HWND88609406）。比较页先双击
+beta，再返回双击alpha：只有一个Repository Diff，内容alpha/3 of 3；关闭Diff后再次
+双击alpha可重开；从Diff页点击来源比较页的关闭按钮，关联Diff同时关闭并回到Log。
+截图compare-{reuse,reopen,close}-plico.png均已查看并保存到上述artifacts目录。
+CI未运行；其他比较页面板隔离和未完成的多选等仍按阶段计划继续，不宣称全阶段完成。
+
+分支比较多提交选择第一步（2026-10-25）：修改前原生Rebased44688在conflict-topic比较页
+用Shift+Down选中前两条空提交：两行同时高亮，文件区空，底部No files/Nothing to show。
+compare-multi-reference.png已查看保存。读取参考4aec352的
+VcsLogAsyncChangesTreeModel.kt:createChangesState（多个details走collectChanges）及
+platform/vcs-log/impl/src/com/intellij/vcs/log/util/VcsLogUtil.java:collectChanges：
+按显示顺序反转已选details，再用CommittedChangesTreeBrowser.zipChanges汇总，不能以
+最老和最新之间的完整revision range替代非连续选择。
+
+本地branch_compare.rs复用log_selection::Selection处理Ctrl切换与Shift范围选择；
+多提交文件查询复用log_changes::load，单提交保留现有查询；过滤刷新按OID reconcile，
+选择集变化取消旧详情请求后重新汇总。已有真实仓库GPUI测试补上过滤后两条非连续
+提交选择、合并前后blob内容检查、Ctrl取消后回到原单选的断言。
+本轮暂保留第一条所选提交详情展示，多提交详情卡片及键盘扩选尚未完成；不将此项
+记为多提交交互全部交付。当前已通过定向5项，原生修改后验证如下补充。
+
+本轮验收：完整desktop-tests101通过，无忽略，fmt与diff检查通过；Windows release
+构建通过（/tmp/plico-multi-build.log）。正常关闭自有46760，更新副本后启动46564
+（HWND37556800）。原生比较conflict-topic与rename-filtered，Shift点击第二行，两条
+空提交同时高亮且文件区为空；Ctrl点击第三条topic conflict，保留前两条选择并增加
+shared.txt汇总差异，底部显示main conflict→topic conflict。compare-multi-plico.png与
+compare-multi-plico-files.png已查看保存。Plico测试分支基线与Rebased fixture不同，
+未将其差异内容声称为同一提交的像素对照；鼠标多选行为已验证。CI未运行。
+
+分支比较提交列表键盘选择（2026-10-25）：修改前原生Rebased44688在上一轮两行选择上
+Shift+Up收缩回第一行，截图compare-keyboard-reference.png已查看保存。
+参考4aec352的VcsLogGraphTable.java构造函数安装ScrollingUtil.installActions(this,false)，
+platform/platform-api/src/com/intellij/ui/ScrollingUtil.java:_move使用lead index计算下一行，
+非循环模式越过首尾直接返回，并确保目标可见；表格范围选择使用标准selection model。
+
+本地branch_compare.rs给提交列表独立commits_focus及BranchCompareCommits上下文，
+绑定Up/Down、Shift+Up/Down，复用log_selection::Selection.step，边界不循环，按Nearest
+定位目标；鼠标选择先将焦点交给列表。上下文仅包围列表，不包围搜索工具栏和文件树。
+真实仓库GPUI测试使用simulate_keystrokes验证Shift扩选、反向收缩、末行不循环、普通
+上移变为单选及另一比较面板不受影响，定向5项通过。原生验收见后续补充。
+
+原生补验发现新增焦点div没有撑满内部uniform_list，提交行不可见；已将内部列表改为
+size_full，并补上鼠标行点击对commits_focus的焦点交接。修正后完整desktop-tests101
+再次通过，fmt/diff检查及Windows release构建通过（/tmp/plico-keys-{desktop,build}.log）。
+正常关闭自有45656，更新副本后启动46484（HWND4589082）。原生点击首行后连续两次
+Shift+Down选中前三行、Shift+Up收缩到前两行、普通Down恢复第三行单选，右侧文件及
+底部Diff随选择同步；截图compare-keyboard-plico-{extend,shrink,single}.png已查看并保存。
+旧的不可见列表截图不作为通过证据。CI未运行；多提交详情卡片仍未完成。
+
+分支比较多提交详情卡片（2026-10-25）：先在原生Rebased44688选择两条提交，截图
+compare-cards-reference.png已查看。尝试调整详情分隔条未改变布局；截图只证明当前
+多选场景与首卡显示，未将隐藏的第二卡声称为直接可见证据。源码4aec352：
+CommitDetailsListPanel.kt:rebuildPanel按输入顺序创建卡片并插入OnePixelDivider，统一
+垂直滚动且不水平滚动；VcsLogCommitSelectionListenerForDetails.kt:onDetailsLoaded
+取前MAX_COMMITS_TO_LOAD=50并显示overflow提示；CommitDetailsPanel.kt定义SIDE_BORDER=14。
+
+本地branch_compare.rs使用Vec<Presentation>替代单条details/presentation，按实际选择
+顺序后台生成最多50张卡片，总表示字节仍受OUTPUT_LIMIT限制；合并文件范围不受50条
+详情上限影响。复用commit_presentation的双语metadata及已有Showing the first 50 commits
+文案，卡片之间1px分隔并设置flex_shrink_0，避免内容互相压缩。真实仓库GPUI测试验证
+过滤后选择topic two与topic one时两张卡片顺序、计数、取消选择后回到单条与清空。
+当前仍使用原有max_h(130)滚动区域，尚未对齐可拖动详情分隔条；尚缺refs/包含分支与
+请求总数的overflow文案细化，不宣称整个详情区像素一致。
+
+多提交卡片原生补验（2026-10-25）：重新确认自有 Plico 45368 / HWND10421340 与
+Rebased 44688 仍存活。截图 compare-cards-plico.png 验证两行选择及首张详情卡；
+普通 Down 后截图 compare-cards-plico-single.png 验证恢复第三行单选，详情标题、
+提交哈希、文件树及底部 shared.txt Diff 同步切换，没有保留前一次首卡内容。
+截图已实际查看并存入 artifacts/collaboration-workflows-20261024/。
+第二张卡片位于滚动区域下方，本轮未自动滚动，不将截图视为第二卡视觉通过证据；
+两卡数据顺序由真实仓库 GPUI 测试覆盖。既有 /tmp/plico-cards-desktop.log 确认
+101 项通过、0 ignored，/tmp/plico-cards-build.log 确认 Windows release 构建成功。
+此次只补原生验收与记录，没有重跑未变更代码的测试，也没有运行 CI。
+下一项仍为详情区可拖动分隔条，固定高度限制尚未解决，阶段 5 保持进行中。
+
+分支比较详情分隔条前置验证（2026-10-25）：原生 Rebased 44688 同一两提交选择，
+在物理位置 (1700,311) 将详情分隔条上拖 110px，文件区变小、详情区变大，底部
+Diff 区边界保持不变；compare-split-reference-{before,after}.png 已查看并保存。
+参考 4aec352 的 platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/MainFrame.java
+构造与 showDetails：详情使用独立垂直 OnePixelSplitter，默认文件区比例 0.7；
+开关通过移除/恢复第二个组件控制，未选择提交时仍保留详情占位。Plico 将在 Pane
+增加独立 ResizableState，替换 max_h(130)，使用同样 70/30 初始比例及空态。
+会话内保留拖动位置；跨重启比例持久化仍为待补差异。
+
+详情分隔条实现与验收：src/ui/branch_compare.rs 新增 details_split，各比较半区分别
+持有状态，文件区与详情区使用 v_resizable，初始 70/30；未选中时显示居中的双语
+Commit details。5 项分支比较测试通过（/tmp/plico-details-split-tests.log），Windows
+release 构建通过（53.02s，/tmp/plico-details-split-build.log），fmt/diff 检查通过。
+正常关闭自有45368并替换验证副本，新38392/HWND41159758：详情边界从物理y386
+上移110px，底部Diff及另一半面板边界不变。随后首行Shift+Down选择两条提交，
+扩大后的详情区可同时看到两张卡片及中间细线，切换选择未重置分区大小。
+compare-split-plico-{before,after,multi}.png 已实际查看并保存。未运行CI，未测试滚动。
+跨重启比例持久化、refs及包含分支展示仍待补齐，不宣称阶段5完成。
+
+详情比例持久化前置（2026-10-25）：原生 Rebased44688 关闭 conflict-topic 比较 Tab，
+通过分支菜单 Compare 重新打开；上下半区都使用最后拖动后的比例，未回到默认值。
+compare-ratio-reference-reopen.png 已查看并保存。读取 4aec352 的 MainFrame.java、
+platform/platform-api/src/com/intellij/ui/OnePixelSplitter.java 和 JBSplitter.java：
+所有 MainFrame 共享 vcs.log.details.splitter.proportion，addNotify 时读取全局
+PropertiesComponent，setProportion 时保存；不是按分支或比较方向保存。
+本地复用 layout_preferences::{load_files_fraction,save_files_fraction}，与普通 Log
+共用配置。每个 Pane 的已打开布局仍独立，新建 Pane 读取最近保存值；拖动结束写入。
+
+比例持久化本地验收：定向5项通过，Windows release通过（55.20s）；日志为
+/tmp/plico-ratio-{tests,build}.log。正常关闭自有38392，更新副本启动14492/5637842。
+新比较页读取已有Log比例（0.791077，受面板最小尺寸约束）；上拖分隔条110px后
+配置文件变为0.383886。关闭比较Tab并重新打开，上下两半均读取新比例，首半分隔条
+恢复至拖动后的物理y276附近，第二半同比例变化。compare-ratio-plico-{load,reopen}.png
+已查看并保存。验证了磁盘写入与新实体加载；本轮未再次重启整个进程验收，也未运行CI。
+保留现有Log的0.1..0.9范围和组件最小尺寸保护；未做跨窗口实时联动。
+
+分支比较详情 refs/包含分支前置（2026-10-25）：Rebased44688 选择 conflict-topic 顶端
+提交，实际显示绿色标签 conflict-topic，下一行 In 1 branch: conflict-topic。
+compare-refs-reference.png 已查看。读取4aec352的 VcsLogCommitSelectionListenerForDetails.kt：
+先展示最多50卡和排序后的refs，再异步requestContainingBranches；选择变化取消请求。
+ContainingBranchesGetter.kt使用最多2000项缓存、顺序LIFO队列10项，refs校验和变化清缓存；
+不完整graph结果不缓存。Plico复用普通Log的commit_refs与ContainingBranches/Batch组件，
+单个顺序后台worker逐卡更新，弱实体隔离过期结果，取消选择释放worker。保留差异：
+目前直接查询Git，不增加上游graph缓存；仍受50卡及总输出字节限制。
+
+本地接入进度：Pane 使用 DetailCard 将 presentation、refs、ContainingBranches 实体绑定，
+元数据返回后启动 Batch，clear_details/reload_selection 释放旧 Batch 与卡片；不把包含
+分支查询串入文件/元数据首屏任务。单选和多选复用同一UI及异步查询组件。
+定向5项通过，真实仓库测试增加 topic 标签、Batch存在及清空后释放断言；Windows release
+构建通过（56.21s）。日志 /tmp/plico-refs-{tests,build}.log。修改后仅新增测试断言并格式化，
+生产代码未改变。本轮Plico新二进制尚未启动，原生展示验收待完成。
+发现待处理边界：View::refresh 在比较两端OID不变时跳过reload，且保留相同选择时不会
+刷新卡片refs/包含分支。必须在引用变化时使此附属信息失效，不能依赖用户重新选择。
+该边界与原生验收未完成，不将 refs/包含分支对齐计为完成。
+
+引用刷新前置（2026-10-25）：在独立Rebased测试仓库新增 details-ref-probe 指向
+conflict-topic，不改比较两端或选择；原生界面自动出现第二个标签，包含分支由1变2。
+compare-refs-reference-refresh.png已查看。依据前文ContainingBranchesGetter refs校验和
+失效及监听回调规则，本地将增加独立附属信息刷新请求，不重建文件链或Diff。
+另发现无路径过滤的比较page只parse_history，未填refs；单选详情需读取当前引用快照，
+不能直接使用裸列表行的空refs。采用现有snapshot_commits，最多50张卡片。
+
+引用刷新修复与原生验收：Pane::refresh_card_refs 使用独立可取消Request查询当前最多50卡
+的引用快照，再替换包含分支任务；不改变文件链/选择/Diff实体。比较端点未变化或列表
+刷新保留选择时均调用此路径。清空与重新选择取消该Request；单选首次详情也读取refs。
+真实仓库GPUI测试新增/删除details-ref-probe，验证标签更新、选择保持、文件链保留及旧
+包含分支实体释放。定向5项和完整desktop101项通过，Windows release构建54.81s通过；
+日志/tmp/plico-refs-refresh-{tests,desktop,build}.log，diff检查通过，CI未运行。
+正常关闭自有14492，新36892/52892368原生比较页选择首提交，显示conflict-topic标签及
+“位于1个分支”；外部在独立仓库新建details-ref-probe后，无需重新选择，自动显示双标签
+及“位于2个分支”，窄列出现“显示全部”。compare-refs-plico-{before,after}.png已查看。
+本轮也证实新进程读回上一轮保存的详情比例。两测试仓库的details-ref-probe已清理。
+仍保留直接Git查询而非全图缓存的差异；每次仓库刷新会重查当前卡片，后续可按refs指纹
+减少重复查询。阶段5其余范围未完成，不作为整体完成声明。
+
+### 阶段5下一步：任意两分支的入口与选择规则（2026-10-25）
+
+原生前置：Rebased1.1.20/IC-262.10968.SNAPSHOT，自有44688；Log→展开Branches，
+点击conflict-main后Ctrl点击conflict-topic，右键保留两项选择。菜单实际为Compare
+Branches、Show Files Diff、禁用Update Selected、Delete Branches。按Down/Enter执行
+第一项，打开Compare: conflict-main and conflict-topic：上半main独有1条、下半topic独有3条。
+当前检出分支仍renamed-untracked，证明两端都可以不是当前分支。截图compare-pair-reference-
+{log,tree,menu,open}.png已逐张查看并存于artifacts/collaboration-workflows-20261024。
+首次用主窗口鼠标helper点击弹出菜单被HWND归属检查拒绝，未绕过检查；随后用同PID校验的
+键盘操作成功。此轮只实测Compare Branches；Show Files Diff结果及HEAD组合尚待原生验证。
+
+实读源码4aec352：
+- plugins/git4idea/backend/src/ui/branch/dashboard/BranchesDashboardActions.kt：
+  BranchesPairActionBase.getBranchPair允许恰好两条branch，或一条branch+HEAD（HEAD必须
+  能解析为当前分支）；同名或无共同仓库禁用。ShowArbitraryBranchesDiffAction调用compareAny，
+  ShowArbitraryBranchesFileDiffAction调用showDiff，两类入口不能合并为同一种比较。
+- plugins/git4idea/tests/git4idea/branch/GitBranchesTreeActionsForSelectionTest.kt：
+  current local+remote显示两比较动作，3条分支不显示比较；混合分组等非法选择无动作。
+- plugins/git4idea/backend/src/actions/branch/GitCompareWithBranchAction.kt：单分支菜单
+  是Compare with current，禁用当前分支，不能拿它代替任意两分支入口。
+- plugins/git4idea/backend/src/branch/GitCompareBranchesUi.kt：固定range，双向独有提交，
+  比较页隐藏branch filter，不在结果页添加临时端点选择框。
+- GitCompareBranchesFilesManager.kt：按range/root身份复用已有比较Tab。
+
+本地缺口已确认：ui/log_branches.rs只保存selected_tree_ref，Ctrl选择未实现；
+ui/branch_compare.rs::prepare_branch_comparison固定第二端为当前分支。下一实现按上游
+分支树多选→两项右键入口→复用Pair/View及净文件比较管线推进，不新造双输入弹窗。
+需要同时处理右键保留选择、普通点击清除、多选超过2隐藏比较、刷新删除引用时协调选择、
+键盘Ctrl/Shift与已有导航不冲突；保存屏障、取消迟到请求及Tab复用沿用现有路径。
+此记录细化阶段5实现顺序，不删减任意两分支/净文件差异要求。产品代码本轮未修改。
+
+任意两分支入口实现第一步（2026-10-25）：ui.rs增加branch_selection，复用身份选择模型；
+ui/log_branches.rs支持Ctrl点击切换、Shift点击范围、Shift上下键范围，普通选择收拢；
+右键已选中保留集合，未选中改为单选。重建可见行时reconcile，仓库切换清空。
+恰好两条本地/远端分支提供Compare Branches；混合标签/分组或超过2条不显示该操作。
+HEAD+branch解析规则已写入，但HEAD行本身的右键入口尚未接入，待补原生场景。
+ui/branch_compare.rs抽出prepare_branch_pair，使双端点复用保存屏障、取消任务和Tab复用，
+既有Compare with current仍调用同一方法。i18n新增“比较分支”。
+新增GPUI选择回归涵盖Ctrl、Shift、超过两项、标签无效、删除引用后协调；完整桌面102项
+通过（/tmp/plico-pair-desktop.log）。首次测试宏导入错误已修复，未扩大recursion_limit。
+产品原生交互尚未验收；Show Files Diff入口未接入，F2/Enter等多选动作约束仍需核对。
+本轮未提交，阶段5继续进行。Windows构建日志/tmp/plico-pair-build.log。
+
+### 两分支净文件差异入口（2026-10-25）
+
+原生 Rebased 1.1.20（44688），Log 分支树保留 conflict-main/topic 多选，右键第二项
+Show Files Diff，替换左侧 Changes 面板，标题 Changes Between conflict-main and
+conflict-topic，只显示 shared.txt；未包含工作树 local.txt。截图 pair-ref-files-open.png。
+Plico 多选 Compare Branches 已打开指定两端（非当前 rename-filtered），截图
+pair-plico-open.png；均存于 artifacts/collaboration-workflows-20261024。
+实读 4aec352 的 BranchesDashboardActions.kt::ShowArbitraryBranchesFileDiffAction、
+GitBrancherImpl.java::showDiff、GitChangeUtils.java::getDiff 及
+platform/vcs-impl/src/com/intellij/vcs/CompareWithLocalDialog.java::showChanges/showAsTab：
+两端 revision 的净差异，启用 rename detection，LocalContent.NONE，不保存工作文档；
+后台加载并复用 Changes 工具窗口。端点解析为不可变 revision，文件内容延后加载。
+本地拟复用 CompareView 和 show_comparison，增加分支来源以保留完整标题，刷新时解析
+两端 OID；不混入当前工作树，也不复用双向独有提交列表代替文件比较。
+
+实现与验收：CompareView 新增 Branches 来源，后台解析两端 OID，再复用 revision_changes
+和只读 Chain::combined；标题保留分支名。Log 两分支菜单新增 Show Files Diff（中英文本）。
+不经过保存屏障，符合 LocalContent.NONE；刷新与释放沿用取消令牌和 generation。
+新增真实临时 Git 仓库 GPUI 测试：脏 b.txt 不进入结果，topic 移到 main 后结果为空，
+删除 topic 显示错误且无陈旧链，恢复引用后再次加载成功。完整桌面 103 项通过，fmt 与
+diff whitespace 检查通过，Windows release 构建 1m09s，日志 /tmp/plico-pair-files-{tests,build}.log。
+正常关闭自有旧实例 39484，启动 32336；Ctrl 多选 conflict-main/topic → 第二菜单项，
+仅展示 shared.txt，双击打开只读 main conflict → topic conflict，两端 OID正确。
+截图 pair-plico-files-{menu,open,diff}.png 已逐张查看；参考 pair-ref-files-diff.png亦已查看。
+尚有差异：现有 Changes 工具栏为刷新+文字“显示差异”，缺参考的图标/显示选项/展开收起；
+文件根分组和计数未还原，不能宣称工具窗口像素级一致。原生两边 Diff 模式偏好不同，
+本轮仅验收端点、内容、只读及入口，不将该截图作为统一/分栏像素对比。
+下一步继续 HEAD+branch 入口及多选快捷键约束，再补 Changes 工具栏/文件树展示。
+阶段5未结束，阶段6子模块、7浅克隆补全、8交互式rebase继续保留；未提交。
+
+### HEAD 多选比较（2026-10-25）
+原生 Rebased 1.1.20/44688，HEAD+conflict-topic 多选，在 HEAD 行右键出现两项比较；
+HEAD+当前 renamed-untracked 多选则两项均灰显。截图 pair-head-reference.png、
+pair-head-same-reference.png。实读 4aec352 BranchesDashboardActions.kt::BranchesPairActionBase：
+HEAD组合返回 selectedBranch to currentBranch；同名 pair 禁用，不能隐藏；detached HEAD
+无法取得 currentBranch 时不提供操作。本地 log_branches.rs 修正端点顺序、保留同名
+pair供禁用显示；HEAD 行增加保留多选的右键入口，与叶子行共用菜单项构造。
+
+验证：GPUI选择测试增加 HEAD比较顺序、HEAD+当前分支保留相同端点（菜单禁用）、
+detached HEAD 拒绝比较；完整桌面103项通过，fmt及diff whitespace通过，Windows
+release构建成功，日志 /tmp/plico-head-pair-{tests,build}.log。首次str.as_str误用
+导致编译失败，已改直接引用比较，未引入unstable feature。
+原生 Plico 旧32336正常退出，25288启动新构建，HEAD+topic右键显示两项且保留多选，
+打开比较页顺序为conflict-topic/rename-filtered；HEAD+rename-filtered两项灰显。
+对应pair-head-plico.png、pair-head-plico-open.png、pair-head-same-plico.png已查看，
+与参考截图均保存artifacts/collaboration-workflows-20261024。菜单图标尚有差异。
+附加参考验证：HEAD+当前分支多选后Esc关闭菜单、F2没有打开重命名，截图
+pair-head-f2-reference.png。实读BranchesDashboardTreeController.kt::snapshotSelectionActionsKeys
+仅selectedNodes.singleOrNull时提供单分支action数据，GitRenameBranchAction.kt
+继承GitSingleBranchAction。本地F2仍取legacy lead，下一步补单选约束；Enter与AltF1
+尚需各自验证，不能一概禁止。阶段5仍在推进，Changes工具栏和后续阶段未删减。
+
+### 分支多选快捷键第一步（2026-10-25）
+依据上节原生F2验证及4aec352 BranchesDashboardTreeController::snapshotSelectionActionsKeys、
+GitRenameBranchAction/GitSingleBranchAction，tree_key在多行选择时不再取lead执行F2重命名。
+103桌面测试通过，Windows构建54.18s，日志/tmp/plico-branch-f2-{tests,build}.log；
+仅正常关闭自有25288，启动46232。原生Ctrl选择conflict-main/topic后F2无弹窗，
+再普通点击topic，F2正常打开重命名框，最后Esc取消，未写Git。截图
+branch-f2-plico-{multi,single}.png已查看；第一次单选截图尚在加载，等待后重新截图
+确认弹窗，未将加载状态当作失败。
+继续实测Rebased44688：HEAD+renamed-untracked多选按Enter，Log标题和结果过滤为
+HEAD,renamed-untracked，选择仍保留，截图branch-enter-ref-{before,after}.png。
+实读BranchesDashboardActions::UpdateBranchFilterInLogAction、
+BranchesDashboardTreeController::updateLogBranchFilter、BranchesTreeSelection::selectedBranchFilters：
+收集所有Branch与HEAD，忽略tag/group，传全部分支过滤，不取lead。导航action使用
+logNavigatableNodeDescriptor的firstNotNullOfOrNull，亦不同于最后点击项。
+本地目前Review.branch/Repository.snapshot_filtered/history::load仍单Option<String>入口；
+下一步必须贯穿分页、计数、graph roots与过滤显示实现多分支并集，不能编码为逗号字符串
+或仅对已加载列表过滤。Enter/AltF1这两项保持待修复；Changes面板细节及后续阶段仍在计划内。
+
+### 多分支过滤查询层（2026-10-25）
+依据上一轮原生Enter多选过滤截图，继续实读参考4aec352
+plugins/git4idea/backend/src/log/GitLogProvider.kt::getBranchLikeFilterParameters：
+遍历本地/远端分支及HEAD，将匹配的所有名字作为日志起点；无分支/修订/range过滤
+才走LOG_ALL。采用分支可达提交并集，不是把多个名字拼成一个revision或做交集。
+本地git.rs::snapshot_branches_filtered_at与history.rs::{read_branches,read_branches_filtered}
+新增集合接口，旧单分支入口委托新接口，保持现有调用行为。引用元数据仍只读一次，
+从同一快照解析全部选中分支，OID去重后作为graph/history/count共同roots；
+后续分页fixed_tips优先，刷新才重新解析引用；不为每个分支追加Git查询。
+保留本地差异：选中引用消失继续报错，用户刷新/重选，不静默扩大成全仓库历史；
+hash查找覆盖其他过滤的已有优先级不变。
+新增tests/repository.rs::multiple_branch_history_uses_one_union_for_pages_filters_and_counts，
+真实临时仓库覆盖分叉并集、共同祖先去重、排除第三分支、两页拼接、文本/路径与count
+一致、分支移动后的fixed与fresh区分、HEAD重复去重、选项形引用拒绝。该测试通过，
+日志/tmp/plico-multi-branch-core-tests.log。当前仅查询层接入，Review.branch仍单值；
+下一步替换界面分支过滤状态，并同步branch菜单、清除、导航、重命名与仓库切换。
+不得宣称多选Enter已完成；阶段5及阶段6–8目标保持完整。
+查询层回归：repository history筛选14项、filter筛选13项均通过（两组有重叠，
+不累计声称27项独立测试）；fmt与diff whitespace通过。日志分别为
+/tmp/plico-multi-branch-history-regression.log、/tmp/plico-multi-branch-filter-regression.log。
+本轮未修改界面，尚未构建此查询层变动的Windows二进制，待界面接入后共同原生验收。
+
+### 多分支过滤界面接入（2026-10-25）
+沿用已验证4aec352 BranchesTreeSelection/BranchesDashboardTreeController/GitLogProvider规则，
+Review.branch替换为branch_filter集合；Enter收集全部已选Branch/HEAD（忽略tag/group）
+并保留分支树选择。单分支菜单仍将集合替换为一项，All/清除将集合清空。
+repository.rs的普通/过滤history请求接入集合API；count继续使用返回的固定tips。
+导航新查询解析完整集合，清除过滤的导航与仓库切换清空集合；branch_rename更新所有
+命中的过滤引用，Log高亮和清除按钮以集合非空判断；菜单显示各分支短名，tooltip完整引用。
+补GPUI测试覆盖应用多个分支忽略tag、保留选择、清除和替换单项。完整桌面103项通过，
+补断言后定向selection测试亦通过；fmt、diff whitespace通过，Windows release成功。
+日志/tmp/plico-branch-filter-ui-{tests,build}.log、/tmp/plico-branch-filter-selection-tests.log。
+原生Rebased44688再次实测conflict-main/topic Enter，保留多选、显示5条，截图
+branches-filter-reference.png；Plico正常关闭46232，启动16132复现相同操作，
+保留多选、显示5/5，点过滤右侧X后恢复15/15，截图branches-filter-plico{,-clear}.png
+已查看并存于artifacts/collaboration-workflows-20261024。首次捕获处于后台加载中，
+后续截图确认完成，未将旧列表当作结果。
+保留视觉差异：Rebased在Log Tab标题显示过滤分支，Plico目前在分支过滤控件显示；
+大量分支的标签截断、Tab标题联动仍待细化。AltF1选择优先级、空选择处理以及
+Changes工具栏/根分组等继续待对齐；重命名与导航的多分支组合尚未原生写操作验收。
+阶段5仍未结束，后续阶段6–8保留，未提交。
+
+Changes 工具窗口分组前置（2026-10-25）：原生 Rebased 1.1.20 /
+IC-262.10968.SNAPSHOT，44688，conflict-main/topic 固定比较。已操作眼睛菜单、
+Directory 关闭/开启及 Collapse All；截图 changes-{options,flat,collapse}-reference.png
+保存在 artifacts/collaboration-workflows-20261024 并已查看。菜单只有 Group By /
+Directory，平铺时无根组、文件名后跟灰色目录；分组时根组显示文件数，折叠保留根组。
+源码 4aec352 的 platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/
+ChangesBrowserBase.java:createToolbarActions/createLastToolbarActions 依次添加 ShowDiff、
+分隔符、分组选项；SimpleChangesBrowser.java:buildTreeModel 按 grouping 构建；
+shared/src/com/intellij/openapi/vcs/changes/ui/ChangesTree.java:expandAll 委托树展开。
+platform/vcs-impl/src/com/intellij/vcs/CompareWithLocalDialog.java:MyRefreshAction.update
+仅 LocalContent 非 NONE 显示刷新。计划在 src/compare_view.rs 补分组、根组、右侧
+展开收起按钮及图标入口，固定版本比较不显示刷新。实现后原生验收另记。
+
+Changes 工具窗口本轮实现与验收：src/compare_view.rs 增加分组切换、根组文件数、
+展开/收起全部及平铺文件名后的目录；选中文件按原 change index 保留，Diff 定位会
+展开根及祖先目录。Show Diff 改为图标，固定比较隐藏刷新，工作区比较保留刷新。
+新增已有真实仓库测试中的分组切换/折叠/恢复定位断言；compare_view::tests 两项
+通过（/tmp/plico-changes-tree-tests.log），Windows release 构建通过
+（/tmp/plico-changes-tree-build.log）。正常关闭自有16132后更新测试副本，
+新14536/15533636；独立fixture Ctrl选 conflict-main/topic→显示文件差异，
+实际点击折叠及眼睛菜单 Directory；已查看 changes-{grouped,collapse,options,flat}-plico.png，
+保存同 artifacts 目录。平铺不显示根组、展开收起禁用、文件名后跟灰色仓库名，
+与本轮参考行为一致。未运行CI。保留差异/下轮项：目录图标当前被Icon遮罩填满，
+应沿用文件树img渲染；菜单尚未显示Ctrl+Alt+P，键绑定已接入但原生尚未验；
+目录键盘选择仍未接入；嵌套目录压缩及分组持久化尚待继续对照。本轮不宣称整体完成。
+
+Changes 图标/快捷键修正依据：沿用上轮已验的 changes-options-reference.png 与
+changes-collapse-reference.png；Rebased4aec352 ChangesBrowserBase.java 在 init 中
+对 toolbar group 调用 DiffUtil.recursiveRegisterShortcutSet。目录项绑定实际
+ToggleDirectory action，并向 PopupMenu 提供文件区 focus context 解析快捷键，
+不硬编码提示字符串；目录 SVG 使用 img 保留原有轮廓/填充。继续原生核对键盘：
+44688同一fixture，选根组 Right展开、Down文件、Left回父目录，截图
+changes-parent-reference.png；目录键盘实现仍待读取树 action 源码后推进。
+后续导航源码已读：platform/platform-impl/src/com/intellij/ui/tree/ui/TreeAction.java
+selectChild：折叠目录只展开，已展开或叶子转下一可见行；selectParent：展开项先折叠，
+否则选父路径；select按可见row设选择并scrollToVisible。ChangesBrowserBase.java
+canShowDiff/showStandaloneDiff 经 VcsTreeModelData.getListSelectionOrAll 取目录后代；
+目录选择不能沿用之前文件的index作为Diff目标。后代列表具体语义下一轮继续读取。
+
+图标/快捷键本轮结果：Windows原生确认轮廓文件夹和Ctrl+Alt+P菜单提示，
+changes-polish-plico.png（42876）及 changes-shortcut-plico.png（最终49104/8456440）。
+快捷键处理范围提升到CompareView根，覆盖工具栏子焦点；定向测试实际派发两次
+ctrl-alt-p验证group_files关闭/开启，2项通过（/tmp/plico-changes-key-tests.log）。
+完整桌面103项、发布配置导航9项通过（/tmp/plico-changes-focus-tests.log、
+/tmp/plico-changes-navigation-tests.log），Windows构建通过，未运行CI。
+实机快捷键验收仍未通过：SendKeys及keybd_event按Ctrl/Alt/P均未切换；
+同样按键在Rebased44688也未切换（changes-shortcut-reference.png），故尚不能
+将失败归因于Plico焦点，可能是环境/按键注入；先保留实际菜单切换可用结果，
+不声称原生快捷键验收成功。没有修改系统快捷键、IME或用户设置。
+VcsTreeModelData.java（shared路径）SelectedData遍历目录后代去重；
+getListSelectionOrAll对多条选择保留范围，单条/无选择扩展全部并选当前索引。
+这是下一轮目录键盘选择和Diff链范围的依据，不直接沿用旧文件索引。
+
+Changes目录导航前置（2026-10-25）：44688原生同一conflict-main/topic比较，
+根目录Enter折叠而非打开Diff；点击ShowDiff打开shared.txt，截图
+changes-directory-diff-reference.png。上轮Right/Down/Left回父目录截图继续有效。
+本轮重新读取4aec352 TreeAction.java:selectChild及VcsTreeModelData.java:
+getListSelectionOrAll；新增读取shared/.../ChangesTreeHandlers.kt:MyEnterListener，
+单选非叶节点不调用Diff handler。计划CompareView独立保留目录身份，按可见行
+处理方向键；Enter目录折叠/展开，ShowDiff按目录后代生成范围且不受折叠影响。
+
+Changes目录导航实现验收：CompareView增加独立selected_folder、按可见行的
+上下/左右导航、Enter目录展开折叠、三角展开命中区、列表选择定位。ShowDiff
+按未折叠完整树顺序构造Chain子集：目录多后代限制范围，单后代保持全部导航范围。
+刷新时复验目录存在，避免旧目录选中状态误用文件index。两项真实仓库测试覆盖
+根目录导航/Enter及Diff首文件和链长度，完整桌面103项通过；发布配置导航9项
+结果见/tmp/plico-changes-directory-navigation-tests.log。Windows release构建通过。
+正常关闭自有49104，更新后20284/4196442；原生在conflict-main/topic比较页
+选根目录后Left/Right/Down/Left、Enter折叠、ShowDiff打开shared.txt均已截图查看，
+changes-directory-{parent,enter,diff}-plico.png保存同artifacts目录。
+仍待验收/完善：嵌套多文件目录范围原生验收、折叠全部后的选择归并、目录选择切换
+平铺时的选择迁移、紧凑路径与分组持久化。未进行滚动自动化，未运行CI。
+
+Changes嵌套目录前置（2026-10-25）：Rebased44688独立fixture，搜索preview-navigation-fixture，
+与HEAD(renamed-untracked)多选ShowFilesDiff；根直接显示preview-nav，子目录nested含
+beta/gamma，旁边alpha。选nested后ShowDiff打开beta且导航1/2。Directory关闭后
+beta/gamma两项同时保持选中，并非随便选第一文件；截图changes-nested-{reference,
+scope-reference,flat-reference}.png（首项实际changes-nested-reference.png）。
+已读4aec352 shared/.../DirectoryChangesGroupingPolicy.kt:getParentNodeRecursive创建
+完整父目录辅助节点，TreeModelBuilder.java:collapseDirectories/collapseParentWithOnlyChild
+合并只有一个非叶目录子项的路径。本地计划CompareView改用compact_rows，若共同目录
+涵盖全部文件，不再额外插入空路径根；有根级文件时保留仓库根。目录分组切换的多选
+迁移需要独立选中文件集合模型，当前不得宣称保留目录的多文件选择已完成。
+
+Changes嵌套目录原生验收（2026-10-25）：确认104项桌面测试全部通过
+（/tmp/plico-changes-nested-full-tests.log）。复用自有Plico46268/50926048，清除分支搜索，
+多选preview-navigation-fixture与HEAD并ShowFilesDiff。changes-nested-plico.png确认
+preview-nav直接作为根且显示3个文件，nested显示2个文件，没有额外空根。
+点击nested折叠箭头再点击ShowDiff，changes-nested-scope-plico.png确认beta.txt内容
+及1/2文件导航，折叠不丢失目录范围。两张截图已查看并存入
+artifacts/collaboration-workflows-20261024，与上述Rebased三文件场景对照。
+当前仍待处理Directory切换后保留多文件选中集合；另观察到分支搜索时Plico隐藏HEAD，
+参考同查询保留HEAD，列为后续行为差异。本轮仅复用现有一个Plico和一个Rebased。
+
+Changes分组切换选择迁移（2026-10-25）：沿用上述原生nested目录关闭Directory后
+beta/gamma共同选中的截图证据。进一步实读4aec352的ChangesTree.java：
+onGroupingChanged调用rebuildTree(KEEP_SELECTED_OBJECTS)，KeepSelectedObjectsStrategy
+保存selected(tree).userObjects，恢复时setSelectedChanges匹配新树节点对象。
+本地CompareView以selected_files路径集合保留目录后代，切换平铺不缩成一个文件；
+恢复目录时展开所选文件祖先，Diff多选限制到集合内，单文件仍沿用完整chain规则。
+刷新按路径保留仍存在的选择，选另一个文件/目录或外部Diff导航时清除旧集合，
+加载错误清空集合。保留差异：此轮不提供任意Ctrl/Shift多选，仍列为后续行为对齐。
+嵌套目录回归补充两次分组切换、两文件范围和祖先展开断言，专项3项通过。
+Windows原生多行高亮及切换后Diff范围待新构建验收，不宣称本轮视觉已验收。
+
+分组选择迁移原生验收（2026-10-25）：104项桌面测试通过
+（/tmp/plico-selection-group-full.log），Windows release构建通过
+（/tmp/plico-selection-group-build.log）。正常关闭自有46268后更新验证副本，
+新Plico42564/22547824复用同一三文件fixture。选中折叠的nested，点击眼睛菜单Directory：
+平铺beta/gamma两行共同高亮；ShowDiff打开beta，导航1/2，排除alpha。
+再次点击Directory恢复树形，nested自动展开，beta/gamma继续高亮，Diff范围仍1/2。
+截图changes-selection-{flat,diff,tree}-plico.png均已实际查看并存入
+artifacts/collaboration-workflows-20261024。鼠标菜单路径验收通过；本轮SendKeys菜单
+Down/Enter未触发切换，改用实际鼠标命中，未将该注入结果当成原生快捷键验收。
+仍只有一个自有Plico和原Rebased44688，未提交、推送或运行CI。
+
+分支搜索保留HEAD（2026-10-25）：复查原生Rebased1.1.20截图
+changes-nested-search-reference.png，preview-navigation-fixture查询下HEAD仍在顶端。
+该截图已复制并查看于artifacts/collaboration-workflows-20261024。
+实读4aec352的plugins/git4idea/backend/src/ui/branch/dashboard/BranchesTree.kt：
+FilteringBranchesTreeBase.getText仅为Ref/Repository/RemoteGroup/Group提供匹配文本，
+其它节点返回null（注释明确始终匹配）；BranchesTreeModel.kt中Head是独立descriptor，
+不是Ref。BranchesDashboardTreeComponent.kt将同一过滤树接入Log分支搜索。
+本地src/ui/log_branches.rs::head_in_tree去掉名称查询约束，仍要求head_id存在；
+视图和键盘/多选行索引共用该判断。新GPUI测试覆盖无匹配搜索下HEAD行、detached
+保持可导航、unborn不出现HEAD。分支选择专项2项通过；Windows新构建原生验收待做。
+
+HEAD搜索原生验收（2026-10-25）：105项桌面测试通过，Windows release构建通过
+（54.79s，/tmp/plico-search-head-{full,build}.log）。正常关闭自有42564更新构建，
+新48976/4458586搜索preview-navigation-fixture后HEAD仍在顶端；选择匹配分支并
+Ctrl选HEAD，右键ShowFilesDiff打开preview-navigation-fixture与rename-filtered比较，
+正确显示alpha/beta/gamma三文件，搜索条件与双方选择保持。截图head-search-plico.png
+及head-search-comparison-plico.png已查看并保存artifacts/collaboration-workflows-20261024。
+此验证覆盖搜索到两分支比较的实际入口；没有改动用户仓库或新增常驻测试实例。
+第5项仍有多选/空选择和其它已列边界待对齐，第6—8项保持原计划，不以此次小项验收
+宣称整个协作工作流目标完成。
+
+分支空选择前置与修复（2026-10-25）：原生Rebased44688切Log，搜索仍为
+preview-navigation-fixture，先单击该分支再Ctrl单击取消，按Enter后Log仍为
+conflict-main/topic过滤且5条结果；branch-empty-reference.png已查看并保存artifacts。
+实读4aec352 BranchesDashboardActions.kt::UpdateBranchFilterInLogAction.update要求
+selectedBranchFilters非空；NavigateLogToSelectedBranchAction读取实际selection的
+logNavigatableNodeDescriptor，无对象则不执行。
+本地select_branch_row取消最后一项后仍保存旧selected_tree_ref，Enter又通过fallback
+恢复它，后续Ctrl选择也可能重新加入旧行。本轮将legacy当前项约束为实际集合中一项：
+被点行仍在集合则保留，否则取剩余项，空集清空。已有过滤不因空选择改变。
+补测Ctrl取消最后一项、Enter保持既有filter、再次Ctrl选择不复活旧分支。
+保留差异：多选Alt+F1首项规则尚未本轮调整；Windows本地空选择原生验收待新构建。
+
+分支空选择Windows验收（2026-10-25）：release构建及fmt检查通过，正常关闭自有48976，
+更新验证副本启动33120/52302304。展开分支树，单击preview-navigation-fixture再Ctrl
+单击取消，按Enter后没有选中分支，Log保持未过滤15/15；随后Ctrl单击conflict-topic
+只选中该分支，旧preview分支没有恢复。截图branch-empty-{plico,next-plico}.png
+已查看并保存artifacts/collaboration-workflows-20261024。审阅tree_key确认F2/Alt+F1
+在selected_tree_ref为空时无操作，右键先context选中命中行再构造菜单。
+专项回归2项通过（/tmp/plico-empty-selection-tests.log），构建记录
+/tmp/plico-empty-selection-build.log；没有扩大为所有键盘路径已原生验收的结论。
+
+多选分支导航顺序（2026-10-25）：Rebased44688先选择preview-navigation-fixture，
+再Ctrl选HEAD。Alt+F1本机实际打开通用Select In菜单（branch-navigate-reference.png），
+因此不能把它当已验证的Log导航。关闭菜单后点击分支工具栏Locate，出现
+“Commit or reference 'preview-navigation-fixture' doesn't match the filters”提示，
+证明目标是先选分支，不是最后点击或视觉首行HEAD；branch-navigate-action-reference.png
+已查看并保存artifacts。实读4aec352 BranchesTreeSelection.kt：selectedNodes来自
+selectionPaths，logNavigatableNodeDescriptor取firstNotNullOfOrNull，跳过非ref节点；
+BranchesDashboardTreeController.navigateLogToRef委托navigateTo(selection,true)。
+backend.xml为该action声明use-shortcut-of=SelectIn，与本机实际快捷键分派差异单独保留。
+本地log_selection::Selection补充加入顺序，ordered仍维持已有视觉排序契约，新增
+first_matching供导航使用；删除/刷新/重选同步清理顺序。log_branches的Alt+F1选首个
+可导航实际节点，不再选最后点击项。快捷键保留现有产品入口，不新增通用Select In。
+新增两种HEAD/分支选择顺序测试，以及顺序在右键、取消、重新加入、刷新时的核心测试。
+Windows本地导航验收待构建；未将源码或专项测试替代原生验收。
+
+导航顺序共享模型验证补充（2026-10-25）：完整核心285项和桌面105项通过
+（/tmp/plico-selection-order-{core-full,full}.log）。检查发现顺序集合若在每次remove
+时retain，会让Ctrl+Shift批量取消产生重复扫描；改为每个select手势结束后统一retain，
+保持集合删除O(1)且整次顺序清理O(n)。扩展既有批量取消测试，要求first_matching同样
+为空；5项选择核心测试通过（/tmp/plico-selection-order-prune.log）。原生构建更新为
+本次最终代码后再验收，不使用修改前的成功构建冒充当前产物。
+
+导航顺序原生验收（2026-10-25）：最终Windows构建通过
+（/tmp/plico-selection-order-final-build.log），关闭自有33120后更新并启动43076/45812814。
+先选preview-navigation-fixture再Ctrl选HEAD，Alt+F1选中Preview navigation three files提交；
+反过来先HEAD再Ctrl选preview，Alt+F1选中当前rename-filtered的feature提交，右侧详情
+显示HEAD。双方分支多选保留。截图branch-navigate-{plico,head-first-plico}.png已查看并
+存入artifacts/collaboration-workflows-20261024。本机Rebased快捷键分派差异沿用上段记录；
+此次对齐的是已通过其Locate动作确认的首选路径规则。格式与diff检查通过，未提交。
+
+### 第5项交付范围收口检查（2026-10-25）
+
+按4473节原范围检查，不把逐次UI细化记录替代功能交付证据：
+- 任意两分支独有提交：Pair双向范围、分页/过滤集成测试，以及此前两分支原生菜单与
+  双日志截图已覆盖；HEAD/搜索/空选择/首个选择导航补充见最近各段。
+- 整体文件差异：Pair.changes比较固定两棵树；新增真实Git测试覆盖远端跟踪分支与
+  本地分支、重命名、二进制、反向新增/删除，不把逐提交补丁累加视为净差异。
+- 方向交换/空结果/引用刷新：comparison_is_symmetric_paged_and_pinned_until_refresh
+  及桌面reference_refresh_keeps_applied_filters_and_recovers_deleted_reference已覆盖，
+  原生反向/空结果/刷新记录见前文；不把测试覆盖扩成全部生命周期已验收。
+- 只读保护：新增remote_comparison_reads_renames_and_binary_without_touching_dirty_state
+  在暂存与未暂存内容不同且存在未跟踪文件时，逐字节核对index、工作文件及未跟踪文件，
+  并核对show-ref和symbolic HEAD。重命名预览只读提交base内容，binary明确返回不支持
+  文本预览，反向比较端点互换。9项branch_compare集成测试通过
+  （/tmp/plico-stage5-readonly.log）；未修改生产行为，无新增UI需要截图。
+
+本轮再次读取4aec352 plugins/git4idea/backend/src/ui/branch/GitCompareBranchesHelper.java
+（formatLogCommand的双点范围）、platform/dvcs-impl/src/com/intellij/dvcs/ui/CompareBranchesHelper.java，
+沿用前文已实读的loadTotalDiff/固定范围规则。没有将这些入口误称为binary渲染实现来源。
+尚不能提交为整个第5项完成：独立比较列表任意Ctrl/Shift文件多选、折叠全部的选择归并、
+以及此前记录的保存/删除生命周期和按需Diff类型边界仍需逐项确认；精确颜色/标题等视觉
+差异独立记录。第6—8项保留原计划，不移除、不宣称已完成。
+
+Changes文件行多选前置与实现（2026-10-25）：原生Rebased44688平铺三文件，单击alpha
+再Ctrl选gamma后ShowDiff为alpha、1/2；重新选alpha再Shift选gamma后为alpha、1/3。
+changes-{multi,range}-reference.png已查看并保存artifacts/collaboration-workflows-20261024。
+实读4aec352 ChangesTree.java::setSelectionMode以及
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ChangeViewDiffRequestProcessor.java
+的getGroupOrMultiSelectionListSelection/getSelectionStrategy：显式2+选择限制导航集合，
+单项回到全体/同组范围，空选择依processor策略处理。
+本地CompareView::select_file接入文件行鼠标Ctrl/平台键切换、Shift范围，按Path保留
+anchor与集合，范围按当前显示行顺序，不受文件原始Git顺序影响。分组切换沿用集合迁移；
+刷新删除anchor时清理；取消最后文件后ShowDiff不再回退到不相关首文件。
+扩展GPUI回归覆盖不连续两文件、连续三文件及空选择；专项3项通过。
+本轮是文件行多选第一步，目录行Ctrl/Shift、键盘Shift扩选和多选预览同步仍待补齐，
+Windows本地多选原生验收待构建，不宣称整个多选已完成。
+
+比较列表预览范围同步修正（2026-10-25）：复核此前自有 Rebased44688 的原生操作：
+平铺列表选 alpha 后 Shift+Down，alpha/beta 高亮，已打开的 alpha Diff 保持内容并更新
+为 1/2 files。截图 changes-keyboard-range-reference.png 已查看并归档同一 artifacts 目录。
+参考仍为 4aec352，重新实读 ChangeViewDiffRequestProcessor.java 的
+getGroupOrMultiSelectionListSelection/getSelectionStrategy：显式多选限制导航集合。
+CompareView::selection_changed 与 refresh 改为使用 diff_selection 的实际选择范围，
+不再发送完整 chain；editor_tabs 复用 DiffTab::sync_source_selection，同一目标仅更新
+导航链，不重载编辑器。新增 unchanged_preview_updates_navigation_without_resetting_view
+回归核对导航范围、generation 与阅读位置保留。CompareView 三项专项通过；新回归结果
+另记。本地 Windows 多选及预览同步原生验收仍待完成，不作为整项交付完成声明。
+新回归通过（/tmp/plico-preview-scope-regression.log）：测试使用真实比较入口的 combined
+revision chain。初版测试误用普通未暂存 chain，该类型不支持 fork_for，已修正测试场景，
+未为使测试通过而扩大普通工作区 chain 的契约。原生验收与目录/键盘多选仍继续跟进。
+
+键盘范围选择源码核对（2026-10-25）：实读同一 4aec352 的
+platform/platform-impl/src/com/intellij/ui/tree/ui/TreeAction.java：lineUp/lineDown 从 lead
+可见行移动，ExtendSelection 不循环；select 使用 anchor 的可见行设 selectionInterval，
+恢复 anchor，更新 lead；失效 anchor 回到单选。目录也是可见行，不能直接跳过目录或
+把每次 Shift 步进当作单选再扩展。本地当前文件集合不足以表达多个目录的行选择与 lead，
+后续需要独立行选择状态，再投影到 Diff 文件集合；没有用仅支持平铺的快捷键冒充完成。
+
+文件多选与同目标预览原生验收（2026-10-25）：Windows release 构建通过
+（/tmp/plico-preview-scope-windows-build.log）。正常关闭自有43076，替换测试目录产物，
+启动22324/1443514；HEAD 与 preview-navigation-fixture 比较，平铺后打开 alpha Diff，
+Ctrl选 gamma：alpha/gamma 高亮，仍显示 alpha 内容，计数即时为1/2。单选 alpha 后
+Shift选 gamma：三文件高亮，仍显示 alpha，计数1/3。截图 scope-{multi,range}-plico.png
+已查看并归档 artifacts/collaboration-workflows-20261024，与此前 Rebased 对应文件多选
+截图一致。此项仅确认鼠标文件多选和预览范围同步；键盘/目录混选未完成，未宣称整个
+第5项交付完成。保留一个自有 Plico 和一个 Rebased，没有新增多余实例，未提交。
+
+目录混选与范围收缩前置（2026-10-25）：自有 Rebased44688，打开分组后选 nested，
+Ctrl点 alpha：仅 nested/alpha 行高亮，Diff beta 为1/3；选 nested，再 Shift+Down、
+Shift+Up：回到仅 nested 行高亮，beta 为1/2。截图 directory-mixed-reference.png 和
+ directory-range-shrink-reference.png 已查看并归档。首次菜单切换时一次点击被窗口守卫
+拒绝，未将该点击视为成功；菜单关闭后重新执行上述操作取得有效截图。
+实读4aec352 platform/platform-impl/src/com/intellij/ui/tree/ui/TreeAction.java（上节），
+以及 platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/VcsTreeModelData.java：
+ExactlySelectedData取selectionPaths，SelectedData遍历所选节点的子树并unique。因此
+行高亮、lead/anchor与Diff文件投影必须分离。
+新增 tree_selection.rs 类型化 File/Directory 身份，保留原生Path编码，支持目录与文件
+混选、可见行范围、反向收缩、边界不循环、失效anchor退回目标及刷新清理。此为比较列表
+状态迁移的准备代码，尚未接入CompareView，不能将核心测试等同于已交付键盘操作；
+Ctrl+Shift组合与折叠选择归并仍需进一步核对。既有UI行为本轮未改变。
+选择核心专项3项通过（/tmp/plico-tree-selection-core.log），格式及diff检查通过。下一步
+将CompareView迁移到该行选择模型，移除旧的仅文件anchor/目录单选状态，再做原生验收。
+
+CompareView 行选择模型接入（2026-10-25）：沿用上一节已完成的 Rebased 原生目录混选、
+Shift收缩截图及 TreeAction/VcsTreeModelData 源码依据。移除 selected、selected_folder、
+selected_files、file_anchor 四份状态，统一为 tree_selection::Selection；高亮读取精确节点，
+Diff按includes_file投影后去重，目录参与Ctrl和Shift范围选择。绑定Shift-Up/Down，按可见
+行更新lead、保留anchor；分组切换将选择映射到文件并展开已选文件祖先；刷新按完整模型
+保留有效节点，失效节点清理，不受当前折叠可见性影响。方向交换同样使用选择投影。
+扩展既有GPUI回归覆盖目录+子文件范围、反向收缩及目录+外部文件的Diff集合。专项3项
+通过（/tmp/plico-tree-selection-migration.log）。原先分组恢复后断言仍折叠的旧测试与此前
+分组迁移原生规则不符，更新为已选文件可见；没有删除刷新/方向交换回归。
+此次接入尚待 Windows 原生键盘/目录混选验收；Ctrl+Shift细节、折叠全部的可见选择归并、
+空选择预览及Diff反向同步是否保留多选范围仍列为未完成项。
+接入后完整桌面测试106项通过（/tmp/plico-tree-selection-desktop.log），diff whitespace检查
+通过；没有将测试结果替代本轮待执行的Windows原生界面验收，未提交。
+
+空选择及当前Diff保留规则修正（2026-10-25）：原生Rebased44688取消最后一个nested目录
+选择，仍显示beta，范围由1/2恢复1/3；选gamma再Ctrl选beta，仍显示gamma。截图
+comparison-{empty,retain}-reference.png已查看归档。实读同4aec352
+ChangeViewDiffRequestProcessor.java::refresh：空选择在showAllChangesForEmptySelection=true
+时取全量；当前change仍在范围内则保留，否则取首项。此前把空选择理解为需要清空预览
+不符合此独立比较窗口，现按实际行为修正。
+CompareView新增preview_selection(current)，与显式ShowDiff分开：已有预览空选择恢复全量、
+保留仍有效当前文件；显式空选择ShowDiff保持不打开无关文件。SelectionChanged改成通知，
+editor_tabs从对应view和当前tab解析选择后复用sync_source_selection。回归覆盖空选择、
+当前文件仍在多选内、当前文件被排除三种情况。
+参考截图gamma+beta显示1/2，表明多选枚举顺序还有与本地视觉顺序不同的细节；本轮只
+修正当前目标与集合范围，选择顺序继续列为待对齐，未宣称导航顺序已经完全一致。
+目录模型Windows构建已通过（/tmp/plico-directory-selection-build.log），但该构建发生在
+本轮空选择修正之前，未用作当前代码原生验收证据；自有Plico仍为22324，未额外启动实例。
+本轮最终比较列表专项3项通过（/tmp/plico-preview-retain-tests-final.log），格式与diff检查
+通过；原生最终验收继续待办，当前修正未提交。
+
+多选枚举顺序与Diff反向同步（2026-10-25）：Rebased44688沿用先gamma再Ctrl beta，点击
+Diff文件下一项箭头，显示beta、2/2，左侧beta/gamma两行仍高亮。截图
+comparison-multi-next-reference.png已查看归档，与前一张gamma、1/2组成连续证据。
+再次实读4aec352 VcsTreeModelData.ExactlySelectedData按getSelectionPaths顺序遍历，
+SelectedData遍历每个节点子树后unique；ChangeViewDiffRequestProcessor.ChangesNavigatable
+在多选时myUpdateSelection=false，select只更新当前change，不改树选择。
+本地tree_selection保留选择加入顺序（取消/重新加入/刷新去除同步维护），CompareView
+按节点顺序展开文件，目录内部沿树顺序，统一去重；follow_target供Diff导航使用，目标
+仍在含多个文件的选择范围时保留树选择。显式select_target仍用于指定定位，避免混淆。
+扩展比较测试核对gamma在链首、beta在第二项以及导航后多选保留，专项3项通过
+（/tmp/plico-selection-order-compare-final.log）。首次将保留规则加到显式select_target导致
+既有定位回归失败，已拆分调用语义后重跑通过；未删除该回归。
+多选与键盘最终原生验收（2026-10-25）：Windows release构建通过
+（/tmp/plico-directory-order-final-build.log），正常关闭自有22324后更新产物，启动6092 /
+7145750。先gamma、Ctrl beta：显示gamma 1/2；点击下一文件：beta 2/2，两文件选择保留。
+选nested再Shift+Down：nested/beta行高亮，范围1/2；Shift+Up仅nested高亮，范围仍1/2；
+Ctrl取消nested：无选择，保留beta，范围1/3。截图comparison-order-plico、
+comparison-multi-next-plico、comparison-directory-{extend,shrink}-plico、comparison-empty-plico
+均已查看并归档上述artifacts目录，与对应Rebased状态对齐。4项tree_selection核心测试
+通过（/tmp/plico-tree-order-core.log）。保留一个自有Plico和一个Rebased，未提交。
+折叠全部选择归并、Ctrl+Shift组合、刷新预览当前文件保留仍需继续核对，不以本轮验收
+代替第5项整体完成或后续第6—8项。
+
+折叠全部选择归并（2026-10-25）：自有Rebased44688，beta/gamma多选且当前beta 2/2，
+点击Collapse All后仅preview-nav目录可见并高亮，beta保持预览、范围1/3。截图
+comparison-collapse-reference.png已查看归档。实读4aec352 DefaultTreeExpander.kt：
+collapseAll(tree,true,1)，随后居中显示选择；TreeUtil.java::collapseAll保存lead路径，
+折叠后internalSelect(normalize(leadSelectionPath,minCount,keepSelectionLevel))，不是保留
+不可见子节点多选。本地CompareView::set_expanded(false)在重建行后将lead归并到最深
+可见祖先目录，单选该行并通知预览范围更新；展开全部不恢复已经归并的旧子文件选择。
+扩展GPUI回归验证归并目录、Diff范围扩大、当前目标保留，旧测试中折叠后仍保持b.txt
+单选的断言按上游规则改为目录投影；方向交换测试显式重新定位b.txt以保持独立覆盖。
+此轮Windows本地原生验收待构建，未宣称折叠UI已验收。
+折叠归并专项3项通过（/tmp/plico-collapse-selection-tests.log），格式及diff检查通过；
+未提交。后续仍保留Ctrl+Shift、刷新预览与第5项其他生命周期，以及第6—8项原范围。
+折叠全部Windows原生验收（2026-10-25）：最终构建通过
+（/tmp/plico-collapse-final-build.log），正常关闭自有6092，更新并启动37220/2492518。
+HEAD/preview-navigation-fixture文件比较，beta/gamma多选且当前beta；点击Collapse All后
+只剩preview-nav目录并高亮，beta仍显示，文件计数1/3。comparison-collapse-plico.png
+已查看归档，与comparison-collapse-reference.png相符。只保留一个自有Plico和Rebased。
+顺带复核editor_tabs的Reloaded监听，目前直接replace_target(event.0)，使用刷新产生的
+首项；与同4aec352 ChangeViewDiffRequestProcessor.refresh保留当前change规则仍有差异。
+刷新时固定revision身份变化与同路径保留如何匹配尚需原生验证，未把只读源码结论当已
+完成实现，也未在本轮修改该路径。第5项保持进行中，后续6—8项范围不变，未提交。
+
+刷新预览按前后路径保留（2026-10-25）：Rebased44688先gamma再Ctrl beta，切换目录分组
+重建模型后gamma继续显示（计数随重建顺序变为2/2）。截图
+comparison-model-refresh-reference.png已归档；此次原生验证是模型重建，未执行远端引用
+变化，不能声称跨提交内容已在原生验证。实读4aec352 TreeHandlerDiffRequestProcessor.kt
+的ON_MODEL_CHANGE→refresh(true)，ChangeViewDiffRequestProcessor.refresh/ChangeWrapper.equals，
+ChangeListChange.HASHING_STRATEGY和vcs-api-core Change.java::equals：普通Change按before/
+after文件路径（含不存在端点）判等，不按revision号，重命名两端路径均参与。
+本地CompareView::reloaded_selection重新匹配同仓库的before/after路径，使用新chain的
+target，再按当前选择范围解析；editor_tabs的Reloaded改为从当前tab请求恢复位置，仍
+replace_target加载新正文，不将模型刷新错误地当作仅更新导航范围。无匹配回退当前
+选择首项，空模型/错误保持失效提示。方向交换复用同一事件，但前后路径不匹配时正常
+回退，不保留旧端点。新增回归覆盖revision改变而路径相同、当前文件排除、模型清空。
+最终专项3项通过（/tmp/plico-reload-selection-tests-final.log），格式及diff检查通过。
+本地Windows刷新验收待最终构建；当前自有Plico仍37220/2492518，未替换修改前产物，
+未提交，第5项及后续6—8项保持原计划范围。
+
+刷新验收入口与回归（2026-10-25）：完整桌面106项通过
+（/tmp/plico-reload-desktop-full.log），分支比较集成9项通过
+（/tmp/plico-reload-branch-integration.log），Windows构建通过
+（/tmp/plico-reload-final-build.log）。产物尚未替换自有37220，不能视为原生刷新验收。
+检查发现Source::Branches独立文件面板不展示刷新，且repository::refresh_impl未触发它。
+随后实读4aec352 GitShowDiffWithBranchPanel.kt：init启动一次loadDiffInBackground，
+showDiff只应用结果；CompareWithLocalDialog.MyRefreshAction只在localContent != NONE时
+可见。因此独立固定版本文件面板无刷新入口与此参考一致，不能直接把添加刷新按钮
+当作上游已有行为；第5项的引用刷新交付在双分支日志比较中已有refresh入口与测试。
+工作树比较的Refresh事件仍是本次Reloaded修正的原生验收入口，后续通过它验收当前文件
+保留；若扩展独立分支文件面板为可刷新，需明确记录为本地产品差异，不混同源码还原。
+本轮未新增不具参考依据的按钮，未提交；第5项及6—8项原目标继续保留。
+
+目录分组与现有Diff导航同步（2026-10-25）：复用此前本场景的Rebased实机记录，
+重新查看comparison-model-refresh-reference.png：先gamma再Ctrl beta，分组重建后
+仍为gamma，导航2/2。重新读取参考4aec352的TreeHandlerDiffRequestProcessor.kt
+中TREE_MODEL_PROPERTY→ON_MODEL_CHANGE，确认模型重建会同步预览。
+发现本地CompareView::toggle_directory重建选择顺序后只notify视图，遗漏
+SelectionChanged；现在通过已有preview_selection/sync_source_selection同步导航链，
+不重新加载内容或重置编辑器阅读位置。回归补充当前gamma保留且导航索引变1、范围2。
+compare_view专项3项通过（/tmp/plico-group-preview-tests.log），fmt与diff检查通过，
+Windows release通过（/tmp/plico-group-preview-build.log）。正常关闭自有37220，
+更新验证副本后启动44076/62522844；按同样顺序选择gamma、Ctrl beta、Show Diff、
+关闭目录分组，截图comparison-group-sync-plico.png已查看并归档，gamma正文保持，
+导航2/2、两文件仍选中，与参考一致。只保留此自有Plico和Rebased44688。
+此验收证明分组重建同步，不替代工作树比较刷新正文的待验收场景；第5项继续，
+第6—8项范围不变，未提交或推送。
+
+工作树比较刷新原生验收（2026-10-25）：在自有Plico44076中，preview-navigation-fixture
+右键→与工作树比较差异；选local.txt，Ctrl选beta.txt，打开Diff。备份自有fixture的
+local.txt字节后在磁盘追加Native refresh retention check，点击比较面板Refresh。
+截图working-refresh-retain-plico.png已查看归档：仍为local.txt，正文显示新增行，
+local.txt与beta.txt仍选中，导航1/2。验证后原样恢复fixture字节；未修改项目仓库。
+此结果补齐前述Reloaded工作树正文刷新验收；跨revision路径匹配由专项测试覆盖，
+不把本场景声称为远端引用刷新实测。仍只保留自有44076和参考44688。
+
+### 第6项子模块：源码预读（2026-10-25，尚未开始实现）
+
+实读4aec352 plugins/git4idea/backend/src/update/GitSubmoduleUpdater.kt：
+从父仓库执行submodule update --recursive -- <相对子模块路径>，isSaveNeeded=true，
+不使用普通分支的isUpdateNeeded逻辑；命令失败返回ERROR，取消返回CANCEL。
+实读GitSubmoduleTest.kt前180行：detached子模块通过submodule update跟随父指针，
+但在分支上的子模块按普通仓库更新，不应全部强制detached；包含本地变更可见性测试。
+实读GitComplexSubmoduleTest.kt前155行：嵌套fixture用update --init --recursive初始化，
+以及依赖顺序测试。测试fixture使用init不证明生产UI存在独立初始化入口；所读Updater
+也没有sync URL，所以当前不能把“初始化/同步/更新”三个按钮宣称为直接复刻上游。
+本地目前只有clone recurse_submodules选项，尚无独立子模块管理模块。下一步需完成
+原生Rebased子模块项目操作及生产入口核对，按计划保留补初始化、URL同步、嵌套和
+本地修改保护范围；若上游无入口，记录产品扩展与理由，而非删除既定交付。
+
+### 第6项子模块：原生更新、部分失败与重试（2026-10-25）
+
+自有fixture submodule-reference-80s4zk56/project，父/子均本地bare远端，使用Windows Git
+创建。父本地main仍为add child，远端为advance child；modules/child初始detached在
+8d4dc065，父新指针cf261c3f。fixture生成脚本/tmp/plico-submodule-fixture.py，路径清单
+/tmp/plico-submodule-fixture.json。自有Rebased14476/1640714，1.1.20；信任仅本fixture，
+取消默认Defender排除选项。未改用户系统安全配置。
+
+原生操作：Find Action搜索submodule，仅看到递归clone设置结果（截图
+submodule-search-reference.png；输入法候选遮挡部分文字，不能据此断言所有入口不存在）。
+Ctrl+T出现Update Project，Merge/Rebase单选、Don't show again、OK/Cancel，截图
+submodule-update-reference.png。确认Merge后父仓库成功推进，子模块因file协议限制
+失败；Project Partially Updated通知截图submodule-updated-reference.png。只读取本fixture
+日志，确认依次merge origin/main及submodule update --recursive -- modules/child，
+后者ERROR；git submodule status为+8d4dc065，故不能把通知当全部成功。
+仅为此独立fixture子模块设置本地protocol.file.allow=always，点击顶栏Update重试并确认。
+最终子模块cf261c3f/child two且保持detached，父记录匹配；截图
+submodule-retry-final-reference.png。所有截图已查看并归档同artifacts目录。
+
+再次实读4aec352 GitUpdateProcess.java的collectDetachedSubmodules、updateImpl和
+ defineUpdaters：父更新和子更新组合结果，子模块即使父已最新仍可更新；嵌套detached
+父已进入递归更新时跳过单独子更新，isSaveNeeded纳入GitPreservingProcess；失败不盲目
+恢复本地修改。生产入口实机已确认是Update Project，独立init/sync入口仍未确认。
+本地映射要求：不要只在父Pull有新提交时才更新子模块；提供部分成功/失败信息及重试，
+绝不强制覆盖子模块修改。尚未执行dirty、未初始化及URL变更实机场景，尚未实现第6项。
+本次新增参考实例验收后关闭，保留原44688和Plico44076；第5项未提交，6—8项目标不变。
+
+第6项只读清单基础（2026-10-25）：沿用上一节原生项目中父/子仓库识别及detached
+显示的前置记录；新增实读4aec352 repo/GitModulesFileReader.kt、GitSubmodule.kt与
+GitSubmoduleInfo.kt。上游从.gitmodules取得同时具有path/url的声明，再通过仓库管理器
+识别直接子模块，缺失字段不成为可操作对象。
+本地src/submodules.rs用git config --no-includes --null --list解析Git配置，按声明路径
+查询ls-files --stage -z，保留gitlink提交或冲突状态，不启动子仓库扫描、不加载正文。
+不把NotTracked当作未初始化；初始化状态需要后续探测实际子仓库。声明中的URL可能
+含凭据，结构不实现Debug，不能直接显示或记录URL。对重复路径、越界相对路径、
+非普通.gitmodules文件明确报错；这是本地写操作前清单约束，上游reader较宽松，
+保留差异以避免后续操作目标不明确。配置include不展开，与只读本文件的上游一致。
+本阶段尚无UI和写操作，未声称子模块功能交付。
+
+真实Git集成tests/submodules.rs四项通过（/tmp/plico-submodules-inventory-tests.log）：
+声明与gitlink映射、缺失字段/重复和越界路径、带制表符/换行路径、unmerged阶段；
+并逐字节确认index不变、HEAD不变、不创建子目录。子目录入口用例首次暴露cwd导致
+NotTracked误报，已改为在解析出的工作树根执行查询，回归通过。格式和diff检查通过。
+待实现：初始化状态/dirty探测、递归操作、认证取消/本地变更保护、UI及原生验收。
+此前第5项的保存/删除生命周期边界仍保留待收口，不以第6项基础代码冒充已完成第5项。
+
+### 第5项功能阶段收尾（2026-10-25）
+
+补齐剩余工作树编辑生命周期的Windows原生验收：自有Plico44076/62522844，独立
+rebase-branch-plico-20261024。查看local.txt比较时从磁盘删除该文件，编辑器保留
+已读取内容并展示磁盘不可用提示；点击Tab关闭按钮正常返回Log，没有卡死或自动
+重建文件。截图comparison-deleted-plico.png与comparison-deleted-closed-plico.png。
+恢复原始字节后重新打开比较，在工作侧追加Native comparison save check并Ctrl+S，
+磁盘确认保存，index SHA256保持不变；截图comparison-saved-plico.png。已查看并
+归档上述截图，最后恢复fixture原始内容。没有改变该场景的产品行为，沿用既有
+共享文档保存及读取错误处理；不将此正常保存验证扩成所有并发写入场景。
+固定baseline/双方向/BOM与CRLF/删除后拒绝重建/取消由branch_compare集成覆盖；
+共享文档保存屏障、外部变更及Tab/F7生命周期由完整核心和桌面回归覆盖。
+
+本轮验证：cargo test --locked --no-default-features完整成功，日志
+/tmp/plico-stage5-core-final.log；完整桌面106项与发布配置导航10项成功，日志
+/tmp/plico-stage5-{desktop,navigation}-final.log。Clippy no-default-features all-targets
+成功，仍有已有警告（/tmp/plico-stage5-clippy-final.log），不宣称零警告；格式与
+whitespace检查通过。Windows构建沿用最近group-preview成功产物，随后未改第5项
+产品代码，原生验收使用同一产物。未运行CI或发布。
+
+按4473节交付范围，第5项功能阶段可独立提交：双向独有提交、有界加载及筛选、
+整体固定版本文件差异、方向交换与空结果、引用刷新、按需Diff；各项证据见前述
+收口检查及后续修正。保留此前记录的精确视觉差异；独立固定分支文件面板无刷新按钮
+与参考一致，引用刷新通过双分支日志比较入口完成。大规模内存基准未在本轮重测。
+第6项仅清单基础，代码不纳入第5项提交；第7、8项未开始，总目标仍未完成。

@@ -5,6 +5,7 @@ use std::collections::HashSet;
 #[derive(Clone, Default, Debug)]
 pub struct Selection {
     selected: HashSet<String>,
+    selection_order: Vec<String>,
     anchor: Option<String>,
     lead: Option<String>,
 }
@@ -18,6 +19,22 @@ impl Selection {
             .map(String::as_str)
             .collect()
     }
+    /// Selection-path order, distinct from display order and the last clicked row.
+    pub fn first_matching(&self, mut matches: impl FnMut(&str) -> bool) -> Option<&str> {
+        self.selection_order
+            .iter()
+            .map(String::as_str)
+            .find(|id| matches(id))
+    }
+    fn insert(&mut self, id: &str) {
+        if self.selected.insert(id.to_owned()) {
+            self.selection_order.push(id.to_owned());
+        }
+    }
+    fn clear(&mut self) {
+        self.selected.clear();
+        self.selection_order.clear();
+    }
     pub fn lead(&self, rows: &[String]) -> Option<usize> {
         self.lead
             .as_ref()
@@ -28,6 +45,8 @@ impl Selection {
     pub fn reconcile(&mut self, rows: &[String]) {
         let visible: HashSet<_> = rows.iter().map(String::as_str).collect();
         self.selected.retain(|id| visible.contains(id.as_str()));
+        self.selection_order
+            .retain(|id| visible.contains(id.as_str()));
         if self
             .anchor
             .as_ref()
@@ -56,11 +75,11 @@ impl Selection {
                 .unwrap_or(0);
             let add = !toggle || self.anchor.as_ref().is_some_and(|id| self.contains(id));
             if !toggle {
-                self.selected.clear();
+                self.clear();
             }
             for id in &rows[anchor.min(row)..=anchor.max(row)] {
                 if add {
-                    self.selected.insert(id.clone());
+                    self.insert(id);
                 } else {
                     self.selected.remove(id);
                 }
@@ -69,15 +88,17 @@ impl Selection {
         } else {
             let remove = toggle && self.contains(id);
             if !toggle {
-                self.selected.clear();
+                self.clear();
             }
             if remove {
                 self.selected.remove(id);
             } else {
-                self.selected.insert(id.clone());
+                self.insert(id);
             }
             self.anchor = Some(id.clone());
         }
+        // Prune once per gesture, not once per removed row in a large range.
+        self.selection_order.retain(|id| self.selected.contains(id));
         self.lead = Some(id.clone());
     }
     /// A popup on a selected row preserves the collection and its range anchor.
@@ -105,6 +126,24 @@ mod tests {
         (1..=5).map(|n| format!("{n:040x}")).collect()
     }
     #[test]
+    fn selection_path_order_survives_reorder_and_drops_removed_items() {
+        let rows = rows();
+        let mut s = Selection::default();
+        s.select(&rows, 3, false, false);
+        s.select(&rows, 1, true, false);
+        assert_eq!(s.first_matching(|_| true), Some(rows[3].as_str()));
+        assert_eq!(s.ordered(&rows), vec![rows[1].as_str(), rows[3].as_str()]);
+        s.context(&rows, 1);
+        assert_eq!(s.first_matching(|_| true), Some(rows[3].as_str()));
+        s.select(&rows, 3, true, false);
+        assert_eq!(s.first_matching(|_| true), Some(rows[1].as_str()));
+        s.select(&rows, 3, true, false);
+        s.reconcile(&[rows[3].clone()]);
+        assert_eq!(s.first_matching(|_| true), Some(rows[3].as_str()));
+        s.reconcile(&[]);
+        assert_eq!(s.first_matching(|_| true), None);
+    }
+    #[test]
     fn toggle_and_range_have_separate_anchor_and_lead() {
         let rows = rows();
         let mut s = Selection::default();
@@ -129,6 +168,7 @@ mod tests {
         s.select(&rows, 2, true, false); // deselect anchor, keep rows 0/1
         s.select(&rows, 0, true, true); // deselect whole interval
         assert!(s.ordered(&rows).is_empty());
+        assert!(s.first_matching(|_| true).is_none());
         assert_eq!(s.lead(&rows), Some(0));
     }
     #[test]

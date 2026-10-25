@@ -38,10 +38,10 @@ cargo test --locked --features desktop-tests --bin plico
 cargo test --locked --config 'profile.test.debug-assertions=false' --features desktop-tests --bin plico diff_tab::editable_navigation_tests
 ```
 
-第二条覆盖 Diff 导航测试，包括跨文件 F7 焦点与工具栏实际鼠标点击：这两个用例在默认配置下因 GPUI 工具栏重复 hover
-调试断言而被显式忽略，普通 `assert!` 在第二条命令中仍生效。不能只报告第一条
-通过便声称所有桌面用例已覆盖；也不能全局关闭调试断言运行第一条来代替，因为
-其他测试依赖调试布局信息。测试不代替 Windows 原生界面验收。
+Diff 导航测试包含跨文件 F7 焦点与工具栏实际鼠标点击，均在默认调试配置下执行。
+此前模式按钮重复设置 hover 导致的调试断言已修复，不再忽略这两项测试。
+第二条保留发布配置的导航回归覆盖；不能全局关闭调试断言运行第一条来代替，
+因为其他测试依赖调试布局信息。测试不代替 Windows 原生界面验收。
 CI 的 `desktop-test` 独立任务执行这两条命令，并作为 preview 发布的前置门槛。
 它使用 GPUI 测试平台检查状态、焦点和生命周期，不替代 Windows 原生交互验收。
 提交记录分别注明本地测试、CI 运行与原生验收结果；修改流水线但尚未运行时不能称为 CI 已通过。

@@ -203,8 +203,9 @@ impl Review {
             .update(cx, |menu, cx| menu.reset(self.repo.path.clone(), cx));
         self.user_menu
             .update(cx, |menu, cx| menu.reset(self.repo.clone(), cx));
-        self.branch = None;
+        self.branch_filter.clear();
         self.selected_tree_ref = None;
+        self.branch_selection = Default::default();
         self.branch_rows = Arc::default();
         self.collapsed_branches.clear();
         self.history_count.invalidate();
@@ -234,6 +235,8 @@ impl Review {
         self.documents = Self::new_documents(cx);
         self.editor_tabs.clear();
         self.tabs.clear();
+        self.branch_compare_request = Default::default();
+        self.branch_compare_tabs.clear();
         self.close_settings(cx);
         self.collapsed_files.clear();
         self.collapsed_directories.clear();
@@ -259,6 +262,10 @@ impl Review {
         self.refresh_impl(more, false, None, cx);
     }
     pub(super) fn refresh_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(index) = self.active_branch_compare_index() {
+            self.branch_compare_tabs[index].update(cx, |view, cx| view.refresh(true, cx));
+            return;
+        }
         if self.stash_open {
             if let Some(view) = &self.stash_view {
                 view.update(cx, |s, cx| s.refresh(cx));
@@ -299,6 +306,9 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         if !more {
+            for view in &self.branch_compare_tabs {
+                view.update(cx, |view, cx| view.refresh(false, cx));
+            }
             self.history_count.invalidate();
             self.details_cache.clear();
             if let Some(view) = &self.local_view {
@@ -323,7 +333,7 @@ impl Review {
         self.reword_gate = None;
         self.base = None;
         let repo = self.repo.clone();
-        let branch = self.branch.clone();
+        let branches = self.branch_filter.clone();
         let text_filter = self.text_filter.clone();
         let local = self.local;
         let show_long_edges = self.show_long_edges;
@@ -384,9 +394,9 @@ impl Review {
                         let result = if local {
                             repo.local_changes(&token).map(|f| (None, Some(f)))
                         } else if let Some(filter) = &text_filter {
-                            history::read_filtered(
+                            history::read_branches_filtered(
                                 &repo,
-                                branch.as_deref(),
+                                &branches,
                                 offset,
                                 limit,
                                 fixed.as_deref(),
@@ -395,9 +405,9 @@ impl Review {
                             )
                             .map(|window| (Some(window), None))
                         } else {
-                            history::read(
+                            history::read_branches(
                                 &repo,
-                                branch.as_deref(),
+                                &branches,
                                 offset,
                                 limit,
                                 fixed.as_deref(),

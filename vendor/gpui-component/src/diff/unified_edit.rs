@@ -1,7 +1,7 @@
 //! Unified presentation and byte mapping for a working-tree editor.
 //! Local mapped edits advance the projection immediately. External source edits
 //! must invalidate/rebuild it before accepting more input.
-use std::ops::Range;
+use std::{ops::Range, num::NonZeroU32};
 use super::{DiffFile, DiffSide};
 
 #[derive(Clone, Debug)]
@@ -18,39 +18,87 @@ pub struct UnifiedEditProjection {
     writable: Vec<Writable>,
     deleted: Vec<Range<usize>>,
     deleted_source: Vec<Range<usize>>,
+    line_numbers: Vec<[Option<NonZeroU32>; 2]>,
+    working_side: DiffSide,
+    working_line_count: usize,
+    fixed_line_count: usize,
 }
 
 impl UnifiedEditProjection {
     /// Requires complete source documents, as supplied by `DiffFile::from_sources`.
     pub fn new(file: &DiffFile) -> Self {
+        Self::for_side(file, DiffSide::Modified)
+    }
+
+    /// Preserve old-then-new presentation while selecting the writable document.
+    /// The legacy `original_*` accessors describe the fixed, readonly fragments.
+    pub fn for_side(file: &DiffFile, working_side: DiffSide) -> Self {
         let original = file.source(DiffSide::Original);
         let modified = file.source(DiffSide::Modified);
         let old_lines = boundaries(original);
         let new_lines = boundaries(modified);
-        let mut result = Self { text: String::new(), writable: Vec::new(), deleted: Vec::new(), deleted_source: Vec::new() };
-        let mut new_end = 0;
+        let left = working_side == DiffSide::Original;
+        let working = if left { original } else { modified };
+        let mut result = Self { text: String::new(), writable: Vec::new(), deleted: Vec::new(), deleted_source: Vec::new(), line_numbers: Vec::new(), working_side, working_line_count: boundaries(working).len(), fixed_line_count: boundaries(if left { modified } else { original }).len() };
+        let mut working_end = 0;
         for (old, new) in file.change_line_ranges() {
-            let start = boundary(&new_lines, new.start, modified.len());
-            result.append_working(modified, new_end..start);
-            let old_start = boundary(&old_lines, old.start, original.len());
-            let old_end = boundary(&old_lines, old.end, original.len());
-            if old_start < old_end {
-                let start = result.text.len();
-                result.text.push_str(&original[old_start..old_end]);
-                // A deleted final line without a newline still occupies its own
-                // display row. This separator is never a working-file byte.
-                if !result.text.ends_with('\n') { result.text.push('\n'); }
-                result.deleted.push(start..result.text.len());
-                result.deleted_source.push(old_start..old_end);
+            let old_range = boundary(&old_lines, old.start, original.len())
+                ..boundary(&old_lines, old.end, original.len());
+            let new_range = boundary(&new_lines, new.start, modified.len())
+                ..boundary(&new_lines, new.end, modified.len());
+            let range = if left { old_range.clone() } else { new_range.clone() };
+            result.append_working(working, working_end..range.start);
+            if left {
+                result.append_working(original, old_range);
+                // A working final line still needs a presentation-only separator
+                // before the fixed row. Never map that separator to disk bytes.
+                if !new_range.is_empty() { result.append_separator(new_range.start); }
+                result.append_fixed(modified, new_range);
+            } else {
+                result.append_fixed(original, old_range);
+                result.append_working(modified, new_range);
             }
-            new_end = boundary(&new_lines, new.end, modified.len());
-            result.append_working(modified, start..new_end);
+            working_end = range.end;
         }
-        result.append_working(modified, new_end..modified.len());
+        result.append_working(working, working_end..working.len());
         if result.writable.last().is_none_or(|p| p.display.end != result.text.len()) {
-            result.writable.push(Writable { display: result.text.len()..result.text.len(), source: modified.len()..modified.len() });
+            result.writable.push(Writable { display: result.text.len()..result.text.len(), source: working.len()..working.len() });
+        }
+        result.line_numbers = file.patch_lines().iter().map(|row| {
+            [DiffSide::Original, DiffSide::Modified].map(|side|
+                row.line(side).and_then(|line| number(file.line_number(side, line))))
+        }).collect();
+        let display_lines = result.text.bytes().filter(|&b| b == b'\n').count() + 1;
+        while result.line_numbers.len() < display_lines {
+            result.line_numbers.push([original, modified].map(|source|
+                (source.is_empty() || source.ends_with('\n')).then(|| number(boundaries(source).len())).flatten()));
         }
         result
+    }
+
+    /// One-based source line numbers for each display row; absent on the other
+    /// side's changed rows. Local edits invalidate touched fixed-side mappings.
+    pub fn line_numbers(&self, row: usize) -> Option<[Option<usize>; 2]> {
+        self.line_numbers.get(row).map(|numbers| numbers.map(|n| n.map(|n| n.get() as usize)))
+    }
+    pub fn max_line_number(&self) -> usize { self.working_line_count.max(self.fixed_line_count) }
+
+    fn append_separator(&mut self, fixed_offset: usize) {
+        if !self.text.is_empty() && !self.text.ends_with('\n') {
+            let start = self.text.len();
+            self.text.push('\n');
+            self.deleted.push(start..self.text.len());
+            self.deleted_source.push(fixed_offset..fixed_offset);
+        }
+    }
+
+    fn append_fixed(&mut self, source: &str, range: Range<usize>) {
+        if range.is_empty() { return; }
+        let start = self.text.len();
+        self.text.push_str(&source[range.clone()]);
+        if !self.text.ends_with('\n') { self.text.push('\n'); }
+        self.deleted.push(start..self.text.len());
+        self.deleted_source.push(range);
     }
 
     fn append_working(&mut self, source: &str, range: Range<usize>) {
@@ -98,6 +146,22 @@ impl UnifiedEditProjection {
         // subtractions cannot underflow. Check final length before mutation.
         self.text.len().checked_sub(range.len())?.checked_add(replacement.len())?;
         let shift = |offset: usize| offset - range.len() + replacement.len();
+        // Rebased LineNumberConvertor: edit the working-side mapping synchronously;
+        // touched fixed-side rows lose exact correspondence until the next diff.
+        let start_line = self.text[..range.start].bytes().filter(|&b| b == b'\n').count();
+        let old_lines = self.text[range.clone()].bytes().filter(|&b| b == b'\n').count() + 1;
+        let new_lines = replacement.bytes().filter(|&b| b == b'\n').count() + 1;
+        let side = self.working_side as usize;
+        let source_line = self.line_numbers[start_line][side].map(|n| n.get() as usize).unwrap_or(self.working_line_count);
+        for row in &mut self.line_numbers[start_line + old_lines..] {
+            if let Some(value) = row[side] { row[side] = number(value.get() as usize - old_lines + new_lines); }
+        }
+        self.line_numbers.splice(start_line..start_line + old_lines, (0..new_lines).map(|offset| {
+            let mut row = [None, None];
+            row[side] = number(source_line + offset);
+            row
+        }));
+        self.working_line_count = self.working_line_count - old_lines + new_lines;
         self.text.replace_range(range.clone(), replacement);
         let current = &mut self.writable[index];
         current.display.end = shift(current.display.end);
@@ -158,4 +222,10 @@ fn boundaries(text: &str) -> Vec<usize> {
 }
 fn boundary(lines: &[usize], line: usize, end: usize) -> usize {
     lines.get(line).copied().unwrap_or(end)
+}
+
+// File previews are bounded well below u32::MAX lines; compact optional numbers
+// take eight bytes per displayed row rather than two full Option<usize> values.
+fn number(value: usize) -> Option<NonZeroU32> {
+    NonZeroU32::new(u32::try_from(value).expect("source line exceeds u32 range"))
 }

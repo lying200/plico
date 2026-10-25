@@ -62,6 +62,30 @@ impl Review {
         let view = cx.new(|cx| {
             crate::compare_view::CompareView::new(self.repo.clone(), before, after, window, cx)
         });
+        self.show_comparison(view, window, cx);
+    }
+    pub(super) fn show_comparison(
+        &mut self,
+        view: Entity<crate::compare_view::CompareView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_comparison_preview(cx);
+        cx.subscribe_in(
+            &view,
+            window,
+            |s, view, _: &crate::compare_view::Refresh, w, cx| {
+                let view = view.downgrade();
+                s.with_saved_documents(w, cx, move |s, _, cx| {
+                    if let Some(current) = &s.comparison {
+                        if current.entity_id() == view.entity_id() {
+                            let _ = view.update(cx, |v, cx| v.refresh(cx));
+                        }
+                    }
+                });
+            },
+        )
+        .detach();
         cx.subscribe_in(
             &view,
             window,
@@ -80,7 +104,7 @@ impl Review {
                             .is_some_and(|p| p.entity_id() == tab.entity_id())
                         {
                             if let Some(view) = &s.comparison {
-                                view.update(cx, |v, cx| v.select_target(&event.0, cx));
+                                view.update(cx, |v, cx| v.follow_target(&event.0, cx));
                             }
                         }
                     })
@@ -101,19 +125,16 @@ impl Review {
         cx.subscribe_in(
             &view,
             window,
-            |s, _, event: &crate::compare_view::SelectionChanged, w, cx| {
+            |s, view, _: &crate::compare_view::SelectionChanged, w, cx| {
                 let Some(index) = s.comparison_preview_index(cx) else {
                     return;
                 };
-                if s.tabs[index].read(cx).target.identity() == event.0.identity() {
-                    return;
-                }
+                let selection = view
+                    .read(cx)
+                    .preview_selection(&s.tabs[index].read(cx).target);
                 let active = s.active_diff_index() == Some(index);
                 s.tabs[index].update(cx, |tab, cx| {
-                    tab.replace_target(event.0.clone(), event.1.clone(), cx);
-                    if active {
-                        tab.activate_with_focus(false, w, cx);
-                    }
+                    tab.sync_source_selection(selection, active, w, cx);
                 });
             },
         )
@@ -121,12 +142,15 @@ impl Review {
         cx.subscribe_in(
             &view,
             window,
-            |s, _, event: &crate::compare_view::Reloaded, w, cx| {
+            |s, view, _: &crate::compare_view::Reloaded, w, cx| {
                 let Some(index) = s.comparison_preview_index(cx) else {
                     return;
                 };
                 let active = s.active_diff_index() == Some(index);
-                s.tabs[index].update(cx, |tab, cx| match &event.0 {
+                let selection = view
+                    .read(cx)
+                    .reloaded_selection(&s.tabs[index].read(cx).target);
+                s.tabs[index].update(cx, |tab, cx| match &selection {
                     Some((target, chain)) => {
                         tab.replace_target(target.clone(), chain.clone(), cx);
                         if active {
@@ -417,7 +441,7 @@ impl Review {
         let token = self.source_token.clone();
         let root = self.repo.path.clone();
         let expected_root = root.clone();
-        let path = target.identity().path.clone();
+        let path = target.source_path().to_path_buf();
         self.source_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -430,7 +454,7 @@ impl Review {
                         plico::project_files::Content::Text(text) => text,
                         _ => return Err("Source file cannot be displayed as text".to_owned()),
                     };
-                    let source = if let Some(contents) = target.read_combined(&token) {
+                    let source = if let Some(contents) = target.read_contents(&token) {
                         let c = contents?;
                         if original { c.before } else { c.after }.unwrap_or_default()
                     } else {
@@ -737,6 +761,12 @@ impl Review {
         let id = self.editor_tabs.active()?;
         self.tabs.iter().position(|tab| tab.entity_id() == id)
     }
+    pub(super) fn active_branch_compare_index(&self) -> Option<usize> {
+        let id = self.editor_tabs.active()?;
+        self.branch_compare_tabs
+            .iter()
+            .position(|tab| tab.entity_id() == id)
+    }
     pub(super) fn active_file_index(&self) -> Option<usize> {
         let id = self.editor_tabs.active()?;
         self.file_tabs.iter().position(|tab| tab.entity_id() == id)
@@ -763,6 +793,17 @@ impl Review {
             id.and_then(|id| self.tabs.iter().position(|tab| tab.entity_id() == id))
         {
             self.activate_diff_tab(index, window, cx);
+        } else if let Some(index) = id.and_then(|id| {
+            self.branch_compare_tabs
+                .iter()
+                .position(|tab| tab.entity_id() == id)
+        }) {
+            self.close_settings(cx);
+            self.leave_diff_tab(cx);
+            self.editor_tabs
+                .activate(self.branch_compare_tabs[index].entity_id());
+            self.focus.focus(window, cx);
+            cx.notify();
         } else {
             self.focus_after_diff(window, cx);
         }
@@ -1033,9 +1074,32 @@ impl Review {
                 self.close_file_tab(i, window, cx);
             } else if let Some(i) = self.tabs.iter().position(|t| t.entity_id() == id) {
                 self.close_diff_tab_from_header(i, window, cx);
+            } else if let Some(i) = self
+                .branch_compare_tabs
+                .iter()
+                .position(|t| t.entity_id() == id)
+            {
+                let previous = self.editor_left_neighbor(id);
+                let was_active = self.editor_tabs.active() == Some(id);
+                self.editor_tabs.remove(id);
+                let previews = self.branch_compare_tabs[i].read(cx).editor_preview_ids(cx);
+                for preview in previews {
+                    if let Some(index) = self.tabs.iter().position(|tab| tab.entity_id() == preview)
+                    {
+                        self.close_diff_tab_from_header(index, window, cx);
+                    }
+                }
+                self.branch_compare_tabs.remove(i);
+                if was_active {
+                    self.activate_editor_neighbor(previous, window, cx);
+                }
+                cx.notify();
             }
         }
-        if closes_active && self.active_file_index().is_none() && self.active_diff_index().is_none()
+        if closes_active
+            && self.active_file_index().is_none()
+            && self.active_diff_index().is_none()
+            && self.active_branch_compare_index().is_none()
         {
             let remaining = clicked
                 .filter(|id| self.editor_tabs.order().contains(id))
@@ -1095,6 +1159,42 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use gpui::component::Root;
+    #[gpui::test]
+    fn branch_comparison_reuses_tabs_and_closes_to_neighbor(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let view = review.unwrap();
+        cx.update(|window, cx| {
+            view.update(cx, |s, cx| {
+                let pair = plico::branch_compare::Pair {
+                    first_ref: "refs/heads/topic".into(),
+                    second_ref: "refs/heads/main".into(),
+                    first: "a".repeat(40),
+                    second: "b".repeat(40),
+                };
+                s.open_branch_comparison(pair.clone(), window, cx);
+                let first = s.editor_tabs.active().unwrap();
+                s.open_branch_comparison(pair.clone(), window, cx);
+                assert_eq!(s.branch_compare_tabs.len(), 1);
+                assert_eq!(s.editor_tabs.active(), Some(first));
+                s.open_branch_comparison(pair.reversed(), window, cx);
+                assert_eq!(s.branch_compare_tabs.len(), 2);
+                let second = s.editor_tabs.active().unwrap();
+                s.close_editor_ids(vec![second], Some(second), window, cx);
+                assert_eq!(s.editor_tabs.active(), Some(first));
+                assert_eq!(s.active_branch_compare_index(), Some(0));
+                s.close_editor_ids(vec![first], Some(first), window, cx);
+                assert!(s.branch_compare_tabs.is_empty());
+                assert!(s.editor_tabs.order().is_empty());
+                assert!(s.editor_tabs.active().is_none());
+            })
+        });
+    }
     #[gpui::test]
     fn commit_event_starts_log_refresh_even_from_welcome_state(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);

@@ -36,6 +36,7 @@ pub struct DiffTab {
     pending_editable: Option<plico::working_copy::Contents>,
     pub source_callback: Option<SourceCallback>,
     embedded: bool,
+    file_navigation: bool,
     split_ratio: f32,
     split_dragging: std::rc::Rc<std::cell::Cell<bool>>,
     navigation_boundary: Option<bool>,
@@ -64,6 +65,7 @@ pub struct DiffTab {
     appearance: DiffAppearance,
     error: Option<String>,
     preference_error: Option<String>,
+    equality_notice_hidden: bool,
 }
 impl Drop for DiffTab {
     fn drop(&mut self) {
@@ -93,7 +95,7 @@ impl DiffTab {
         if editable && !batch.index {
             return;
         }
-        if !batch.index && !batch.affects(&self.target.identity().path) {
+        if !batch.index && !batch.affects(self.target.source_path()) {
             return;
         }
         if self.disk_refreshing {
@@ -112,6 +114,20 @@ impl DiffTab {
                     if editable {
                         return plico::working_copy::read_base(&target, &token)
                             .map(|b| (Some(b), vec![]));
+                    }
+                    if let Some(contents) = target.read_contents(&token) {
+                        let contents = contents?;
+                        let (before, after) = target
+                            .content_paths()
+                            .ok_or("Missing comparison endpoints")?;
+                        let before = before.map(|p| p.to_string_lossy());
+                        let after = after.map(|p| p.to_string_lossy());
+                        let file = DiffFile::from_sources(
+                            before.as_deref().zip(contents.before.as_deref()),
+                            after.as_deref().zip(contents.after.as_deref()),
+                        )
+                        .map_err(str::to_owned)?;
+                        return Ok((None, vec![file]));
                     }
                     let text = target.read(&token)?;
                     let files = if target.change().area == Area::Untracked {
@@ -185,6 +201,7 @@ impl DiffTab {
             pending_editable: None,
             source_callback: None,
             embedded: false,
+            file_navigation: true,
             split_ratio: 0.5,
             split_dragging: Default::default(),
             source_available: false,
@@ -205,6 +222,7 @@ impl DiffTab {
             appearance: DiffAppearance::default(),
             error: None,
             preference_error: None,
+            equality_notice_hidden: false,
         }
     }
     fn set_split_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
@@ -223,7 +241,44 @@ impl DiffTab {
     pub fn preview(target: Target, chain: Chain) -> Self {
         let mut tab = Self::new(target, chain);
         tab.embedded = true;
+        tab.file_navigation = false;
         tab
+    }
+    pub fn with_file_navigation(mut self) -> Self {
+        self.file_navigation = true;
+        self
+    }
+    /// Update navigation order while retaining the loaded viewer and its reading position.
+    pub fn set_navigation_chain(&mut self, chain: Chain, cx: &mut Context<Self>) {
+        if let Some(chain) = chain.fork_for(&self.target) {
+            self.chain = chain;
+            self.picker = None;
+            cx.notify();
+        }
+    }
+    /// Follow the source tree without reloading an unchanged file or stealing focus.
+    pub fn sync_source_selection(
+        &mut self,
+        selection: Option<(Target, Chain)>,
+        active: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((target, chain)) = selection else {
+            if self.unavailable.is_none() {
+                self.invalidate_preview("Select a file to view its diff", cx);
+            }
+            return;
+        };
+        if self.unavailable.is_none() && self.target.identity() == target.identity() {
+            self.set_navigation_chain(chain, cx);
+            return;
+        }
+        self.replace_target(target, chain, cx);
+        if active {
+            self.activate_with_focus(false, window, cx);
+        }
+        cx.notify();
     }
     pub fn replace_target(&mut self, target: Target, chain: Chain, cx: &mut Context<Self>) {
         self.deactivate(cx);
@@ -306,6 +361,7 @@ impl DiffTab {
         self.pending_navigation = Some(true);
         self.token = Cancel::default();
         self.loading = true;
+        self.equality_notice_hidden = false;
         self.error = None;
         self.source_available = false;
         let viewer = cx.new(|cx| {
@@ -345,35 +401,41 @@ impl DiffTab {
                     if editable && !target.is_working_gitlink(&token)? {
                         let contents = plico::working_copy::read(&target, &token)?;
                         let path = target.identity().path.to_string_lossy();
+                        let working_text =
+                            contents.working.comparison_text(contents.working.text());
+                        let left_working = target
+                            .identity()
+                            .working_comparison
+                            .as_ref()
+                            .is_some_and(|c| {
+                                matches!(
+                                    c.before,
+                                    Some(plico::working_comparison::Endpoint::WorkingTree { .. })
+                                )
+                            });
+                        let (before, after) = if left_working {
+                            (working_text.as_str(), contents.original.as_str())
+                        } else {
+                            (contents.original.as_str(), working_text.as_str())
+                        };
                         let file = DiffFile::from_editor_sources(
-                            Some((&path, &contents.original)),
-                            Some((
-                                &path,
-                                &contents.working.comparison_text(contents.working.text()),
-                            )),
+                            Some((&path, before)),
+                            Some((&path, after)),
                         )
                         .map_err(str::to_owned)?;
                         return Ok((vec![file], true, Some(contents)));
                     }
                     let source_available = std::fs::symlink_metadata(
-                        target.identity().repository.join(&target.identity().path),
+                        target.identity().repository.join(target.source_path()),
                     )
                     .is_ok_and(|m| m.file_type().is_file());
-                    if let Some(contents) = target.read_combined(&token) {
+                    if let Some(contents) = target.read_contents(&token) {
                         let contents = contents?;
-                        let endpoints = target
-                            .identity()
-                            .combined
-                            .as_ref()
-                            .ok_or("Missing combined revisions")?;
-                        let before_path = endpoints
-                            .before
-                            .as_ref()
-                            .map(|r| r.path.to_string_lossy().into_owned());
-                        let after_path = endpoints
-                            .after
-                            .as_ref()
-                            .map(|r| r.path.to_string_lossy().into_owned());
+                        let (before_path, after_path) = target
+                            .content_paths()
+                            .ok_or("Missing comparison endpoints")?;
+                        let before_path = before_path.map(|p| p.to_string_lossy().into_owned());
+                        let after_path = after_path.map(|p| p.to_string_lossy().into_owned());
                         let file = DiffFile::from_sources(
                             before_path.as_deref().zip(contents.before.as_deref()),
                             after_path.as_deref().zip(contents.after.as_deref()),
@@ -665,6 +727,7 @@ impl Render for DiffTab {
                 )
             });
             if self.target.identity().area == Area::WorkingTree
+                && self.target.identity().working_comparison.is_none()
                 && self.target.identity().old_path.is_none()
                 && self.target.change().status.starts_with('M')
             {
@@ -679,6 +742,7 @@ impl Render for DiffTab {
             cx.subscribe(
                 &editable,
                 |s, _, event: &crate::editable_diff::Compared, cx| {
+                    s.equality_notice_hidden = false;
                     if let Some(viewer) = &s.viewer {
                         viewer.update(cx, |v, cx| v.set_files(vec![event.0.clone()], cx));
                     }
@@ -765,7 +829,18 @@ impl Render for DiffTab {
         }
         let id = self.target.identity();
         let short = |r: &str| r[..8.min(r.len())].to_owned();
-        let (before, after) = if let Some(endpoints) = &id.combined {
+        let (before, after) = if let Some(endpoints) = &id.working_comparison {
+            let title = |e: &plico::working_comparison::Endpoint| match e {
+                plico::working_comparison::Endpoint::Revision { commit, .. } => short(commit),
+                plico::working_comparison::Endpoint::WorkingTree { .. } => {
+                    t("Working tree").to_owned()
+                }
+            };
+            (
+                endpoints.before.as_ref().map(title).unwrap_or_default(),
+                endpoints.after.as_ref().map(title).unwrap_or_default(),
+            )
+        } else if let Some(endpoints) = &id.combined {
             (
                 endpoints
                     .before
@@ -895,7 +970,9 @@ impl Render for DiffTab {
                 row.child(title_cell(
                     before,
                     Some(old_path.display().to_string()),
-                    true,
+                    self.editable
+                        .as_ref()
+                        .is_none_or(|v| !v.read(cx).editable_side(true)),
                     if status == Some(DiffFileStatus::Deleted) {
                         1.
                     } else {
@@ -910,7 +987,7 @@ impl Render for DiffTab {
                     after_path,
                     self.editable
                         .as_ref()
-                        .is_none_or(|v| v.read(cx).working.is_none()),
+                        .is_none_or(|v| !v.read(cx).editable_side(false)),
                     if status == Some(DiffFileStatus::Added) {
                         1.
                     } else {
@@ -1059,7 +1136,7 @@ impl Render for DiffTab {
                             .on_click(cx.listener(|s, _, window, cx| s.open_source(window, cx))),
                     )
                     .child(div().h(px(20.)).border_l_1().border_color(rgb(0x43454a)))
-                    .when(!self.embedded, |toolbar| {
+                    .when(self.file_navigation, |toolbar| {
                         toolbar
                             .child(
                                 Button::new("previous-file")
@@ -1144,6 +1221,37 @@ impl Render for DiffTab {
                         })
                     })
                     .child(self.settings_button(cx)),
+            )
+            .when_some(
+                (!self.loading && self.error.is_none() && !self.equality_notice_hidden)
+                    .then(|| {
+                        self.editable
+                            .as_ref()
+                            .and_then(|editor| editor.read(cx).equality_notice(cx))
+                    })
+                    .flatten(),
+                |view, notice| {
+                    view.child(
+                        h_flex()
+                            .w_full()
+                            .flex_shrink_0()
+                            .px_3()
+                            .py_1()
+                            .gap_2()
+                            .bg(rgb(0x233354))
+                            .child(div().flex_1().min_w_0().child(t(notice)))
+                            .child(
+                                Button::new("hide-equality-notice")
+                                    .link()
+                                    .small()
+                                    .label(t("Hide"))
+                                    .on_click(cx.listener(|s, _, _, cx| {
+                                        s.equality_notice_hidden = true;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                },
             )
             .when_some(
                 self.disk_error
@@ -1246,6 +1354,106 @@ mod editable_navigation_tests {
             _: &mut gpui::Context<Self>,
         ) -> impl gpui::IntoElement {
             gpui::div()
+        }
+    }
+    #[gpui::test]
+    fn working_comparison_loader_pins_baseline_and_preserves_display_orientation(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui::component::init);
+        let root =
+            std::env::temp_dir().join(format!("plico-working-compare-tab-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let git = |path: &std::path::Path, args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args([
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "core.hooksPath=disabled-hooks",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        };
+        git(&root, &["init", "-b", "main"]);
+        std::fs::write(root.join("base"), "base").unwrap();
+        git(&root, &["add", "base"]);
+        git(&root, &["commit", "-m", "base"]);
+        let old = git(&root, &["rev-parse", "HEAD"]);
+        std::fs::write(root.join("base"), "new HEAD\n").unwrap();
+        git(&root, &["add", "base"]);
+        git(&root, &["commit", "-m", "advance"]);
+        std::fs::write(root.join("base"), "local\n").unwrap();
+        let change = plico::working_comparison::Change {
+            before: Some(plico::working_comparison::Endpoint::WorkingTree {
+                path: "base".into(),
+            }),
+            after: Some(plico::working_comparison::Endpoint::Revision {
+                commit: old.trim().into(),
+                path: "base".into(),
+            }),
+        };
+        let mut tabs = Vec::new();
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            for change in [change.clone(), change.reversed()] {
+                let (target, chain) = Chain::working_comparison(
+                    plico::git::Repository::new(root.clone()),
+                    vec![change],
+                    0,
+                )
+                .unwrap();
+                let view = cx.new(|_| DiffTab::new(target, chain));
+                view.update(cx, |s, cx| s.activate_with_focus(false, window, cx));
+                tabs.push(view);
+            }
+            Empty
+        });
+        cx.run_until_parked();
+        for (index, tab) in tabs.iter().enumerate() {
+            tab.read_with(cx, |s, cx| {
+                assert!(!s.loading);
+                assert!(s.error.is_none(), "{:?}", s.error);
+                let contents = s
+                    .pending_editable
+                    .as_ref()
+                    .expect("editable working comparison");
+                assert_eq!(contents.original, "base");
+                assert_eq!(contents.working.text(), "local\n");
+                let files = s.viewer.as_ref().unwrap().read(cx).files();
+                let (before, after) = if index == 0 {
+                    ("local\n", "base")
+                } else {
+                    ("base", "local\n")
+                };
+                assert_eq!(
+                    files[0].source(gpui::component::diff::DiffSide::Original),
+                    before
+                );
+                assert_eq!(
+                    files[0].source(gpui::component::diff::DiffSide::Modified),
+                    after
+                );
+            });
         }
     }
     #[gpui::test]
@@ -1401,13 +1609,7 @@ mod editable_navigation_tests {
             });
         }
     }
-    // Full toolbar rendering hits the upstream duplicate-hover debug assertion.
-    // Run this test with --config "profile.test.debug-assertions=false".
     #[gpui::test]
-    #[cfg_attr(
-        debug_assertions,
-        ignore = "GPUI toolbar duplicate-hover assertion; run without debug assertions"
-    )]
     fn cross_file_navigation_retains_editor_focus_after_loading(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut tab = None;
@@ -1533,10 +1735,6 @@ mod editable_navigation_tests {
     }
     // Exercise real pointer events: calling navigate twice skips mouse-down handlers.
     #[gpui::test]
-    #[cfg_attr(
-        debug_assertions,
-        ignore = "GPUI toolbar duplicate-hover assertion; run without debug assertions"
-    )]
     fn toolbar_difference_buttons_can_cross_file_boundary(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut tab = None;
@@ -1635,6 +1833,42 @@ mod editable_navigation_tests {
         cx.run_until_parked();
         tab.unwrap()
             .read_with(cx, |s, _| assert_eq!(s.navigation_boundary, None));
+    }
+    #[gpui::test]
+    fn unchanged_preview_updates_navigation_without_resetting_view(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            use plico::combined_changes::{Change, Revision};
+            let (target, chain) = Chain::combined(
+                plico::git::Repository::new("fixture"),
+                ["a.txt", "b.txt", "c.txt"]
+                    .iter()
+                    .map(|name| Change {
+                        before: None,
+                        after: Some(Revision {
+                            revision: "2".repeat(40),
+                            path: (*name).into(),
+                        }),
+                    })
+                    .collect(),
+                0,
+            )
+            .unwrap();
+            let subset = chain.subset(&[0, 2]).unwrap();
+            let tab = cx.new(|_| DiffTab::new(target.clone(), chain));
+            tab.update(cx, |s, cx| {
+                s.last_source_position = Some((true, 42));
+                let generation = s.generation;
+                s.sync_source_selection(Some((target, subset)), true, window, cx);
+                assert_eq!(s.chain.len(), 2);
+                assert_eq!(s.chain.changes()[1].path, std::path::Path::new("c.txt"));
+                assert_eq!(s.generation, generation);
+                assert_eq!(s.last_source_position, Some((true, 42)));
+            });
+            let empty = cx.new(|_| Empty);
+            gpui::component::Root::new(empty, window, cx)
+        });
+        cx.run_until_parked();
     }
     #[gpui::test]
     fn f7_boundary_requires_second_press_and_does_not_wrap(cx: &mut gpui::TestAppContext) {

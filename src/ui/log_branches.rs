@@ -3,6 +3,110 @@
 use super::*;
 
 impl Review {
+    fn branch_selection_rows(&self, _cx: &App) -> Vec<String> {
+        let mut rows = Vec::new();
+        if self.head_in_tree() {
+            rows.push("HEAD".into());
+        }
+        rows.extend(self.branch_rows.iter().map(|row| row.key.clone()));
+        rows
+    }
+    fn select_branch_row(&mut self, name: &str, toggle: bool, extend: bool, cx: &App) {
+        let rows = self.branch_selection_rows(cx);
+        if let Some(index) = rows.iter().position(|row| row == name) {
+            if self.branch_selection.ordered(&rows).is_empty() {
+                if let Some(anchor) = self
+                    .selected_tree_ref
+                    .as_ref()
+                    .and_then(|id| rows.iter().position(|row| row == id))
+                {
+                    self.branch_selection.select(&rows, anchor, false, false);
+                }
+            }
+            self.branch_selection.select(&rows, index, toggle, extend);
+            let selected = self.branch_selection.ordered(&rows);
+            self.selected_tree_ref = if selected.contains(&name) {
+                Some(name.to_owned())
+            } else {
+                selected.last().map(|name| (*name).to_owned())
+            };
+        }
+    }
+    fn first_navigatable_tree_ref(&self) -> Option<String> {
+        self.branch_selection
+            .first_matching(|name| {
+                (name == "HEAD" && self.head_in_tree())
+                    || self
+                        .branch_rows
+                        .iter()
+                        .any(|row| row.key == name && row.branch.is_some())
+            })
+            .map(str::to_owned)
+    }
+    fn selected_branch_pair(&self, cx: &App) -> Option<(String, String)> {
+        let rows = self.branch_selection_rows(cx);
+        let selected = self.branch_selection.ordered(&rows);
+        let [first, second] = selected.as_slice() else {
+            return None;
+        };
+        let resolve = |reference: &str| {
+            if reference == "HEAD" {
+                self.snapshot
+                    .as_ref()?
+                    .current_branch
+                    .as_ref()
+                    .map(|name| format!("refs/heads/{name}"))
+            } else if reference.starts_with("refs/heads/") || reference.starts_with("refs/remotes/")
+            {
+                Some(reference.to_owned())
+            } else {
+                None
+            }
+        };
+        // Rebased places the selected branch before the current branch for HEAD pairs.
+        let (first, second) = if *first == "HEAD" {
+            (second, first)
+        } else {
+            (first, second)
+        };
+        Some((resolve(first)?, resolve(second)?))
+    }
+    fn branch_pair_items(
+        owner: &WeakEntity<Self>,
+        first: String,
+        second: String,
+    ) -> [PopupMenuItem; 2] {
+        let disabled = first == second;
+        let files_owner = owner.clone();
+        let compare_owner = owner.clone();
+        let files_first = first.clone();
+        let files_second = second.clone();
+        [
+            PopupMenuItem::new(t("Compare Branches"))
+                .disabled(disabled)
+                .on_click(move |_, window, cx| {
+                    let _ = compare_owner.update(cx, |s, cx| {
+                        s.prepare_branch_pair(first.clone(), second.clone(), window, cx);
+                    });
+                }),
+            PopupMenuItem::new(t("Show Files Diff"))
+                .disabled(disabled)
+                .on_click(move |_, window, cx| {
+                    let _ = files_owner.update(cx, |s, cx| {
+                        let view = cx.new(|cx| {
+                            crate::compare_view::CompareView::branches(
+                                s.repo.clone(),
+                                files_first.clone(),
+                                files_second.clone(),
+                                window,
+                                cx,
+                            )
+                        });
+                        s.show_comparison(view, window, cx);
+                    });
+                }),
+        ]
+    }
     pub(super) fn rebuild_branches(&mut self, cx: &mut Context<Self>) {
         if let Some(snapshot) = &self.snapshot {
             self.branch_rows = Arc::new(branches::filtered_ref_rows(
@@ -17,11 +121,14 @@ impl Review {
                     .as_deref(),
             ));
         }
+        self.branch_selection
+            .reconcile(&self.branch_selection_rows(cx));
         cx.notify();
     }
     pub(super) fn select_branch(&mut self, branch: Option<String>, cx: &mut Context<Self>) {
+        self.branch_selection = Default::default();
         self.selected_tree_ref = branch.clone();
-        self.branch = branch;
+        self.branch_filter = branch.into_iter().collect();
         self.local = false;
         self.limit = git::HISTORY_PAGE;
         self.refresh(false, cx);
@@ -259,10 +366,10 @@ impl Review {
         self.navigation_notice = None;
         self.navigation_loading = Some(name.clone());
         let repo = self.repo.clone();
-        let branch = if clear_filters {
-            None
+        let branches = if clear_filters {
+            Vec::new()
         } else {
-            self.branch.clone()
+            self.branch_filter.clone()
         };
         let fixed = if clear_filters || fresh {
             None
@@ -283,7 +390,12 @@ impl Review {
                     .background_spawn(async move {
                         let roots = match fixed {
                             Some(roots) => roots,
-                            None => repo.snapshot(branch.as_deref(), 1, None, &token)?.tips,
+                            None => {
+                                repo.snapshot_branches_filtered_at(
+                                    &branches, 0, 1, None, None, &token,
+                                )?
+                                .tips
+                            }
                         };
                         let located = match filter {
                             Some(filter) => history::locate_filtered(
@@ -326,7 +438,7 @@ impl Review {
                             Ok(history::FilteredLocation::Found(found)) => {
                                 s.local = false;
                                 if clear_filters {
-                                    s.branch = None;
+                                    s.branch_filter.clear();
                                     s.text_filter = None;
                                     s.date_filter = Default::default();
                                     s.filter_search
@@ -481,28 +593,29 @@ impl Review {
             .child(
                 h_flex()
                     .gap_1()
-                    .child(
-                        self.branch
-                            .as_deref()
+                    .child(if self.branch_filter.is_empty() {
+                        t("Branch").to_owned()
+                    } else {
+                        let names = self
+                            .branch_filter
+                            .iter()
                             .map(|b| {
-                                format!(
-                                    "{}: {}",
-                                    t("Branch"),
-                                    b.strip_prefix("refs/heads/")
-                                        .or_else(|| b.strip_prefix("refs/remotes/"))
-                                        .unwrap_or(b)
-                                )
+                                b.strip_prefix("refs/heads/")
+                                    .or_else(|| b.strip_prefix("refs/remotes/"))
+                                    .unwrap_or(b)
                             })
-                            .unwrap_or_else(|| t("Branch").into()),
-                    )
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{}: {}", t("Branch"), names)
+                    })
                     .child(jb_icon("chevronDown_dark.svg")),
             )
-            .selected(self.branch.is_some())
-            .tooltip(
-                self.branch
-                    .clone()
-                    .unwrap_or_else(|| t("All branches").into()),
-            )
+            .selected(!self.branch_filter.is_empty())
+            .tooltip(if self.branch_filter.is_empty() {
+                t("All branches").to_owned()
+            } else {
+                self.branch_filter.join(", ")
+            })
             .dropdown_menu(move |mut menu, window, cx| {
                 let clear = owner.clone();
                 menu = menu
@@ -603,23 +716,34 @@ impl Review {
                 )
             })
     }
-    pub(super) fn head_in_tree(&self, cx: &App) -> bool {
-        let query = self.branch_search.read(cx).value().trim().to_lowercase();
+    pub(super) fn head_in_tree(&self) -> bool {
+        // Rebased treats HEAD as a structural node, outside the ref-name filter.
         self.snapshot.as_ref().is_some_and(|s| s.head_id.is_some())
-            && (query.is_empty() || "head (current branch)".contains(&query))
     }
     pub(super) fn filter_selected_tree_ref(&mut self, cx: &mut Context<Self>) {
-        let Some(name) = self.selected_tree_ref.clone() else {
-            return;
-        };
-        if name == "HEAD"
-            || self
-                .snapshot
-                .as_ref()
-                .is_some_and(|s| s.branches.iter().any(|r| r.name == name))
-        {
-            self.select_branch(Some(name), cx);
+        let rows = self.branch_selection_rows(cx);
+        let mut selected = self.branch_selection.ordered(&rows);
+        if selected.is_empty() {
+            selected.extend(self.selected_tree_ref.as_deref());
         }
+        let branches = selected
+            .into_iter()
+            .filter(|name| {
+                *name == "HEAD"
+                    || self
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|s| s.branches.iter().any(|r| r.name == *name))
+            })
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if branches.is_empty() {
+            return;
+        }
+        self.branch_filter = branches;
+        self.local = false;
+        self.limit = git::HISTORY_PAGE;
+        self.refresh(false, cx);
     }
     pub(super) fn tree_key(
         &mut self,
@@ -637,17 +761,31 @@ impl Review {
             && !modifiers.platform
             && event.keystroke.key == "f1"
         {
-            if let Some(name) = self.selected_tree_ref.clone() {
+            if let Some(name) = self.first_navigatable_tree_ref() {
                 self.navigate_tree_ref(&name, window, cx);
             }
             cx.stop_propagation();
             return;
         }
-        if modifiers.alt || modifiers.control || modifiers.shift || modifiers.platform {
+        let key = event.keystroke.key.as_str();
+        if modifiers.alt
+            || modifiers.control
+            || modifiers.platform
+            || (modifiers.shift && !matches!(key, "up" | "down" | "home" | "end"))
+        {
             return;
         }
-        let key = event.keystroke.key.as_str();
         if key == "f2" {
+            // Rebased exposes single-ref actions only for a single tree node.
+            if self
+                .branch_selection
+                .ordered(&self.branch_selection_rows(cx))
+                .len()
+                > 1
+            {
+                cx.stop_propagation();
+                return;
+            }
             if let Some(reference) = self
                 .selected_tree_ref
                 .clone()
@@ -661,7 +799,7 @@ impl Review {
         if key == "enter" {
             self.filter_selected_tree_ref(cx);
         } else if matches!(key, "up" | "down" | "home" | "end") {
-            let head = self.head_in_tree(cx) as usize;
+            let head = self.head_in_tree() as usize;
             let count = self.branch_rows.len() + head;
             if count == 0 {
                 return;
@@ -731,14 +869,24 @@ impl Review {
         } else {
             return;
         }
+        if matches!(key, "up" | "down" | "home" | "end" | "left" | "right") {
+            if let Some(name) = self.selected_tree_ref.clone() {
+                self.select_branch_row(&name, false, modifiers.shift, cx);
+            }
+        }
         cx.stop_propagation();
         cx.notify();
     }
     pub(super) fn branches(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selection_color = row_selection(&self.tree_focus, window);
         let owner = cx.entity().downgrade();
+        let head_owner = owner.clone();
         let branches = self.branch_rows.clone();
+        let selection = self.branch_selection.clone();
         let selected = self.selected_tree_ref.clone();
+        let multiple_selection = !selection
+            .ordered(&self.branch_selection_rows(cx))
+            .is_empty();
         let current = self
             .snapshot
             .as_ref()
@@ -764,7 +912,7 @@ impl Review {
                             .prefix(jb_icon("search_dark.svg")),
                     ),
             )
-            .when(self.head_in_tree(cx), |panel| {
+            .when(self.head_in_tree(), |panel| {
                 panel.child(
                     h_flex()
                         .id("head-branch")
@@ -777,19 +925,52 @@ impl Review {
                         .text_size(cx.theme().font_size)
                         .overflow_hidden()
                         .cursor_pointer()
-                        .when(selected.as_deref() == Some("HEAD"), |row| {
-                            row.child(tree_selection(selection_color))
-                        })
+                        .when(
+                            if multiple_selection {
+                                selection.contains("HEAD")
+                            } else {
+                                selected.as_deref() == Some("HEAD")
+                            },
+                            |row| row.child(tree_selection(selection_color)),
+                        )
                         .child(jb_icon("branchLabel_dark.svg"))
                         .child(t("HEAD (Current Branch)"))
                         .on_click(cx.listener(|s, event: &ClickEvent, window, cx| {
                             s.tree_focus.focus(window, cx);
-                            s.selected_tree_ref = Some("HEAD".into());
+                            s.select_branch_row(
+                                "HEAD",
+                                event.modifiers().control || event.modifiers().platform,
+                                event.modifiers().shift,
+                                cx,
+                            );
                             if event.click_count() == 2 {
                                 s.filter_selected_tree_ref(cx);
                             }
                             cx.notify();
-                        })),
+                        }))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(|s, _, window, cx| {
+                                s.tree_focus.focus(window, cx);
+                                let rows = s.branch_selection_rows(cx);
+                                if let Some(index) = rows.iter().position(|row| row == "HEAD") {
+                                    s.branch_selection.context(&rows, index);
+                                    s.selected_tree_ref = Some("HEAD".into());
+                                }
+                                cx.notify();
+                            }),
+                        )
+                        .context_menu(move |mut menu, _, cx| {
+                            if let Some(pair) = head_owner
+                                .upgrade()
+                                .and_then(|s| s.read(cx).selected_branch_pair(cx))
+                            {
+                                for item in Self::branch_pair_items(&head_owner, pair.0, pair.1) {
+                                    menu = menu.item(item);
+                                }
+                            }
+                            menu
+                        }),
                 )
             })
             .when(
@@ -818,6 +999,8 @@ impl Review {
                             let branch = branches[i].clone();
                             let owner = owner.clone();
                             let menu_owner = owner.clone();
+                            let context_owner = owner.clone();
+                            let context_key = branch.key.clone();
                             let menu_ref = branch.branch.clone();
                             let is_current = branch.branch.is_some() && branch.branch == current;
                             let icon = if branch.branch.is_some() {
@@ -838,9 +1021,14 @@ impl Review {
                                 .flex()
                                 .items_center()
                                 .text_size(cx.theme().font_size)
-                                .when(selected.as_ref() == Some(&branch.key), |d| {
-                                    d.child(tree_selection(selection_color))
-                                })
+                                .when(
+                                    if multiple_selection {
+                                        selection.contains(&branch.key)
+                                    } else {
+                                        selected.as_ref() == Some(&branch.key)
+                                    },
+                                    |d| d.child(tree_selection(selection_color)),
+                                )
                                 .gap(px(6.))
                                 .child(
                                     jb_icon(icon).text_color(rgb(if is_current {
@@ -871,7 +1059,12 @@ impl Review {
                                 .on_click(move |event, window, cx| {
                                     let _ = owner.update(cx, |s, cx| {
                                         s.tree_focus.focus(window, cx);
-                                        s.selected_tree_ref = Some(branch.key.clone());
+                                        s.select_branch_row(
+                                            &branch.key,
+                                            event.modifiers().control || event.modifiers().platform,
+                                            event.modifiers().shift,
+                                            cx,
+                                        );
                                         cx.notify();
                                         if branch.branch.is_some() {
                                             if event.click_count() == 2 {
@@ -887,12 +1080,45 @@ impl Review {
                                         }
                                     });
                                 })
+                                .on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                                    let _ = context_owner.update(cx, |s, cx| {
+                                        s.tree_focus.focus(window, cx);
+                                        let rows = s.branch_selection_rows(cx);
+                                        if let Some(index) =
+                                            rows.iter().position(|row| row == &context_key)
+                                        {
+                                            s.branch_selection.context(&rows, index);
+                                            s.selected_tree_ref = Some(context_key.clone());
+                                        }
+                                        cx.notify();
+                                    });
+                                })
                                 .context_menu(move |mut menu, _, cx| {
                                     let Some(name) = &menu_ref else {
                                         return menu;
                                     };
                                     let name = name.clone();
                                     let owner = menu_owner.clone();
+                                    if let Some(view) = owner.upgrade() {
+                                        let state = view.read(cx);
+                                        let selected = state
+                                            .branch_selection
+                                            .ordered(&state.branch_selection_rows(cx))
+                                            .len();
+                                        if selected > 1 && state.branch_selection.contains(&name) {
+                                            if let Some((first, second)) =
+                                                state.selected_branch_pair(cx)
+                                            {
+                                                for item in
+                                                    Self::branch_pair_items(&owner, first, second)
+                                                {
+                                                    menu = menu.item(item);
+                                                }
+                                                return menu;
+                                            }
+                                            return menu;
+                                        }
+                                    }
                                     if owner.upgrade().is_some_and(|s| {
                                         s.read(cx).reference_checkout_target(&name).is_some()
                                     }) {
@@ -926,6 +1152,10 @@ impl Review {
                                         || name.starts_with("refs/remotes/")
                                     {
                                         menu = menu
+                                            .item(Review::branch_compare_item(&owner, &name, cx))
+                                            .item(Review::branch_working_comparison_item(
+                                                &owner, &name, cx,
+                                            ))
                                             .item(Review::branch_rebase_item(&owner, &name, cx));
                                         let merge_owner = owner.clone();
                                         let merge_ref = name.clone();
@@ -1008,5 +1238,190 @@ impl Review {
         };
         self.limit = git::HISTORY_PAGE;
         self.refresh(false, cx);
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod selection_tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+    use gpui::component::Root;
+
+    #[gpui::test]
+    fn branch_search_keeps_head_available_for_comparison(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            view.update(cx, |s, cx| {
+                s.branch_search.update(cx, |input, cx| {
+                    input.set_value("unmatched-topic", window, cx)
+                });
+                s.snapshot = Some(Snapshot {
+                    head_id: Some("a".repeat(40)),
+                    current_branch: Some("main".into()),
+                    included_in_head: Default::default(),
+                    ref_titles: Default::default(),
+                    commits: vec![],
+                    branches: vec![],
+                    tags: vec![],
+                    tips: vec![],
+                    more: false,
+                    shallow: false,
+                });
+                assert!(s.head_in_tree());
+                assert_eq!(
+                    s.branch_selection_rows(cx).first().map(String::as_str),
+                    Some("HEAD")
+                );
+                s.snapshot.as_mut().unwrap().current_branch = None;
+                assert!(s.head_in_tree(), "detached HEAD remains navigable");
+                s.snapshot.as_mut().unwrap().head_id = None;
+                assert!(!s.head_in_tree(), "unborn repository has no HEAD commit");
+            });
+            Root::new(view, window, cx)
+        });
+    }
+
+    #[gpui::test]
+    fn branch_pair_selection_tracks_identity_and_rejects_non_branches(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        review.unwrap().update(cx, |s, cx| {
+            let rows = [
+                "refs/heads/a",
+                "refs/heads/b",
+                "refs/remotes/origin/c",
+                "refs/tags/v1",
+            ];
+            s.branch_rows = Arc::new(
+                rows.iter()
+                    .map(|name| branches::Row {
+                        key: (*name).into(),
+                        label: (*name).into(),
+                        depth: 1,
+                        branch: Some((*name).into()),
+                        expanded: false,
+                    })
+                    .collect(),
+            );
+            s.select_branch_row(rows[0], false, false, cx);
+            s.branch_filter = vec!["refs/heads/existing-filter".into()];
+            s.select_branch_row(rows[0], true, false, cx);
+            assert!(s.selected_tree_ref.is_none());
+            assert!(
+                s.branch_selection
+                    .ordered(&s.branch_selection_rows(cx))
+                    .is_empty()
+            );
+            s.filter_selected_tree_ref(cx);
+            assert_eq!(s.branch_filter, vec!["refs/heads/existing-filter"]);
+            s.select_branch_row(rows[2], true, false, cx);
+            assert_eq!(
+                s.branch_selection.ordered(&s.branch_selection_rows(cx)),
+                vec![rows[2]],
+                "Ctrl selecting after an empty selection must not resurrect the old branch"
+            );
+            s.select_branch_row(rows[0], false, false, cx);
+            s.select_branch_row(rows[2], true, false, cx);
+            assert_eq!(
+                s.selected_branch_pair(cx),
+                Some((rows[0].into(), rows[2].into()))
+            );
+            s.select_branch_row(rows[1], true, false, cx);
+            assert!(s.selected_branch_pair(cx).is_none());
+            s.select_branch_row(rows[0], false, false, cx);
+            s.select_branch_row(rows[1], false, true, cx);
+            assert_eq!(
+                s.selected_branch_pair(cx),
+                Some((rows[0].into(), rows[1].into()))
+            );
+            s.select_branch_row(rows[1], true, false, cx);
+            assert!(s.selected_branch_pair(cx).is_none());
+            s.select_branch_row(rows[3], true, false, cx);
+            assert!(
+                s.selected_branch_pair(cx).is_none(),
+                "tag is not a branch pair"
+            );
+            s.snapshot = Some(Snapshot {
+                head_id: Some("a".repeat(40)),
+                current_branch: Some("a".into()),
+                included_in_head: Default::default(),
+                ref_titles: Default::default(),
+                commits: vec![],
+                branches: vec![],
+                tags: vec![],
+                tips: vec![],
+                more: false,
+                shallow: false,
+            });
+            s.select_branch_row(rows[1], false, false, cx);
+            s.select_branch_row("HEAD", true, false, cx);
+            assert_eq!(s.first_navigatable_tree_ref().as_deref(), Some(rows[1]));
+            s.select_branch_row("HEAD", false, false, cx);
+            s.select_branch_row(rows[1], true, false, cx);
+            assert_eq!(s.first_navigatable_tree_ref().as_deref(), Some("HEAD"));
+            assert_eq!(
+                s.selected_branch_pair(cx),
+                Some((rows[1].into(), rows[0].into())),
+                "HEAD pair places the selected branch first"
+            );
+            s.select_branch_row("HEAD", false, false, cx);
+            s.select_branch_row(rows[0], true, false, cx);
+            assert_eq!(
+                s.selected_branch_pair(cx),
+                Some((rows[0].into(), rows[0].into())),
+                "same branch remains visible as disabled actions"
+            );
+            s.snapshot.as_mut().unwrap().current_branch = None;
+            assert!(
+                s.selected_branch_pair(cx).is_none(),
+                "detached HEAD cannot form a branch pair"
+            );
+            s.snapshot.as_mut().unwrap().current_branch = Some("a".into());
+            s.snapshot.as_mut().unwrap().branches = rows[..3]
+                .iter()
+                .map(|name| git::Branch {
+                    name: (*name).into(),
+                    id: "a".repeat(40),
+                })
+                .collect();
+            s.select_branch_row(rows[0], false, false, cx);
+            s.select_branch_row(rows[2], true, false, cx);
+            s.select_branch_row(rows[3], true, false, cx);
+            s.filter_selected_tree_ref(cx);
+            assert_eq!(
+                s.branch_filter,
+                vec![rows[0].to_owned(), rows[2].to_owned()]
+            );
+            assert!(
+                s.branch_selection.contains(rows[0]) && s.branch_selection.contains(rows[2]),
+                "applying a filter must preserve tree selection"
+            );
+            s.select_branch(None, cx);
+            assert!(s.branch_filter.is_empty());
+            s.select_branch(Some(rows[1].into()), cx);
+            assert_eq!(s.branch_filter, vec![rows[1].to_owned()]);
+            s.snapshot = None;
+            s.select_branch_row(rows[1], false, false, cx);
+            s.select_branch_row(rows[2], true, false, cx);
+            s.branch_rows = Arc::new(
+                s.branch_rows
+                    .iter()
+                    .filter(|row| row.key != rows[1])
+                    .cloned()
+                    .collect(),
+            );
+            s.rebuild_branches(cx);
+            assert!(!s.branch_selection.contains(rows[1]));
+            assert!(s.selected_branch_pair(cx).is_none());
+        });
     }
 }

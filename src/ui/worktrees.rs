@@ -106,10 +106,16 @@ impl Render for Browser {
                     .border_b_1()
                     .border_color(rgb(BORDER))
                     .px_3()
-                    .gap(px(16.))
-                    .child(div().font_weight(FontWeight::BOLD).child("Git"))
+                    .gap(px(24.))
                     .child(
                         div()
+                            .flex_shrink_0()
+                            .font_weight(FontWeight::BOLD)
+                            .child("Git"),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
                             .px_2()
                             .h(px(24.))
                             .flex()
@@ -158,7 +164,8 @@ impl Render for Browser {
                     .items_stretch()
                     .child(
                         v_flex()
-                            .w(px(36.))
+                            .w(px(44.))
+                            .px(px(4.))
                             .flex_shrink_0()
                             .items_center()
                             .pt_1()

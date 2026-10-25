@@ -209,3 +209,162 @@ fn mixed_edit_sequences_preserve_roundtrips_and_readonly_bytes() {
         }
     }
 }
+
+#[test]
+fn left_working_document_keeps_old_then_new_order_and_fixed_rows_readonly() {
+    use gpui_kit::component::diff::DiffSide;
+    let file = DiffFile::from_sources(Some(("a", "共同\n本地\n尾")), Some(("a", "共同\n固定\n尾")))
+        .unwrap();
+    let mut p = UnifiedEditProjection::for_side(&file, DiffSide::Original);
+    assert_eq!(p.text(), "共同\n本地\n固定\n尾");
+    let fixed = p.text().find("固定").unwrap();
+    assert!(p.apply_edit(fixed..fixed + "固定".len(), "bad").is_none());
+    let local = p.text().find("本地").unwrap();
+    assert_eq!(
+        p.apply_edit(local..local + "本地".len(), "修改\n😀"),
+        Some(7..13)
+    );
+    assert_eq!(p.text(), "共同\n修改\n😀\n固定\n尾");
+    let fixed = p.text().find("固定").unwrap();
+    assert_eq!(p.original_offset(fixed), Some(7));
+    assert!(p.working_range(fixed..fixed).is_none());
+}
+
+#[test]
+fn left_working_projection_maps_exact_bytes_including_empty_and_unterminated_files() {
+    use gpui_kit::component::diff::DiffSide;
+    let samples = [
+        "",
+        "a",
+        "a\n",
+        "a\nb",
+        "b\na",
+        "😀\n中\n",
+        "a\n中\nb\n",
+        "\n\n",
+    ];
+    for working in samples {
+        for fixed in samples {
+            let file = DiffFile::from_sources(Some(("a", working)), Some(("a", fixed))).unwrap();
+            let p = UnifiedEditProjection::for_side(&file, DiffSide::Original);
+            for offset in (0..=working.len()).filter(|&i| working.is_char_boundary(i)) {
+                let shown = p.display_offset(offset).unwrap();
+                assert_eq!(
+                    p.working_range(shown..shown),
+                    Some(offset..offset),
+                    "{working:?}/{fixed:?}"
+                );
+            }
+            for start in 0..=p.text().len() {
+                for end in start..=p.text().len() {
+                    if let Some(mapped) = p.working_range(start..end) {
+                        assert_eq!(&p.text()[start..end], &working[mapped.clone()]);
+                        let mut changed = p.clone();
+                        let mut source = working.to_owned();
+                        let guards: Vec<_> = p
+                            .deleted_ranges()
+                            .iter()
+                            .map(|r| p.text()[r.clone()].to_owned())
+                            .collect();
+                        assert_eq!(changed.apply_edit(start..end, "新\n"), Some(mapped.clone()));
+                        source.replace_range(mapped, "新\n");
+                        assert_eq!(
+                            changed
+                                .deleted_ranges()
+                                .iter()
+                                .map(|r| changed.text()[r.clone()].to_owned())
+                                .collect::<Vec<_>>(),
+                            guards
+                        );
+                        for offset in (0..=source.len()).filter(|&i| source.is_char_boundary(i)) {
+                            let shown = changed.display_offset(offset).unwrap();
+                            assert_eq!(changed.working_range(shown..shown), Some(offset..offset));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn unified_replacements_use_deleted_inserted_colors_while_split_stays_modified() {
+    use gpui_kit::component::diff::DiffSide;
+    let file = DiffFile::from_sources(
+        Some(("a", "prefix old tail\n")),
+        Some(("a", "prefix new tail\n")),
+    )
+    .unwrap();
+    for (side, color) in [
+        (DiffSide::Original, 0x484a4a),
+        (DiffSide::Modified, 0x294436),
+    ] {
+        let unified = file.unified_editor_highlights(side);
+        let split = file.editor_change_highlights(side);
+        assert!(!unified.is_empty());
+        assert!(
+            unified.iter().any(|(_, _, whole)| !whole),
+            "inner fragments retained"
+        );
+        for ((range, style, whole), (split_range, split_style, split_whole)) in
+            unified.iter().zip(&split)
+        {
+            assert_eq!(range, split_range);
+            assert_eq!(whole, split_whole);
+            let color: gpui_kit::Hsla = gpui_kit::rgb(color).into();
+            let blue: gpui_kit::Hsla = gpui_kit::rgb(0x385570).into();
+            assert_eq!(
+                style.background_color,
+                Some(if *whole { color.opacity(0.4) } else { color })
+            );
+            assert_eq!(
+                split_style.background_color,
+                Some(if *whole { blue.opacity(0.4) } else { blue })
+            );
+        }
+    }
+}
+
+#[test]
+fn unified_line_numbers_follow_sources_and_correct_each_edit_before_rediff() {
+    use gpui_kit::component::diff::DiffSide;
+    let file = DiffFile::from_sources(
+        Some(("a", "head\nold\ntail\n")),
+        Some(("a", "head\nnew\ntail\n")),
+    )
+    .unwrap();
+    for side in [DiffSide::Original, DiffSide::Modified] {
+        let mut p = UnifiedEditProjection::for_side(&file, side);
+        assert_eq!(
+            (0..5)
+                .map(|row| p.line_numbers(row).unwrap())
+                .collect::<Vec<_>>(),
+            &[
+                [Some(1), Some(1)],
+                [Some(2), None],
+                [None, Some(2)],
+                [Some(3), Some(3)],
+                [Some(4), Some(4)],
+            ]
+        );
+        // Editing shared context immediately drops the fixed-side correspondence.
+        p.apply_edit(1..1, "\nextra").unwrap();
+        let work = side as usize;
+        let fixed = 1 - work;
+        assert_eq!(p.line_numbers(0).unwrap()[work], Some(1));
+        assert_eq!(p.line_numbers(1).unwrap()[work], Some(2));
+        assert_eq!(p.line_numbers(0).unwrap()[fixed], None);
+        assert_eq!(p.line_numbers(1).unwrap()[fixed], None);
+        assert_eq!(p.line_numbers(4).unwrap()[work], Some(4));
+        assert_eq!(p.line_numbers(4).unwrap()[fixed], Some(3));
+        // Multiple edits inside the newly changed area and an equal-length edit.
+        p.apply_edit(2..7, "中\n文").unwrap();
+        let end = p.text().find("tail").unwrap();
+        p.apply_edit(end..end + 4, "last").unwrap();
+        let last = p.text()[..end].bytes().filter(|&b| b == b'\n').count();
+        assert_eq!(p.line_numbers(last).unwrap()[work], Some(5));
+        assert_eq!(p.line_numbers(last).unwrap()[fixed], None);
+        assert_eq!(p.line_numbers(last + 1).unwrap()[work], Some(6));
+        assert_eq!(p.line_numbers(last + 1).unwrap()[fixed], Some(4));
+    }
+}

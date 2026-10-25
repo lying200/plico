@@ -334,10 +334,13 @@ impl Review {
                 if renamed {
                     // Keep an explicitly selected branch attached to its renamed ref.
                     // Favorites remain name-scoped, matching DvcsBranchManager storage.
-                    for reference in [&mut s.branch, &mut s.selected_tree_ref] {
-                        if reference.as_deref() == Some(old_ref.as_str()) {
-                            *reference = Some(new_ref.clone());
+                    for reference in &mut s.branch_filter {
+                        if reference == &old_ref {
+                            *reference = new_ref.clone();
                         }
+                    }
+                    if s.selected_tree_ref.as_deref() == Some(old_ref.as_str()) {
+                        s.selected_tree_ref = Some(new_ref.clone());
                     }
                 }
                 let message = if success {

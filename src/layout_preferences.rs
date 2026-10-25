@@ -59,6 +59,54 @@ pub fn save_log_files_options(options: LogFilesOptions) -> std::io::Result<()> {
     )
 }
 
+fn comparison_swapped_file(root: &Path) -> Option<(PathBuf, String)> {
+    root.to_str()?;
+    let key = crate::recent_projects::identity(root);
+    let hash = key.bytes().fold(0xcbf29ce484222325u64, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100000001b3)
+    });
+    Some((
+        settings_path()?.with_file_name(format!("comparison-swapped-{hash:016x}")),
+        key,
+    ))
+}
+pub fn load_comparison_swapped(root: &Path) -> bool {
+    comparison_swapped_file(root)
+        .and_then(|(path, key)| read_history_details(&path, &key))
+        .unwrap_or(false)
+}
+pub fn save_comparison_swapped(root: &Path, swapped: bool) -> std::io::Result<()> {
+    let Some((path, key)) = comparison_swapped_file(root) else {
+        return Ok(());
+    };
+    save_project_boolean(&path, &key, swapped)
+}
+
+fn branch_preview_file(root: &Path, bottom: bool) -> Option<(PathBuf, String)> {
+    let (path, key) = comparison_swapped_file(root)?;
+    let name = path.file_name()?.to_str()?;
+    Some((
+        path.with_file_name(format!(
+            "branch-preview-{}-{name}",
+            if bottom { "bottom" } else { "top" }
+        )),
+        key,
+    ))
+}
+
+pub fn load_branch_preview(root: &Path, bottom: bool) -> bool {
+    branch_preview_file(root, bottom)
+        .and_then(|(path, key)| read_history_details(&path, &key))
+        .unwrap_or(false)
+}
+
+pub fn save_branch_preview(root: &Path, bottom: bool, shown: bool) -> std::io::Result<()> {
+    let Some((path, key)) = branch_preview_file(root, bottom) else {
+        return Ok(());
+    };
+    save_project_boolean(&path, &key, shown)
+}
+
 fn settings_path() -> Option<PathBuf> {
     #[cfg(windows)]
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
@@ -109,6 +157,28 @@ pub fn save_files_fraction(value: f32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn branch_preview_is_scoped_to_project_and_side() {
+        let root =
+            std::env::temp_dir().join(format!("plico-branch-preview-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (top, key) = branch_preview_file(&root.join("repo-a"), false).unwrap();
+        let (bottom, _) = branch_preview_file(&root.join("repo-a"), true).unwrap();
+        let (other, other_key) = branch_preview_file(&root.join("repo-b"), false).unwrap();
+        assert_ne!(top, bottom);
+        assert_ne!(top, other);
+        // Exercise the real encoding in an isolated directory, never user settings.
+        let top = root.join(top.file_name().unwrap());
+        let bottom = root.join(bottom.file_name().unwrap());
+        save_project_boolean(&top, &key, true).unwrap();
+        save_project_boolean(&bottom, &key, false).unwrap();
+        assert_eq!(read_history_details(&top, &key), Some(true));
+        assert_eq!(read_history_details(&bottom, &key), Some(false));
+        assert_eq!(read_history_details(&top, &other_key), None);
+        assert!(save_project_boolean(&top, &other_key, false).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn log_files_options_are_independent_and_bounded() {
         let path =

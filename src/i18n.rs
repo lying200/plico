@@ -480,7 +480,15 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Merge operation failed" => "合并操作失败",
         "Merge completed" => "合并完成",
         "Merge aborted" => "已中止合并",
+        "{containing} contains all commits from {included}" => {
+            "{containing} 包含 {included} 的全部提交"
+        }
+        "No commits matching filters" => "没有符合筛选条件的提交",
+        "Reset filters" => "重置筛选条件",
         "No commits selected" => "未选择提交",
+        "Show Files Diff" => "显示文件差异",
+        "Changes Between {before} and {after}" => "{before} 与 {after} 之间的变更",
+        "Compare Branches" => "比较分支",
         "Commit details" => "提交详情",
         "All" => "全部",
         "Push Commits to" => "推送提交至",
@@ -564,6 +572,16 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Already handled externally…" => "已在外部处理…",
         "Could not inspect the Rebase recovery record." => "无法读取 Rebase 恢复记录。",
         "Finish Rebase recovery" => "结束变基恢复",
+        "Swap branches" => "交换分支",
+        "Differences between files in {branch} and the current working tree on {current}." => {
+            "比较 {branch} 中的文件与 {current} 上的当前工作树。"
+        }
+        "Differences between the current working tree on {current} and files in {branch}." => {
+            "比较 {current} 上的当前工作树与 {branch} 中的文件。"
+        }
+        "Show Diff with Working Tree" => "与工作树比较差异",
+        "Changes Between {branch} and Current Working Tree" => "{branch} 与当前工作树之间的变更",
+        "Compare with {current}" => "与 {current} 比较",
         "Rebase {current} onto {target}" => "将 {current} 变基到 {target}",
         "Rebasing branch…" => "正在变基分支…",
         "Branch rebased" => "分支变基完成",
@@ -645,6 +663,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Resetting… This operation cannot be cancelled once started." => {
             "正在重置…实际写入开始后不可取消。"
         }
+        "Text contents are identical" => "文本内容相同",
         "Only line separators differ" => "仅换行符不同",
         "Edit Commit Message…" => "编辑提交信息…",
         "Edit Commit Message" => "编辑提交信息",
@@ -1059,6 +1078,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "子模块引用已变更 · 差异显示提交 ID，不显示子模块内部文件。"
         }
         "Read-only" => "只读浏览",
+        "Clear filters" => "清除筛选",
         "Clear filters and show" => "清除筛选并显示",
         "Dismiss" => "关闭提示",
         "Ctrl+D  Open diff    F7  Next change    Ctrl+F5  Refresh" => {

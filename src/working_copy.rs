@@ -17,6 +17,14 @@ pub struct Contents {
 }
 
 pub fn read(target: &Target, cancel: &Cancel) -> Result<Contents, String> {
+    if let Some(change) = &target.identity().working_comparison {
+        return change
+            .read_editable(
+                &crate::git::Repository::new(target.identity().repository.clone()),
+                cancel,
+            )
+            .map(|c| c.contents);
+    }
     let path = target
         .working_tree_document()
         .ok_or("Diff has no editable working-tree endpoint")?;
@@ -34,6 +42,9 @@ pub fn read_base(target: &Target, cancel: &Cancel) -> Result<String, String> {
     let path = &target.identity().path;
     let id = target.identity();
     let repo = crate::git::Repository::new(id.repository.clone());
+    if let Some(change) = &id.working_comparison {
+        return change.read_baseline(&repo, cancel);
+    }
     let original = {
         let old = id.old_path.as_deref().unwrap_or(path);
         validate_path(old)?;

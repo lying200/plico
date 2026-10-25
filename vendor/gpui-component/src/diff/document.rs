@@ -722,6 +722,16 @@ impl DiffFile {
     }
 
     pub fn editor_change_highlights_with_unit(&self, side: DiffSide, unit: Option<super::presentation::DiffInlineUnit>) -> Vec<(Range<usize>, gpui::HighlightStyle, bool)> {
+        self.editor_highlights(side, unit, false)
+    }
+
+    /// Unified rows represent deletions and insertions even for replacement pairs.
+    /// Rebased DiffDrawUtil.createUnifiedChunkHighlighters uses each row's side.
+    pub fn unified_editor_highlights(&self, side: DiffSide) -> Vec<(Range<usize>, gpui::HighlightStyle, bool)> {
+        self.editor_highlights(side, Some(super::presentation::DiffInlineUnit::Word), true)
+    }
+
+    fn editor_highlights(&self, side: DiffSide, unit: Option<super::presentation::DiffInlineUnit>, unified: bool) -> Vec<(Range<usize>, gpui::HighlightStyle, bool)> {
         use super::presentation::changed_runs;
         let mut result = Vec::new();
         for pair in self.pairs().iter().filter(|p|p.is_changed()) {
@@ -735,7 +745,7 @@ impl DiffFile {
                     if let Some(unit)=unit {inner=changed_runs(line.text(),other.text(),unit).0;}
                 }
             }
-            let color: gpui::Hsla = gpui::rgb(if other.is_some() {0x385570} else if side==DiffSide::Original {0x484a4a}else{0x294436}).into();
+            let color: gpui::Hsla = gpui::rgb(if !unified && other.is_some() {0x385570} else if side==DiffSide::Original {0x484a4a}else{0x294436}).into();
             result.push((line.source(),gpui::HighlightStyle { background_color:Some(if inner.is_empty(){color}else{color.opacity(0.4)}),..Default::default() }, true));
             for range in inner { result.push((line.source().start+range.start as usize..line.source().start+range.end as usize,gpui::HighlightStyle {background_color:Some(color),..Default::default()},false)); }
         }

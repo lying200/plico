@@ -739,6 +739,7 @@ impl Review {
                                 }));
                             }
                             if !tag && !current {
+                                menu=menu.item(Review::branch_compare_item(&owner, &full_ref, menu_cx)).item(Review::branch_working_comparison_item(&owner, &full_ref, menu_cx));
                                 menu=menu.item(Review::branch_rebase_item(&owner, &full_ref, menu_cx));
                                 let merge_owner=owner.clone();let merge_ref=full_ref.clone();
                                 let enabled=owner.upgrade().is_some_and(|s|s.read(menu_cx).can_merge_branch(&full_ref));
@@ -776,6 +777,7 @@ impl Review {
                                 }));
                             }
                             if !tag && !current {
+                                menu=menu.item(Review::branch_compare_item(&context_owner, &context_ref, cx)).item(Review::branch_working_comparison_item(&context_owner, &context_ref, cx));
                                 menu=menu.item(Review::branch_rebase_item(&context_owner, &context_ref, cx));
                                 let merge_owner=context_owner.clone();let merge_ref=context_ref.clone();
                                 let enabled=context_owner.upgrade().is_some_and(|s|s.read(cx).can_merge_branch(&context_ref));

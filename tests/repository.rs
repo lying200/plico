@@ -7297,7 +7297,7 @@ fn combined_revision_contents_are_full_literal_and_distinguish_absence() {
     // Worktree modifications must not affect either immutable revision.
     f.write("new[2].txt", "uncommitted");
     let target = plico::diff_target::Target::combined(repo.clone(), change.clone()).unwrap();
-    let contents = target.read_combined(&token).unwrap().unwrap();
+    let contents = target.read_contents(&token).unwrap().unwrap();
     assert_eq!(contents.before.as_deref(), Some(original.as_str()));
     assert_eq!(contents.after.as_deref(), Some(updated.as_str()));
     let empty = read_contents(
@@ -9048,4 +9048,96 @@ fn independent_rebase_reports_hook_failure_and_cancel_without_losing_saved_edits
             stash
         );
     }
+}
+
+#[test]
+fn multiple_branch_history_uses_one_union_for_pages_filters_and_counts() {
+    use plico::history;
+    let f = Fixture::new();
+    f.write("shared.txt", "base\n");
+    f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    f.write("topic.txt", "topic\n");
+    f.commit("selected topic");
+    let topic = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    f.git(&["checkout", "main"]);
+    f.write("main.txt", "main\n");
+    f.commit("selected main");
+    let main = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    f.git(&["checkout", "-b", "excluded"]);
+    f.write("excluded.txt", "excluded\n");
+    f.commit("selected excluded");
+    let excluded = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let repo = f.repo();
+    let token = Cancel::default();
+    let branches = vec!["refs/heads/main".into(), "refs/heads/topic".into()];
+    let first = history::read_branches(&repo, &branches, 0, 1, None, None, &token).unwrap();
+    assert_eq!(first.snapshot.tips.len(), 2);
+    assert!(first.snapshot.more);
+    assert_eq!(
+        history::count(&repo, &first.snapshot.tips, None, &token).unwrap(),
+        3
+    );
+    let second = history::read_branches(
+        &repo,
+        &branches,
+        1,
+        2,
+        Some(&first.snapshot.tips),
+        Some(first.end),
+        &token,
+    )
+    .unwrap();
+    let ids: std::collections::HashSet<_> = first
+        .snapshot
+        .commits
+        .iter()
+        .chain(&second.snapshot.commits)
+        .map(|c| c.id.as_str())
+        .collect();
+    assert_eq!(ids.len(), 3);
+    assert!(ids.contains(main.as_str()) && ids.contains(topic.as_str()));
+    assert!(!ids.contains(excluded.as_str()));
+    let filter = LogFilter {
+        text: "selected".into(),
+        ..Default::default()
+    };
+    let filtered =
+        history::read_branches_filtered(&repo, &branches, 0, 10, None, &filter, &token).unwrap();
+    assert_eq!(filtered.snapshot.commits.len(), 2);
+    assert_eq!(
+        history::count(&repo, &filtered.snapshot.tips, Some(&filter), &token).unwrap(),
+        2
+    );
+    let paths = LogFilter {
+        paths: vec!["topic.txt".into()],
+        ..filter
+    };
+    let filtered =
+        history::read_branches_filtered(&repo, &branches, 0, 10, None, &paths, &token).unwrap();
+    assert_eq!(filtered.snapshot.commits.len(), 1);
+    assert_eq!(filtered.snapshot.commits[0].id, topic);
+    assert_eq!(
+        history::count(&repo, &filtered.snapshot.tips, Some(&paths), &token).unwrap(),
+        1
+    );
+    f.git(&["branch", "-f", "topic", "excluded"]);
+    let fixed = history::read_branches(
+        &repo,
+        &branches,
+        0,
+        10,
+        Some(&first.snapshot.tips),
+        None,
+        &token,
+    )
+    .unwrap();
+    assert_eq!(fixed.snapshot.commits.len(), 3);
+    assert!(!fixed.snapshot.commits.iter().any(|c| c.id == excluded));
+    let fresh = history::read_branches(&repo, &branches, 0, 10, None, None, &token).unwrap();
+    assert!(fresh.snapshot.commits.iter().any(|c| c.id == excluded));
+    let duplicate = vec!["HEAD".into(), "refs/heads/excluded".into(), "HEAD".into()];
+    let same = history::read_branches(&repo, &duplicate, 0, 10, None, None, &token).unwrap();
+    assert_eq!(same.snapshot.tips.len(), 1);
+    assert!(history::read_branches(&repo, &["--all".into()], 0, 10, None, None, &token).is_err());
 }

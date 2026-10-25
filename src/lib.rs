@@ -225,3 +225,9 @@ pub mod tag_create;
 pub mod tag_push;
 
 pub mod worktrees;
+
+pub mod branch_compare;
+
+pub mod working_comparison;
+
+pub mod tree_selection;

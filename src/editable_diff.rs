@@ -24,6 +24,7 @@ pub struct EditableDiff {
         plico::commit_inclusion::Identity,
     )>,
     pub working: Option<Entity<Editing>>,
+    working_left: bool,
     modified: Entity<EditorState>,
     source_layout: Option<(bool, bool)>,
     original: Entity<EditorState>,
@@ -54,7 +55,7 @@ impl EditableDiff {
         }
         self.comparison_baseline = text.clone().into();
         self.baseline = text.replace("\r\n", "\n").replace('\r', "\n").into();
-        self.original.update(cx, |e, cx| {
+        self.baseline_editor().update(cx, |e, cx| {
             let scroll = e.scroll_offset();
             let selection = e.selected_range();
             let start = e.text().offset_to_position(selection.start);
@@ -100,7 +101,14 @@ impl EditableDiff {
         cx: &mut Context<Self>,
     ) -> Self {
         let id = target.identity();
-        let language = crate::project_view::file_language(&id.path);
+        let working_left = id.working_comparison.as_ref().is_some_and(|c| {
+            matches!(
+                c.before,
+                Some(plico::working_comparison::Endpoint::WorkingTree { .. })
+            )
+        });
+        let document_path = target.source_path();
+        let language = crate::project_view::file_language(document_path);
         let comparison_baseline: Arc<str> = contents.original.into();
         let baseline: Arc<str> = if comparison_baseline.contains('\r') {
             comparison_baseline
@@ -124,7 +132,7 @@ impl EditableDiff {
         });
         let working = documents.get_or_create(
             id.repository.clone(),
-            id.path.clone(),
+            document_path.to_path_buf(),
             contents.working,
             |text, cx| {
                 cx.new(|cx| {
@@ -140,29 +148,31 @@ impl EditableDiff {
             },
             cx,
         );
-        let editor = working.read(cx).editor.clone();
-        let original_marks =
-            original.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
-        let working_marks =
-            editor.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
-        cx.subscribe(&editor, |s, _, event: &InputEvent, cx| {
+        let source = working.read(cx).editor.clone();
+        let source_layout = Some(source.read(cx).source_layout());
+        cx.subscribe(&source, |s, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 s.recompare(cx);
             }
         })
         .detach();
-        cx.subscribe(&editor, |s, _, event: &InputEvent, _| {
-            if matches!(event, InputEvent::Focus) {
-                s.original_active = false;
-            }
-        })
-        .detach();
-        cx.subscribe(&original, |s, _, event: &InputEvent, _| {
-            if matches!(event, InputEvent::Focus) {
-                s.original_active = true;
-            }
-        })
-        .detach();
+        let (original, editor) = if working_left {
+            (source, original)
+        } else {
+            (original, source)
+        };
+        let original_marks =
+            original.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
+        let working_marks =
+            editor.update(cx, |s, cx| s.create_decorations_collection(Vec::new(), cx));
+        for (is_original, editor) in [(true, &original), (false, &editor)] {
+            cx.subscribe(editor, move |s, _, event: &InputEvent, _| {
+                if matches!(event, InputEvent::Focus) {
+                    s.original_active = is_original;
+                }
+            })
+            .detach();
+        }
         Self::bind_scroll(&editor, &original, cx);
         cx.subscribe_in(
             &cx.entity(),
@@ -183,24 +193,24 @@ impl EditableDiff {
         })
         .detach();
         cx.observe(&working, |_, _, cx| cx.notify()).detach();
-        let source_layout = Some(editor.read(cx).source_layout());
         let mut view = Self {
             commit_scope: None,
             partial_template: None,
             working: Some(working),
+            working_left,
             source_layout,
             modified: editor,
             original,
             baseline,
             comparison_baseline,
             eol_only: false,
-            path: id.path.to_string_lossy().into_owned(),
+            path: document_path.to_string_lossy().into_owned(),
             original_marks,
             working_marks,
             documents,
             generation: 0,
             split_ratio: 0.5,
-            original_active: false,
+            original_active: working_left,
             pending_reveal: None,
             active: true,
             unified_mode: false,
@@ -213,6 +223,23 @@ impl EditableDiff {
         };
         view.recompare(cx);
         view
+    }
+    fn working_editor(&self) -> Entity<EditorState> {
+        if self.working_left {
+            self.original.clone()
+        } else {
+            self.modified.clone()
+        }
+    }
+    fn baseline_editor(&self) -> Entity<EditorState> {
+        if self.working_left {
+            self.modified.clone()
+        } else {
+            self.original.clone()
+        }
+    }
+    pub fn editable_side(&self, original: bool) -> bool {
+        self.working.is_some() && original == self.working_left
     }
     fn bind_scroll(
         editor: &Entity<EditorState>,
@@ -322,6 +349,7 @@ impl EditableDiff {
             commit_scope: None,
             partial_template: None,
             working: None,
+            working_left: false,
             source_layout: None,
             modified,
             original,
@@ -399,8 +427,13 @@ impl EditableDiff {
         let Some(file) = &self.last_file else {
             return;
         };
-        let source = self.modified.clone();
-        if source.read(cx).text().to_string() != file.source(DiffSide::Modified) {
+        let source = self.working_editor();
+        let side = if self.working_left {
+            DiffSide::Original
+        } else {
+            DiffSide::Modified
+        };
+        if source.read(cx).text().to_string() != file.source(side) {
             return;
         }
         if let Some(view) = &mut self.unified {
@@ -408,6 +441,7 @@ impl EditableDiff {
         } else if self.unified_mode {
             self.unified = Some(crate::unified_editing::UnifiedEditing::new(
                 file,
+                side,
                 source,
                 self.documents.clone(),
                 crate::project_view::file_language(std::path::Path::new(&self.path)),
@@ -422,7 +456,7 @@ impl EditableDiff {
         }
         self.unified_mode = unified;
         if unified {
-            self.modified.clone().update(cx, |e, cx| {
+            self.working_editor().update(cx, |e, cx| {
                 let _ = e.set_block_gaps_preserving_position(Vec::new(), cx);
             });
             self.update_unified(window, cx);
@@ -442,7 +476,7 @@ impl EditableDiff {
         self.active = false;
         self.original_marks.clear(cx);
         self.working_marks.clear(cx);
-        let editor = self.modified.clone();
+        let editor = self.working_editor();
         editor.update(cx, |e, cx| {
             let _ = e.set_block_gaps_preserving_position(Vec::new(), cx);
             if let Some(layout) = self.source_layout.take() {
@@ -457,7 +491,10 @@ impl EditableDiff {
                 return;
             }
         }
-        self.modified.read(cx).focus_handle(cx).focus(window, cx);
+        self.working_editor()
+            .read(cx)
+            .focus_handle(cx)
+            .focus(window, cx);
     }
     pub fn source_position(&self, cx: &App) -> (bool, usize) {
         if self.unified_mode {
@@ -516,7 +553,7 @@ impl EditableDiff {
         let (old, new) = self.changes[index];
         if self.unified_mode {
             if let Some(v) = &self.unified {
-                if v.navigate_to(new, window, cx) {
+                if v.navigate_to(if self.working_left { old } else { new }, window, cx) {
                     self.pending_reveal = None;
                 }
                 return;
@@ -542,14 +579,14 @@ impl EditableDiff {
         let Some(index) = self.pending_reveal else {
             return;
         };
-        let Some(&(_, line)) = self.changes.get(index) else {
+        let Some(&(old, new)) = self.changes.get(index) else {
             self.pending_reveal = None;
             return;
         };
         if self.unified_mode {
             let focused = window.focused(cx);
             if let Some(v) = &self.unified {
-                if v.navigate_to(line, window, cx) {
+                if v.navigate_to(if self.working_left { old } else { new }, window, cx) {
                     self.pending_reveal = None;
                 }
             }
@@ -627,14 +664,21 @@ impl EditableDiff {
         let Some(file) = &self.last_file else {
             return;
         };
-        let editor = self.modified.clone();
+        let editor = self.working_editor();
         let current = editor.read(cx).text().to_string();
-        if current != file.source(DiffSide::Modified) {
+        if current
+            != file.source(if self.working_left {
+                DiffSide::Original
+            } else {
+                DiffSide::Modified
+            })
+        {
             return;
         }
         let Some((a, b)) = self.line_ranges.get(index) else {
             return;
         };
+        let (a, b) = if self.working_left { (b, a) } else { (a, b) };
         let Some((range, text)) =
             crate::diff_revert::replacement(&self.baseline, &current, a.clone(), b.clone())
         else {
@@ -645,7 +689,101 @@ impl EditableDiff {
             e.replace(text, window, cx);
             e.focus_handle(cx).focus(window, cx);
         });
-        self.original_active = false;
+        self.original_active = self.working_left;
+        if self.unified_mode {
+            if let Some(view) = &self.unified {
+                view.editor.read(cx).focus_handle(cx).focus(window, cx);
+            }
+        }
+    }
+
+    fn unified_operations(&self, cx: &Context<Self>) -> impl IntoElement {
+        let view = self.unified.as_ref().expect("unified view");
+        let editor = view.editor.clone();
+        let rows = view.change_rows().to_vec();
+        let generation = self.generation;
+        let owner = cx.entity().downgrade();
+        let allowed = self.active
+            && self.working.is_some()
+            && !self.documents.locked()
+            && view.ready()
+            && self.last_file.as_ref().is_some_and(|file| {
+                file.source(if self.working_left {
+                    DiffSide::Original
+                } else {
+                    DiffSide::Modified
+                }) == self.working_editor().read(cx).text().to_string()
+            });
+        let icon = if self.working_left {
+            "jb/checked_dark.svg"
+        } else {
+            "jb/rollback_dark.svg"
+        };
+        let operations = canvas(
+            move |bounds, window, cx| {
+                let buttons = rows
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, &line)| {
+                        if !allowed {
+                            return None;
+                        }
+                        let (top, _) = editor.read(cx).source_line_extent(line..line + 1)?;
+                        let height = editor.read(cx).line_height().unwrap_or(px(20.));
+                        if top + height <= bounds.top() || top >= bounds.bottom() {
+                            return None;
+                        }
+                        let icon = Bounds::new(
+                            point(bounds.left() + px(4.), top + (height - px(16.)) / 2.),
+                            size(px(16.), px(16.)),
+                        );
+                        let hitbox = window.insert_hitbox(icon, HitboxBehavior::Normal);
+                        Some((index, icon, hitbox))
+                    })
+                    .collect::<Vec<_>>();
+                (bounds, buttons)
+            },
+            move |_, (bounds, buttons), window, cx| {
+                window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                    for (_, bounds, _) in &buttons {
+                        let _ = window.paint_svg(
+                            *bounds,
+                            icon.into(),
+                            None,
+                            TransformationMatrix::unit(),
+                            rgb(0xced0d6).into(),
+                            cx,
+                        );
+                    }
+                });
+                let owner = owner.clone();
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                    if !phase.bubble() || event.button != MouseButton::Left {
+                        return;
+                    }
+                    if let Some((index, _, _)) = buttons
+                        .iter()
+                        .find(|(_, _, hitbox)| hitbox.is_hovered(window))
+                    {
+                        let _ = owner
+                            .update(cx, |s, cx| s.revert_change(*index, generation, window, cx));
+                        cx.stop_propagation();
+                    }
+                });
+            },
+        )
+        .size_full();
+        div()
+            .id("unified-diff-operations")
+            .map(|element| {
+                #[cfg(all(test, feature = "desktop-tests"))]
+                let element = element.debug_selector(|| "unified-diff-operations".into());
+                element
+            })
+            .w(px(24.))
+            .h_full()
+            .flex_shrink_0()
+            .child(operations)
     }
 
     fn original_gutter(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -653,8 +791,10 @@ impl EditableDiff {
         let changes = self.line_ranges.clone();
         let font_size = crate::ui_font::editor_size(cx);
         let font = gpui_kit::font(crate::ui_font::editor_family(cx));
-        let digits = self
-            .baseline
+        let digits = editor
+            .read(cx)
+            .text()
+            .to_string()
             .lines()
             .count()
             .max(1)
@@ -747,6 +887,7 @@ impl EditableDiff {
             })
             .unwrap_or_default();
         let editable = self.working.is_some() && !self.documents.locked();
+        let working_left = self.working_left;
         let owner = cx.entity().downgrade();
         canvas(
             move |bounds, window, cx| {
@@ -772,7 +913,14 @@ impl EditableDiff {
                         0x385570
                     };
                     let arrow = Bounds::new(
-                        point(x - px(21.), top_a.max(bounds.top())),
+                        point(
+                            if working_left {
+                                x + px(5.)
+                            } else {
+                                x - px(21.)
+                            },
+                            if working_left { top_b } else { top_a }.max(bounds.top()),
+                        ),
                         size(px(16.), px(18.)),
                     );
                     let hitbox = (editable
@@ -843,7 +991,12 @@ impl EditableDiff {
                             );
                             let _ = window.paint_svg(
                                 icon,
-                                "jb/diff-apply-right_dark.svg".into(),
+                                if working_left {
+                                    "jb/merge-accept-left.svg"
+                                } else {
+                                    "jb/diff-apply-right_dark.svg"
+                                }
+                                .into(),
                                 None,
                                 TransformationMatrix::unit(),
                                 rgb(0xced0d6).into(),
@@ -873,6 +1026,29 @@ impl EditableDiff {
         .size_full()
     }
 
+    /// Only describe a comparison that still matches the visible working text.
+    pub fn equality_notice(&self, cx: &App) -> Option<&'static str> {
+        self.working.as_ref()?;
+        let file = self.last_file.as_ref()?;
+        let current = self.working_editor().read(cx).text().to_string();
+        let side = if self.working_left {
+            DiffSide::Original
+        } else {
+            DiffSide::Modified
+        };
+        if current != file.source(side)
+            || current != self.baseline.as_ref()
+            || file.source(DiffSide::Original) != file.source(DiffSide::Modified)
+        {
+            return None;
+        }
+        Some(if self.eol_only {
+            "Only line separators differ"
+        } else {
+            "Text contents are identical"
+        })
+    }
+
     fn recompare(&mut self, cx: &mut Context<Self>) {
         if let Some((scope, id)) = &self.commit_scope {
             let current = self.modified.read(cx).text().to_string();
@@ -895,16 +1071,20 @@ impl EditableDiff {
         let modified = self.working.as_ref().unwrap().read(cx).comparison_text(cx);
         let unit = crate::diff_settings::inline_unit(self.appearance.unwrap_or_default().emphasis);
         let partial = self.commit_scope.is_some();
+        let working_left = self.working_left;
         self.task = cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(100))
                 .await;
             let result = cx
                 .background_spawn(async move {
-                    let file = DiffFile::from_editor_sources(
-                        Some((&path, &original)),
-                        Some((&path, &modified)),
-                    )?;
+                    let (before, after) = if working_left {
+                        (modified.as_str(), original.as_ref())
+                    } else {
+                        (original.as_ref(), modified.as_str())
+                    };
+                    let file =
+                        DiffFile::from_editor_sources(Some((&path, before)), Some((&path, after)))?;
                     let eol_only = original.as_ref() != modified
                         && file.source(DiffSide::Original) == file.source(DiffSide::Modified);
                     let marks = [
@@ -926,7 +1106,13 @@ impl EditableDiff {
                     return;
                 }
                 if let Ok((file, eol_only, marks, selection)) = result {
-                    if s.modified.read(cx).text().to_string() != file.source(DiffSide::Modified) {
+                    if s.working_editor().read(cx).text().to_string()
+                        != file.source(if working_left {
+                            DiffSide::Original
+                        } else {
+                            DiffSide::Modified
+                        })
+                    {
                         return;
                     }
                     s.partial_template = selection;
@@ -968,28 +1154,35 @@ impl Render for EditableDiff {
                 v_flex()
                     .size_full()
                     .min_h_0()
-                    .when(self.eol_only, |v| {
-                        v.child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .bg(rgb(0x253447))
-                                .child(plico::i18n::t("Only line separators differ")),
-                        )
-                    })
                     .children(
                         self.working
                             .as_ref()
                             .and_then(|d| Editing::error_banner(d, &self.documents, cx)),
                     )
                     .child(
-                        Editor::new(&view.editor)
-                            .readonly(self.documents.locked() || !view.ready())
-                            .appearance(false)
-                            .bordered(false)
-                            .h_full()
-                            .font_family(crate::ui_font::editor_family(cx))
-                            .text_size(crate::ui_font::editor_size(cx)),
+                        h_flex()
+                            // Lay out the editor first so the gutter reads current-frame geometry.
+                            .flex_row_reverse()
+                            .flex_1()
+                            .min_h_0()
+                            .w_full()
+                            .child(
+                                div().flex_1().min_w_0().h_full().child(
+                                    Editor::new(&view.editor)
+                                        // Stale projections reject edits through the mapping guard,
+                                        // but must still delegate Undo to the working document.
+                                        .readonly(self.documents.locked())
+                                        .appearance(false)
+                                        .bordered(false)
+                                        .h_full()
+                                        .font_family(crate::ui_font::editor_family(cx))
+                                        .text_size(crate::ui_font::editor_size(cx)),
+                                ),
+                            )
+                            .child(self.unified_operations(cx))
+                            .when(self.appearance.is_none_or(|p| p.line_numbers), |row| {
+                                row.child(view.gutter(cx))
+                            }),
                     )
                     .into_any_element()
             } else {
@@ -1003,15 +1196,6 @@ impl Render for EditableDiff {
         v_flex()
             .size_full()
             .min_h_0()
-            .when(self.eol_only, |v| {
-                v.child(
-                    div()
-                        .px_3()
-                        .py_1()
-                        .bg(rgb(0x253447))
-                        .child(plico::i18n::t("Only line separators differ")),
-                )
-            })
             .children(
                 self.working
                     .as_ref()
@@ -1036,7 +1220,10 @@ impl Render for EditableDiff {
                                 div().flex_1().min_w_0().h_full().child(
                                     self.selection_menu(
                                         Editor::new(&self.original)
-                                            .readonly(true)
+                                            .readonly(
+                                                !self.editable_side(true)
+                                                    || self.documents.locked(),
+                                            )
                                             .appearance(false)
                                             .bordered(false)
                                             .h_full()
@@ -1061,7 +1248,9 @@ impl Render for EditableDiff {
                             .child(
                                 self.selection_menu(
                                     Editor::new(&editor)
-                                        .readonly(self.working.is_none() || self.documents.locked())
+                                        .readonly(
+                                            !self.editable_side(false) || self.documents.locked(),
+                                        )
                                         .appearance(false)
                                         .bordered(false)
                                         .h_full()
@@ -1088,8 +1277,8 @@ mod lifecycle_tests {
         input::{Editor, EditorState},
     };
     use gpui::{
-        AppContext as _, Context, Entity, IntoElement, Modifiers, MouseButton, ParentElement as _,
-        Render, Styled as _, Window, div, point, px,
+        AppContext as _, Context, Entity, Focusable as _, IntoElement, Modifiers, MouseButton,
+        ParentElement as _, Render, Styled as _, Window, div, point, px,
     };
     struct Source(Entity<EditorState>);
     impl Render for Source {
@@ -1413,6 +1602,60 @@ mod lifecycle_tests {
     }
 
     #[gpui::test]
+    fn equality_notice_distinguishes_separators_and_rejects_stale_text(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui::component::init);
+        let mut views = Vec::new();
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            for original in ["same\n", "same\r\n", "different\n"] {
+                let target = Target::new(
+                    plico::git::Repository::new("fixture"),
+                    None,
+                    plico::git::Change {
+                        area: plico::git::Area::Unstaged,
+                        status: "M".into(),
+                        path: "notice.txt".into(),
+                        old_path: None,
+                    },
+                )
+                .unwrap();
+                let contents = Contents {
+                    original: original.into(),
+                    working: plico::file_document::Document::new(b"same\n".to_vec()).unwrap(),
+                };
+                views.push(cx.new(|cx| {
+                    EditableDiff::new(&target, contents, Documents::default(), window, cx)
+                }));
+            }
+            Root::new(views[0].clone(), window, cx)
+        });
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+        for (view, expected) in views.iter().zip([
+            Some("Text contents are identical"),
+            Some("Only line separators differ"),
+            None,
+        ]) {
+            view.read_with(cx, |s, cx| assert_eq!(s.equality_notice(cx), expected));
+        }
+        cx.update(|window, cx| {
+            views[0].update(cx, |s, cx| {
+                s.working_editor()
+                    .clone()
+                    .update(cx, |editor, cx| editor.replace("new", window, cx));
+                assert_eq!(
+                    s.equality_notice(cx),
+                    None,
+                    "do not retain an equal notice while rediff is pending"
+                );
+            })
+        });
+    }
+
+    #[gpui::test]
     fn block_revert_is_undoable_and_rejects_stale_comparison(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut diff = None;
@@ -1470,6 +1713,173 @@ mod lifecycle_tests {
                 assert_eq!(s.modified.read(cx).source_layout(), (false, false));
                 s.deactivate(cx);
                 assert_eq!(s.modified.read(cx).source_layout(), source_layout);
+            })
+        });
+    }
+
+    #[gpui::test]
+    fn unified_accept_click_changes_working_document_and_keeps_visible_focus(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use plico::working_comparison::{Change, Endpoint};
+        cx.update(gpui::component::init);
+        let mut diff = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let target = Target::working_comparison(
+                plico::git::Repository::new("fixture"),
+                Change {
+                    before: Some(Endpoint::WorkingTree {
+                        path: "renamed.txt".into(),
+                    }),
+                    after: Some(Endpoint::Revision {
+                        commit: "a".repeat(40),
+                        path: "old.txt".into(),
+                    }),
+                },
+            )
+            .unwrap();
+            let contents = Contents {
+                original: "old\nkeep\nbase\n".into(),
+                working: plico::file_document::Document::new(b"new\nkeep\nlocal\n".to_vec())
+                    .unwrap(),
+            };
+            let view =
+                cx.new(|cx| EditableDiff::new(&target, contents, Documents::default(), window, cx));
+            diff = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let diff = diff.unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            diff.update(cx, |s, cx| s.set_unified(true, window, cx));
+            let _ = window.draw(cx);
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let bounds = cx.debug_bounds("unified-diff-operations").unwrap();
+        let y = diff.read_with(cx, |s, cx| {
+            let editor = s.unified.as_ref().unwrap().editor.read(cx);
+            editor.source_line_extent(0..1).unwrap().0 + px(8.)
+        });
+        let position = point(bounds.left() + px(12.), y);
+        cx.simulate_mouse_move(position, None, Default::default());
+        cx.simulate_click(position, Default::default());
+        cx.update(|window, cx| {
+            diff.read_with(cx, |s, cx| {
+                assert_eq!(s.original.read(cx).text().to_string(), "old\nkeep\nlocal\n");
+                assert_eq!(s.modified.read(cx).text().to_string(), "old\nkeep\nbase\n");
+                assert!(
+                    s.unified
+                        .as_ref()
+                        .unwrap()
+                        .editor
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(window)
+                );
+            })
+        });
+        // Before rediff, ordinary typing must not use the obsolete projection.
+        cx.simulate_input("stale edit");
+        diff.read_with(cx, |s, cx| {
+            assert_eq!(s.original.read(cx).text().to_string(), "old\nkeep\nlocal\n");
+        });
+        cx.simulate_keystrokes("ctrl-z");
+        diff.read_with(cx, |s, cx| {
+            assert_eq!(s.original.read(cx).text().to_string(), "new\nkeep\nlocal\n")
+        });
+    }
+
+    #[gpui::test]
+    fn left_working_comparison_applies_into_shared_document_and_restores_layout(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use gpui::component::diff::DiffSide;
+        use plico::working_comparison::{Change, Endpoint};
+        cx.update(gpui::component::init);
+        let mut diff = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let target = Target::working_comparison(
+                plico::git::Repository::new("fixture"),
+                Change {
+                    before: Some(Endpoint::WorkingTree {
+                        path: "renamed.txt".into(),
+                    }),
+                    after: Some(Endpoint::Revision {
+                        commit: "a".repeat(40),
+                        path: "old.txt".into(),
+                    }),
+                },
+            )
+            .unwrap();
+            let contents = Contents {
+                original: "old\nkeep\nbase\n".into(),
+                working: plico::file_document::Document::new(b"new\nkeep\nlocal\n".to_vec())
+                    .unwrap(),
+            };
+            let view =
+                cx.new(|cx| EditableDiff::new(&target, contents, Documents::default(), window, cx));
+            diff = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let diff = diff.unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            diff.update(cx, |s, cx| {
+                assert!(s.editable_side(true));
+                assert!(!s.editable_side(false));
+                assert_eq!(s.path, "renamed.txt");
+                assert_eq!(
+                    s.working.as_ref().unwrap().read(cx).editor.entity_id(),
+                    s.original.entity_id()
+                );
+                assert_eq!(
+                    s.last_file.as_ref().unwrap().source(DiffSide::Original),
+                    "new\nkeep\nlocal\n"
+                );
+                assert_eq!(
+                    s.last_file.as_ref().unwrap().source(DiffSide::Modified),
+                    "old\nkeep\nbase\n"
+                );
+                s.set_unified(true, window, cx);
+                let unified = s.unified.as_ref().unwrap();
+                assert_eq!(
+                    unified.editor.read(cx).text().to_string(),
+                    "new\nold\nkeep\nlocal\nbase\n"
+                );
+                s.set_unified(false, window, cx);
+                s.revert_change(0, s.generation, window, cx);
+                assert_eq!(s.original.read(cx).text().to_string(), "old\nkeep\nlocal\n");
+                assert_eq!(s.modified.read(cx).text().to_string(), "old\nkeep\nbase\n");
+                s.revert_change(1, s.generation, window, cx);
+                assert_eq!(
+                    s.original.read(cx).text().to_string(),
+                    "old\nkeep\nlocal\n",
+                    "stale comparison cannot apply a second change"
+                );
+                s.original
+                    .clone()
+                    .update(cx, |e, cx| e.step_history(true, window, cx));
+                assert_eq!(s.original.read(cx).text().to_string(), "new\nkeep\nlocal\n");
+                let layout = s.source_layout.unwrap();
+                s.appearance(
+                    plico::layout_preferences::DiffAppearance {
+                        soft_wrap: false,
+                        line_numbers: false,
+                        ..Default::default()
+                    },
+                    window,
+                    cx,
+                );
+                assert_eq!(s.original.read(cx).source_layout(), (false, false));
+                s.deactivate(cx);
+                assert_eq!(s.original.read(cx).source_layout(), layout);
             })
         });
     }

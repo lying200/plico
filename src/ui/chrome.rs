@@ -482,7 +482,8 @@ impl Review {
                     "log-tab",
                     !self.local
                         && self.active_diff_index().is_none()
-                        && self.active_file_index().is_none(),
+                        && self.active_file_index().is_none()
+                        && self.active_branch_compare_index().is_none(),
                     cx,
                 )
                 .child(jb_icon("vcs_dark.svg"))
@@ -628,6 +629,59 @@ impl Review {
                         )
                         .context_menu(move |menu, _, cx| {
                             menu_owner
+                                .update(cx, |s, cx| s.editor_tab_menu(menu, Some(tab_id), cx))
+                                .unwrap()
+                        }),
+                    )
+                } else if let Some((index, tab)) = self
+                    .branch_compare_tabs
+                    .iter()
+                    .enumerate()
+                    .find(|(_, tab)| tab.entity_id() == *id)
+                {
+                    let tab_id = tab.entity_id();
+                    let owner = cx.entity().downgrade();
+                    let pair = &tab.read(cx).pair;
+                    let caption = format!(
+                        "{}: {} / {}",
+                        if i18n::is_chinese() {
+                            "比较"
+                        } else {
+                            "Compare"
+                        },
+                        pair.first_ref
+                            .trim_start_matches("refs/heads/")
+                            .trim_start_matches("refs/remotes/"),
+                        pair.second_ref
+                            .trim_start_matches("refs/heads/")
+                            .trim_start_matches("refs/remotes/")
+                    );
+                    Some(
+                        islands_tab(
+                            ("branch-compare-tab", index),
+                            self.active_branch_compare_index() == Some(index),
+                            cx,
+                        )
+                        .child(jb_icon("vcs_dark.svg"))
+                        .child(div().max_w(px(280.)).truncate().child(caption))
+                        .on_click(cx.listener(move |s, _, w, cx| {
+                            s.activate_editor_neighbor(Some(tab_id), w, cx)
+                        }))
+                        .child(
+                            Button::new(("close-branch-compare", index))
+                                .ghost()
+                                .small()
+                                .w(px(16.))
+                                .h(px(16.))
+                                .icon(jb_icon("closeSmall.svg"))
+                                .tooltip(t("Close"))
+                                .on_click(cx.listener(move |s, _, w, cx| {
+                                    cx.stop_propagation();
+                                    s.close_editor_ids(vec![tab_id], Some(tab_id), w, cx);
+                                })),
+                        )
+                        .context_menu(move |menu, _, cx| {
+                            owner
                                 .update(cx, |s, cx| s.editor_tab_menu(menu, Some(tab_id), cx))
                                 .unwrap()
                         }),

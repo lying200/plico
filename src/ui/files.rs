@@ -200,7 +200,7 @@ impl Review {
         h_flex()
             .gap_0()
             .child(self.branch_menu(cx))
-            .when(self.branch.is_some(), |v| {
+            .when(!self.branch_filter.is_empty(), |v| {
                 v.child(
                     Button::new("clear-branch-filter")
                         .ghost()

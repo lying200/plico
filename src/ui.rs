@@ -1,6 +1,7 @@
 //! Application window, shared state, construction and top-level composition.
 mod auto_refresh;
 mod binary_merge;
+mod branch_compare;
 mod branch_management;
 mod branch_merge;
 mod branch_rebase;
@@ -167,8 +168,9 @@ pub struct Review {
     selected_file: Option<usize>,
     // Survives the temporary empty file model while commit details load.
     pending_preview_file: Option<Change>,
-    branch: Option<String>,
+    branch_filter: Vec<String>,
     selected_tree_ref: Option<String>,
+    branch_selection: plico::log_selection::Selection,
     navigation_loading: Option<String>,
     navigation_notice: Option<NavigationNotice>,
     source_task: Task<()>,
@@ -183,6 +185,8 @@ pub struct Review {
     collapsed_branches: HashSet<String>,
     local: bool,
     tabs: Vec<Entity<DiffTab>>,
+    branch_compare_tabs: Vec<Entity<branch_compare::View>>,
+    branch_compare_request: branch_compare::Request,
     local_preview: Option<Entity<DiffTab>>,
     local_preview_requested: bool,
     local_visible: bool,
@@ -421,8 +425,9 @@ impl Review {
             selection_branches: None,
             selected_file: None,
             pending_preview_file: None,
-            branch: None,
+            branch_filter: Vec::new(),
             selected_tree_ref: None,
+            branch_selection: Default::default(),
             navigation_loading: None,
             navigation_notice: None,
             source_task: Task::ready(()),
@@ -437,6 +442,8 @@ impl Review {
             collapsed_branches: HashSet::new(),
             local: false,
             tabs: Vec::new(),
+            branch_compare_tabs: Vec::new(),
+            branch_compare_request: Default::default(),
             local_preview: None,
             local_preview_requested: false,
             local_visible: false,
@@ -633,7 +640,8 @@ impl Render for Review {
         self.sync_language(_window, cx);
         let show_local_preview = self.bottom_preview
             && self.active_diff_index().is_none()
-            && self.active_file_index().is_none();
+            && self.active_file_index().is_none()
+            && self.active_branch_compare_index().is_none();
         if !show_local_preview {
             if let Some(preview) = self.local_preview.take() {
                 preview.update(cx, |p, cx| p.deactivate(cx));
@@ -846,6 +854,7 @@ impl Render for Review {
                 if w.has_active_dialog(cx) || w.has_active_sheet(cx) { return; }
                 if let Some(index) = s.active_file_index() { s.close_file_tab(index, w, cx); }
                 else if let Some(index) = s.active_diff_index() { s.close_diff_tab_from_header(index, w, cx); }
+                else if let Some(index) = s.active_branch_compare_index() { let id = s.branch_compare_tabs[index].entity_id(); s.close_editor_ids(vec![id], Some(id), w, cx); }
             }))
             .on_action(cx.listener(|s, _: &Back, w, cx| {
                 s.close_settings(cx);
@@ -921,6 +930,8 @@ impl Render for Review {
                         div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(tab.clone()).children(island_corners(false)).into_any_element()
                     } else if let Some(tab) = self.active_diff_index().and_then(|i| self.tabs.get(i)) {
                         div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(tab.clone()).children(island_corners(false)).into_any_element()
+                    } else if let Some(tab) = self.active_branch_compare_index().and_then(|i| self.branch_compare_tabs.get(i)) {
+                        div().size_full().overflow_hidden().bg(rgb(BG)).child(tab.clone()).into_any_element()
                     } else {
                         v_resizable("vertical").with_state(&self.preview_split)
                             .on_resize(cx.listener(|s, state: &Entity<ResizableState>, _, cx| {

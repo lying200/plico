@@ -64,7 +64,7 @@ impl LogFilter {
         }
         Some(words.into_iter().map(str::to_ascii_lowercase).collect())
     }
-    fn arguments(&self) -> Vec<String> {
+    pub(crate) fn arguments(&self) -> Vec<String> {
         let mut args = Vec::new();
         if !self.paths.is_empty() {
             args.extend(["--full-history".into(), "--simplify-merges".into()]);
@@ -147,7 +147,7 @@ impl LogFilter {
         }
         Ok(())
     }
-    fn matches_no_authors(&self) -> bool {
+    pub(crate) fn matches_no_authors(&self) -> bool {
         self.authors.as_ref().is_some_and(Vec::is_empty)
     }
 }
@@ -1188,6 +1188,32 @@ impl Repository {
         if roots.iter().any(|id| !is_oid(id)) {
             return Err("Invalid history root".into());
         }
+        self.bounded_topology_revisions(roots, filter, token)
+    }
+
+    /// Full immutable comparison range, retaining real parent IDs for projection.
+    pub(crate) fn bounded_range_topology(
+        &self,
+        excluded: &str,
+        included: &str,
+        filter: Option<&LogFilter>,
+        token: &Cancel,
+    ) -> Result<Vec<TopologyCommit>> {
+        if !is_oid(excluded) || !is_oid(included) {
+            return Err("Invalid comparison revision".into());
+        }
+        self.bounded_topology_revisions(&[format!("{excluded}..{included}")], filter, token)
+    }
+
+    fn bounded_topology_revisions(
+        &self,
+        roots: &[String],
+        filter: Option<&LogFilter>,
+        token: &Cancel,
+    ) -> Result<Vec<TopologyCommit>> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
         if let Some(filter) = filter {
             filter.validate_paths()?;
         }
@@ -1197,6 +1223,7 @@ impl Repository {
         let count = format!("--max-count={}", crate::topology::COMMIT_LIMIT + 1);
         let filter_args = filter.map(LogFilter::arguments).unwrap_or_default();
         let mut args = vec![
+            "--literal-pathspecs",
             "-c",
             "log.mailmap=false",
             "log",
@@ -1253,8 +1280,30 @@ impl Repository {
         text_filter: Option<&LogFilter>,
         token: &Cancel,
     ) -> Result<Snapshot> {
-        let mut snapshot =
-            self.snapshot_query(branch, offset, limit, fixed_tips, text_filter, None, token)?;
+        let branches = branch.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        self.snapshot_branches_filtered_at(&branches, offset, limit, fixed_tips, text_filter, token)
+    }
+
+    /// Branch filters form a union of reachable commits. Fixed roots keep paging stable.
+    /// An empty branch list means the unfiltered set of repository roots.
+    pub fn snapshot_branches_filtered_at(
+        &self,
+        branches: &[String],
+        offset: usize,
+        limit: usize,
+        fixed_tips: Option<&[String]>,
+        text_filter: Option<&LogFilter>,
+        token: &Cancel,
+    ) -> Result<Snapshot> {
+        let mut snapshot = self.snapshot_query(
+            branches,
+            offset,
+            limit,
+            fixed_tips,
+            text_filter,
+            None,
+            token,
+        )?;
         if text_filter.is_some_and(|filter| !filter.paths.is_empty())
             && !snapshot.commits.is_empty()
         {
@@ -1279,7 +1328,7 @@ impl Repository {
             return Err("Invalid selected history IDs".into());
         }
         self.snapshot_query(
-            None,
+            &[],
             0,
             ids.len().max(1),
             Some(roots),
@@ -1290,7 +1339,7 @@ impl Repository {
     }
     fn snapshot_query(
         &self,
-        branch: Option<&str>,
+        selected_branches: &[String],
         offset: usize,
         limit: usize,
         fixed_tips: Option<&[String]>,
@@ -1396,19 +1445,22 @@ impl Repository {
             });
             tips.push(id);
         }
-        if let Some(name) = branch.filter(|_| fixed_tips.is_none()) {
-            tips = if name == "HEAD" {
-                head_id.iter().cloned().collect()
-            } else {
-                vec![
-                    branches
-                        .iter()
-                        .find(|b| b.name == name)
-                        .ok_or("Branch no longer exists; refresh")?
-                        .id
-                        .clone(),
-                ]
-            };
+        if !selected_branches.is_empty() && fixed_tips.is_none() {
+            tips.clear();
+            for name in selected_branches {
+                if name == "HEAD" {
+                    tips.extend(head_id.iter().cloned());
+                } else {
+                    tips.push(
+                        branches
+                            .iter()
+                            .find(|b| &b.name == name)
+                            .ok_or("Branch no longer exists; refresh")?
+                            .id
+                            .clone(),
+                    );
+                }
+            }
         }
 
         if let Some(fixed) = fixed_tips {
@@ -2458,7 +2510,7 @@ impl Repository {
         Ok(patch)
     }
 }
-fn parse_history(output: &str) -> Result<Vec<Commit>> {
+pub(crate) fn parse_history(output: &str) -> Result<Vec<Commit>> {
     if output.is_empty() {
         return Ok(vec![]);
     }
@@ -2492,7 +2544,7 @@ fn parse_history(output: &str) -> Result<Vec<Commit>> {
         })
         .collect()
 }
-fn parse_names(bytes: &[u8]) -> Result<Vec<Change>> {
+pub(crate) fn parse_names(bytes: &[u8]) -> Result<Vec<Change>> {
     let mut fields = bytes.split(|b| *b == 0).filter(|b| !b.is_empty());
     let mut result = vec![];
     while let Some(status) = fields.next() {

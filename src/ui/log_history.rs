@@ -133,7 +133,7 @@ impl Review {
                 max_columns: self.rows.iter().map(|row| row.width).max().unwrap_or(0),
                 offset: self.history_offset,
                 more: self.snapshot.as_ref().is_some_and(|s| s.more),
-                filtered: self.branch.is_some() || self.text_filter.is_some(),
+                filtered: !self.branch_filter.is_empty() || self.text_filter.is_some(),
             },
         ))
     }

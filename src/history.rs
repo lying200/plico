@@ -38,11 +38,25 @@ pub fn read(
     start: Option<Layout>,
     token: &Cancel,
 ) -> Result<Window, String> {
+    let branches = branch.into_iter().map(str::to_owned).collect::<Vec<_>>();
+    read_branches(repo, &branches, offset, limit, fixed, start, token)
+}
+
+pub fn read_branches(
+    repo: &Repository,
+    branches: &[String],
+    offset: usize,
+    limit: usize,
+    fixed: Option<&[String]>,
+    start: Option<Layout>,
+    token: &Cancel,
+) -> Result<Window, String> {
     // The first window needs no frontier reconstruction. Its own snapshot
     // establishes roots, so a one-row bootstrap would duplicate all metadata
     // reads and run history twice on every open / first-window refresh.
     if offset == 0 {
-        let snapshot = repo.snapshot_at(branch, 0, limit, fixed, token)?;
+        let snapshot =
+            repo.snapshot_branches_filtered_at(branches, 0, limit, fixed, None, token)?;
         let start = start.unwrap_or_default();
         let (rows, end) = graph::layout_window(&snapshot.commits, start.clone(), 500_000)?;
         return Ok(Window {
@@ -56,7 +70,10 @@ pub fn read(
     // frontier. Old commits and row geometry are discarded after each chunk.
     let roots = match fixed {
         Some(roots) => roots.to_vec(),
-        None => repo.snapshot(branch, 1, None, token)?.tips,
+        None => {
+            repo.snapshot_branches_filtered_at(branches, 0, 1, None, None, token)?
+                .tips
+        }
     };
     let start = match start {
         Some(start) => start,
@@ -68,7 +85,14 @@ pub fn read(
                     return Err("Cancelled".into());
                 }
                 let count = HISTORY_PAGE.min(offset - skipped);
-                let page = repo.snapshot_at(branch, skipped, count, Some(&roots), token)?;
+                let page = repo.snapshot_branches_filtered_at(
+                    branches,
+                    skipped,
+                    count,
+                    Some(&roots),
+                    None,
+                    token,
+                )?;
                 if page.commits.is_empty() {
                     break;
                 }
@@ -78,7 +102,8 @@ pub fn read(
             start
         }
     };
-    let snapshot = repo.snapshot_at(branch, offset, limit, Some(&roots), token)?;
+    let snapshot =
+        repo.snapshot_branches_filtered_at(branches, offset, limit, Some(&roots), None, token)?;
     let (rows, end) = graph::layout_window(&snapshot.commits, start.clone(), 500_000)?;
     Ok(Window {
         snapshot,
@@ -99,6 +124,19 @@ pub fn read_filtered(
     filter: &crate::git::LogFilter,
     token: &Cancel,
 ) -> Result<Window, String> {
+    let branches = branch.into_iter().map(str::to_owned).collect::<Vec<_>>();
+    read_branches_filtered(repo, &branches, offset, limit, fixed, filter, token)
+}
+
+pub fn read_branches_filtered(
+    repo: &Repository,
+    branches: &[String],
+    offset: usize,
+    limit: usize,
+    fixed: Option<&[String]>,
+    filter: &crate::git::LogFilter,
+    token: &Cancel,
+) -> Result<Window, String> {
     if let Some(hashes) = filter.hashes() {
         if let Some(window) = read_hashes(repo, &hashes, offset, limit, fixed, token)? {
             return Ok(window);
@@ -109,9 +147,9 @@ pub fn read_filtered(
     // Path simplification may change traversal order and parent IDs. Select IDs
     // through Git's structure query, then use the complete graph for display.
     let snapshot = if path_filter {
-        repo.snapshot_at(branch, 0, 1, fixed, token)?
+        repo.snapshot_branches_filtered_at(branches, 0, 1, fixed, None, token)?
     } else {
-        repo.snapshot_filtered_at(branch, offset, limit, fixed, Some(filter), token)?
+        repo.snapshot_branches_filtered_at(branches, offset, limit, fixed, Some(filter), token)?
     };
     if snapshot.commits.is_empty() {
         return Ok(Window {
@@ -402,4 +440,21 @@ fn hash_matches(
     };
     matched.extend(read_matches(repo, roots, &messages, token)?);
     Ok(matched)
+}
+
+/// Resolve hash ID/message matches once for an independent comparison query.
+/// Keep ordering from the same bounded date-order topology used by the main Log.
+pub(crate) fn ordered_hash_matches(
+    repo: &Repository,
+    roots: &[String],
+    hashes: &[String],
+    token: &Cancel,
+) -> Result<Vec<String>, String> {
+    let topology = read_topology(repo, roots, token)?;
+    let matched = hash_matches(repo, roots, &topology, hashes, token)?;
+    Ok(topology
+        .into_iter()
+        .filter(|c| matched.contains(&c.id))
+        .map(|c| c.id)
+        .collect())
 }

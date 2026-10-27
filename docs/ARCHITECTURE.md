@@ -180,3 +180,16 @@ operation 生命周期、取消与文档锁仍由 active_operation 和 ui/operat
 以及取消后保留所有权直到 worker 完成才关闭所属提示。179 项桌面测试、4 项
 operation 核心生命周期测试、10 项发布配置导航测试全部通过，Windows release
 bins 构建、格式与 diff 空白检查通过。本项无新增可见布局，不声明新原生视觉验收。
+
+### 3. 多仓库应用提交流程（已实现并验证）
+
+`project_sequence::Workflow`拥有 ordinary/saved 两条路径的结果、操作类型、完成
+判定及继续／空提交处理入口。SavedResults::resumable 是保存失败／恢复已尝试的
+唯一资格规则，真实 resume 复用它；Workflow 进一步排除取消或无停止操作的状态。
+恢复冲突查询也回到 SavedResults，在后台执行，UI 只格式化本地化说明。
+
+UI 保留原始冲突窗口的继续授权，关闭后丢弃 workflow，不发现／复活其他仓库任务。
+核心保持精确 stash ID、原 Git 目录复验、共享锁与逆序恢复，禁止二次恢复。
+既有真实 Git 的普通／保存流程回归改走 Workflow 接口，覆盖完整继续、第二仓库
+冲突、外部新增 stash、保存失败和恢复后不可再次继续。22 项真实 Git 集成测试、
+11 项多仓库序列桌面测试通过，格式和 diff 空白检查通过。没有改动界面布局。

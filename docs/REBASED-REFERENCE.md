@@ -13515,3 +13515,15 @@ UI线程等待所属编辑器结果，取消返回 false；GitHandlerAuthenticat
 保留 Rust Pending 的 drop 取消语义、精确 Git 目录校验和各操作的结果处理。
 内部归属校验通过 operation Id，晚到结果在碰触弹窗前拒绝。没有新增／调整界面，
 本轮不宣称新增原生视觉验收；以已有原生参考和新增生命周期桌面回归核对内部重构。
+
+### 多仓库恢复资格内部收拢（2026-10-27）
+
+复读4aec352 plugins/git4idea/backend/src/applyChanges/GitApplyChangesProcess.kt
+的 execute、executeForRepository、executeForCommitChunk、handleLocalChangesDetected：
+逐根处理、遇未完成停止，全部成功后才 load 保存内容，重试排除已处理提交。
+原生依据沿用第6项的混合根 Cherry-pick／Revert 和保存恢复记录，安装版1.1.20。
+
+本地 project_sequence/workflow.rs 与 saved.rs 接管状态判定；UI sequencer/project
+保留授权生命周期和翻译，取消原窗口不恢复自动继续权。Rust 独立实现仍保留精确
+stash ID、共享 common-dir 锁和目录身份复验，未改变命令、界面或操作入口。
+本轮是内部重构，不声明新原生视觉验收。

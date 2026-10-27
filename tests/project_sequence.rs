@@ -1,7 +1,7 @@
 use plico::{
     git::{Cancel, Repository},
     project_log::CommitId,
-    project_sequence::{Kind, Plan, Report},
+    project_sequence::{Kind, Plan, Report, Workflow},
 };
 use std::{
     ffi::OsStr,
@@ -433,7 +433,7 @@ fn saved_conflict_continuation(intervening_stash: bool, second_conflict: bool) {
     }
     let third_head = c.git(&["rev-parse", "HEAD"]);
     let token = Cancel::default();
-    let mut result = Plan::read(&[first, second, third.clone()], Kind::Revert, &token)
+    let result = Plan::read(&[first, second, third.clone()], Kind::Revert, &token)
         .unwrap()
         .save_and_execute(OsStr::new("true"), None, &token, &Default::default())
         .unwrap();
@@ -462,9 +462,15 @@ fn saved_conflict_continuation(intervening_stash: bool, second_conflict: bool) {
     } else {
         None
     };
-    result
-        .resume_revert(OsStr::new("true"), None, &token, &Default::default())
+    let mut workflow = Workflow::Saved(result);
+    assert!(workflow.resumable());
+    assert!(matches!(workflow.operation(), Some(Kind::Revert)));
+    workflow
+        .resume(OsStr::new("true"), None, &token, &Default::default())
         .unwrap();
+    let Workflow::Saved(mut result) = workflow else {
+        unreachable!()
+    };
     if second_conflict {
         assert!(!result.results.complete());
         assert!(result.saved.iter().all(|saved| saved.restore.is_none()));
@@ -478,6 +484,7 @@ fn saved_conflict_continuation(intervening_stash: bool, second_conflict: bool) {
             .unwrap();
     }
     assert!(result.results.complete());
+    assert!(!result.resumable(), "restoration must never run twice");
     assert_eq!(a.git(&["rev-parse", "HEAD"]), completed_head);
     assert!(!c.0.join("third").exists());
     assert_eq!(result.complete(), !intervening_stash);
@@ -527,6 +534,10 @@ fn group_save_failure_keeps_earlier_stash_and_starts_no_reverts() {
         .save_and_execute(OsStr::new("true"), None, &token, &Default::default())
         .unwrap();
     assert!(result.error.is_some());
+    assert!(
+        !result.resumable(),
+        "a save failure forbids automatic continuation"
+    );
     assert!(!result.complete());
     assert!(
         result
@@ -557,6 +568,8 @@ fn successful_commands_with_restore_conflict_are_not_a_completed_saved_operation
         .unwrap();
     assert!(result.results.complete());
     assert!(!result.complete());
+    assert!(!result.resumable());
+    assert_eq!(result.restore_conflict(&token).unwrap().path, root.0);
     assert!(result.saved[0].saved_oid.is_some());
     assert!(result.saved[0].restore.is_some());
     assert_eq!(root.git(&["show", "stash:changed"]), "local draft");
@@ -616,7 +629,7 @@ fn original_revert_workflow_resumes_conflicted_root_then_untouched_roots() {
     let prefix = b.commit("prefix");
     let last = c.commit("last");
     let token = Cancel::default();
-    let mut results = execute(
+    let results = execute(
         Plan::read(
             &[first, prefix.clone(), conflicted.clone(), last],
             Kind::Revert,
@@ -631,9 +644,16 @@ fn original_revert_workflow_resumes_conflicted_root_then_untouched_roots() {
     let stopped_head = b.git(&["rev-parse", "HEAD"]);
     assert!(!b.0.join("prefix").exists());
     b.git(&["rm", "-q", "conflicted"]);
-    results
-        .resume_revert(OsStr::new("true"), None, &token, &Default::default())
+    let mut workflow = Workflow::Ordinary(results);
+    assert!(workflow.resumable());
+    workflow
+        .resume(OsStr::new("true"), None, &token, &Default::default())
         .unwrap();
+    assert!(workflow.complete());
+    assert!(!workflow.resumable());
+    let Workflow::Ordinary(mut results) = workflow else {
+        unreachable!()
+    };
     assert!(results.complete());
     assert_eq!(a.git(&["rev-parse", "HEAD"]), first_head);
     assert_eq!(b.git(&["rev-parse", "HEAD~"]), stopped_head);

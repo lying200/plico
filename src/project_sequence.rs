@@ -3,6 +3,7 @@
 //! The ordinary path does not stash; save/retry is a separate user decision.
 mod continuation;
 mod saved;
+mod workflow;
 use crate::{
     auth_request::Requests,
     cherry_pick,
@@ -13,6 +14,7 @@ use crate::{
 };
 pub use saved::SavedResults;
 use std::ffi::OsStr;
+pub use workflow::Workflow;
 
 #[derive(Clone, Copy)]
 pub enum Kind {

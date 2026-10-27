@@ -3,131 +3,35 @@
 use super::*;
 use plico::{
     project_log::CommitId,
-    project_sequence::{Kind, Plan, Report, Results, SavedResults},
+    project_sequence::{Kind, Plan, Report},
 };
 
-/// The original conflict interaction owns the entire workflow, including drafts.
-/// Closing it drops continuation authority, but never removes retained Git stashes.
-pub(in crate::ui) enum Session {
-    Ordinary(Results),
-    Saved(SavedResults),
-}
-impl Session {
-    fn operation(&self) -> Option<Operation> {
-        let stopped = self.results().roots.iter().find(|root| !root.complete())?;
-        match stopped.result.as_ref()?.as_ref().ok()? {
-            Report::Revert(_) => Some(Operation::Revert),
-            Report::CherryPick(_) => Some(Operation::CherryPick),
+pub(in crate::ui) use plico::project_sequence::Workflow as Session;
+
+/// Read reports without destroying the saved workflow needed by continuation.
+fn saved_details(session: &Session) -> (Option<String>, Option<Repository>) {
+    let Session::Saved(saved) = session else {
+        return (None, None);
+    };
+    let mut details = Vec::new();
+    let conflict = saved.restore_conflict(&Default::default());
+    if let Some(error) = &saved.error {
+        details.push(error.clone());
+    }
+    for root in &saved.saved {
+        if let Some(oid) = &root.saved_oid {
+            details.push(format!(
+                "{}: {}: {}",
+                root.path.display(),
+                t("Saved changes retained"),
+                oid
+            ));
+        }
+        if let Some(Err(error)) = &root.restore {
+            details.push(format!("{}: {}", root.path.display(), error));
         }
     }
-    fn results(&self) -> &Results {
-        match self {
-            Self::Ordinary(results) => results,
-            Self::Saved(saved) => &saved.results,
-        }
-    }
-    fn results_mut(&mut self) -> &mut Results {
-        match self {
-            Self::Ordinary(results) => results,
-            Self::Saved(saved) => &mut saved.results,
-        }
-    }
-    fn resumable(&self) -> bool {
-        match self {
-            Self::Ordinary(_) => true,
-            Self::Saved(saved) => {
-                saved.error.is_none() && saved.saved.iter().all(|root| root.restore.is_none())
-            }
-        }
-    }
-    fn complete(&self) -> bool {
-        match self {
-            Self::Ordinary(results) => results.complete(),
-            Self::Saved(saved) => saved.complete(),
-        }
-    }
-    fn resume(
-        &mut self,
-        editor: &std::ffi::OsStr,
-        requests: &plico::auth_request::Requests,
-        token: &plico::git::Cancel,
-    ) -> Result<(), String> {
-        let operation = self.operation().ok_or("No stopped operation to continue")?;
-        match (operation, self) {
-            (Operation::Revert, Self::Ordinary(results)) => {
-                results.resume_revert(editor, Some(requests), token, &Default::default())
-            }
-            (Operation::Revert, Self::Saved(saved)) => {
-                saved.resume_revert(editor, Some(requests), token, &Default::default())
-            }
-            (Operation::CherryPick, Self::Ordinary(results)) => {
-                results.resume_cherry_pick(editor, Some(requests), token, &Default::default())
-            }
-            (Operation::CherryPick, Self::Saved(saved)) => {
-                saved.resume_cherry_pick(editor, Some(requests), token, &Default::default())
-            }
-            _ => Err("Unexpected stopped operation".into()),
-        }
-    }
-    fn resolve_empty(
-        &mut self,
-        empty: &EmptyCommit,
-        choice: EmptyChoice,
-        editor: &std::ffi::OsStr,
-        requests: &plico::auth_request::Requests,
-        token: &plico::git::Cancel,
-    ) -> Result<(), String> {
-        match self {
-            Self::Ordinary(results) => results.resolve_empty(
-                (empty, choice),
-                editor,
-                Some(requests),
-                token,
-                &Default::default(),
-            ),
-            Self::Saved(saved) => saved.resolve_empty(
-                (empty, choice),
-                editor,
-                Some(requests),
-                token,
-                &Default::default(),
-            ),
-        }
-    }
-    /// Read reports without destroying the saved workflow needed by continuation.
-    fn saved_details(&self) -> (Option<String>, Option<Repository>) {
-        let Self::Saved(saved) = self else {
-            return (None, None);
-        };
-        let mut details = Vec::new();
-        let mut conflict = None;
-        if let Some(error) = &saved.error {
-            details.push(error.clone());
-        }
-        for root in &saved.saved {
-            if root.restore.is_some() {
-                let repository = Repository::new(&root.path);
-                if repository
-                    .operation_state(&Default::default())
-                    .is_ok_and(|state| !state.conflicts.is_empty())
-                {
-                    conflict.get_or_insert(repository);
-                }
-            }
-            if let Some(oid) = &root.saved_oid {
-                details.push(format!(
-                    "{}: {}: {}",
-                    root.path.display(),
-                    t("Saved changes retained"),
-                    oid
-                ));
-            }
-            if let Some(Err(error)) = &root.restore {
-                details.push(format!("{}: {}", root.path.display(), error));
-            }
-        }
-        ((!saved.complete()).then(|| details.join("\n")), conflict)
-    }
+    ((!saved.complete()).then(|| details.join("\n")), conflict)
 }
 
 enum Work {
@@ -254,6 +158,10 @@ impl Review {
             .sequence_conflict
             .as_ref()
             .and_then(|(_, _, session, _)| session.operation())
+            .map(|kind| match kind {
+                Kind::Revert => Operation::Revert,
+                Kind::CherryPick => Operation::CherryPick,
+            })
         else {
             self.sequence_conflict = None;
             return false;
@@ -431,12 +339,21 @@ impl Review {
                 let result = match work {
                     Work::Empty(mut session, empty, choice) => {
                         let error = session
-                            .resolve_empty(&empty, choice, &editor, &worker_requests, &token)
+                            .resolve_empty(
+                                &empty,
+                                choice,
+                                &editor,
+                                Some(&worker_requests),
+                                &token,
+                                &Default::default(),
+                            )
                             .err();
                         Ok((session, error))
                     }
                     Work::Resume(mut session) => {
-                        let error = session.resume(&editor, &worker_requests, &token).err();
+                        let error = session
+                            .resume(&editor, Some(&worker_requests), &token, &Default::default())
+                            .err();
                         Ok((session, error))
                     }
                     Work::Saved(plan) => plan
@@ -459,7 +376,7 @@ impl Review {
                     Work::Selection(_) => unreachable!("selection prepared before execution"),
                 };
                 let results = result.map(|(session, error)| {
-                    let (saved_details, restore_conflict) = session.saved_details();
+                    let (saved_details, restore_conflict) = saved_details(&session);
                     let diagnostic = match (&error, saved_details) {
                         (Some(error), Some(saved)) => Some(format!("{error}\n{saved}")),
                         (Some(error), None) => Some(error.clone()),
@@ -555,7 +472,7 @@ impl Review {
                             Some(saved) => format!("{details}\n\n{saved}"),
                             None => details,
                         });
-                        if can_resume && !cancelled && !results.cancelled && session.resumable() {
+                        if can_resume && !cancelled && session.resumable() {
                             let stopped = results.roots.iter().find(|root| !root.complete());
                             let empty = stopped.and_then(|root| match root.result.as_ref()? {
                                 Ok(Report::CherryPick(report))

@@ -15,6 +15,27 @@ pub struct SavedResults {
     directories: Vec<std::path::PathBuf>,
 }
 impl SavedResults {
+    /// Eligibility of the original workflow; on-disk identity and conflict
+    /// guards are still checked by resume before any write.
+    pub fn resumable(&self) -> bool {
+        self.error.is_none() && self.saved.iter().all(|root| root.restore.is_none())
+    }
+
+    /// Read on a worker: distinguish restoration conflicts from an unfinished
+    /// apply operation, without consuming the exact retained stash reports.
+    pub fn restore_conflict(&self, token: &Cancel) -> Option<Repository> {
+        self.saved
+            .iter()
+            .filter(|root| root.restore.is_some())
+            .find_map(|root| {
+                let repository = Repository::new(&root.path);
+                repository
+                    .operation_state(token)
+                    .is_ok_and(|state| !state.conflicts.is_empty())
+                    .then_some(repository)
+            })
+    }
+
     /// Continue only the original conflict interaction. Retained drafts belong
     /// to the whole workflow, including roots already completed before it stopped.
     pub fn resume_revert(
@@ -64,7 +85,7 @@ impl SavedResults {
         token: &Cancel,
         progress: &Progress,
     ) -> Result<(), String> {
-        if self.error.is_some() || self.saved.iter().any(|root| root.restore.is_some()) {
+        if !self.resumable() {
             return Err("Review the saved operation before continuing".into());
         }
         self.validate_directories(token)?;

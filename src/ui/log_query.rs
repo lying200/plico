@@ -125,7 +125,7 @@ mod tests {
 
     extern crate gpui_kit as gpui;
     use super::super::Review;
-    use gpui::{AppContext as _, component::Root};
+    use gpui::{AppContext as _, Render as _, component::Root};
     use std::{path::PathBuf, sync::Arc};
 
     #[gpui::test]
@@ -143,8 +143,10 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         )));
         std::fs::create_dir(&fixture.0).unwrap();
+        std::fs::write(fixture.0.join("review.txt"), "base\n").unwrap();
         for args in [
             vec!["init", "-q"],
+            vec!["add", "review.txt"],
             vec![
                 "-c",
                 "user.name=Audit",
@@ -179,19 +181,84 @@ mod tests {
         let review = review.unwrap();
         review.update(cx, |s, cx| s.refresh(false, cx));
         cx.run_until_parked();
-        review.update(cx, |s, cx| {
-            assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.log.commits().len(), 1);
-            assert_eq!(s.selected, Some(0), "retain existing initial-open behavior");
-            s.select_commit(0, cx);
-            s.refresh(false, cx);
+        let previous_files = review.read_with(cx, |s, _| s.files.clone());
+        let preview = cx.update(|w, cx| {
+            review.update(cx, |s, cx| {
+                assert!(s.error.is_none(), "{:?}", s.error);
+                assert_eq!(s.log.commits().len(), 1);
+                assert_eq!(s.selected, Some(0), "retain existing initial-open behavior");
+                s.bottom_preview = true;
+                let _ = s.render(w, cx);
+                let preview = s.local_preview.as_ref().unwrap().entity_id();
+                let message = s.message.clone();
+                assert!(!message.is_empty());
+                s.refresh(false, cx);
+                assert_eq!(
+                    s.message, message,
+                    "history refresh must retain visible commit details while loading"
+                );
+                let _ = s.render(w, cx);
+                assert_eq!(
+                    s.local_preview.as_ref().map(|p| p.entity_id()),
+                    Some(preview),
+                    "refresh must retain preview through render, not just state updates"
+                );
+                preview
+            })
         });
         cx.run_until_parked();
+        cx.update(|w, cx| {
+            review.update(cx, |s, cx| {
+                let _ = s.render(w, cx);
+                assert_eq!(
+                    s.local_preview.as_ref().map(|p| p.entity_id()),
+                    Some(preview)
+                );
+            })
+        });
+        // New commits move the old row; its content and preview still belong
+        // to the original repository/hash, not the former row number.
+        let output = std::process::Command::new("git")
+            .current_dir(&fixture.0)
+            .args([
+                "-c",
+                "user.name=Audit",
+                "-c",
+                "user.email=audit@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "new tip",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        review.update(cx, |s, cx| s.refresh_impl(false, true, None, cx));
+        cx.run_until_parked();
+        cx.update(|w, cx| {
+            review.update(cx, |s, cx| {
+                assert_eq!(s.selected, Some(1));
+                assert_eq!(s.log.commits()[s.selected.unwrap()].subject, "base");
+                assert!(Arc::ptr_eq(&previous_files, &s.files));
+                let _ = s.render(w, cx);
+                assert_eq!(
+                    s.local_preview.as_ref().map(|p| p.entity_id()),
+                    Some(preview)
+                );
+            })
+        });
         let membership = review.read_with(cx, |s, cx| {
             s.project_roots.read(cx).snapshot().unwrap().unwrap()
         });
         review.update(cx, |s, cx| {
-            assert_eq!(s.selected, Some(0), "refresh preserves visible selection");
+            assert_eq!(s.selected, Some(1), "refresh preserves visible selection");
+            assert!(
+                Arc::ptr_eq(&previous_files, &s.files),
+                "unchanged details must not be reloaded after accepting history"
+            );
+            assert!(!s.log_details_loading());
             s.text_filter = Some(plico::git::LogFilter {
                 text: "absent-audit-selection".into(),
                 ..Default::default()
@@ -212,7 +279,7 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, cx| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.log.commits().len(), 1);
+            assert_eq!(s.log.commits().len(), 2);
             assert!(
                 s.selected.is_none(),
                 "clearing filters must preserve empty selection"

@@ -434,6 +434,9 @@ impl UserMenu {
                                 .snap_to_window_with_margin(px(8.))
                                 .child(
                                     div()
+                                        // This lookup is a separate deferred popup, outside
+                                        // Popover's hitbox. Shield the Log even at scroll ends.
+                                        .occlude()
                                         .w(px(layout.width))
                                         .p_1()
                                         .bg(rgb(0x26282c))
@@ -653,5 +656,82 @@ impl Render for UserMenu {
                         })),
                 )
             })
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod lookup_layer_tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use std::cell::RefCell;
+
+    struct LookupFixture {
+        menu: Entity<UserMenu>,
+        background: Rc<RefCell<Option<Hitbox>>>,
+    }
+    impl Render for LookupFixture {
+        fn render(&mut self, w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let background = self.background.clone();
+            div()
+                .size_full()
+                .child(
+                    canvas(
+                        move |bounds, w, _| {
+                            *background.borrow_mut() =
+                                Some(w.insert_hitbox(bounds, HitboxBehavior::Normal));
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .child(self.menu.update(cx, |s, cx| s.body(w, cx)))
+        }
+    }
+    // No wheel simulation: verify the actual deferred lookup's hit-test
+    // isolation. Native scroll feel is deliberately reserved for user testing.
+    #[gpui::test]
+    fn user_lookup_blocks_background_scroll_hitbox(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let background = Rc::new(RefCell::new(None));
+        let mut menu = None;
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let view = cx.new(|cx| UserMenu::new(Repository::new("/lookup-fixture"), cx));
+            view.update(cx, |s, cx| {
+                s.open = true;
+                s.edit(w, cx);
+                s.candidates = (0..30).map(|i| format!("Author {i:02}")).collect();
+                s.update_completions(true, cx);
+            });
+            menu = Some(view.clone());
+            let fixture = cx.new(|_| LookupFixture {
+                menu: view,
+                background: background.clone(),
+            });
+            gpui::component::Root::new(fixture, w, cx)
+        });
+        let menu = menu.unwrap();
+        // The textarea publishes shaped prefix bounds on the first frame.
+        for _ in 0..3 {
+            cx.update(|w, cx| {
+                menu.update(cx, |_, cx| cx.notify());
+                w.draw(cx).clear(cx);
+            });
+        }
+        let bounds = menu.read_with(cx, |s, _| {
+            s.completion_bounds.get().expect("lookup must be visible")
+        });
+        cx.simulate_mouse_move(bounds.center(), None, Default::default());
+        cx.update(|w, _| {
+            assert!(
+                !background
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .should_handle_scroll(w),
+                "lookup must shield the Log behind it, including at list boundaries"
+            );
+        });
     }
 }

@@ -25,6 +25,7 @@ impl Drop for ContainingBranches {
 impl ContainingBranches {
     /// Unknown, failed, or unrelated queries defer to the operation's authoritative check.
     pub fn contains_head(&self, root: &std::path::Path, hash: &str) -> Option<bool> {
+        self.protected.as_ref()?;
         let (query_root, query_hash) = self.identity.as_ref()?;
         if query_root != root || query_hash != hash {
             return None;
@@ -41,6 +42,15 @@ impl ContainingBranches {
             return None;
         }
         self.protected.as_ref()?.as_ref().ok().map(Option::is_some)
+    }
+    /// Refresh mutable branch membership without replacing the selected card.
+    pub fn refresh(&mut self, repo: Repository, id: String, cx: &mut Context<Self>) {
+        let mut next = Self::new(repo, id, cx);
+        next.result = self.result.clone();
+        next.expanded = self.expanded;
+        next.width = self.width;
+        next.link_focus = self.link_focus.clone();
+        *self = next;
     }
     pub fn pending(cx: &mut Context<Self>) -> Self {
         Self {

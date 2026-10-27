@@ -13593,3 +13593,57 @@ Windows release 构建通过，既有 Request dead-code warning 保留；clippy 
 9/9 条 Log 无根颜色列，截图 `plico-root-single.png`。所有本轮启动的 Plico 进程
 14516、45172、41428、40524 已正常关闭，既有 Rebased 保留。精确多 DPI／长名称
 边界截图未覆盖；tooltip 排版沿用 Plico 控件，未宣称全局像素级一致。
+
+## 刷新展示与弹层边界前置（2026-10-27）
+
+参考源码4aec35256d765c217aa0d662b82ac4e860c396fd；安装版1.1.20
+IC-262.10968.SNAPSHOT。原生使用独立rebase-branch-reference-20261024仓库，
+44688现有测试窗口，未写Git。截图artifacts/refresh-popup-20261027/
+refresh-reference-{worktree,refs,selected,refreshed,user-select}.png。
+New Worktree来源下拉约10行并带滚动条，未铺满屏幕；关闭弹窗未创建树。
+Log选中topic selection refresh probe后点击刷新，选中提交与详情保留。
+User→Select打开独立多行弹层；滚轮按AGENTS保留用户手测，不自动模拟。
+
+实读源码：GitWorkingTreeDialog.kt::createRefComboBox使用非Swing popup的ComboBox；
+ComboBox.java::setSwingPopup(false)转DarculaJBPopupComboPopup，后者getMaximumRowCount
+至少10行，ListPopupImpl使用可见行数约束。MultilinePopupBuilder.java创建可为父的
+独立JBPopup，LookupUi.java持有独立JScrollPane。Plico用户补全deferred层没有
+occlude，GPUI HitboxBehavior::BlockMouse明确同时阻止背后鼠标与滚轮命中；普通
+Popover/PopupMenu已有occlude。PopupMenu默认scrollable=false使现有max-height
+仅在调用方主动开启滚动时生效，Worktree正好未开启。
+
+实读VcsLogGraphTable.java::updateDataPack恢复选择快照；MainFrame.java通过
+CommitDetailsLoader加载详情，加载条延迟显示；VcsLogCommitSelectionListenerForDetails.kt
+单独加载分支归属。源码并非“refresh绝不发details事件”，不作此声明。
+本地按用户要求减少不变提交的实际重建：选择身份须包含root/hash/parents/shallow，
+保留已完成的文件/预览，仅刷新动态归属和操作检查；失效或未完成详情仍需重载。
+现有真实入口桌面回归已复现刷新立即清空message（base→空），运行1.38秒。
+
+实现与验收：
+
+- `ui/log_selection.rs` 记录完成加载的有序选择身份（仓库、hash、parents、shallow）；
+  `ui/repository.rs`、`ui/project_navigation.rs` 接收新页后比较身份，保留相同选择的文件树、
+  详情和预览。`ui.rs`、`ui/files.rs`、`ui/preview.rs` 区分历史查询与详情首次加载，避免
+  render 在历史查询期间销毁已就绪的预览。选择消失、加载失败、浅克隆边界变化仍重新加载。
+  `containing_branches.rs` 保留卡片实体并重新查询动态归属，等待期间不把旧结果用于操作判定；
+  refs 与 reword 检查照常更新。本地优化不等同于 Rebased 完全不发送详情刷新事件。
+- `user_menu.rs` 为独立 deferred 补全层加 `occlude`。核对普通 Popover、PopupMenu、
+  revision completion 已有隔离，修补遗漏层，不添加全局滚轮拦截。
+- vendor `PopupMenu` 默认启用现有滚动实现，默认高度限制为客户区一半且不超过 450px，
+  显式高度也不超过客户区减 16px；保留子菜单逻辑。`ui/worktrees/form.rs` 来源菜单
+  280px 高度约十行、356px 最小宽度与触发框一致。没有引入 Rebased 的 Swing 组件体系。
+
+三类问题的真实入口红绿回归：刷新立即清空详情；render 销毁预览 EntityId；200 项菜单撑到
+5606px；另有补全层的背景 `should_handle_scroll` 命中回归（不模拟滚轮）。修复后
+桌面测试 183 项通过（20.20s），release 配置 Diff 编辑导航测试 10 项通过（0.98s）；
+格式检查及 diff whitespace 检查通过，Windows release 构建通过，仅保留既有 Request
+dead-code warning。多仓库多选刷新验证文件 Arc 与详情卡片 EntityId 不变。
+
+Windows 独立 fixture 有 30 条提交、30 个作者、200 个 Tag；打开来源菜单，选择
+popup-002 后正常收起，取消而未创建工作树。最终截图 `refresh-plico-final-open.png`、
+`refresh-plico-final-selection.png`；补全截图 `refresh-plico-completion-fixed.png`。
+选中 Review 27 并打开底部预览，外部新增空提交后自动刷新为 31 条，原选择、文件和
+revision 26→27 的 Diff 仍保留，截图 `refresh-plico-preview-{before,after}.png`。
+全部截图在本节 artifacts 目录；本轮自启 Plico 22396、4752、39448 与无窗口启动进程
+40380 已关闭，既有 Rebased 窗口保留。实际滚轮与边界滚动仍待用户手测；本轮没有
+spring-framework 全仓性能基准，不以此宣称所有性能问题已排除，也不宣称全局像素级一致。

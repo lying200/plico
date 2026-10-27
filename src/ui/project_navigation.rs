@@ -345,10 +345,8 @@ impl Review {
                             }
                             s.limit = limit;
                             s.install_project_window(page, Some(model), cx);
-                            s.selected = None;
-                            s.log_selection.reconcile(&s.commit_ids());
                             s.pending_preview_file = preferred;
-                            s.load_log_selection(cx);
+                            s.reconcile_log_details(cx);
                         }
                         Err(error) => s.error = Some(error),
                     }
@@ -443,6 +441,36 @@ mod tests {
             for path in &paths {
                 assert!(s.commit_ids().iter().any(|id| id.root.as_ref() == path));
             }
+        });
+        review.update(cx, |s, cx| {
+            s.select_log_row(0, false, false, false, cx);
+            s.select_log_row(1, true, false, false, cx);
+        });
+        cx.run_until_parked();
+        let (files, cards) = review.read_with(cx, |s, _| {
+            (
+                s.files.clone(),
+                s.selection_details
+                    .iter()
+                    .map(|(_, _, view)| view.entity_id())
+                    .collect::<Vec<_>>(),
+            )
+        });
+        assert_eq!(cards.len(), 2);
+        review.update(cx, |s, cx| s.refresh_impl(false, true, None, cx));
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert!(
+                Arc::ptr_eq(&files, &s.files),
+                "multi-root refresh must retain the combined file model"
+            );
+            assert_eq!(
+                cards,
+                s.selection_details
+                    .iter()
+                    .map(|(_, _, view)| view.entity_id())
+                    .collect::<Vec<_>>()
+            );
         });
         // A structure path is anchored in the primary repository, not copied
         // into every sibling root. Selecting that root must retain empty commits.

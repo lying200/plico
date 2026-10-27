@@ -2,7 +2,79 @@
 //! Private implementation; shared lifecycle state remains owned by Review.
 use super::*;
 
+/// Content identity excludes mutable refs, but includes shallow parent semantics.
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct Content {
+    id: plico::project_log::CommitId,
+    parents: Vec<String>,
+    shallow: bool,
+}
+
 impl Review {
+    fn selection_content(&self) -> Vec<Content> {
+        let rows = self.commit_ids();
+        let ordered = self.log_selection.ordered(&rows);
+        let mut selected = ordered.into_iter().peekable();
+        rows.iter()
+            .zip(self.log.commits().iter())
+            .filter_map(|(id, commit)| {
+                if selected.peek().is_some_and(|next| *next == id) {
+                    selected.next();
+                    Some(Content {
+                        id: id.clone(),
+                        parents: commit.parents.clone(),
+                        shallow: commit.shallow_boundary,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    /// A new page may move the same selection to another row. Only reload
+    /// immutable details when its content identity changed or loading failed.
+    pub(super) fn reconcile_log_details(&mut self, cx: &mut Context<Self>) {
+        let ids = self.commit_ids();
+        self.log_selection.reconcile(&ids);
+        let content = self.selection_content();
+        if self.loaded_log_selection.as_ref() != Some(&content) || self.local {
+            self.load_log_selection(cx);
+            return;
+        }
+        self.selected = if content.len() == 1 {
+            ids.iter().position(|id| id == &content[0].id)
+        } else {
+            None
+        };
+        self.pending_preview_file = None;
+        if let Some(index) = self.selected {
+            let commit = &self.log.commits()[index];
+            let repo = self.log_repository(index).unwrap();
+            self.reword_gate =
+                Some(cx.new(|cx| super::reword::Gate::new(repo.clone(), commit.id.clone(), cx)));
+            if let Some(branches) = &self.containing_branches {
+                branches.update(cx, |s, cx| s.refresh(repo, commit.id.clone(), cx));
+            }
+        } else {
+            // Cards follow the selection's row order, independent of row indices.
+            let mut cards = Vec::new();
+            for (entry, (refs, _, view)) in content.iter().zip(&mut self.selection_details) {
+                let index = ids.iter().position(|id| id == &entry.id).unwrap();
+                *refs = self.log.commits()[index].refs.clone();
+                cards.push((
+                    Repository::new(entry.id.root.as_ref()),
+                    entry.id.hash.clone(),
+                    view.downgrade(),
+                ));
+            }
+            self.selection_branches =
+                Some(cx.new(|cx| crate::containing_branches::Batch::from_roots(cards, cx)));
+        }
+    }
+    pub(super) fn log_details_loading(&self) -> bool {
+        self.log_query.busy() && self.loaded_log_selection.is_none()
+    }
+
     pub(super) fn log_repository(&self, index: usize) -> Option<Repository> {
         self.log.repository(index)
     }
@@ -59,6 +131,7 @@ impl Review {
         cx.notify();
     }
     pub(super) fn load_log_selection(&mut self, cx: &mut Context<Self>) {
+        self.loaded_log_selection = None;
         self.reword_gate = None;
         let rows = self.commit_ids();
         let ids = self
@@ -156,6 +229,7 @@ impl Review {
                                     .unwrap_or_default(),
                             );
                             this.aggregate_chain = chain;
+                            this.loaded_log_selection = Some(this.selection_content());
                             let mut cards = Vec::new();
                             this.selection_details = presentations
                                 .into_iter()
@@ -199,6 +273,7 @@ impl Review {
         let Some(repo) = self.log_repository(index) else {
             return;
         };
+        self.loaded_log_selection = None;
         self.reword_gate =
             Some(cx.new(|cx| super::reword::Gate::new(repo.clone(), commit.id.clone(), cx)));
         self.reset_log_presentation();
@@ -259,6 +334,7 @@ impl Review {
         preferred: Option<&(PathBuf, Change)>,
         cx: &mut Context<Self>,
     ) {
+        self.loaded_log_selection = Some(self.selection_content());
         let commit = self.selected.and_then(|i| self.log.commits().get(i));
         let presentation = commit_presentation::build(d, commit);
         self.message = presentation.message;

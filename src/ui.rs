@@ -189,6 +189,7 @@ pub struct Review {
     comparison_preview: Option<WeakEntity<DiffTab>>,
     selected: Option<usize>,
     log_selection: plico::log_selection::IdentitySelection<plico::project_log::CommitId>,
+    loaded_log_selection: Option<Vec<log_selection::Content>>,
     aggregate_chain: Option<diff_target::Chain>,
     selection_details: Vec<(
         Vec<git::RefLabel>,
@@ -426,6 +427,7 @@ impl Review {
             comparison_preview: None,
             selected: None,
             log_selection: Default::default(),
+            loaded_log_selection: None,
             aggregate_chain: None,
             selection_details: Vec::new(),
             selection_branches: None,
@@ -664,7 +666,7 @@ impl Render for Review {
                 }
             }
         } else if !self.uses_local_changes_preview() {
-            let pair = if self.log_query.busy() {
+            let pair = if self.log_details_loading() {
                 None
             } else {
                 self.log_preview_target(cx)

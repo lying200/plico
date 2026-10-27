@@ -115,7 +115,7 @@ impl Review {
                             .text_center()
                             .child(t(if error.is_some() {
                                 "Could not load the diff."
-                            } else if self.log_query.busy() {
+                            } else if self.log_details_loading() {
                                 "Reading Git data…"
                             } else {
                                 self.empty_diff_message()

@@ -154,6 +154,7 @@ impl Render for Form {
                                     ),
                             )
                             .dropdown_menu(move |mut menu, _, _| {
+                                menu = menu.min_w(px(356.)).max_h(px(280.));
                                 for reference in &refs {
                                     let owner = owner.clone();
                                     let r = reference.clone();

@@ -383,7 +383,7 @@ impl PopupMenu {
             icon_size: None,
             check_side: Side::Left,
             bounds: Bounds::default(),
-            scrollable: false,
+            scrollable: true,
             scroll_handle: ScrollHandle::default(),
             external_link_icon: true,
             size: Size::default(),
@@ -1672,10 +1672,12 @@ impl Render for PopupMenu {
         let view = cx.entity().clone();
         let items_count = self.menu_items.len();
 
-        let max_height = self.max_height.unwrap_or_else(|| {
-            let window_half_height = window.window_bounds().get_bounds().size.height * 0.5;
-            window_half_height.min(px(450.))
-        });
+        // Bound menus by the client viewport, including callers supplying a
+        // larger preferred height. Long menus must not require caller opt-in.
+        let viewport_limit = (window.viewport_size().height - px(16.)).max(px(0.));
+        let max_height = self.max_height
+            .unwrap_or_else(|| (window.viewport_size().height * 0.5).min(px(450.)))
+            .min(viewport_limit);
 
         let has_left_icon = self
             .menu_items

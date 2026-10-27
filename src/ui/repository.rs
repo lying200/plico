@@ -208,6 +208,7 @@ impl Review {
         self.show_long_edges = layout_preferences::load_log_long_edges(&self.repo.path);
         self.show_log_root_names = layout_preferences::load_log_root_names(&self.repo.path);
         self.log_selection = Default::default();
+        self.loaded_log_selection = None;
         self.aggregate_chain = None;
         self.selection_details.clear();
         self.selection_branches = None;
@@ -361,18 +362,9 @@ impl Review {
         }
         let preferred = self.preferred_log_file();
         self.pending_preview_file = preferred.clone();
-        self.aggregate_chain = None;
         let initial_history = self.snapshot.is_none();
         self.reset_log_presentation();
         let (generation, token) = self.log_query.begin(log_query::Kind::History);
-        self.files = Arc::default();
-        self.rebuild_files(cx);
-        self.selected_file = None;
-        self.message.clear();
-        self.commit_metadata = Default::default();
-        self.containing_branches = None;
-        self.reword_gate = None;
-        self.base = None;
         let repo = self.repo.clone();
         let branches = self.branch_filter.clone();
         let text_filter = self.text_filter.clone();
@@ -532,7 +524,6 @@ impl Review {
                             this.snapshot = Some(s);
                             this.update_history_count(cx);
                             this.rebuild_branches(cx);
-                            this.selected = None;
                             let ids = this.commit_ids();
                             this.log_selection.reconcile(&ids);
                             if this.log_selection.ordered(&ids).is_empty()
@@ -543,7 +534,7 @@ impl Review {
                                 this.log_selection.select(&ids, 0, false, false);
                             }
                             this.pending_preview_file = preferred;
-                            this.load_log_selection(cx);
+                            this.reconcile_log_details(cx);
                         }
                         Ok((_, Some(f))) => {
                             this.files = Arc::new(f);
@@ -558,13 +549,14 @@ impl Review {
                             }
                         }
                         Err(e) => {
-                            this.error = Some(e);
                             if filtering {
                                 this.log = Default::default();
                                 this.pending_project_reload = None;
                                 this.selected = None;
                                 this.snapshot = None;
+                                this.load_log_selection(cx);
                             }
+                            this.error = Some(e);
                         }
                         _ => {}
                     }

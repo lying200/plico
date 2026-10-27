@@ -422,3 +422,59 @@ pub(crate) fn file_count(count: usize) -> String {
         format!("{count} {}", if count == 1 { "file" } else { "files" })
     }
 }
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod popup_bounds_tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use gpui_kit::base::ElementExt as _;
+    extern crate gpui_kit as gpui;
+    use gpui::component::{
+        Root,
+        menu::{PopupMenu, PopupMenuItem},
+    };
+    use std::{cell::Cell, rc::Rc};
+
+    struct MenuFixture {
+        menu: Entity<PopupMenu>,
+        bounds: Rc<Cell<Bounds<Pixels>>>,
+    }
+    impl Render for MenuFixture {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let bounds = self.bounds.clone();
+            div().size_full().child(
+                div()
+                    .absolute()
+                    .child(self.menu.clone())
+                    .on_prepaint(move |rect, _, _| bounds.set(rect)),
+            )
+        }
+    }
+    #[gpui::test]
+    fn long_default_popup_is_constrained_without_caller_opt_in(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let bounds = Rc::new(Cell::new(Bounds::default()));
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let menu = PopupMenu::build(w, cx, |mut menu, _, _| {
+                for i in 0..200 {
+                    menu = menu.item(PopupMenuItem::new(format!("branch-{i}")));
+                }
+                menu
+            });
+            let view = cx.new(|_| MenuFixture {
+                menu,
+                bounds: bounds.clone(),
+            });
+            Root::new(view, w, cx)
+        });
+        cx.update(|w, cx| {
+            w.draw(cx).clear(cx);
+            let height = bounds.get().size.height;
+            assert!(height > px(100.), "menu must actually be laid out");
+            assert!(
+                height <= (w.viewport_size().height * 0.5).min(px(450.)) + px(4.),
+                "menu grew to {height:?}"
+            );
+        });
+    }
+}

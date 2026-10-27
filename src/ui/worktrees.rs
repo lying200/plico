@@ -95,10 +95,16 @@ impl Render for Browser {
         v_flex()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|s, e: &KeyDownEvent, w, cx| {
-                if e.keystroke.key == "delete" && !e.keystroke.modifiers.modified() {
-                    s.remove(w, cx);
-                    cx.stop_propagation();
+                if e.keystroke.modifiers.modified() {
+                    return;
                 }
+                match e.keystroke.key.as_str() {
+                    "up" => s.move_selection(false, cx),
+                    "down" => s.move_selection(true, cx),
+                    "delete" => s.remove(w, cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
             }))
             .size_full()
             .bg(rgb(BG))

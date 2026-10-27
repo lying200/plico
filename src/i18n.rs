@@ -1224,6 +1224,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Delete worktree at" => "删除此位置的工作树：",
         "Open Worktree" => "打开工作树",
         "Open as a Project" => "作为项目打开",
+        "Double Click" => "双击",
         "Delete Worktree" => "删除工作树",
         "Prune Worktrees" => "清理失效工作树",
         "Remove Git records for missing worktrees:" => "移除以下已不存在工作树的 Git 记录：",

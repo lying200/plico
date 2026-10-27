@@ -13382,3 +13382,25 @@ disabled-delete,context-delete,final}.png`，已查看关键菜单和确认状�
 Enter按安装版实测未新增；上下键导航尚待参考确认。菜单缺少参考的右侧快捷键文字
 及删除图标，作为明确视觉差异保留，不宣称像素一致。长Rebase拖动边缘自动滚动、
 其余Worktree已记录差异及全局最终证据审计继续保留，整轮目标仍活动。
+
+
+### Worktree上下选择与菜单提示前置（2026-10-27）
+
+同一Rebased44688/独立两行fixture：点击当前行后Down选中linked树，Up返回当前行，
+未触发打开或写操作。截图本日rebased-worktree-keys-{down,up}.png，已查看。
+GitWorktreesTabPanel.kt配置JBList/SINGLE_SELECTION，JBList.java继承JList并使用
+WideSelectionListUI；本地以路径保存选中项，键盘只改变单选目标并保持可见。
+不引入多选或Enter行为；沿用上一轮已验证菜单的Double Click/Delete提示和删除图标。
+本次无内容滚动自动化。参考commit仍4aec352，安装版仍1.1.20。
+
+
+Worktree上下选择与菜单提示完成：路径身份单选、上下边界钳制、无选择时回首行，
+沿用UniformListScrollHandle的Nearest可见性请求；菜单补删除图标及右侧双击/Delete
+提示。中文新增“双击”。完整桌面176及发布配置导航10通过，Windows release通过，
+日志`/tmp/plico-worktree-keys-{desktop,navigation,windows}.log`；格式检查通过。
+自有Plico25888/HWND12651778：点击当前树后Down选中linked，Delete显示该路径，
+Escape取消后Up返回当前树。右键菜单两列提示无重叠，删除图标可见。截图本日
+`plico-worktree-keys-{main,down,up,menu,delete}.png`已查看。最初SendKeys被前台
+保护拒绝，未向其他窗口发键；改用PID/HWND核对的目标窗口消息完成验收。
+仅两行列表，不做长列表滚动自动化。关闭自有25888并WaitForExit确认，保留Rebased。
+本条关闭上下选择及菜单图标/提示缺口；Enter及锁定仍为安装版版本差异，不纳入本次。

@@ -798,6 +798,9 @@ impl Repository {
         crate::authenticated_command::run(&mut command, auth, token, progress, None, |_| true)
     }
     pub(crate) fn operation_guard(&self, token: &Cancel) -> Result<crate::operation_queue::Guard> {
+        crate::operation_queue::acquire(self.operation_key(token)?, token)
+    }
+    pub(crate) fn operation_key(&self, token: &Cancel) -> Result<PathBuf> {
         let common = self.read(
             &[
                 OsStr::new("rev-parse"),
@@ -811,7 +814,7 @@ impl Repository {
         let common = path_from_bytes(common)?
             .canonicalize()
             .map_err(|e| e.to_string())?;
-        crate::operation_queue::acquire(common, token)
+        Ok(common)
     }
     pub fn editor_directory(&self, token: &Cancel) -> Result<PathBuf> {
         let bytes = self.read(

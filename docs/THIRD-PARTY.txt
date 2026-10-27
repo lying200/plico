@@ -414,3 +414,16 @@ Copyright JetBrains s.r.o. and contributors. Apache License, Version 2.0.
 Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
 Rust uses bounded repository discovery and per-user atomic mapping files instead
 of the IntelliJ VFS/project services. License: licenses/assets/icons/LICENSE.txt.
+
+
+Project repository invalidation and operation observation
+
+src/worktree_events.rs and its submodules follow the scoped repository/index
+invalidation rules in plugins/git4idea/backend/src/repo/GitRepositoryUpdater.kt,
+GitRepositoryManager.java and GitRepositoryChangeListener.java.
+src/project_operations.rs follows repository operation-state eligibility in
+plugins/git4idea/backend/src/actions/GitOperationActionBase.kt.
+Copyright JetBrains s.r.o. and contributors. Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+Rust uses bounded native filesystem invalidations and immutable state snapshots
+instead of the IntelliJ VFS and message bus. License: licenses/assets/icons/LICENSE.txt.

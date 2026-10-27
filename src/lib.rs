@@ -234,3 +234,5 @@ pub mod tree_selection;
 
 pub mod project_repositories;
 pub mod submodules;
+
+pub mod project_operations;

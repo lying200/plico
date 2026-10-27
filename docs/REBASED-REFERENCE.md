@@ -6930,3 +6930,28 @@ Windows宿主真实Git13项均通过（Unix专属路径测试不在Windows编译
 验证错误归属，没有放宽产品结果断言。日志 `/tmp/plico-inventory-stage-core.log`、
 `/tmp/plico-inventory-stage-final-tests.log`、`/tmp/plico-inventory-stage-windows-final-tests.log`。
 格式和暂存差异检查通过；CI尚未运行，本提交无新增可见UI。
+
+
+### 第6项事件与操作状态基础独立提交（2026-10-27）
+
+在cce90ff项目成员基础上，独立提交 `worktree_events` 的根限定通知、外置gitdir和
+shared common-dir路由，区分成员、refs/HEAD、index及工作区失效。ProjectEvents复用
+未变化根的监听，移除根时释放监听，安装失败/网络路径保留轮询；通知不携带历史副本，
+也不触发写操作。`project_operations::Observer` 按真实Git状态观察每个根，保留不可读
+错误，取消不发布半份项目快照。`operation_queue` 整组原子占有多个common-dir，
+等待时不保留部分锁；后续整组Update将使用此接口。
+
+源码依据为此前已实读4aec352的 `plugins/git4idea/backend/src/repo/`
+GitRepositoryManager.java、GitRepositoryChangeListener.java、GitRepositoryUpdater.kt，
+以及GitOperationActionBase的操作资格规则；安装版1.1.20。沿用本轮多根原生依据，
+本次只拆已有基础实现，不新增界面入口。DiffTab的两个旧index判断同时切到
+baseline_changed，以保留HEAD/ref更新时的比较基线刷新；其余多仓库接线留待后续提交。
+验证使用导出的暂存快照，避免工作区未提交代码掩盖依赖，结果待补。
+
+独立快照验证完成：Linux完整核心786项、完整桌面106项、发布配置Diff导航10项通过；
+日志 `/tmp/plico-events-stage-{core,desktop,navigation}.log`。Windows宿主运行真实Git
+与原生文件监听测试：worktree_events 5项、project_operations 2项全部通过，日志
+`/tmp/plico-events-stage-windows-tests.log`，包含分离gitdir、工作树私有index与共享refs、
+移除根释放监听、外部冲突解决/中止及取消/不可读状态。没有用交叉编译代替宿主运行。
+暂未被该基础提交消费的Guard::owns保留在后续工作区，不提前引入未使用API。
+格式及暂存差异检查通过；CI未运行。本次没有启动桌面实例，也没有新增可见UI。

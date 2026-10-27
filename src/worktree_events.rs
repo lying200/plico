@@ -1,4 +1,8 @@
 //! Bounded filesystem invalidations, not a second repository cache.
+mod git_paths;
+mod project;
+pub use project::{Notice, ProjectEvents};
+
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::BTreeSet,
@@ -12,10 +16,23 @@ pub struct Batch {
     pub paths: BTreeSet<PathBuf>,
     pub all: bool,
     pub index: bool,
+    /// HEAD or references changed; distinct from staging-only updates.
+    pub refs: bool,
+    /// Shallow boundaries changed without necessarily moving any reference.
+    pub shallow: bool,
+    /// Repository roots, declarations or gitlinks may have changed.
+    pub membership: bool,
 }
 impl Batch {
     pub fn changed(&self) -> bool {
-        self.all || self.index || !self.paths.is_empty()
+        self.all || self.index || self.refs || self.membership || !self.paths.is_empty()
+    }
+    pub fn history_changed(&self) -> bool {
+        self.all || self.refs
+    }
+    /// Local comparisons depend on both HEAD and the index.
+    pub fn baseline_changed(&self) -> bool {
+        self.history_changed() || self.index
     }
     pub fn affects(&self, path: &Path) -> bool {
         self.all
@@ -23,6 +40,19 @@ impl Batch {
                 .paths
                 .iter()
                 .any(|p| path.starts_with(p) || p.starts_with(path))
+    }
+    /// UI invalidation only: canonical Windows roots may have a verbatim prefix
+    /// while watcher paths do not. Never use these display identities for I/O.
+    pub fn affects_root(&self, observed_root: &Path, root: &Path) -> bool {
+        let observed = crate::recent_projects::identity(observed_root);
+        let root = crate::recent_projects::identity(root);
+        Path::new(&root)
+            .strip_prefix(Path::new(&observed))
+            .is_ok_and(|relative| {
+                self.paths.iter().any(|path| {
+                    relative.starts_with(Path::new(&crate::recent_projects::identity(path)))
+                })
+            })
     }
     fn record(&mut self, path: PathBuf) {
         if self.all {
@@ -85,16 +115,41 @@ impl Pending {
                     let Ok(path) = path.strip_prefix(root) else {
                         continue;
                     };
+                    if path
+                        .file_name()
+                        .is_some_and(|name| name == ".git" || name == ".gitmodules")
+                        || (path.file_name().is_some_and(|name| name == "index")
+                            && path.components().any(|part| part.as_os_str() == ".git"))
+                    {
+                        self.batch.membership = true;
+                    }
                     if path.starts_with(".git") {
-                        if path == Path::new(".git/index")
-                            || path == Path::new(".git")
+                        if path == Path::new(".git/index") || path == Path::new(".git") {
+                            self.batch.index = true;
+                        }
+                        if path == Path::new(".git/shallow") {
+                            self.batch.shallow = true;
+                            self.batch.refs = true;
+                        }
+                        if path == Path::new(".git")
                             || path == Path::new(".git/HEAD")
                             || path == Path::new(".git/packed-refs")
                             || path.starts_with(".git/refs")
+                            || path.starts_with(".git/reftable")
                         {
-                            self.batch.index = true;
+                            self.batch.refs = true;
                         }
                         continue;
+                    }
+                    // Directory removal may hide a .git entry before the
+                    // watcher can report it individually. Rediscovery remains
+                    // limited to registered roots and declared submodules.
+                    if matches!(
+                        event.kind,
+                        EventKind::Create(notify::event::CreateKind::Folder)
+                            | EventKind::Remove(notify::event::RemoveKind::Folder)
+                    ) {
+                        self.batch.membership = true;
                     }
                     if path
                         .file_name()
@@ -138,18 +193,54 @@ pub struct Events {
 impl Events {
     /// Install off the UI thread: some backends enumerate directories here.
     pub fn new(root: PathBuf) -> notify::Result<Self> {
+        Self::install(root, None)
+    }
+    /// Resolve Git directories off the UI thread. Failure lets callers retain
+    /// their existing polling fallback instead of silently missing index events.
+    pub fn for_repository(
+        repo: &crate::git::Repository,
+        token: &crate::git::Cancel,
+    ) -> Result<Self, String> {
+        let paths = git_paths::GitPaths::read(repo, token)?;
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        Self::install(repo.path.clone(), Some(paths)).map_err(|error| error.to_string())
+    }
+    fn install(root: PathBuf, paths: Option<git_paths::GitPaths>) -> notify::Result<Self> {
+        let mut directories = vec![root.clone()];
+        if let Some(paths) = &paths {
+            for path in paths.directories() {
+                if !directories.iter().any(|parent| path.starts_with(parent)) {
+                    directories.push(path.to_owned());
+                }
+            }
+        }
         let pending = Arc::new(Mutex::new(Pending::default()));
         let queue = pending.clone();
         let watched = root.clone();
         let mut watcher = RecommendedWatcher::new(
-            move |event| {
+            move |event: notify::Result<Event>| {
+                let event = event.map(|mut event| {
+                    if let Some(paths) = &paths {
+                        event.paths = event
+                            .paths
+                            .iter()
+                            .filter(|path| !paths.is_directory_metadata(path, event.kind))
+                            .filter_map(|path| paths.route(&watched, path))
+                            .collect();
+                    }
+                    event
+                });
                 if let Ok(mut pending) = queue.lock() {
                     pending.push(&watched, event);
                 }
             },
             notify::Config::default().with_follow_symlinks(false),
         )?;
-        watcher.watch(&root, RecursiveMode::Recursive)?;
+        for directory in directories {
+            watcher.watch(&directory, RecursiveMode::Recursive)?;
+        }
         Ok(Self {
             _watcher: watcher,
             pending,
@@ -211,6 +302,127 @@ mod tests {
         assert!(batch.all && batch.index);
     }
     #[test]
+    fn staging_and_history_invalidation_have_distinct_consumers() {
+        let root = Path::new("repo");
+        for (path, index, refs) in [
+            (".git/index", true, false),
+            (".git/HEAD", false, true),
+            (".git/refs/heads/main", false, true),
+            (".git/refs/tags/v1", false, true),
+            (".git/refs/remotes/origin/main", false, true),
+            (".git/packed-refs", false, true),
+            (".git/shallow", false, true),
+            (".git/reftable/tables.list", false, true),
+        ] {
+            let mut pending = Pending::default();
+            pending.push(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(path))),
+            );
+            assert_eq!(pending.batch.index, index, "{path}");
+            assert_eq!(pending.batch.refs, refs, "{path}");
+            assert_eq!(pending.batch.history_changed(), refs, "{path}");
+            assert!(pending.batch.baseline_changed(), "{path}");
+        }
+        // Deepening replaces the boundary file; unshallow removes it entirely.
+        for kind in [
+            EventKind::Create(notify::event::CreateKind::File),
+            EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::To,
+            )),
+            EventKind::Remove(notify::event::RemoveKind::File),
+        ] {
+            let mut pending = Pending::default();
+            pending.push(
+                root,
+                Ok(Event::new(kind).add_path(root.join(".git/shallow"))),
+            );
+            assert!(pending.batch.shallow && pending.batch.history_changed());
+            assert!(!pending.batch.index);
+        }
+        let overflow = Batch {
+            all: true,
+            ..Default::default()
+        };
+        assert!(overflow.history_changed() && overflow.baseline_changed());
+        let mut mixed = Pending::default();
+        for path in [".git/index", ".git/refs/heads/main"] {
+            mixed.push(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(path))),
+            );
+        }
+        assert!(mixed.batch.index && mixed.batch.refs);
+    }
+    #[test]
+    fn repository_membership_events_are_separate_from_ordinary_edits_and_refs() {
+        let root = Path::new("repo");
+        for path in [
+            ".git",
+            ".gitmodules",
+            ".git/index",
+            "child/.git",
+            "child/.gitmodules",
+            ".git/modules/child/index",
+        ] {
+            let mut pending = Pending::default();
+            pending.push(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(path))),
+            );
+            assert!(pending.batch.membership, "{path}");
+            assert!(pending.batch.changed());
+        }
+        for path in [
+            "src/main.rs",
+            "child/src/main.rs",
+            ".git/HEAD",
+            ".git/refs/heads/main",
+            ".git/index.lock",
+            ".git/objects/ab/cd",
+        ] {
+            let mut pending = Pending::default();
+            pending.push(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(path))),
+            );
+            assert!(!pending.batch.membership, "{path}");
+        }
+        let mut pending = Pending::default();
+        pending.push(
+            root,
+            Ok(
+                Event::new(EventKind::Remove(notify::event::RemoveKind::Folder))
+                    .add_path(root.join("child")),
+            ),
+        );
+        assert!(
+            pending.batch.membership,
+            "deleted directories cannot be inspected for .git"
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn root_renames_match_verbatim_drive_and_unc_paths() {
+        let batch = Batch {
+            paths: [PathBuf::from("child")].into(),
+            ..Default::default()
+        };
+        assert!(batch.affects_root(Path::new(r"C:\project"), Path::new(r"\\?\C:\project\child")));
+        assert!(batch.affects_root(
+            Path::new(r"\\server\share\project"),
+            Path::new(r"\\?\UNC\server\share\project\child")
+        ));
+        assert!(!batch.affects_root(
+            Path::new(r"C:\project"),
+            Path::new(r"\\?\C:\project-other\child")
+        ));
+        assert!(!batch.affects_root(
+            Path::new(r"C:\project"),
+            Path::new(r"\\?\C:\project\child-other")
+        ));
+    }
+    #[test]
     fn coalesces_filters_and_bounds_events() {
         let root = Path::new("repo");
         let mut p = Pending::default();
@@ -225,6 +437,17 @@ mod tests {
             );
         }
         assert!(!p.batch.changed());
+        p.push(
+            root,
+            Ok(
+                Event::new(EventKind::Create(notify::event::CreateKind::Folder))
+                    .add_path(root.join(".git/objects/ab")),
+            ),
+        );
+        assert!(
+            !p.batch.changed(),
+            "new object directories are not repository membership changes"
+        );
         p.push(
             root,
             Ok(Event::new(EventKind::Any).add_path(root.join(".git/index"))),

@@ -11,7 +11,7 @@ pub enum Operation {
     Revert,
     Sequencer,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
     pub operation: Operation,
     pub detached: bool,

@@ -92,10 +92,10 @@ impl DiffTab {
             .as_ref()
             .is_some_and(|v| v.read(cx).working.is_some());
         // Working text is refreshed through the shared document, never replaced here.
-        if editable && !batch.index {
+        if editable && !batch.baseline_changed() {
             return;
         }
-        if !batch.index && !batch.affects(self.target.source_path()) {
+        if !batch.baseline_changed() && !batch.affects(self.target.source_path()) {
             return;
         }
         if self.disk_refreshing {

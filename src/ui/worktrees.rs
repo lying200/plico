@@ -2,6 +2,7 @@
 use super::*;
 use plico::worktrees::{self, Tree};
 mod form;
+mod interaction;
 
 pub(super) struct Browser {
     repo: Repository,
@@ -14,6 +15,7 @@ pub(super) struct Browser {
     task: Task<()>,
     poll: Task<()>,
     scroll: UniformListScrollHandle,
+    focus: FocusHandle,
 }
 impl Drop for Browser {
     fn drop(&mut self) {
@@ -89,11 +91,15 @@ impl Render for Browser {
             .owner
             .upgrade()
             .is_none_or(|s| s.read(cx).operation.busy());
-        let removable = !busy
-            && self
-                .selected()
-                .is_some_and(|t| !t.main && !t.current && !t.bare);
+        let removable = self.can_remove(cx);
         v_flex()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|s, e: &KeyDownEvent, w, cx| {
+                if e.keystroke.key == "delete" && !e.keystroke.modifiers.modified() {
+                    s.remove(w, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .size_full()
             .bg(rgb(BG))
             .rounded(px(10.))
@@ -188,13 +194,7 @@ impl Render for Browser {
                                     .icon(jb_icon("delete_dark.svg"))
                                     .tooltip(t("Delete Worktree"))
                                     .disabled(!removable)
-                                    .on_click(cx.listener(|s, _, w, cx| {
-                                        if let Some(t) = s.selected().cloned() {
-                                            let _ = s.owner.update(cx, |s, cx| {
-                                                s.confirm_remove_worktree(t, w, cx)
-                                            });
-                                        }
-                                    })),
+                                    .on_click(cx.listener(|s, _, w, cx| s.remove(w, cx))),
                             )
                             .child(
                                 Button::new("refresh-worktrees")
@@ -244,6 +244,8 @@ impl Render for Browser {
                                             .map(|i| {
                                                 let tree = s.trees[i].clone();
                                                 let path = tree.path.clone();
+                                                let menu_owner = cx.entity().downgrade();
+                                                let menu_path = path.clone();
                                                 h_flex()
                                                     .id(i)
                                                     .h(px(28.))
@@ -305,6 +307,7 @@ impl Render for Browser {
                                                     .when(tree.prunable, |v| v.child(t("Prunable")))
                                                     .on_click(cx.listener(
                                                         move |s, event: &ClickEvent, w, cx| {
+                                                            s.focus.focus(w, cx);
                                                             s.selected = Some(path.clone());
                                                             if event.click_count() == 2 {
                                                                 s.open(w, cx);
@@ -312,6 +315,15 @@ impl Render for Browser {
                                                             cx.notify();
                                                         },
                                                     ))
+                                                    .context_menu(move |menu, w, cx| {
+                                                        Browser::menu(
+                                                            &menu_owner,
+                                                            &menu_path,
+                                                            menu,
+                                                            w,
+                                                            cx,
+                                                        )
+                                                    })
                                             })
                                             .collect::<Vec<_>>()
                                     }),
@@ -412,6 +424,7 @@ impl Review {
                 task: Task::ready(()),
                 poll: Task::ready(()),
                 scroll: UniformListScrollHandle::new(),
+                focus: cx.focus_handle(),
             };
             browser.reload(cx);
             browser.poll = cx.spawn(async move |this, cx| {

@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态（2026-10-27更新）：第1项已提交6505a25；第2项030edf1；第3项e4046e0；第4项主流程0f85a32；第5项功能阶段818b5cb（保留精确视觉差异）。第6项基础已提交cce90ff（仓库成员、子模块发现与映射持久化）、30bf0ac（根限定事件、操作状态与写入协调）、b9beeee（整组Update、子模块分流、冲突交互/保存恢复核心和子根编辑路由）、3f9d421（聚合Log查询/分页/计数、根限定选择和Diff导航数据层）及c0844be（仓库绑定写操作、批量分支回滚、Cherry-pick/Revert原会话续跑核心）；界面接线及第7项共享上下文已提交4e87912：项目根持久化、整组Update及冲突恢复、普通根/子模块分流、聚合Log、引用身份、Roots/路径过滤及过滤持久化已实现并有分项验收；尚需归拢剩余边界与视觉差异，不以单项测试冒充整项完成。独立init/sync明确排除。第7项已随4e87912提交：主根Unshallow正向及失败重试、Project树选择子根后的入口/执行/聚合Log刷新均通过Windows验收；首次启动提醒及取消/重开/重试已通过Windows验收；Log单根过滤执行、外部shallow变化刷新已通过Windows验收；关闭编辑页不保留旧目标的规则已由源码和Rebased实机确认，本地桌面回归及Plico同条件原生验收均通过（详见关闭编辑页原生验收记录）。第8项主流程已接入：计划表、草稿历史、todo 与消息编辑路由、Reword/Edit/Squash/Fixup/Drop、顺序拖动、资格限制及暂停继续已有分项核心/原生证据；本轮 Latin-1 Reword 也已通过 Windows 原生验证。计划分隔布局、详情Enter、子根Drop/Reword及编码错误原位修正已通过分项原生验收；仍需完成详情分组/键盘与计划拖动等剩余边界，不将主流程贯通当作整项完成。所有未提交改动保留，不自动推送发布。
+当前状态（2026-10-27，提交90a1eb4后更新）：八项主流程均已提交，整体验收仍在收尾，不等于全部行为或像素细节对齐。第1项6505a25、第2项030edf1、第3项e4046e0、第4项0f85a32、第5项818b5cb；第6项基础至界面由cce90ff、30bf0ac、b9beeee、3f9d421、c0844be及4e87912交付，第7项随4e87912交付，第8项90a1eb4。第8项详情分组、键盘/鼠标选择、普通拖动、子根操作及编码修正已有后续验收，旧阶段“待验收”不能重复作为当前待办。当前明确未齐的行为包括Worktree列表右键/键盘入口、长Rebase计划拖动边缘自动滚动；其他差异及证据见文末“全局收尾证据索引”。独立init/sync仍排除，不自动推送或发布。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -13299,3 +13299,86 @@ Latin-1、autosquash/update-refs、Edit继续与取消恢复，不提前记整�
 分组快捷键安装版行为未确认；轻量编码桥接仅接受可无损往返的受支持编码，
 其他配置在改写前明确失败；操作反馈复用Plico状态栏，未宣称像素级完全一致。
 本提交不推送、不发包，CI未运行；整轮仍需按原8项清单归拢最终完成证据。
+
+
+### 全局收尾证据索引（2026-10-27，90a1eb4后）
+
+本条修正计划首页的过期状态，不新增功能，也不宣布目标完成。旧章节保留过程记录，
+后续明确验证结果覆盖同一事项此前的“待验证”；没有后续证据的差异继续保留。
+本轮重新读取原八项验收范围、当前实现及实际测试日志，未重跑已通过的整套测试。
+
+| 项目 | 当前代码/提交依据 | 验收记录入口及剩余范围 |
+| --- | --- | --- |
+| Fork目标分离 | 6505a25 | “1. Fork推送目标：原生前置结果”及其后实现/无目标和失效remote记录；按原清单继续核对全部配置优先级，不用提交存在代替验收 |
+| 分支Rebase | 030edf1 | 原分支Rebase执行与恢复记录；本轮editor原生24项回归通过，不能据此替代全部入口UI证据 |
+| 分支重命名 | e4046e0 | 原重命名独立仓库记录；继续保留原清单的upstream及占用检查要求 |
+| Worktree | 0f85a32 | “第4项提交前验收”；主流程有原生证据，列表右键/键盘入口仍缺；来源搜索/收藏、默认项目前缀及Windows特定错误重试差异仍保留 |
+| 分支比较 | 818b5cb | “第5项功能阶段收尾”；双向提交、固定版本差异、引用刷新及删除文件关闭/保存验证；大规模内存本轮未重测，精确视觉差异保留 |
+| 多仓库/子模块 | cce90ff至4e87912 | 基础、事件、整组Update、Log数据层、仓库绑定操作及共享界面六个独立提交验收章节；不增加独立init/sync |
+| Unshallow | 4e87912 | “第6、7项共享界面独立提交验收”及前置失败/取消/子根记录；当前GUI验证2/2到5/5，Git确认shallow=false且HEAD不变 |
+| 交互式Rebase | 90a1eb4 | “第8项独立提交快照验收”；普通拖动/撤销/取消已验，长表边缘自动滚动未实现；安装版分组快捷键行为尚未确认 |
+
+重新检查的实际日志：`/tmp/plico-interactive-stage-core.log`、`desktop.log`、
+`navigation.log`、`windows-tests.log`（后三个文件同样带plico-interactive-stage-前缀）。
+分别报告核心各测试程序全部通过、桌面176通过、发布配置导航10通过，以及Windows
+interactive_rebase 6/editor 24通过，无失败/忽略。这些日志证明相应自动化范围，
+不证明未操作过的原生界面状态或像素一致；本地构建不等于CI发布。
+
+当前代码复核：`src/ui/worktrees.rs`提供工具栏/确认删除流程，尚未提供列表右键
+与键盘动作；`src/rebase_plan_table/drag.rs`提供行目标命中、重排、取消及选中恢复，
+没有边缘自动滚动。二者是行为差异，不应列为仅颜色/间距问题。后续按Rebased原生
+前置与源码要求推进；滚动交互仍由用户手测，不投入滚动自动化。
+
+
+### Worktree菜单与删除快捷键原生前置（2026-10-27）
+
+Rebased安装版1.1.20 / IC-262.10968.SNAPSHOT，复用独立测试项目
+rebase-branch-reference-20261024（44688），不关闭既有窗口。取消遗留退出确认后，
+在底部Worktrees页右击当前树：选中点击行，菜单Open as a Project、分隔线、Delete…，
+两项禁用。通过宿主Git在测试项目HEAD新增detached树worktree-menu-reference-20261027，
+刷新后右击新行，两项启用；Delete键弹Delete Worktree确认，Escape取消，未删除。
+Enter两次未触发打开；不称安装版已验证Enter。另31052多仓库参考项目显示“不支持
+多仓库”空态，较新源码已有分组，不能据此删掉Plico已有仓库绑定能力。
+截图artifacts/collaboration-workflows-20261027/rebased-worktree-followup-
+{current-menu,linked-menu,enter,delete,open}.png，已实际查看。菜单文字及快捷键提示
+右对齐、分隔线在删除之前；当前项选中与禁用状态分别处理。
+
+实读4aec35256d765c217aa0d662b82ac4e860c396fd：GitWorktreesTabPanel.kt的
+createPopupHandler先命中真实行再设置selectedIndex；OpenWorkingTreeAction.kt拒绝
+当前/正在创建/prunable，RemoveWorkingTreeAction.kt拒绝当前/main/正在创建并弹确认。
+backend/resources/intellij.vcs.git.backend.xml将Delete映射至删除动作，Popup有Open、
+ToggleLock、分隔线、Remove。安装版无ToggleLock，且未见Enter效果；本轮采用已验证
+安装版菜单及Delete行为，不新增锁定功能。源码显式Enter入口作为版本差异记录。
+本地映射src/ui/worktrees.rs与其interaction模块：复用已有打开/确认删除流程，
+菜单打开和执行时均复验目标与busy，不让右击其他行操作此前选中项。实现后原生待验。
+
+
+Worktree菜单实现阶段：新增interaction模块统一可删除判断和确认入口，工具栏、
+Delete及右键共用；右键先选中目标，动作捕获路径并在点击时重新查当前列表，
+避免菜单打开后刷新导致操作错行。当前/main/bare禁删，当前/bare/prunable禁打开，
+busy状态复用原操作屏障。补中文“作为项目打开”。Enter未新增，按安装版差异保留。
+`cargo check --locked --features desktop-tests --bin plico`及格式/空白检查通过。
+完整desktop、发布配置导航与Windows release正在构建/运行，日志
+`/tmp/plico-worktree-menu-{desktop,navigation,windows}.log`；Windows原生Plico仍待验，
+尚未提交，不把编译通过作为可见交互验收。
+
+
+### Worktree菜单与Delete入口完成验收（2026-10-27）
+
+Windows release构建通过；完整桌面176项、发布配置导航10项均通过，无失败/忽略，
+日志`/tmp/plico-worktree-menu-{desktop,navigation,windows}.log`。本轮未改Git执行层，
+没有重跑完整核心或宣称新CI通过。格式与diff检查通过。
+
+自有Plico23200，使用本轮同一独立参考仓库：当前工作树右键两项禁用；右击linked
+树后选中该行，两项启用；“作为项目打开”显示正确路径和当前窗口/新窗口/取消，
+Escape取消。选中linked树按Delete、以及右键Delete，分别显示同一正确路径的删除
+确认；Escape取消。选中当前树再按Delete没有弹窗、没有删除。宿主Git确认linked
+目录存在且status为空，HEAD仍9d2f655f03a9e70146dea9e3b5bddf4f6eee5804。
+截图本日`plico-worktree-menu-{current,linked,open,cancel-open,delete,cancel-delete,
+disabled-delete,context-delete,final}.png`，已查看关键菜单和确认状态。自有23200
+通过CloseMainWindow正常退出并WaitForExit确认；未关闭Rebased共享测试窗口。
+
+此条关闭此前“列表右键及Delete入口缺失”的待办；不扩大为全部键盘导航完成。
+Enter按安装版实测未新增；上下键导航尚待参考确认。菜单缺少参考的右侧快捷键文字
+及删除图标，作为明确视觉差异保留，不宣称像素一致。长Rebase拖动边缘自动滚动、
+其余Worktree已记录差异及全局最终证据审计继续保留，整轮目标仍活动。

@@ -32,6 +32,7 @@ impl Render for TagName {
 impl Review {
     pub(super) fn new_tag_dialog(
         &mut self,
+        repository: Repository,
         target: String,
         w: &mut Window,
         cx: &mut Context<Self>,
@@ -69,6 +70,7 @@ impl Review {
             let owner = owner.clone();
             let path = path.clone();
             let target = target.clone();
+            let repository = repository.clone();
             let name = draft.read(cx).input.read(cx).value();
             dialog
                 .title(format!("{} {}", t("Create New Tag On"), &target[..8]))
@@ -89,7 +91,14 @@ impl Review {
                             return;
                         }
                         let name = confirm.read(cx).input.read(cx).value().to_string();
-                        s.create_tag(target.clone(), name, confirm.clone(), w, cx);
+                        s.create_tag(
+                            repository.clone(),
+                            target.clone(),
+                            name,
+                            confirm.clone(),
+                            w,
+                            cx,
+                        );
                     });
                     false
                 })
@@ -106,6 +115,7 @@ impl Review {
     }
     fn create_tag(
         &mut self,
+        repo: Repository,
         target: String,
         name: String,
         draft: Entity<TagName>,
@@ -126,8 +136,8 @@ impl Review {
             cx.notify();
         });
         self.status_message = Some(t("Creating tag…").into());
-        let repo = self.repo.clone();
-        let path = repo.path.clone();
+        // The project path guards this window; the captured repository owns the write.
+        let path = self.repo.path.clone();
         self.operation_task = cx.spawn_in(w, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -312,5 +322,112 @@ impl Review {
             }
         });
         cx.notify();
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+
+    #[gpui::test]
+    fn creating_tag_in_child_preserves_project_and_other_repository(cx: &mut gpui::TestAppContext) {
+        use gpui::component::Root;
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        fn git(path: &std::path::Path, args: &[&str]) -> String {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{args:?}: {output:?}");
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = format!("plico-child-tag-{}-{nonce}", std::process::id());
+        let fixture = Fixture(std::env::temp_dir().join(directory));
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        std::fs::create_dir_all(&parent).unwrap();
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["config", "user.name", "Test"],
+            vec!["config", "user.email", "test@example.invalid"],
+            vec!["config", "commit.gpgsign", "false"],
+            vec!["config", "core.hooksPath", "disabled-hooks"],
+            vec!["commit", "--allow-empty", "-qm", "shared commit"],
+        ] {
+            git(&parent, &args);
+        }
+        git(
+            &parent,
+            &["clone", "-q", "--no-local", ".", child.to_str().unwrap()],
+        );
+        // Both repositories have the target object: using the wrong root would
+        // succeed, so the test must verify the ref in each repository.
+        let target = git(&parent, &["rev-parse", "HEAD"]);
+        std::fs::write(child.join("draft.txt"), "unsaved work on disk").unwrap();
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(parent.clone(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        let mut tag_draft = None;
+        cx.update(|window, cx| {
+            let draft = cx.new(|cx| {
+                let input = cx.new(|cx| InputState::new(window, cx));
+                let subscription = cx.subscribe(&input, |_: &mut TagName, _, _: &InputEvent, _| {});
+                TagName {
+                    input,
+                    error: None,
+                    busy: false,
+                    closed: true,
+                    token: None,
+                    _subscription: subscription,
+                }
+            });
+            tag_draft = Some(draft.clone());
+            review.update(cx, |s, cx| {
+                s.create_tag(
+                    Repository::new(&child),
+                    target.clone(),
+                    "child-tag".into(),
+                    draft,
+                    window,
+                    cx,
+                )
+            });
+        });
+        cx.run_until_parked();
+        tag_draft.unwrap().read_with(cx, |draft, _| {
+            assert!(!draft.busy);
+            assert!(draft.error.is_none(), "{:?}", draft.error);
+        });
+        review.read_with(cx, |s, _| {
+            assert_eq!(s.repo.path, parent);
+            assert!(!s.operation.busy());
+        });
+        assert_eq!(git(&child, &["rev-parse", "refs/tags/child-tag"]), target);
+        assert!(git(&parent, &["tag", "--list", "child-tag"]).is_empty());
+        assert_eq!(git(&parent, &["rev-parse", "HEAD"]), target);
+        assert_eq!(git(&child, &["rev-parse", "HEAD"]), target);
+        assert_eq!(
+            std::fs::read_to_string(child.join("draft.txt")).unwrap(),
+            "unsaved work on disk"
+        );
     }
 }

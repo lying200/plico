@@ -3,6 +3,55 @@
 use super::*;
 
 impl Review {
+    pub(super) fn log_repository(&self, index: usize) -> Option<Repository> {
+        let commit = self.commits.get(index)?;
+        match &self.log_sources {
+            None => Some(self.repo.clone()),
+            Some(sources) => sources
+                .get(index)
+                .filter(|source| source.hash == commit.id)
+                .map(|source| Repository::new(source.root.as_ref().clone())),
+        }
+    }
+    pub(super) fn log_files_repository(&self) -> Option<Repository> {
+        if self.local {
+            Some(self.repo.clone())
+        } else {
+            self.selected.and_then(|index| self.log_repository(index))
+        }
+    }
+    pub(super) fn replace_single_root_commits(&mut self, commits: Vec<Commit>) {
+        self.commits = Arc::new(commits);
+        self.log_sources = None;
+        self.log_scope = None;
+        self.project_window = None;
+        self.pending_project_reload = None;
+    }
+
+    /// Query identity is independent of row metadata and the primary branch UI.
+    pub(super) fn current_log_scope(&self) -> Option<Arc<plico::project_log::Scope>> {
+        if let Some(scope) = &self.log_scope {
+            return Some(scope.clone());
+        }
+        if self.log_sources.is_some() {
+            return None;
+        }
+        let snapshot = self.snapshot.as_ref()?;
+        Some(Arc::new(plico::project_log::Scope {
+            roots: vec![plico::project_log::LoadedRoot {
+                query: plico::project_log::Query {
+                    repository: self.repo.clone(),
+                    branches: self.branch_filter.clone(),
+                    filter: self.text_filter.clone(),
+                },
+                tips: snapshot.tips.clone(),
+                current_branch: snapshot.current_branch.clone(),
+                ref_titles: snapshot.ref_titles.clone(),
+            }],
+            errors: vec![],
+        }))
+    }
+
     pub(super) fn select_commit(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.log_query.history_loading() {
             return;
@@ -12,8 +61,28 @@ impl Review {
         self.log_selection.select(&ids, index, false, false);
         self.load_log_selection(cx);
     }
-    pub(super) fn commit_ids(&self) -> Vec<String> {
-        self.commits.iter().map(|c| c.id.clone()).collect()
+    pub(super) fn commit_ids(&self) -> Vec<plico::project_log::CommitId> {
+        if let Some(sources) = &self.log_sources {
+            // A stale parallel source list must not turn a child selection into
+            // a parent selection, nor shift the row indices by dropping entries.
+            if sources.len() != self.commits.len()
+                || sources
+                    .iter()
+                    .zip(self.commits.iter())
+                    .any(|(id, commit)| id.hash != commit.id)
+            {
+                return Vec::new();
+            }
+            return sources.as_ref().clone();
+        }
+        let root = Arc::new(self.repo.path.clone());
+        self.commits
+            .iter()
+            .map(|commit| plico::project_log::CommitId {
+                root: root.clone(),
+                hash: commit.id.clone(),
+            })
+            .collect()
     }
     pub(super) fn select_log_row(
         &mut self,
@@ -32,15 +101,14 @@ impl Review {
             .log_selection
             .ordered(&ids)
             .into_iter()
-            .map(str::to_owned)
+            .cloned()
             .collect::<Vec<_>>();
         if context {
             self.log_selection.context(&ids, index);
         } else {
             self.log_selection.select(&ids, index, toggle, extend);
         }
-        if before.iter().map(String::as_str).collect::<Vec<_>>() != self.log_selection.ordered(&ids)
-        {
+        if before.iter().collect::<Vec<_>>() != self.log_selection.ordered(&ids) {
             self.load_log_selection(cx);
         }
         cx.notify();
@@ -52,13 +120,9 @@ impl Review {
             .log_selection
             .ordered(&rows)
             .into_iter()
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let preferred = self
-            .selected_file
-            .and_then(|i| self.files.get(i))
             .cloned()
-            .or_else(|| self.pending_preview_file.clone());
+            .collect::<Vec<_>>();
+        let preferred = self.preferred_log_file();
         self.aggregate_chain = None;
         self.selection_details.clear();
         self.selection_branches = None;
@@ -74,7 +138,7 @@ impl Review {
         self.selected = None;
         self.selected_file = None;
         self.files = Arc::default();
-        self.rebuild_files();
+        self.rebuild_files(cx);
         self.message.clear();
         self.commit_metadata = Default::default();
         self.containing_branches = None;
@@ -86,16 +150,17 @@ impl Review {
             cx.notify();
             return;
         }
-        let repo = self.repo.clone();
         self.log_query.track(
             generation,
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_spawn(async move {
-                        let snapshot = plico::log_changes::load(&repo, &ids, &token)?;
+                        let snapshot = plico::project_log::selection::load(&ids, &token)?;
                         let mut presentations = Vec::new();
                         let mut presentation_bytes = 0usize;
-                        for commit in snapshot.commits.iter().take(50) {
+                        for entry in snapshot.commits.iter().take(50) {
+                            let repo = Repository::new(entry.root.as_ref());
+                            let commit = &entry.commit;
                             let details = repo.commit_metadata(commit, &token)?;
                             let presentation = commit_presentation::build(&details, Some(commit));
                             presentation_bytes = presentation_bytes
@@ -107,15 +172,27 @@ impl Review {
                                 return Err("Log details exceed the preview output limit".into());
                             }
                             presentations.push((
+                                repo,
                                 commit.refs.clone(),
                                 presentation,
                                 commit.id.clone(),
                             ));
                         }
-                        let chain = if snapshot.files.is_empty() {
+                        let chain = if snapshot.changes.iter().all(|group| group.files.is_empty()) {
                             None
                         } else {
-                            Some(diff_target::Chain::combined(repo, snapshot.files, 0)?.1)
+                            let mut groups = snapshot
+                                .changes
+                                .into_iter()
+                                .map(|group| (Repository::new(group.root.as_ref()), group.files))
+                                .collect::<Vec<_>>();
+                            groups.sort_by(|(a, _), (b, _)| {
+                                a.path
+                                    .file_name()
+                                    .cmp(&b.path.file_name())
+                                    .then(a.path.cmp(&b.path))
+                            });
+                            Some(diff_target::Chain::combined_roots(groups, 0)?.1)
                         };
                         Ok::<_, String>((chain, presentations))
                     })
@@ -137,24 +214,20 @@ impl Review {
                             let mut cards = Vec::new();
                             this.selection_details = presentations
                                 .into_iter()
-                                .map(|(refs, presentation, id)| {
+                                .map(|(repo, refs, presentation, id)| {
                                     let view = cx.new(
                                         crate::containing_branches::ContainingBranches::pending,
                                     );
-                                    cards.push((id, view.downgrade()));
+                                    cards.push((repo, id, view.downgrade()));
                                     (refs, presentation, view)
                                 })
                                 .collect();
-                            let repo = this.repo.clone();
-                            this.selection_branches =
-                                Some(cx.new(|cx| {
-                                    crate::containing_branches::Batch::new(repo, cards, cx)
-                                }));
+                            this.selection_branches = Some(cx.new(|cx| {
+                                crate::containing_branches::Batch::from_roots(cards, cx)
+                            }));
                             this.prune_directory_state();
-                            this.rebuild_files();
-                            if let Some(index) =
-                                plico::preview_selection::index(&this.files, preferred.as_ref())
-                            {
+                            this.rebuild_files(cx);
+                            if let Some(index) = this.preferred_file_index(preferred.as_ref()) {
                                 this.load_file(index, cx);
                             }
                         }
@@ -169,7 +242,7 @@ impl Review {
     pub(super) fn select_commit_with_file(
         &mut self,
         index: usize,
-        preferred: Option<Change>,
+        preferred: Option<(PathBuf, Change)>,
         cx: &mut Context<Self>,
     ) {
         if self.log_query.history_loading() {
@@ -178,8 +251,11 @@ impl Review {
         let Some(commit) = self.commits.get(index).cloned() else {
             return;
         };
+        let Some(repo) = self.log_repository(index) else {
+            return;
+        };
         self.reword_gate =
-            Some(cx.new(|cx| super::reword::Gate::new(self.repo.clone(), commit.id.clone(), cx)));
+            Some(cx.new(|cx| super::reword::Gate::new(repo.clone(), commit.id.clone(), cx)));
         self.reset_log_presentation();
         let (generation, token) = self.log_query.begin(log_query::Kind::Details);
         self.aggregate_chain = None;
@@ -188,25 +264,21 @@ impl Review {
         self.pending_preview_file = preferred.clone();
         self.selected_file = None;
         self.files = Arc::default();
-        self.rebuild_files();
+        self.rebuild_files(cx);
         self.message.clear();
         self.commit_metadata = Default::default();
         self.containing_branches = None;
         self.base = None;
         self.containing_branches = Some(cx.new(|cx| {
-            crate::containing_branches::ContainingBranches::new(
-                self.repo.clone(),
-                commit.id.clone(),
-                cx,
-            )
+            crate::containing_branches::ContainingBranches::new(repo.clone(), commit.id.clone(), cx)
         }));
-        if let Some(details) = self.details_cache.get(&self.repo.path, &commit) {
+        if let Some(details) = self.details_cache.get(&repo.path, &commit) {
             self.log_query.finish(generation);
             self.apply_commit_details(&details, preferred.as_ref(), cx);
             cx.notify();
             return;
         }
-        let repo = self.repo.clone();
+        let repository_path = repo.path.clone();
         self.log_query.track(
             generation,
             cx.spawn(async move |this, cx| {
@@ -222,7 +294,7 @@ impl Review {
                             let d = Arc::new(d);
                             if let Some(commit) = this.selected.and_then(|i| this.commits.get(i)) {
                                 this.details_cache
-                                    .insert(&this.repo.path, commit, d.clone());
+                                    .insert(&repository_path, commit, d.clone());
                             }
                             this.apply_commit_details(&d, preferred.as_ref(), cx);
                         }
@@ -237,7 +309,7 @@ impl Review {
     fn apply_commit_details(
         &mut self,
         d: &git::Details,
-        preferred: Option<&Change>,
+        preferred: Option<&(PathBuf, Change)>,
         cx: &mut Context<Self>,
     ) {
         let commit = self.selected.and_then(|i| self.commits.get(i));
@@ -254,10 +326,246 @@ impl Review {
         });
         self.files = Arc::new(d.files.clone());
         self.prune_directory_state();
-        self.rebuild_files();
+        self.rebuild_files(cx);
         self.pending_preview_file = None;
-        if let Some(index) = plico::preview_selection::index(&self.files, preferred) {
+        if let Some(index) = self.preferred_file_index(preferred) {
             self.load_file(index, cx);
         }
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod repository_tests {
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use gpui::component::Root;
+
+    #[gpui::test]
+    fn child_details_cache_preview_and_diff_tab_use_the_selected_repository(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "plico-log-root-routing-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )));
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        for (path, name) in [(&parent, "parent.txt"), (&child, "child.txt")] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::write(path.join(name), name).unwrap();
+            for args in [
+                vec!["init", "-q"],
+                vec!["add", name],
+                vec![
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "-qm",
+                    name,
+                ],
+            ] {
+                let out = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(path)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(
+                    out.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+        let child_repo = Repository::new(&child);
+        let commit = child_repo
+            .snapshot_at(None, 0, 10, None, &Cancel::default())
+            .unwrap()
+            .commits
+            .remove(0);
+        let child_key = plico::project_log::CommitId {
+            root: Arc::new(child.clone()),
+            hash: commit.id.clone(),
+        };
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        review.update(cx, |s, cx| {
+            s.repo = Repository::new(&parent);
+            s.local = false;
+            s.welcome = false;
+            let page = plico::project_log::Page {
+                entries: [&parent, &child]
+                    .into_iter()
+                    .map(|root| plico::project_log::Entry {
+                        display_parents: None,
+                        root: Arc::new(root.clone()),
+                        commit: commit.clone(),
+                    })
+                    .collect(),
+                more: false,
+            };
+            s.commits = Arc::new(
+                page.entries
+                    .iter()
+                    .map(|entry| entry.commit.clone())
+                    .collect(),
+            );
+            s.rows = Arc::new(page.layout(&Cancel::default()).unwrap());
+            s.log_sources = Some(Arc::new(
+                page.entries.iter().map(|entry| entry.identity()).collect(),
+            ));
+            // A parent cache entry for the same hash must not satisfy child details.
+            s.details_cache.insert(
+                &parent,
+                &commit,
+                Arc::new(git::Details {
+                    message: "wrong parent cache".into(),
+                    author: String::new(),
+                    authored: String::new(),
+                    committer: String::new(),
+                    committed: String::new(),
+                    base: String::new(),
+                    files: vec![],
+                }),
+            );
+            s.select_commit(1, cx);
+            s.refresh_reword_gate(cx);
+            assert_eq!(s.log_selection.ordered(&s.commit_ids()), vec![&child_key]);
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                assert!(s.error.is_none(), "{:?}", s.error);
+                assert!(!s.log_query.busy());
+                assert!(s.message.contains("child.txt"), "{}", s.message);
+                assert!(s.can_reword(&commit.id, cx));
+                let prepared = s
+                    .reword_gate
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .result
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap();
+                assert_eq!(prepared.repository().path, child);
+                let ids = s.commit_ids();
+                s.log_selection.select(&ids, 0, false, false);
+                assert!(
+                    !s.can_reword(&commit.id, cx),
+                    "a same-hash parent row cannot reuse a child gate"
+                );
+                s.log_selection.select(&ids, 1, false, false);
+                assert_eq!(s.files[0].path, PathBuf::from("child.txt"));
+                assert!(s.details_cache.get(&child, &commit).is_some());
+                assert_eq!(
+                    s.details_cache.get(&parent, &commit).unwrap().message,
+                    "wrong parent cache"
+                );
+                let (target, _) = s.log_preview_target(cx).unwrap();
+                assert_eq!(target.identity().repository, child);
+                s.open_diff_tab(window, cx);
+                assert_eq!(s.tabs.len(), 1);
+                assert_eq!(s.tabs[0].read(cx).target.identity().repository, child);
+                assert_eq!(
+                    s.repo.path, parent,
+                    "reading a child must not switch the parent project"
+                );
+                // Identical object IDs in two roots remain two selectable rows.
+                let parent_key = plico::project_log::CommitId {
+                    root: Arc::new(parent.clone()),
+                    hash: commit.id.clone(),
+                };
+                let child_key = plico::project_log::CommitId {
+                    root: Arc::new(child.clone()),
+                    hash: commit.id.clone(),
+                };
+                s.commits = Arc::new(vec![commit.clone(), commit.clone()]);
+                s.log_sources = Some(Arc::new(vec![parent_key.clone(), child_key.clone()]));
+                let ids = s.commit_ids();
+                s.log_selection.select(&ids, 1, false, false);
+                assert_eq!(s.log_selection.ordered(&ids), vec![&child_key]);
+                s.log_selection.select(&ids, 0, true, false);
+                assert_eq!(s.log_selection.ordered(&ids), vec![&parent_key, &child_key]);
+                s.log_selection.context(&ids, 1);
+                assert_eq!(s.log_selection.ordered(&ids), vec![&parent_key, &child_key]);
+                s.log_selection.reconcile(std::slice::from_ref(&child_key));
+                assert_eq!(s.log_selection.ordered(&ids), vec![&child_key]);
+                s.log_sources = Some(Arc::new(vec![]));
+                assert!(s.commit_ids().is_empty());
+                assert!(
+                    s.log_preview_target(cx).is_none(),
+                    "missing row ownership must not fall back to parent"
+                );
+                s.replace_single_root_commits(vec![commit.clone()]);
+                s.selected = Some(0);
+                assert!(s.log_sources.is_none());
+            })
+        });
+        cx.run_until_parked();
+        let parent_commit = Repository::new(&parent)
+            .snapshot_at(None, 0, 10, None, &Cancel::default())
+            .unwrap()
+            .commits
+            .remove(0);
+        review.update(cx, |s, cx| {
+            s.commits = Arc::new(vec![parent_commit.clone(), commit.clone()]);
+            s.log_sources = Some(Arc::new(vec![
+                plico::project_log::CommitId {
+                    root: Arc::new(parent.clone()),
+                    hash: parent_commit.id.clone(),
+                },
+                child_key.clone(),
+            ]));
+            let ids = s.commit_ids();
+            s.log_selection.select(&ids, 0, false, false);
+            s.log_selection.select(&ids, 1, true, false);
+            s.load_log_selection(cx);
+        });
+        cx.run_until_parked();
+        review.update(cx, |s, cx| {
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert!(!s.log_query.busy());
+            assert_eq!(s.selection_details.len(), 2);
+            assert_eq!(s.files.len(), 2);
+            for (root, name) in [(&parent, "parent.txt"), (&child, "child.txt")] {
+                let index = s
+                    .files
+                    .iter()
+                    .position(|f| f.path == PathBuf::from(name))
+                    .unwrap();
+                s.load_file(index, cx);
+                let (target, _) = s.log_preview_target(cx).unwrap();
+                assert_eq!(&target.identity().repository, root);
+                assert_eq!(
+                    target
+                        .read_contents(&Cancel::default())
+                        .unwrap()
+                        .unwrap()
+                        .after
+                        .as_deref(),
+                    Some(name)
+                );
+            }
+            assert_eq!(s.repo.path, parent);
+        });
     }
 }

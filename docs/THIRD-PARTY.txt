@@ -466,3 +466,16 @@ GitRevertProcess and GitStashChangesSaver at the same reference revision.
 Copyright 2000-2025 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
 Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
 License text: licenses/assets/icons/LICENSE.txt.
+
+
+Multi-repository desktop integration and unshallow
+
+src/branch_popup/project.rs, src/ui/repository_project.rs and repository_popup.rs
+follow GitBranchesTreeMultiRepoModel, GitBranchesTreeSelectedRepoModel and
+GitDefaultBranchesPopupStep. src/ui/project_roots.rs, project_navigation.rs,
+log_query.rs and paths_menu follow repository-scoped VcsLog and project events.
+src/unshallow_notice.rs, src/ui/unshallow_notice.rs and remote.rs follow
+GitUnshallowRepositoryAction, GitShallowRepositoryCheck and GitFetchSupportImpl.
+Reference: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd.
+Copyright JetBrains s.r.o. and contributors, Apache License 2.0.
+License text: licenses/assets/icons/LICENSE.txt.

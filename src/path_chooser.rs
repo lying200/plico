@@ -8,10 +8,17 @@ use std::collections::BTreeMap;
 
 actions!(
     path_chooser,
-    [PreviousPath, NextPath, TogglePath, ExpandPath, CollapsePath]
+    [
+        PreviousPath,
+        NextPath,
+        TogglePath,
+        ExpandPath,
+        CollapsePath,
+        ToggleExpandedPath
+    ]
 );
 pub struct PathChooser {
-    repo: Repository,
+    repos: Vec<Repository>,
     selection: Selection,
     directories: BTreeMap<String, Vec<Node>>,
     rows: Vec<(Node, usize)>,
@@ -32,8 +39,8 @@ impl Drop for PathChooser {
 }
 impl PathChooser {
     pub fn new(
-        repo: Repository,
-        initial: Vec<String>,
+        repos: Vec<Repository>,
+        initial: Vec<std::path::PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -42,21 +49,28 @@ impl PathChooser {
             KeyBinding::new("down", NextPath, Some("PathChooser")),
             KeyBinding::new("space", TogglePath, Some("PathChooser")),
             KeyBinding::new("right", ExpandPath, Some("PathChooser")),
+            KeyBinding::new("enter", ToggleExpandedPath, Some("PathChooser")),
             KeyBinding::new("left", CollapsePath, Some("PathChooser")),
         ]);
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        let rows = repos
+            .iter()
+            .map(|repo| {
+                (
+                    Node {
+                        path: repo.path.to_string_lossy().replace('\\', "/"),
+                        directory: true,
+                    },
+                    0,
+                )
+            })
+            .collect();
         let mut this = Self {
-            repo,
+            repos,
             selection: Selection::default(),
             directories: BTreeMap::new(),
-            rows: vec![(
-                Node {
-                    path: ".".into(),
-                    directory: true,
-                },
-                0,
-            )],
+            rows,
             active: 0,
             focus,
             scroll: UniformListScrollHandle::new(),
@@ -67,17 +81,50 @@ impl PathChooser {
             token: Cancel::default(),
             task: Task::ready(()),
         };
-        this.expand(".".into(), Some(initial), cx);
+        let token = this.token.clone();
+        this.task = cx.spawn(async move |this, cx| {
+            let selected = cx
+                .background_spawn(async move {
+                    let mut selection = Selection::default();
+                    for path in initial {
+                        if token.cancelled() {
+                            return Err("Cancelled".to_owned());
+                        }
+                        if std::fs::symlink_metadata(&path).is_ok() {
+                            selection.toggle(&path.to_string_lossy().replace('\\', "/"))?;
+                        }
+                    }
+                    Ok::<_, String>(selection)
+                })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                s.initializing = false;
+                match selected {
+                    Ok(selection) => s.selection = selection,
+                    Err(error) => s.error = Some(error),
+                }
+                cx.notify();
+            });
+        });
         this
     }
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.focus.focus(window, cx);
     }
     pub fn can_confirm(&self) -> bool {
-        self.loading.is_none() && !self.selection.is_empty() && self.error.is_none()
+        !self.initializing
+            && self.loading.is_none()
+            && !self.selection.is_empty()
+            && self.error.is_none()
     }
-    pub fn selected(&self) -> Option<Vec<String>> {
-        self.can_confirm().then(|| self.selection.paths())
+    pub fn selected(&self) -> Option<Vec<std::path::PathBuf>> {
+        self.can_confirm().then(|| {
+            self.selection
+                .paths()
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .collect()
+        })
     }
     fn rebuild(&mut self) {
         fn walk(
@@ -96,20 +143,24 @@ impl PathChooser {
             }
         }
         let active = self.rows.get(self.active).map(|(n, _)| n.path.clone());
-        self.rows = vec![(
-            Node {
-                path: ".".into(),
-                directory: true,
-            },
-            0,
-        )];
-        walk(".", 1, &self.directories, &mut self.rows);
+        self.rows.clear();
+        for repo in &self.repos {
+            let path = repo.path.to_string_lossy().replace('\\', "/");
+            self.rows.push((
+                Node {
+                    path: path.clone(),
+                    directory: true,
+                },
+                0,
+            ));
+            walk(&path, 1, &self.directories, &mut self.rows);
+        }
         self.active = active
             .and_then(|p| self.rows.iter().position(|(n, _)| n.path == p))
             .unwrap_or(0);
     }
-    fn expand(&mut self, path: String, initial: Option<Vec<String>>, cx: &mut Context<Self>) {
-        if self.initializing && initial.is_none() {
+    fn expand(&mut self, path: String, cx: &mut Context<Self>) {
+        if self.initializing {
             return;
         }
         if self.directories.contains_key(&path) {
@@ -122,26 +173,42 @@ impl PathChooser {
         self.error = None;
         let generation = self.generation;
         let token = self.token.clone();
-        let repo = self.repo.clone();
+        let absolute = std::path::PathBuf::from(&path);
+        let Some(repo) = self
+            .repos
+            .iter()
+            .filter(|repo| absolute.starts_with(&repo.path))
+            .max_by_key(|repo| repo.path.components().count())
+            .cloned()
+        else {
+            self.loading = None;
+            self.error = Some("Path does not belong to a project repository".into());
+            cx.notify();
+            return;
+        };
         self.task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let nodes = path_tree::children(&repo, &path, &token)?;
-                    let selected = if let Some(initial) = initial {
-                        let mut selection = Selection::default();
-                        for value in initial {
-                            if token.cancelled() {
-                                return Err("Cancelled".to_owned());
-                            }
-                            if std::fs::symlink_metadata(repo.path.join(&value)).is_ok() {
-                                selection.toggle(&value)?;
-                            }
-                        }
-                        Some(selection)
+                    let relative = absolute
+                        .strip_prefix(&repo.path)
+                        .map_err(|e| e.to_string())?;
+                    let relative = if relative.as_os_str().is_empty() {
+                        ".".into()
                     } else {
-                        None
+                        relative.to_string_lossy().replace('\\', "/")
                     };
-                    Ok::<_, String>((path, nodes, selected))
+                    let nodes = path_tree::children(&repo, &relative, &token)?
+                        .into_iter()
+                        .map(|node| Node {
+                            path: repo
+                                .path
+                                .join(node.path)
+                                .to_string_lossy()
+                                .replace('\\', "/"),
+                            directory: node.directory,
+                        })
+                        .collect::<Vec<_>>();
+                    Ok::<_, String>((path, nodes))
                 })
                 .await;
             let _ = this.update(cx, |s, cx| {
@@ -151,7 +218,7 @@ impl PathChooser {
                 s.loading = None;
                 s.initializing = false;
                 match result {
-                    Ok((path, nodes, selected)) => {
+                    Ok((path, nodes)) => {
                         if s.directories.values().map(Vec::len).sum::<usize>() + nodes.len()
                             > 16_384
                         {
@@ -159,9 +226,6 @@ impl PathChooser {
                                 "Collapse folders before expanding more than 16,384 nodes".into(),
                             );
                         } else {
-                            if let Some(selection) = selected {
-                                s.selection = selection;
-                            }
                             s.directories.insert(path, nodes);
                             s.rebuild();
                         }
@@ -228,7 +292,21 @@ impl Render for PathChooser {
             .on_action(cx.listener(|s, _: &ExpandPath, _, cx| {
                 if let Some((node, _)) = s.rows.get(s.active).cloned().filter(|(n, _)| n.directory)
                 {
-                    s.expand(node.path, None, cx);
+                    s.expand(node.path, cx);
+                }
+            }))
+            .on_action(cx.listener(|s, _: &ToggleExpandedPath, _, cx| {
+                if let Some((node, _)) = s
+                    .rows
+                    .get(s.active)
+                    .cloned()
+                    .filter(|(node, _)| node.directory)
+                {
+                    if s.directories.contains_key(&node.path) {
+                        s.collapse(&node.path, cx);
+                    } else {
+                        s.expand(node.path, cx);
+                    }
                 }
             }))
             .on_action(cx.listener(|s, _: &CollapsePath, _, cx| {
@@ -248,24 +326,17 @@ impl Render for PathChooser {
                                 let expanded = s.directories.contains_key(&node.path);
                                 let checkbox_path = node.path.clone();
                                 let expand_path = node.path.clone();
-                                let name = if node.path == "." {
-                                    s.repo
-                                        .path
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .into_owned()
-                                } else {
-                                    node.path
-                                        .rsplit('/')
-                                        .next()
-                                        .unwrap_or(&node.path)
-                                        .to_owned()
-                                };
+                                let name = std::path::Path::new(&node.path)
+                                    .file_name()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| node.path.clone());
+                                let root_path = node.path.clone();
                                 h_flex()
                                     .id(("path-row", i))
                                     .h(px(26.))
                                     .w_full()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
                                     .pl(px(depth as f32 * 16.))
                                     .gap_1()
                                     .when(i == s.active, |row| row.bg(rgb(0x2e4d89)))
@@ -277,29 +348,32 @@ impl Render for PathChooser {
                                             cx.notify();
                                         }),
                                     )
-                                    .child(div().id(("path-expand", i)).w(px(16.)).when(
-                                        node.directory,
-                                        |d| {
-                                            d.cursor_pointer()
-                                                .child(
-                                                    Icon::default()
-                                                        .path(if expanded {
-                                                            "jb/chevronDown_dark.svg"
+                                    .child(
+                                        div()
+                                            .id(("path-expand", i))
+                                            .w(px(16.))
+                                            .flex_shrink_0()
+                                            .when(node.directory, |d| {
+                                                d.cursor_pointer()
+                                                    .child(
+                                                        Icon::default()
+                                                            .path(if expanded {
+                                                                "jb/chevronDown_dark.svg"
+                                                            } else {
+                                                                "jb/chevronRight_dark.svg"
+                                                            })
+                                                            .size(px(16.)),
+                                                    )
+                                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                                        cx.stop_propagation();
+                                                        if expanded {
+                                                            s.collapse(&expand_path, cx);
                                                         } else {
-                                                            "jb/chevronRight_dark.svg"
-                                                        })
-                                                        .size(px(16.)),
-                                                )
-                                                .on_click(cx.listener(move |s, _, _, cx| {
-                                                    cx.stop_propagation();
-                                                    if expanded {
-                                                        s.collapse(&expand_path, cx);
-                                                    } else {
-                                                        s.expand(expand_path.clone(), None, cx);
-                                                    }
-                                                }))
-                                        },
-                                    ))
+                                                            s.expand(expand_path.clone(), cx);
+                                                        }
+                                                    }))
+                                            }),
+                                    )
                                     .child(
                                         Checkbox::new(("path-check", i))
                                             .checked(state != State::Clear)
@@ -319,9 +393,21 @@ impl Render for PathChooser {
                                                 &node.path,
                                             ))
                                         })
-                                        .size(px(16.)),
+                                        .size(px(16.))
+                                        .flex_shrink_0(),
                                     )
-                                    .child(div().overflow_hidden().child(name))
+                                    .child(div().flex_shrink_0().child(name))
+                                    .when(depth == 0, |row| {
+                                        row.child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .overflow_hidden()
+                                                .whitespace_nowrap()
+                                                .text_color(rgb(0x6f737a))
+                                                .child(format!("({root_path})")),
+                                        )
+                                    })
                             })
                             .collect::<Vec<_>>()
                     }),
@@ -336,5 +422,90 @@ impl Render for PathChooser {
             .when_some(self.error.clone(), |view, error| {
                 view.child(div().text_sm().text_color(rgb(0xf75464)).child(error))
             })
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+    use gpui::component::Root;
+    #[gpui::test]
+    fn project_tree_expands_each_root_and_keeps_absolute_selection(cx: &mut gpui::TestAppContext) {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(
+            format!("plico-path-tree-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
+        ));
+        let roots = [fixture.0.join("parent"), fixture.0.join("other")];
+        for root in &roots {
+            std::fs::create_dir_all(root).unwrap();
+            std::fs::write(root.join("same.txt"), "tracked").unwrap();
+            for args in [vec!["init", "-q"], vec!["add", "same.txt"]] {
+                let output = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(root)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "{output:?}");
+            }
+        }
+        cx.update(gpui::component::init);
+        let mut chooser = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| {
+                PathChooser::new(
+                    roots.iter().map(Repository::new).collect(),
+                    vec![],
+                    window,
+                    cx,
+                )
+            });
+            chooser = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let chooser = chooser.unwrap();
+        cx.run_until_parked();
+        chooser.read_with(cx, |s, _| {
+            assert_eq!(s.rows.len(), 2);
+            assert!(!s.can_confirm());
+        });
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        chooser.read_with(cx, |s, _| {
+            assert_eq!(s.rows.len(), 3, "Enter expands the focused root");
+            assert!(!s.can_confirm(), "expanding must not select or confirm");
+        });
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        chooser.read_with(cx, |s, _| assert_eq!(s.rows.len(), 2));
+        for root in &roots {
+            chooser.update(cx, |s, cx| {
+                s.expand(root.to_string_lossy().replace('\\', "/"), cx)
+            });
+            cx.run_until_parked();
+        }
+        chooser.update(cx, |s, cx| {
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert_eq!(s.rows.len(), 4);
+            s.toggle(
+                &roots[1]
+                    .join("same.txt")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                cx,
+            );
+            assert_eq!(s.selected().unwrap(), [roots[1].join("same.txt")]);
+            s.collapse(&roots[0].to_string_lossy().replace('\\', "/"), cx);
+            assert_eq!(s.rows.len(), 3);
+            assert_eq!(s.selected().unwrap(), [roots[1].join("same.txt")]);
+        });
     }
 }

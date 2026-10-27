@@ -13,6 +13,7 @@ use std::{collections::HashSet, path::PathBuf};
 /// starting Git and compare worktree identity/HEAD/branch/range to the dialog's original snapshot.
 #[derive(Debug)]
 pub struct Prepared {
+    root: PathBuf,
     directory: PathBuf,
     pub head: String,
     /// Full symbolic ref, or None for detached HEAD (not rejected by this gate).
@@ -23,6 +24,13 @@ pub struct Prepared {
     /// Observe ongoing operations separately; this read-only gate does not claim
     /// the upstream default Allow policy means starting another rebase is safe.
     pub state: State,
+}
+
+impl Prepared {
+    /// The worktree selected before the message dialog opened.
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.root)
+    }
 }
 
 pub fn prepare(
@@ -109,6 +117,7 @@ pub fn prepare(
     }
     let plan = Plan::new(&replay, selected)?;
     Ok(Prepared {
+        root: repo.path.clone(),
         directory,
         head,
         branch,
@@ -169,33 +178,7 @@ pub(crate) fn inventory(repo: &Repository, token: &Cancel) -> Result<String, Str
         token,
     )
 }
-pub(crate) fn symbolic_head(repo: &Repository, token: &Cancel) -> Result<Option<String>, String> {
-    use crate::operation_process::{self, Progress};
-    let out = operation_process::run(
-        repo.command().args(["symbolic-ref", "--quiet", "HEAD"]),
-        token,
-        &Progress::default(),
-        Some(std::time::Duration::from_secs(30)),
-    )
-    .map_err(|e| e.to_string())?;
-    if out.stopped.is_some() || out.stdout.truncated {
-        return Err("HEAD branch query interrupted".into());
-    }
-    if out.status.code() == Some(1) {
-        return Ok(None);
-    }
-    if !out.status.success() {
-        return Err("Cannot determine HEAD branch".into());
-    }
-    let bytes = out.stdout.bytes();
-    let name = std::str::from_utf8(&bytes)
-        .map_err(|_| "Invalid HEAD branch")?
-        .trim_end_matches(['\r', '\n']);
-    if !name.starts_with("refs/heads/") {
-        return Err("Unexpected HEAD symbolic reference".into());
-    }
-    Ok(Some(name.into()))
-}
+pub(crate) use crate::branch_context::symbolic_head;
 
 pub(crate) fn protected_containing(
     repo: &Repository,
@@ -203,6 +186,11 @@ pub(crate) fn protected_containing(
     protection: Protection<'_>,
     token: &Cancel,
 ) -> Result<Option<String>, String> {
+    if matches!(protection, Protection::Defaults) {
+        return repo
+            .branch_membership(id, token)?
+            .default_protected_branch(repo, token);
+    }
     let containing = repo.remote_branches_containing(id, token)?;
     let protected = match protection {
         Protection::Defaults => containing.iter().find(|target| default_protected(target)),

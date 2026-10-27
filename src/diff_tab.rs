@@ -320,8 +320,7 @@ impl DiffTab {
             view.update(cx, |v, cx| v.deactivate(cx));
             if let Some(document) = view.read(cx).working.clone() {
                 document.update(cx, |d, cx| d.save(cx));
-                self.documents
-                    .retain_pending(self.target.identity().path.clone(), &document, cx);
+                self.documents.retain_pending(&document, cx);
                 if document.read(cx).edited {
                     self.retained_document = Some(document);
                 }

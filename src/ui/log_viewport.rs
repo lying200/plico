@@ -1,11 +1,10 @@
 //! Scroll restoration when replacing the loaded Log window.
 use gpui_kit::{ScrollStrategy, UniformListScrollHandle, px};
-use plico::git::Commit;
 
-pub(super) fn restore(
+pub(super) fn restore<Id: Eq>(
     scroll: &UniformListScrollHandle,
-    before: &[Commit],
-    after: &[Commit],
+    before: &[Id],
+    after: &[Id],
     history_offset: usize,
     row_height: f32,
 ) {
@@ -21,7 +20,7 @@ pub(super) fn restore(
             .unwrap_or_else(|| ((-position.y / px(row_height)).max(0.)).floor() as usize);
         (top, pending, position)
     };
-    let changed = before.iter().map(|c| &c.id).ne(after.iter().map(|c| &c.id));
+    let changed = before != after;
     if !changed {
         return;
     }
@@ -31,7 +30,7 @@ pub(super) fn restore(
         scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
     } else if let Some(index) = before
         .get(top)
-        .and_then(|anchor| after.iter().position(|c| c.id == anchor.id))
+        .and_then(|anchor| after.iter().position(|id| id == anchor))
     {
         if pending {
             scroll.scroll_to_item_strict(index, ScrollStrategy::Top);
@@ -48,17 +47,15 @@ pub(super) fn restore(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-    fn commits(ids: &[&str]) -> Vec<Commit> {
+    fn commits(ids: &[&str]) -> Vec<plico::project_log::CommitId> {
+        rooted_commits("main", ids)
+    }
+    fn rooted_commits(root: &str, ids: &[&str]) -> Vec<plico::project_log::CommitId> {
+        let root = std::sync::Arc::new(std::path::PathBuf::from(root));
         ids.iter()
-            .map(|id| Commit {
-                id: (*id).into(),
-                parents: vec![],
-                shallow_boundary: false,
-                committer_timestamp: 0,
-                author: String::new(),
-                date: String::new(),
-                subject: String::new(),
-                refs: vec![],
+            .map(|id| plico::project_log::CommitId {
+                root: root.clone(),
+                hash: (*id).into(),
             })
             .collect()
     }
@@ -166,5 +163,39 @@ mod tests {
         );
         assert!(scroll.0.borrow().deferred_scroll_to_item.is_none());
         assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-7.));
+    }
+    #[test]
+    fn identical_hashes_swapping_roots_restore_the_original_repository() {
+        let scroll = UniformListScrollHandle::new();
+        scroll.scroll_to_item_strict(1, ScrollStrategy::Top);
+        let before = [
+            rooted_commits("child", &["same"]),
+            rooted_commits("parent", &["same"]),
+        ]
+        .concat();
+        let after = [
+            rooted_commits("parent", &["same"]),
+            rooted_commits("child", &["same"]),
+        ]
+        .concat();
+        restore(&scroll, &before, &after, 0, 28.);
+        assert_eq!(target(&scroll), 0);
+    }
+    #[test]
+    fn removed_repository_does_not_anchor_to_another_roots_identical_hash() {
+        let scroll = UniformListScrollHandle::new();
+        scroll
+            .0
+            .borrow()
+            .base_handle
+            .set_offset(gpui_kit::point(px(0.), px(-35.)));
+        let before = [
+            rooted_commits("child", &["same"]),
+            rooted_commits("parent", &["same"]),
+        ]
+        .concat();
+        let after = rooted_commits("child", &["new", "other", "same"]);
+        restore(&scroll, &before, &after, 0, 28.);
+        assert_eq!(scroll.0.borrow().base_handle.offset().y, px(-35.));
     }
 }

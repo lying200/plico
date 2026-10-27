@@ -87,6 +87,30 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         };
     }
     match english {
+        "Move up" => "上移",
+        "Move down" => "下移",
+        "Squash" => "压缩合并",
+        "Drop" => "丢弃",
+        "Cancel Reword" => "取消修改消息",
+        "Entered commit message will be lost" => "输入的提交消息将丢失",
+        "Keep Editing" => "继续编辑",
+        "Cancel Rebase" => "取消变基",
+        "Discard changes and cancel rebase?" => "放弃更改并取消变基？",
+        "Continue Rebasing" => "继续变基",
+        "There are no commits to rebase because the current branch is directly below the base branch, or they point to the same commit. Continue and reset the current branch to the base branch?" => {
+            "没有需要变基的提交：当前分支位于目标分支之前，或两者指向同一个提交。是否继续并将当前分支重置到目标分支？"
+        }
+        "Interactively Rebase from Here…" => "从此处交互式变基…",
+        "Are you sure you want to edit the initial commit?" => "确定要编辑初始提交吗？",
+        "Rebasing…" => "正在变基…",
+        "Rebasing" => "正在变基",
+        "Merging" => "正在合并",
+        "Rebasing Commits" => "变基提交",
+        "Start Rebasing" => "开始变基",
+        "Pick" => "采用",
+        "Reword" => "修改消息",
+        "Fixup" => "修正合并",
+        "Press Ctrl+Enter to apply changes" => "按 Ctrl+Enter 应用更改",
         "Create Git Repository" => "创建 Git 仓库",
         "Create Git Repository…" => "创建 Git 仓库…",
         "Creating Git repository…" => "正在创建 Git 仓库…",
@@ -267,6 +291,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Reverted" => "已撤销",
         "Skipped" => "已跳过",
         "Remaining" => "剩余",
+        "Not run" => "未执行",
         "Local Changes Prevent Cherry-pick" => "本地更改阻止拣选提交",
         "Save local changes in a stash and retry? Changes will be restored after success. If the operation stops, they remain available in Stashes." => {
             "将本地更改保存到 Stash 并重试？成功后将恢复更改；如果操作中断，可在 Stash 列表中找回。"
@@ -308,6 +333,38 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Keep Base" => "保留共同祖先版本",
         "Mark Change Resolved" => "标记此处已解决",
         "Apply Non-Conflicting Changes" => "应用非冲突更改",
+        "Resolve All Simple Conflicts" => "解决所有简单冲突",
+        "Resolving Conflicts…" => "正在解决冲突…",
+        "No conflicts were resolved automatically" => "没有可自动解决的冲突",
+        "All conflicts were resolved automatically" => "所有冲突均已自动解决",
+        "Automatic resolution cancelled; completed changes have been kept" => {
+            "已取消自动解决；已完成的更改已保留"
+        }
+        "All conflicts have been resolved" => "所有冲突均已解决",
+        "Revert Conflict Resolution" => "撤销冲突解决",
+        "Revert" => "撤销",
+        "Confirm Revert" => "确认撤销",
+        "All changes will be reverted. The file will return to its original conflicted state." => {
+            "将撤销所有解决更改，文件将恢复到最初的未解决状态。"
+        }
+        "Overwrite Changes" => "覆盖更改",
+        "Discard and Accept" => "放弃并采纳",
+        "This file already contains merged changes. Accepting Yours will discard and overwrite them." => {
+            "此文件已包含合并的更改。采纳你的版本将放弃并覆盖这些更改。"
+        }
+        "This file already contains merged changes. Accepting Theirs will discard and overwrite them." => {
+            "此文件已包含合并的更改。采纳对方版本将放弃并覆盖这些更改。"
+        }
+        "Merge result saved" => "合并结果已保存",
+        "Save and Close" => "保存并关闭",
+        "Discard Changes?" => "放弃更改？",
+        "Discard Changes" => "放弃更改",
+        "Continue Merge" => "继续合并",
+        "Closing the dialog discards partial merge progress. Saved file contents remain in the working tree." => {
+            "关闭对话框将放弃部分解决的合并进度。已保存的文件内容仍保留在工作区。"
+        }
+        "Apply Changes" => "应用更改",
+        "Review Changes" => "复查更改",
         "Apply and Mark Resolved" => "应用并标记已解决",
         "unresolved" => "处未解决",
         "Unresolved changes" => "尚有未解决的更改",
@@ -320,6 +377,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Could not open merge editor" => "无法打开合并编辑器",
         "Edit File" => "编辑文件",
+        "Accept" => "采纳",
+        "Close Without Staging" => "关闭，不暂存",
+        "Accept and Finish" => "采纳并完成",
+        "Resolve Manually" => "手动解决",
+        "Resolved" => "已解决",
+        "Unresolved" => "未解决",
         "Mark Resolved" => "标记为已解决",
         "All conflicts are resolved" => "所有冲突已解决",
         "Resolving conflict…" => "正在解决冲突…",
@@ -460,6 +523,13 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Checking out branch…" => "正在检出分支…",
         "Branch checked out" => "已检出分支",
         "Could not check out branch; repository refreshed" => "无法检出分支；已刷新仓库",
+        "Continue" => "继续",
+        "Message cannot be represented in Git editor encoding" => {
+            "提交信息包含 Git 配置编码无法表示的字符。请修改信息后重试。"
+        }
+        "Git editor encoding would change the message" => {
+            "Git 配置编码会改变提交信息。请修改信息后重试。"
+        }
         "Continue Rebase" => "继续变基",
         "Abort Rebase" => "中止变基",
         "Abort the rebase in this repository?" => "要中止此仓库中的变基吗？",
@@ -467,6 +537,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Rebase operation cancelled; repository refreshed" => "变基操作已取消；仓库已刷新",
         "Rebase requires conflict resolution" => "变基需要解决冲突",
         "Rebase is still in progress" => "变基尚未完成",
+        "Rebase stopped for editing" => "变基已暂停，等待编辑提交",
         "Rebase aborted" => "变基已中止",
         "Rebase completed" => "变基已完成",
         "Rebase operation failed" => "变基操作失败",
@@ -514,6 +585,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Push Commits" => "推送提交",
         "Push to" => "推送到",
         "Push Tag" => "推送标签",
+        "Multiple Git roots have unfinished merge process, please select root to perform action on." => {
+            "多个 Git 仓库存在未完成的合并，请选择要操作的仓库。"
+        }
+        "Multiple Git roots have unfinished rebase process, please select root to perform action on." => {
+            "多个 Git 仓库存在未完成的变基，请选择要操作的仓库。"
+        }
         "Git Root:" => "Git 根目录：",
         "Current Branch:" => "当前分支：",
         "Tag Name:" => "标签名称：",
@@ -563,6 +640,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Rename…" => "重命名…",
         "Rename" => "重命名",
         "Rename Branch" => "重命名分支",
+        "No tracking branch" => "没有跟踪分支",
         "Unset upstream branch" => "取消上游分支跟踪",
         "Renaming branch…" => "正在重命名分支…",
         "Branch renamed" => "分支已重命名",
@@ -805,6 +883,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Commit checked out; local changes restored" => "已检出提交并恢复本地修改",
         "Checkout Tag or Revision" => "检出标签或版本",
+        "Search for branches, actions, repositories" => "搜索分支、操作和仓库",
         "Search for branches and actions" => "搜索分支和操作",
         "No matching branches or actions" => "没有匹配的分支或操作",
         "Checkout Tag or Revision…" => "检出标签或版本…",
@@ -869,6 +948,14 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "本地分支包含远端分支中不存在的提交。可以将它们变基到远端分支，或丢弃这些提交并将本地分支重置到远端最新提交。"
         }
         "Fetch" => "获取",
+        "Failed to unshallow repository" => "获取完整历史失败",
+        "Unshallow repository" => "获取完整历史",
+        "Shallow repository detected" => "检测到浅克隆仓库",
+        "This repository can be converted to a complete one" => {
+            "此仓库可以转换为包含完整历史的仓库"
+        }
+        "Unshallowing repository…" => "正在获取完整历史…",
+        "The repository was converted to a complete one" => "仓库已转换为完整仓库",
         "Fetching…" => "正在获取…",
         "Fetch completed" => "获取完成",
         "Fetch cancelled" => "已取消获取",
@@ -984,6 +1071,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Preparing project update…" => "正在准备更新项目…",
         "Updating project…" => "正在更新项目…",
         "Project updated" => "项目已更新",
+        "Repositories skipped" => "已跳过部分仓库",
         "Cannot update project" => "无法更新项目",
         "Update cancelled; review local changes and saved stash" => {
             "更新已取消，请检查本地改动和保存的暂存"
@@ -1097,6 +1185,16 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Text or hash" => "文本或哈希",
         "Branches and Tags" => "分支和标签",
         "User" => "用户",
+        "Roots" => "仓库根目录",
+        "No roots" => "未选择仓库",
+        "Could not restore Log filters" => "无法恢复日志筛选条件",
+        "Could not save Log filters" => "无法保存日志筛选条件",
+        "Select paths inside the project repositories" => "请选择项目仓库范围内的路径",
+        "Use absolute paths for repositories on different volumes" => {
+            "仓库位于不同磁盘时，请使用绝对路径"
+        }
+        "Select at most 128 paths" => "最多选择 128 个路径",
+        "Path does not belong to a project repository" => "该路径不属于项目中的仓库",
         "Paths" => "路径",
         "Date" => "日期",
         "Local" => "本地",
@@ -1441,5 +1539,53 @@ pub fn history_count(loaded: usize, offset: usize, total: Option<usize>) -> Stri
             offset + 1,
             offset + loaded
         )
+    }
+}
+
+/// Counts are values, never translation keys or interpolated repository text.
+pub fn automatic_merge_result(resolved: usize, remaining: Option<usize>, files: usize) -> String {
+    if is_chinese() {
+        match remaining {
+            Some(n) => format!("已解决 {resolved} 处冲突；{files} 个文件中还有 {n} 处需要处理"),
+            None => format!("已解决 {resolved} 处冲突；还有 {files} 个文件需要处理"),
+        }
+    } else {
+        let resolved_noun = if resolved == 1 {
+            "conflict"
+        } else {
+            "conflicts"
+        };
+        let file_noun = if files == 1 { "file" } else { "files" };
+        match remaining {
+            Some(n) => {
+                let conflict_noun = if n == 1 { "conflict" } else { "conflicts" };
+                let verb = if n == 1 { "requires" } else { "require" };
+                format!(
+                    "{resolved} {resolved_noun} resolved. {n} {conflict_noun} in {files} {file_noun} still {verb} attention"
+                )
+            }
+            None => {
+                let verb = if files == 1 { "requires" } else { "require" };
+                format!(
+                    "{resolved} {resolved_noun} resolved. {files} {file_noun} still {verb} attention"
+                )
+            }
+        }
+    }
+}
+pub fn automatic_merge_progress(current: usize, total: usize) -> String {
+    if is_chinese() {
+        format!("第 {current} / {total} 个文件")
+    } else {
+        format!("File {current} of {total}")
+    }
+}
+
+/// Repository names are values and are never interpreted as translation keys.
+pub fn abort_rebase_question(repository: &str) -> String {
+    if is_chinese() {
+        format!("要中止仓库“{repository}”中的变基吗？")
+    } else {
+        format!("Abort rebase in {repository}?")
     }
 }

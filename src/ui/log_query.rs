@@ -77,6 +77,10 @@ impl Query {
     pub fn history_loading(&self) -> bool {
         self.active == Some(Kind::History)
     }
+    /// Includes navigation, whose results also depend on repository membership.
+    pub fn running(&self) -> bool {
+        self.active.is_some()
+    }
     /// Navigation retains the existing comparison and has its own progress text.
     pub fn busy(&self) -> bool {
         matches!(self.active, Some(Kind::History | Kind::Details))
@@ -183,13 +187,18 @@ mod tests {
             s.refresh(false, cx);
         });
         cx.run_until_parked();
+        let membership = review.read_with(cx, |s, cx| {
+            s.project_roots.read(cx).snapshot().unwrap().unwrap()
+        });
         review.update(cx, |s, cx| {
             assert_eq!(s.selected, Some(0), "refresh preserves visible selection");
             s.text_filter = Some(plico::git::LogFilter {
                 text: "absent-audit-selection".into(),
                 ..Default::default()
             });
-            s.refresh(false, cx);
+            s.refresh_log_filter(cx);
+            let current = s.project_roots.read(cx).snapshot().unwrap().unwrap();
+            assert!(Arc::ptr_eq(&membership, &current));
         });
         cx.run_until_parked();
         review.update(cx, |s, cx| {
@@ -198,15 +207,20 @@ mod tests {
             assert!(s.selected.is_none());
             assert!(s.message.is_empty());
             s.text_filter = None;
-            s.refresh(false, cx);
+            s.refresh_log_filter(cx);
         });
         cx.run_until_parked();
-        review.read_with(cx, |s, _| {
+        review.read_with(cx, |s, cx| {
             assert!(s.error.is_none(), "{:?}", s.error);
             assert_eq!(s.commits.len(), 1);
             assert!(
                 s.selected.is_none(),
                 "clearing filters must preserve empty selection"
+            );
+            let current = s.project_roots.read(cx).snapshot().unwrap().unwrap();
+            assert!(
+                Arc::ptr_eq(&membership, &current),
+                "filtering must not rediscover project roots"
             );
             assert!(s.message.is_empty());
             assert!(s.files.is_empty());

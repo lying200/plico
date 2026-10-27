@@ -208,6 +208,9 @@ impl AssetSource for Assets {
             }
             "jb/search_dark.svg" => Some(include_bytes!("../assets/icons/search_dark.svg")),
             "jb/down_dark.svg" => Some(include_bytes!("../assets/icons/down_dark.svg")),
+            "jb/magicResolve_dark.svg" => {
+                Some(include_bytes!("../assets/icons/magicResolve_dark.svg"))
+            }
             "jb/refresh_dark.svg" => Some(include_bytes!("../assets/icons/refresh_dark.svg")),
             "jb/up_dark.svg" => Some(include_bytes!("../assets/icons/up_dark.svg")),
             _ => None,

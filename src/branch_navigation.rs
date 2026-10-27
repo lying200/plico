@@ -152,20 +152,26 @@ pub fn navigate_visible(
     direction: Move,
     cycle: bool,
 ) -> Option<Selection> {
-    let count = actions.len() + rows.len();
+    let entries = actions
+        .iter()
+        .map(|id| Selection::Action((*id).into()))
+        .chain(rows.iter().map(row_selection))
+        .collect::<Vec<_>>();
+    navigate_selections(&entries, current, direction, cycle)
+}
+
+/// Shared line navigation for actions, repository nodes, groups and refs.
+pub fn navigate_selections(
+    entries: &[Selection],
+    current: Option<&Selection>,
+    direction: Move,
+    cycle: bool,
+) -> Option<Selection> {
+    let count = entries.len();
     if count == 0 {
         return None;
     }
-    let index = current.and_then(|selected| {
-        actions
-            .iter()
-            .position(|id| matches!(selected,Selection::Action(name) if name==id))
-            .or_else(|| {
-                rows.iter()
-                    .position(|row| row_matches(row, selected))
-                    .map(|i| i + actions.len())
-            })
-    });
+    let index = current.and_then(|selected| entries.iter().position(|entry| entry == selected));
     let target = match direction {
         Move::First => 0,
         Move::Last => count - 1,
@@ -182,11 +188,7 @@ pub fn navigate_visible(
             _ => return None,
         },
     };
-    if target < actions.len() {
-        Some(Selection::Action(actions[target].into()))
-    } else {
-        Some(row_selection(&rows[target - actions.len()]))
-    }
+    Some(entries[target].clone())
 }
 
 #[cfg(test)]

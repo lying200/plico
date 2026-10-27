@@ -3,7 +3,12 @@ use super::*;
 use plico::reference_checkout::{Choice, Prepared};
 impl Review {
     pub(super) fn reference_checkout_target(&self, reference: &str) -> Option<(String, String)> {
-        let snapshot = self.snapshot.as_ref()?;
+        Self::reference_checkout_in_snapshot(self.snapshot.as_ref()?, reference)
+    }
+    pub(super) fn reference_checkout_in_snapshot(
+        snapshot: &Snapshot,
+        reference: &str,
+    ) -> Option<(String, String)> {
         let head = snapshot.head_id.clone()?;
         if snapshot
             .current_branch
@@ -48,11 +53,20 @@ impl Review {
         if reference.starts_with("refs/heads/") {
             self.start_local_checkout(reference, target, head, window, cx);
         } else {
-            self.prepare_reference_checkout(reference, target, head, None, window, cx);
+            self.prepare_reference_checkout_in(
+                self.repo.clone(),
+                reference,
+                target,
+                head,
+                None,
+                window,
+                cx,
+            );
         }
     }
-    fn prepare_reference_checkout(
+    pub(super) fn prepare_reference_checkout_in(
         &mut self,
+        repository: Repository,
         reference: String,
         target: String,
         head: String,
@@ -71,7 +85,8 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Checking checkout target…").into());
-        let repo = self.repo.clone();
+        let repo = repository;
+        let project_path = self.repo.path.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -82,6 +97,9 @@ impl Review {
                 let Some(cancelled) = s.finish_operation(operation, cx) else {
                     return;
                 };
+                if s.repo.path != project_path {
+                    return;
+                }
                 if cancelled {
                     s.status_message = Some(t("Checkout cancelled; repository refreshed").into());
                     s.refresh_impl(false, true, None, cx);
@@ -127,7 +145,7 @@ impl Review {
                 .footer(crate::dialog_style::confirmation(Button::new("checkout-name-ok").primary().label(t("Checkout"))))
                 .on_ok(move |_,w,cx| {
                     let name=confirm.read(cx).value().trim().to_owned();if name.is_empty(){return false;}
-                    let _=owner.update(cx,|s,cx|if s.repo.path==path {s.prepare_reference_checkout(prepared.reference.clone(),prepared.target.clone(),prepared.head.clone(),Some(name),w,cx);});true
+                    let _=owner.update(cx,|s,cx|if s.repo.path==path {s.prepare_reference_checkout_in(prepared.repository(),prepared.reference.clone(),prepared.target.clone(),prepared.head.clone(),Some(name),w,cx);});true
                 })
         });
     }
@@ -176,7 +194,9 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = prepared.repository();
+        let primary = repo.path == self.repo.path;
+        let project_path = self.repo.path.clone();
         self.status_message = Some(t("Checking out branch…").into());
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let recovery = prepared.clone();
@@ -195,6 +215,9 @@ impl Review {
                 let Some(cancelled) = s.finish_operation(operation, cx) else {
                     return;
                 };
+                if s.repo.path != project_path {
+                    return;
+                }
                 if !cancelled
                     && choice != Choice::Rebase
                     && let Ok(report) = &result
@@ -218,7 +241,9 @@ impl Review {
                             let success = report.verified;
                             let details = String::from_utf8_lossy(&report.command.stderr.bytes())
                                 .into_owned();
-                            s.operation_state = Some(report.state);
+                            if primary {
+                                s.operation_state = Some(report.state);
+                            }
                             if success {
                                 t("Branch checked out").into()
                             } else {
@@ -264,7 +289,9 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = prepared.repository();
+        let primary = repo.path == self.repo.path;
+        let project_path = self.repo.path.clone();
         self.status_message = Some(t("Checking out branch…").into());
         self.operation_task = cx.spawn_in(w, async move |this, wx| {
             let result = wx.background_spawn(async move {
@@ -272,7 +299,8 @@ impl Review {
             }).await;
             let _ = this.update_in(wx, |s, _, cx| {
                 if s.finish_operation(id, cx).is_none() { return; }
-                s.operation_state = None;
+                if s.repo.path != project_path { return; }
+                if primary { s.operation_state = None; }
                 s.status_message = Some(match result {
                     Ok(report) => {
                         let message = if !report.restored() {

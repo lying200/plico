@@ -82,6 +82,25 @@ pub fn save_comparison_swapped(root: &Path, swapped: bool) -> std::io::Result<()
     save_project_boolean(&path, &key, swapped)
 }
 
+fn rebase_grouping_file(root: &Path) -> Option<(PathBuf, String)> {
+    let (path, key) = history_details_file(root)?;
+    let name = path.file_name()?.to_str()?;
+    Some((path.with_file_name(format!("rebase-directory-{name}")), key))
+}
+
+pub fn load_rebase_grouping(root: &Path) -> bool {
+    rebase_grouping_file(root)
+        .and_then(|(path, key)| read_history_details(&path, &key))
+        .unwrap_or(true)
+}
+
+pub fn save_rebase_grouping(root: &Path, grouped: bool) -> std::io::Result<()> {
+    let Some((path, key)) = rebase_grouping_file(root) else {
+        return Err(std::io::Error::other("Settings directory unavailable"));
+    };
+    save_project_boolean(&path, &key, grouped)
+}
+
 fn branch_preview_file(root: &Path, bottom: bool) -> Option<(PathBuf, String)> {
     let (path, key) = comparison_swapped_file(root)?;
     let name = path.file_name()?.to_str()?;
@@ -157,6 +176,24 @@ pub fn save_files_fraction(value: f32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rebase_grouping_roundtrips_without_crossing_project_identity() {
+        let root =
+            std::env::temp_dir().join(format!("plico-rebase-grouping-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (first, key) = rebase_grouping_file(&root.join("first")).unwrap();
+        let (second, other_key) = rebase_grouping_file(&root.join("second")).unwrap();
+        assert_ne!(first, second);
+        let isolated = root.join(first.file_name().unwrap());
+        for grouped in [false, true] {
+            save_project_boolean(&isolated, &key, grouped).unwrap();
+            assert_eq!(read_history_details(&isolated, &key), Some(grouped));
+            assert_eq!(read_history_details(&isolated, &other_key), None);
+        }
+        assert!(save_project_boolean(&isolated, &other_key, false).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn branch_preview_is_scoped_to_project_and_side() {
         let root =
@@ -764,4 +801,36 @@ pub fn save_markdown_layout(layout: &str) -> std::io::Result<()> {
     };
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(path, layout)
+}
+
+#[derive(Clone, Copy)]
+pub enum RebaseSplit {
+    Plan,
+    Details,
+}
+impl RebaseSplit {
+    fn file(self) -> &'static str {
+        match self {
+            Self::Plan => "rebase-plan-ratio",
+            Self::Details => "rebase-details-ratio",
+        }
+    }
+    pub fn load(self) -> f32 {
+        settings_path()
+            .and_then(|p| read(&p.with_file_name(self.file())))
+            .unwrap_or(match self {
+                Self::Plan => 0.5,
+                Self::Details => 0.67,
+            })
+    }
+    pub fn save(self, value: f32) -> std::io::Result<()> {
+        if !valid(value) {
+            return Ok(());
+        }
+        let Some(path) = settings_path().map(|p| p.with_file_name(self.file())) else {
+            return Ok(());
+        };
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(path, format!("{value:.6}\n"))
+    }
 }

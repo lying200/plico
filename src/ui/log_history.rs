@@ -132,7 +132,7 @@ impl Review {
                 graph_rows: self.rows.len(),
                 max_columns: self.rows.iter().map(|row| row.width).max().unwrap_or(0),
                 offset: self.history_offset,
-                more: self.snapshot.as_ref().is_some_and(|s| s.more),
+                more: self.history_has_more(),
                 filtered: !self.branch_filter.is_empty() || self.text_filter.is_some(),
             },
         ))
@@ -141,17 +141,26 @@ impl Review {
         let selection_color = row_selection(&self.history_focus, window);
         let row_height = log_row_height(cx);
         let checkout_head = self.snapshot.as_ref().and_then(|s| s.head_id.clone());
-        let checkout_enabled = !self.operation.busy() && checkout_head.is_some();
+        let checkout_enabled = !self.operation.busy() && !self.operation.saving_documents();
         let checkout_path = self.repo.path.clone();
         let ref_titles = self
             .snapshot
             .as_ref()
             .map(|s| s.ref_titles.clone())
             .unwrap_or_default();
+        let project_ref_titles = self.log_scope.as_ref().map(|scope| {
+            scope
+                .roots
+                .iter()
+                .map(|root| (root.query.repository.path.clone(), root.ref_titles.clone()))
+                .collect::<std::collections::HashMap<_, _>>()
+        });
         let commits = self.commits.clone();
         let rows = self.rows.clone();
         let graph_hover = self.graph_hover;
         let selected = self.log_selection.clone();
+        let sources = self.log_sources.clone();
+        let root = Arc::new(self.repo.path.clone());
         let owner = cx.entity().downgrade();
         let recommended_width = rows.iter().map(|r| r.width).max().unwrap_or(1);
         let included = self
@@ -231,6 +240,10 @@ impl Review {
                                                         range
                                                             .map(|i| {
                                                                 let c = &commits[i];
+                                                                let is_selected = match &sources {
+                                                                    Some(ids) => ids.get(i).is_some_and(|id| id.hash == c.id && selected.contains(id)),
+                                                                    None => selected.contains(&plico::project_log::CommitId { root: root.clone(), hash: c.id.clone() }),
+                                                                };
                                                                 let owner = owner.clone();
                                                                 let checkout_owner = owner.clone();
                                                                 let context_owner = owner.clone();
@@ -248,14 +261,14 @@ impl Review {
                                         .when(included.contains(&c.id), |d| d.bg(rgb(0x1d2336)))
                                         // VcsLogNewUiCellWrapper: single-repository selection
                                         // has 4px side insets and Popup.Selection.arc=8 (diameter).
-                                        .when(selected.contains(&c.id), |d| d.child(
+                                        .when(is_selected, |d| d.child(
                                             div().absolute().left(px(4.)).right(px(4.)).top_0().h_full()
                                                 .rounded(px(4.)).bg(rgb(selection_color))
                                         ))
                                         .child(h_flex().flex_1().min_w_0().overflow_hidden().gap_2()
                                             .child(interactive_graph_cell(rows[i].clone(), graph::text_offset_columns(&rows[i], recommended_width) * 16. + 12., row_height, i,
                                                 GraphNodeStyle { head: checkout_head.as_deref() == Some(c.id.as_str()),
-                                                    background: if selected.contains(&c.id) { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG } },
+                                                    background: if is_selected { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG } },
                                                 owner.clone(), rows.clone(), commits.clone(), graph_hover))
                                         .child(
                                             h_flex()
@@ -284,11 +297,16 @@ impl Review {
                                                             reference_icon(
                                                                 [git::RefKind::Head, git::RefKind::Local, git::RefKind::Remote, git::RefKind::Tag]
                                                                     .into_iter().flat_map(|kind| std::iter::repeat_n(ref_color(kind), c.refs.iter().filter(|r| r.kind == kind).count().min(2))).collect(),
-                                                                if selected.contains(&c.id) { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG },
+                                                                if is_selected { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG },
                                                             )
                                                         )
                                                         .child(div().min_w_0().truncate().text_color(rgb(MUTED)).child({
-                                                            ref_titles.get(&c.id).cloned().unwrap_or_default()
+                                                            match &sources {
+                                                                Some(ids) => ids.get(i).filter(|id| id.hash == c.id)
+                                                                    .and_then(|id| project_ref_titles.as_ref()?.get(id.root.as_ref()))
+                                                                    .and_then(|titles| titles.get(&c.id)).cloned().unwrap_or_default(),
+                                                                None => ref_titles.get(&c.id).cloned().unwrap_or_default(),
+                                                            }
                                                         }))
                                                 )),
                                         ))
@@ -316,27 +334,29 @@ impl Review {
                                             let checkout_enabled = checkout_enabled && checkout_owner.upgrade().is_some_and(|s| s.read(cx).log_selection.ordered(&s.read(cx).commit_ids()).len() == 1);
                                             let owner = checkout_owner.clone();
                                             let target = checkout_target.clone();
-                                            let head = checkout_head.clone();
+                                            let checkout_repository = checkout_owner.upgrade().and_then(|e| e.read(cx).log_repository(i));
+                                            let checkout_enabled = checkout_enabled && checkout_repository.is_some();
                                             let path = checkout_path.clone();
                                             let hashes = checkout_owner.upgrade().map(|s| {
                                                 let s = s.read(cx); let ids = s.commit_ids();
-                                                let mut hashes = s.log_selection.ordered(&ids); hashes.reverse(); hashes.join(" ")
+                                                let mut hashes = s.log_selection.ordered(&ids); hashes.reverse(); hashes.iter().map(|id| id.hash.as_str()).collect::<Vec<_>>().join(" ")
                                             }).unwrap_or_default();
                                             let reword_owner = checkout_owner.clone();
                                             let reword_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).can_reword(&target, cx));
                                             let create_owner=checkout_owner.clone(); let create_target=target.clone(); let create_path=path.clone();
+                                            let create_repository=checkout_owner.upgrade().and_then(|e| e.read(cx).log_repository(i));
                                             let tag_owner=checkout_owner.clone(); let tag_target=target.clone(); let tag_path=path.clone();
+                                            let tag_repository=checkout_owner.upgrade().and_then(|e| e.read(cx).log_repository(i));
                                             let reset_owner=checkout_owner.clone(); let reset_target=target.clone(); let reset_path=path.clone();
+                                            let reset_repository=checkout_owner.upgrade().and_then(|e| e.read(cx).log_repository(i));
                                             let reset_enabled=checkout_owner.upgrade().is_some_and(|e|{let s=e.read(cx);!s.operation.busy() && !s.operation.saving_documents() && s.log_selection.ordered(&s.commit_ids()).len()==1});
                                             let revert_owner=checkout_owner.clone(); let revert_path=path.clone();
                                             let revert_targets = checkout_owner.upgrade().map(|e| {
-                                                let s=e.read(cx); s.log_selection.ordered(&s.commit_ids()).into_iter().map(str::to_owned).collect::<Vec<_>>()
+                                                let s=e.read(cx); s.log_selection.ordered(&s.commit_ids()).into_iter().cloned().collect::<Vec<_>>()
                                             }).unwrap_or_default();
                                             let revert_enabled=checkout_owner.upgrade().is_some_and(|e| {
                                                 let s=e.read(cx); !s.operation.busy() && !s.operation.saving_documents()
-                                                    && !revert_targets.is_empty() && revert_targets.len() <= 1000
-                                                    && s.operation_state.as_ref().is_some_and(|state| !state.in_progress() && state.conflicts.is_empty())
-                                                    && revert_targets.iter().all(|id| s.commits.iter().any(|c| &c.id==id && c.parents.len()<=1))
+                                                    && s.can_sequence_selection(&revert_targets)
                                             });
                                             let cherry_owner = checkout_owner.clone();
                                             let cherry_path = path.clone();
@@ -346,63 +366,59 @@ impl Review {
                                                 let s = e.read(cx); !s.log_query.history_loading() && s.log_selection.ordered(&s.commit_ids()).len() == 1
                                             });
                                             let compare_owner = checkout_owner.clone();
-                                            let compare_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).log_selection.ordered(&e.read(cx).commit_ids()).len() == 2);
+                                            let compare_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).selected_comparison().is_some());
                                             let squash_owner = checkout_owner.clone();
                                             let squash_enabled = checkout_owner.upgrade().is_some_and(|entity| {
-                                                let s = entity.read(cx); !s.operation.busy() && s.log_selection.ordered(&s.commit_ids()).len() >= 2
+                                                let s = entity.read(cx); !s.operation.busy() && s.squash_selection_is_single_root()
                                             });
                                             menu.item(PopupMenuItem::new(t("Copy Revision Number")).disabled(hashes.is_empty()).on_click(move |_, _, cx| {
                                                 cx.write_to_clipboard(ClipboardItem::new_string(hashes.clone()));
                                             })).item(PopupMenuItem::new(t("Cherry-Pick")).icon(Icon::default().path("jb/cherryPick_dark.svg")).disabled(!revert_enabled).on_click(move |_, w, cx| {
                                                 let _ = cherry_owner.update(cx, |s, cx| if s.repo.path == cherry_path {
-                                                    s.cherry_pick_commits(cherry_targets.clone(), w, cx);
+                                                    s.start_log_sequence(plico::operation_state::Operation::CherryPick, cherry_targets.clone(), w, cx);
                                                 });
                                             })).when(compare_enabled, |menu| menu.item(PopupMenuItem::new(t("Compare Versions")).on_click(move |_, w, cx| {
                                                 let _ = compare_owner.update(cx, |s, cx| s.compare_versions(w, cx));
                                             }))).separator().item(PopupMenuItem::new(t("Squash Commits…")).disabled(!squash_enabled)
                                                 .on_click(move |_, window, cx| { let _ = squash_owner.update(cx, |s, cx| s.prepare_squash(window, cx)); }))
                                                 .separator().when(true, |menu| {
-                                                    let branches = checkout_owner.upgrade().and_then(|e| {
-                                                        let s = e.read(cx);
-                                                        s.snapshot.as_ref().map(|snapshot| snapshot.branches.iter().map(|b|(&b.name,&b.id))
-                                                            .chain(snapshot.tags.iter().map(|t|(&t.name,&t.id)))
-                                                            .filter(|(name,id)| **id==target && s.reference_checkout_target(name).is_some())
-                                                            .map(|(name,_)|name.clone()).collect::<Vec<_>>())
-                                                    }).unwrap_or_default();
+                                                    let branches = checkout_owner.upgrade().map(|e| e.read(cx).log_checkout_branches(i)).unwrap_or_default();
                                                     if branches.is_empty() {
                                                         menu.item(PopupMenuItem::new(format!("{} {}", t("Checkout Revision"), &target[..8])).disabled(!checkout_enabled)
                                                             .on_click(move |_, window, cx| { let _ = owner.update(cx, |s, cx| {
-                                                                if s.repo.path == path { if let Some(head) = &head { s.start_checkout(target.clone(), head.clone(), window, cx); } }
+                                                                if s.repo.path == path { if let Some(repo) = &checkout_repository { s.start_log_checkout(repo.clone(), target.clone(), None, window, cx); } }
                                                             }); }))
                                                     } else {
                                                         menu.submenu(t("Checkout"), window, cx, move |mut sub, _, _| {
                                                             for reference in &branches {
                                                                 let reference = reference.clone(); let owner = owner.clone(); let path = path.clone();
+                                                                let repository = checkout_repository.clone(); let target = target.clone();
                                                                 sub = sub.item(PopupMenuItem::new(reference.strip_prefix("refs/heads/").unwrap_or(&reference).to_owned()).disabled(!checkout_enabled)
                                                                     .on_click(move |_, w, cx| { let _ = owner.update(cx, |s, cx| {
-                                                                        if s.repo.path == path { s.checkout_reference(reference.clone(), w, cx); }
+                                                                        if s.repo.path == path { if let Some(repo) = &repository { s.start_log_checkout(repo.clone(), target.clone(), Some(reference.clone()), w, cx); } }
                                                                     }); }));
                                                             }
-                                                            let owner = owner.clone(); let target = target.clone(); let head = head.clone(); let path = path.clone();
+                                                            let owner = owner.clone(); let target = target.clone(); let path = path.clone();
+                                                            let checkout_repository = checkout_repository.clone();
                                                             sub.item(PopupMenuItem::new(t("Checkout Revision")).disabled(!checkout_enabled)
                                                                 .on_click(move |_, w, cx| { let _ = owner.update(cx, |s, cx| {
-                                                                    if s.repo.path == path { if let Some(head) = &head { s.start_checkout(target.clone(), head.clone(), w, cx); } }
+                                                                    if s.repo.path == path { if let Some(repo) = &checkout_repository { s.start_log_checkout(repo.clone(), target.clone(), None, w, cx); } }
                                                                 }); }))
                                                         })
                                                     }
                                                 })
                                                 .separator()
-                                                .item(PopupMenuItem::new(t("New Branch…")).disabled(!reset_enabled).on_click(move |_,w,cx| {
-                                                    let _=create_owner.update(cx,|s,cx|if s.repo.path==create_path {s.new_branch_dialog(create_target.clone(),w,cx);});
+                                                .item(PopupMenuItem::new(t("New Branch…")).disabled(!reset_enabled || create_repository.is_none()).on_click(move |_,w,cx| {
+                                                    let _=create_owner.update(cx,|s,cx|if s.repo.path==create_path {if let Some(repo)=&create_repository{s.new_log_branch_dialog(repo.clone(),create_target.clone(),w,cx);}});
                                                 }))
-                                                .item(PopupMenuItem::new(t("New Tag…")).disabled(!reset_enabled).on_click(move |_,w,cx| {
-                                                    let _=tag_owner.update(cx,|s,cx|if s.repo.path==tag_path {s.new_tag_dialog(tag_target.clone(),w,cx);});
+                                                .item(PopupMenuItem::new(t("New Tag…")).disabled(!reset_enabled || tag_repository.is_none()).on_click(move |_,w,cx| {
+                                                    let _=tag_owner.update(cx,|s,cx|if s.repo.path==tag_path {if let Some(repo)=&tag_repository {s.new_tag_dialog(repo.clone(),tag_target.clone(),w,cx);}});
                                                 }))
                                                 .item(PopupMenuItem::new(t("Reset Current Branch to Here…")).disabled(!reset_enabled).on_click(move|_,w,cx| {
-                                                    let _=reset_owner.update(cx,|s,cx|{if s.repo.path==reset_path{s.prepare_reset(reset_target.clone(),w,cx);}});
+                                                    let _=reset_owner.update(cx,|s,cx|{if s.repo.path==reset_path{if let Some(repo)=&reset_repository { s.prepare_reset(repo.clone(),reset_target.clone(),w,cx); }}});
                                                 }))
                                                 .item(PopupMenuItem::new(t(if revert_targets.len() == 1 { "Revert Commit" } else { "Revert Commits" })).disabled(!revert_enabled).on_click(move |_,w,cx| {
-                                                    let _=revert_owner.update(cx,|s,cx|if s.repo.path==revert_path {s.revert_commits(revert_targets.clone(),w,cx);});
+                                                    let _=revert_owner.update(cx,|s,cx|if s.repo.path==revert_path {s.start_log_sequence(plico::operation_state::Operation::Revert,revert_targets.clone(),w,cx);});
                                                 })).separator()
                                                 .item(PopupMenuItem::new(t("Edit Commit Message…")).action(Box::new(EditCommitMessage)).disabled(!reword_enabled).on_click(move |_, w, cx| {
                                                     let _ = reword_owner.update(cx, |s, cx| s.edit_commit_message(w, cx));
@@ -453,6 +469,20 @@ impl Review {
                                     .viewport_from_layout(),
                             ),
                     )
+                    .when(self.commits.is_empty() && self.error.is_none() && !self.log_query.history_loading()
+                        && self.paths_menu.read(cx).selected_roots().is_some(), |v| v.child(
+                        v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(BG))
+                            .child(t("No commits matching filters"))
+                            .child(Button::new("reset-project-log-filters").link().small().label(t("Reset filters"))
+                                .on_click(cx.listener(|s, _, window, cx| {
+                                    s.branch_filter.clear();
+                                    s.date_filter = Default::default();
+                                    s.filter_search.update(cx, |input, cx| input.set_value("", window, cx));
+                                    s.user_menu.update(cx, |menu, cx| menu.clear_filter(cx));
+                                    s.paths_menu.update(cx, |menu, cx| menu.clear_filter(cx));
+                                    s.apply_text_filter(cx);
+                                })))
+                    ))
                     .when(self.commits.is_empty() && self.error.is_some(), |v| v.child(
                         v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(BG))
                             .child(t(plico::git_error::summary(self.error.as_deref().unwrap_or_default())))

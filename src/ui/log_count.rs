@@ -2,10 +2,15 @@
 use super::*;
 
 #[derive(Clone, PartialEq, Eq)]
-struct Key {
+struct RootKey {
     path: std::path::PathBuf,
     roots: Vec<String>,
     filter: Option<git::LogFilter>,
+}
+#[derive(Clone, PartialEq, Eq)]
+struct Key {
+    roots: Vec<RootKey>,
+    errors: Vec<(PathBuf, String)>,
 }
 #[derive(Default)]
 pub(super) struct Count {
@@ -27,19 +32,36 @@ impl Count {
 }
 impl Review {
     pub(super) fn update_history_count(&mut self, cx: &mut Context<Self>) {
-        let Some(snapshot) = &self.snapshot else {
+        let Some(scope) = self.current_log_scope() else {
             self.history_count.invalidate();
             return;
         };
-        let mut roots = snapshot.tips.clone();
-        roots.sort();
-        roots.dedup();
+        self.log_scope = Some(scope.clone());
         let key = Key {
-            path: self.repo.path.clone(),
-            roots,
-            filter: self.text_filter.clone(),
+            roots: scope
+                .roots
+                .iter()
+                .map(|root| {
+                    let mut tips = root.tips.clone();
+                    tips.sort();
+                    tips.dedup();
+                    RootKey {
+                        path: root.query.repository.path.clone(),
+                        roots: tips,
+                        filter: root.query.filter.clone(),
+                    }
+                })
+                .collect(),
+            errors: scope.errors.clone(),
         };
-        if !snapshot.more && (self.history_offset == 0 || !self.commits.is_empty()) {
+        // A single-root completed window proves its total. The primary branch
+        // snapshot cannot prove completeness of a multi-root displayed query.
+        if scope.errors.is_empty()
+            && scope.roots.len() == 1
+            && scope.roots[0].query.repository.path == self.repo.path
+            && self.snapshot.as_ref().is_some_and(|s| !s.more)
+            && (self.history_offset == 0 || !self.commits.is_empty())
+        {
             self.history_count.invalidate();
             self.history_count.key = Some(key);
             self.history_count.total = Some(self.history_offset + self.commits.len());
@@ -50,7 +72,6 @@ impl Review {
         }
         self.history_count.invalidate();
         self.history_count.key = Some(key.clone());
-        let repo = self.repo.clone();
         let (stamp, token) = self
             .history_count
             .job
@@ -61,9 +82,7 @@ impl Review {
                 .timer(std::time::Duration::from_millis(150))
                 .await;
             let result = cx
-                .background_spawn(async move {
-                    history::count(&repo, &key.roots, key.filter.as_ref(), &token)
-                })
+                .background_spawn(async move { scope.count(&token) })
                 .await;
             let _ = this.update(cx, |s, cx| {
                 if !s.history_count.job.finish(stamp) {
@@ -135,7 +154,7 @@ impl Review {
                         .on_click(cx.listener(|s, _, _, cx| s.refresh(false, cx))),
                 )
             })
-            .when(self.snapshot.as_ref().is_some_and(|s| s.more), |v| {
+            .when(self.history_has_more(), |v| {
                 v.child(
                     Button::new("more")
                         .link()
@@ -259,6 +278,107 @@ mod tests {
             assert!(s.commits.is_empty());
             assert_eq!(s.history_count.total, Some(0));
             assert!(!s.history_count.loading());
+        });
+    }
+    #[gpui::test]
+    fn project_count_uses_shared_scope_without_overwriting_primary_snapshot(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+                "plico-project-count-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )));
+        let mut queries = Vec::new();
+        for (name, count) in [("parent", 2), ("child", 3)] {
+            let path = fixture.0.join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            let git = |args: &[&str]| {
+                let out = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(&path)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "{out:?}");
+            };
+            git(&["init", "-q"]);
+            for _ in 0..count {
+                git(&[
+                    "-c",
+                    "user.name=Count",
+                    "-c",
+                    "user.email=count@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "row",
+                ]);
+            }
+            queries.push(plico::project_log::Query {
+                repository: Repository::new(path),
+                branches: vec![],
+                filter: None,
+            });
+        }
+        let token = Cancel::default();
+        let read = plico::project_log::read(&queries, 1, &token).unwrap();
+        let scope = read.scope.clone();
+        drop(read); // Count must not keep the metadata page alive.
+        let primary = queries[0]
+            .repository
+            .snapshot(None, 10, None, &token)
+            .unwrap();
+        assert!(!primary.more);
+        let head = primary.head_id.clone();
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 1, None, window, cx));
+            view.update(cx, |s, cx| {
+                s.repo = queries[0].repository.clone();
+                s.snapshot = Some(primary);
+                s.log_scope = Some(scope.clone());
+                s.update_history_count(cx);
+                assert!(s.history_count.loading());
+                assert_eq!(s.history_count.total, None);
+            });
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(200));
+        cx.run_until_parked();
+        review.update(cx, |s, cx| {
+            assert_eq!(s.history_count.total, Some(5));
+            assert_eq!(s.snapshot.as_ref().unwrap().head_id, head);
+            let mut failed = scope.as_ref().clone();
+            failed
+                .errors
+                .push((fixture.0.join("missing"), "unavailable".into()));
+            s.log_scope = Some(Arc::new(failed));
+            s.update_history_count(cx);
+            assert_eq!(s.history_count.total, None);
+        });
+        cx.executor().advance_clock(Duration::from_millis(200));
+        cx.run_until_parked();
+        review.update(cx, |s, _| {
+            assert_eq!(s.history_count.total, None);
+            assert!(s.history_count.error.is_some());
+            s.replace_single_root_commits(vec![]);
+            assert!(s.log_scope.is_none());
         });
     }
 }

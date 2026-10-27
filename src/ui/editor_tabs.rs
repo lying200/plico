@@ -26,18 +26,22 @@ impl Review {
                     } else {
                         s.selected.and_then(|i| s.commits.get(i)).cloned()
                     };
+                    let repo = s.log_files_repository()?;
                     s.files.iter().position(|change| {
-                        diff_target::Target::new(s.repo.clone(), commit.clone(), change.clone())
+                        diff_target::Target::new(repo.clone(), commit.clone(), change.clone())
                             .is_ok_and(|candidate| candidate.identity() == target.identity())
                     })
                 });
             if let Some(index) = index {
                 s.selected_file = Some(index);
                 for parent in target.change().path.ancestors().skip(1) {
-                    s.collapsed_directories
-                        .remove(&(target.change().area, parent.to_path_buf()));
+                    s.collapsed_directories.remove(&(
+                        target.identity().repository.clone(),
+                        target.change().area,
+                        parent.to_path_buf(),
+                    ));
                 }
-                s.rebuild_files();
+                s.rebuild_files(cx);
                 if let Some(row) = s
                     .file_rows
                     .iter()
@@ -50,18 +54,30 @@ impl Review {
         })
         .detach();
     }
-    pub(super) fn compare_versions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Resolve both menu eligibility and execution from full Log identities.
+    /// Rebased's Log supplies a diff handler only for one selected repository.
+    pub(super) fn selected_comparison(&self) -> Option<(Repository, String, String)> {
         let ids = self.commit_ids();
         let selected = self.log_selection.ordered(&ids);
-        if selected.len() != 2 {
-            return;
+        let [after, before] = selected.as_slice() else {
+            return None;
+        };
+        if after.root != before.root {
+            return None;
         }
-        let before = selected[1].to_owned();
-        let after = selected[0].to_owned();
+        Some((
+            Repository::new(after.root.as_ref()),
+            before.hash.clone(),
+            after.hash.clone(),
+        ))
+    }
+    pub(super) fn compare_versions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((repo, before, after)) = self.selected_comparison() else {
+            return;
+        };
         self.close_comparison_preview(cx);
-        let view = cx.new(|cx| {
-            crate::compare_view::CompareView::new(self.repo.clone(), before, after, window, cx)
-        });
+        let view =
+            cx.new(|cx| crate::compare_view::CompareView::new(repo, before, after, window, cx));
         self.show_comparison(view, window, cx);
     }
     pub(super) fn show_comparison(
@@ -71,6 +87,12 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         self.close_comparison_preview(cx);
+        let roots = self.project_roots.read(cx);
+        let color = roots
+            .has_multiple_roots()
+            .then(|| roots.color(view.read(cx).repository_path()))
+            .flatten();
+        view.update(cx, |view, cx| view.set_repository_color(color, cx));
         cx.subscribe_in(
             &view,
             window,
@@ -385,7 +407,7 @@ impl Review {
                         c.select(self.selected_file?)
                     } else {
                         diff_target::Target::new(
-                            self.repo.clone(),
+                            self.log_files_repository()?,
                             self.selected.and_then(|i| self.commits.get(i)).cloned(),
                             change.clone(),
                         )
@@ -424,7 +446,10 @@ impl Review {
     ) {
         if !original
             && target.working_tree_document().is_some()
-            && self.documents.get(&target.identity().path).is_some()
+            && self
+                .documents
+                .get(&target.identity().repository, &target.identity().path)
+                .is_some()
         {
             self.source_token.cancel();
             self.source_generation += 1;
@@ -676,14 +701,22 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_project_file_in(self.repo.path.clone(), path, preview, window, cx);
+    }
+    pub(super) fn open_project_file_in(
+        &mut self,
+        root: PathBuf,
+        path: PathBuf,
+        preview: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if preview && !self.file_preview {
             return;
         }
-        if let Some(index) = self
-            .file_tabs
-            .iter()
-            .position(|tab| !tab.read(cx).history && tab.read(cx).path == path)
-        {
+        if let Some(index) = self.file_tabs.iter().position(|tab| {
+            !tab.read(cx).history && tab.read(cx).root() == root && tab.read(cx).path == path
+        }) {
             if !preview {
                 self.file_tabs[index].update(cx, |tab, _| tab.preview = false);
             }
@@ -699,7 +732,7 @@ impl Review {
             self.file_tabs[index].update(cx, |tab, cx| tab.activate_with_focus(!preview, cx));
         } else {
             let tab = cx.new(|_| {
-                let mut tab = crate::project_view::FileTab::new(self.repo.path.clone(), path);
+                let mut tab = crate::project_view::FileTab::new(root, path);
                 tab.documents = self.documents.clone();
                 tab.preview = preview;
                 tab
@@ -931,7 +964,8 @@ impl Review {
         self.close_settings(cx);
         if self.stash_view.is_none() {
             let repo = self.repo.clone();
-            let view = cx.new(|cx| crate::stash_view::StashView::new(repo, cx));
+            let view = cx
+                .new(|cx| crate::stash_view::StashView::new(repo, self.project_roots.clone(), cx));
             cx.subscribe_in(
                 &view,
                 window,
@@ -977,15 +1011,19 @@ impl Review {
                 &view,
                 window,
                 |s, _, event: &crate::stash_view::Acknowledge, w, cx| {
-                    s.confirm_external_recovery(event.0.clone(), w, cx);
+                    s.confirm_external_recovery(event.0.clone(), event.1.clone(), w, cx);
                 },
             )
             .detach();
             cx.subscribe_in(
                 &view,
                 window,
-                |s, _, _: &crate::stash_view::ViewLocal, w, cx| {
-                    s.open_local(w, cx);
+                |s, _, event: &crate::stash_view::ViewLocal, w, cx| {
+                    if s.repo.path == event.0.path {
+                        s.open_local(w, cx);
+                    } else {
+                        s.choose_project_window(event.0.path.clone(), w, cx);
+                    }
                 },
             )
             .detach();
@@ -1016,7 +1054,10 @@ impl Review {
         let target = if let Some((target, _)) = &aggregate {
             target.clone()
         } else {
-            let Ok(target) = diff_target::Target::new(self.repo.clone(), commit, change) else {
+            let Some(repo) = self.log_files_repository() else {
+                return;
+            };
+            let Ok(target) = diff_target::Target::new(repo, commit, change) else {
                 return;
             };
             target
@@ -1160,6 +1201,157 @@ mod tests {
     use core::prelude::v1::test;
     use gpui::component::Root;
     #[gpui::test]
+    fn comparison_reads_child_revisions_and_rejects_mixed_roots(cx: &mut gpui::TestAppContext) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "plico-comparison-roots-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )));
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        std::fs::create_dir_all(&parent).unwrap();
+        std::fs::create_dir_all(&child).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&child)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        for contents in ["before\n", "after\n"] {
+            std::fs::write(child.join("same.txt"), contents).unwrap();
+            git(&["add", "same.txt"]);
+            git(&[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                contents,
+            ]);
+        }
+        let repo = Repository::new(&child);
+        let commits = repo
+            .snapshot_at(None, 0, 10, None, &Cancel::default())
+            .unwrap()
+            .commits;
+        let after = commits[0].id.clone();
+        let before = commits[1].id.clone();
+        let endpoint = |hash: &str| plico::combined_changes::Revision {
+            revision: hash.into(),
+            path: "same.txt".into(),
+        };
+        let target = diff_target::Target::combined(
+            repo,
+            plico::combined_changes::Change {
+                before: Some(endpoint(&before)),
+                after: Some(endpoint(&after)),
+            },
+        )
+        .unwrap();
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                // The primary directory deliberately has no Git objects. Reading it
+                // instead of the selected child must fail this end-to-end query.
+                s.repo = Repository::new(&parent);
+                s.commits = Arc::new(commits);
+                s.log_sources = Some(Arc::new(
+                    s.commits
+                        .iter()
+                        .map(|c| plico::project_log::CommitId {
+                            root: Arc::new(child.clone()),
+                            hash: c.id.clone(),
+                        })
+                        .collect(),
+                ));
+                let ids = s.commit_ids();
+                s.log_selection.select(&ids, 0, false, false);
+                assert!(s.selected_comparison().is_none());
+                s.log_selection.select(&ids, 1, false, true);
+                s.compare_versions(window, cx);
+            })
+        });
+        cx.run_until_parked();
+        let comparison = review.read_with(cx, |s, _| s.comparison.clone().unwrap());
+        comparison.read_with(cx, |view, _| {
+            let (selected, _) = view
+                .reloaded_selection(&target)
+                .expect("child comparison loaded");
+            assert_eq!(selected.identity().repository, child);
+            let contents = selected.read_contents(&Cancel::default()).unwrap().unwrap();
+            assert_eq!(contents.before.as_deref(), Some("before\n"));
+            assert_eq!(contents.after.as_deref(), Some("after\n"));
+        });
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                let mut ids = s.commit_ids();
+                ids[1].root = Arc::new(parent.clone());
+                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log_selection.select(&ids, 0, false, false);
+                s.log_selection.select(&ids, 1, false, true);
+                assert!(s.selected_comparison().is_none());
+                s.compare_versions(window, cx);
+                assert_eq!(
+                    s.comparison.as_ref().unwrap().entity_id(),
+                    comparison.entity_id()
+                );
+                // Stale row metadata cannot silently fall back to the primary root.
+                s.log_sources = Some(Arc::new(vec![ids[0].clone()]));
+                assert!(s.selected_comparison().is_none());
+            })
+        });
+        // Working-tree comparison must keep the selected child through the
+        // document-save callback, including tag references.
+        git(&["tag", "comparison-base", &after]);
+        std::fs::write(child.join("same.txt"), "working child\n").unwrap();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.prepare_working_comparison_in(
+                    Repository::new(&child),
+                    "refs/tags/comparison-base".into(),
+                    "HEAD".into(),
+                    window,
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+        let working = review.read_with(cx, |s, _| s.comparison.clone().unwrap());
+        working.read_with(cx, |view, _| {
+            let (selected, _) = view
+                .reloaded_selection(&target)
+                .expect("tag comparison loads the child working tree");
+            assert_eq!(selected.identity().repository, child);
+            assert!(selected.identity().working_comparison.is_some());
+            let contents = selected.read_contents(&Cancel::default()).unwrap().unwrap();
+            assert_eq!(contents.before.as_deref(), Some("working child\n"));
+            assert_eq!(contents.after.as_deref(), Some("after\n"));
+        });
+    }
+    #[gpui::test]
     fn branch_comparison_reuses_tabs_and_closes_to_neighbor(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut review = None;
@@ -1182,6 +1374,20 @@ mod tests {
                 s.open_branch_comparison(pair.clone(), window, cx);
                 assert_eq!(s.branch_compare_tabs.len(), 1);
                 assert_eq!(s.editor_tabs.active(), Some(first));
+                let child = Repository::new(PathBuf::from("independent-child"));
+                s.open_branch_comparison_in(child.clone(), pair.clone(), window, cx);
+                let child_tab = s.editor_tabs.active().unwrap();
+                assert_ne!(
+                    child_tab, first,
+                    "same references in different repositories are distinct"
+                );
+                assert_eq!(s.branch_compare_tabs.len(), 2);
+                s.open_branch_comparison_in(child, pair.clone(), window, cx);
+                assert_eq!(s.editor_tabs.active(), Some(child_tab));
+                assert_eq!(s.branch_compare_tabs.len(), 2);
+                s.open_branch_comparison(pair.clone(), window, cx);
+                assert_eq!(s.editor_tabs.active(), Some(first));
+                s.close_editor_ids(vec![child_tab], Some(first), window, cx);
                 s.open_branch_comparison(pair.reversed(), window, cx);
                 assert_eq!(s.branch_compare_tabs.len(), 2);
                 let second = s.editor_tabs.active().unwrap();

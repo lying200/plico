@@ -112,6 +112,16 @@ impl Review {
         else {
             return;
         };
+        self.prepare_rename_branch_in(self.repo.clone(), reference, tip, window, cx);
+    }
+    pub(super) fn prepare_rename_branch_in(
+        &mut self,
+        repository: Repository,
+        reference: String,
+        tip: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.dismiss_repository_menu(cx);
         let Some((id, token)) = self.begin_operation(
             plico::active_operation::Kind::RenameBranch,
@@ -120,13 +130,22 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = repository.clone();
+        let project_path = self.repo.path.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
                     Prepared::read(&repo, &reference, &token).and_then(|p| {
                         if p.tip == tip {
-                            Ok(p)
+                            let snapshot = repo.reference_snapshot(&token)?;
+                            let names = snapshot
+                                .branches
+                                .iter()
+                                .filter_map(|b| {
+                                    b.name.strip_prefix("refs/heads/").map(str::to_owned)
+                                })
+                                .collect();
+                            Ok((p, names))
                         } else {
                             Err("Repository changed; review branch rename again".into())
                         }
@@ -137,11 +156,11 @@ impl Review {
                 let Some(cancelled) = s.finish_operation(id, cx) else {
                     return;
                 };
-                if cancelled {
+                if cancelled || s.repo.path != project_path {
                     return;
                 }
                 match result {
-                    Ok(p) => s.rename_branch_dialog(p, w, cx),
+                    Ok((p, names)) => s.rename_branch_dialog(repository, p, names, w, cx),
                     Err(e) => crate::error_ui::show_details(e, "Could not rename branch", w, cx),
                 }
             });
@@ -149,20 +168,12 @@ impl Review {
     }
     fn rename_branch_dialog(
         &mut self,
+        repository: Repository,
         prepared: Prepared,
+        existing: Vec<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let existing = self
-            .snapshot
-            .as_ref()
-            .map(|s| {
-                s.branches
-                    .iter()
-                    .filter_map(|b| b.name.strip_prefix("refs/heads/").map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
         let options = cx.new(|cx| {
             let name =
                 cx.new(|cx| InputState::new(window, cx).default_value(prepared.name.clone()));
@@ -208,13 +219,15 @@ impl Review {
         });
         let focus = options.read(cx).name.read(cx).focus_handle(cx);
         let owner = cx.entity().downgrade();
-        let repo = self.repo.clone();
+        let repo = repository;
+        let project_path = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, cx| {
             let confirm = options.clone();
             let close = options.clone();
             let owner = owner.clone();
             let repo = repo.clone();
             let prepared = prepared.clone();
+            let project_path = project_path.clone();
             dialog
                 .title(format!("{} {}", t("Rename Branch"), prepared.name))
                 .w(px(540.))
@@ -231,6 +244,7 @@ impl Review {
                     let owner = owner.clone();
                     let repo = repo.clone();
                     let prepared = prepared.clone();
+                    let project_path = project_path.clone();
                     confirm.update(cx, |s, cx| {
                         if s.busy || s.closed || s.invalid(cx) {
                             return;
@@ -240,7 +254,7 @@ impl Review {
                         let name = plico::branch_create::clean_name(&s.name.read(cx).value());
                         let unset = s.unset;
                         let token = s.token.clone();
-                        let path = repo.path.clone();
+                        let repository = repo.clone();
                         s.task = cx.spawn_in(w, async move |this, wx| {
                             let checked = name.clone();
                             let result = wx
@@ -267,8 +281,10 @@ impl Review {
                                 if ready {
                                     w.close_dialog(cx);
                                     let _ = owner.update(cx, |s, cx| {
-                                        if s.repo.path == path {
-                                            s.execute_branch_rename(prepared, name, unset, w, cx);
+                                        if s.repo.path == project_path {
+                                            s.execute_branch_rename(
+                                                repository, prepared, name, unset, w, cx,
+                                            );
                                         }
                                     });
                                 }
@@ -287,8 +303,9 @@ impl Review {
         });
         focus.focus(window, cx);
     }
-    fn execute_branch_rename(
+    pub(super) fn execute_branch_rename(
         &mut self,
+        repository: Repository,
         prepared: Prepared,
         name: String,
         unset: bool,
@@ -303,7 +320,9 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Renaming branch…").into());
-        let repo = self.repo.clone();
+        let repo = repository;
+        let primary = repo.path == self.repo.path;
+        let project_path = self.repo.path.clone();
         let old_ref = format!("refs/heads/{}", prepared.name);
         let new_ref = format!("refs/heads/{name}");
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
@@ -323,6 +342,9 @@ impl Review {
                 let Some(cancelled) = s.finish_operation(id, cx) else {
                     return;
                 };
+                if s.repo.path != project_path {
+                    return;
+                }
                 let (success, renamed, error) = match result {
                     Ok(r) => {
                         let success = r.succeeded();
@@ -331,7 +353,7 @@ impl Review {
                     }
                     Err(e) => (false, false, Some(e)),
                 };
-                if renamed {
+                if renamed && primary {
                     // Keep an explicitly selected branch attached to its renamed ref.
                     // Favorites remain name-scoped, matching DvcsBranchManager storage.
                     for reference in &mut s.branch_filter {
@@ -361,5 +383,115 @@ impl Review {
             });
         });
         cx.notify();
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+
+    #[gpui::test]
+    fn child_rename_preserves_parent_reference_and_filter(cx: &mut gpui::TestAppContext) {
+        fn git(path: &std::path::Path, args: &[&str]) -> String {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{args:?}: {output:?}");
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        }
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("plico-child-rename-{}-{nonce}", std::process::id())),
+        );
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        for path in [&parent, &child] {
+            std::fs::create_dir_all(path).unwrap();
+            for args in [
+                vec!["init", "-q", "-b", "main"],
+                vec!["config", "user.name", "Test"],
+                vec!["config", "user.email", "test@example.invalid"],
+                vec!["config", "commit.gpgsign", "false"],
+                vec!["config", "core.hooksPath", "disabled-hooks"],
+            ] {
+                git(path, &args);
+            }
+            std::fs::write(path.join("file"), path.display().to_string()).unwrap();
+            git(path, &["add", "file"]);
+            git(path, &["commit", "-qm", "base"]);
+        }
+        let parent_head = git(&parent, &["rev-parse", "HEAD"]);
+        let child_head = git(&child, &["rev-parse", "HEAD"]);
+        git(&child, &["branch", "child-only"]);
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(parent.clone(), 100, None, window, cx));
+            review = Some(view.clone());
+            gpui::component::Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.branch_filter = vec!["refs/heads/main".into()];
+                s.selected_tree_ref = Some("refs/heads/main".into());
+                s.prepare_rename_branch_in(
+                    Repository::new(&child),
+                    "refs/heads/child-only".into(),
+                    child_head.clone(),
+                    window,
+                    cx,
+                );
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            assert!(
+                window.has_active_dialog(cx),
+                "child-only branch must prepare without using the parent snapshot"
+            );
+            window.close_dialog(cx);
+            let prepared = Prepared::read(
+                &Repository::new(&child),
+                "refs/heads/main",
+                &Cancel::default(),
+            )
+            .unwrap();
+            review.update(cx, |s, cx| {
+                s.execute_branch_rename(
+                    Repository::new(&child),
+                    prepared,
+                    "renamed".into(),
+                    false,
+                    window,
+                    cx,
+                )
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(git(&child, &["branch", "--show-current"]), "renamed");
+        assert_eq!(git(&child, &["rev-parse", "HEAD"]), child_head);
+        assert_eq!(git(&parent, &["branch", "--show-current"]), "main");
+        assert_eq!(git(&parent, &["rev-parse", "HEAD"]), parent_head);
+        review.read_with(cx, |s, _| {
+            assert_eq!(s.repo.path, parent);
+            assert_eq!(s.branch_filter, ["refs/heads/main"]);
+            assert_eq!(s.selected_tree_ref.as_deref(), Some("refs/heads/main"));
+        });
     }
 }

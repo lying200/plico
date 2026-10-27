@@ -7,6 +7,50 @@ use crate::{
 };
 use std::time::Duration;
 
+/// Ancestry display and policy share one history walk, retaining remote identity.
+pub struct Membership {
+    pub names: Vec<String>,
+    pub(crate) remote_refs: Vec<String>,
+}
+impl Membership {
+    pub fn default_protected_branch(
+        &self,
+        repo: &Repository,
+        token: &Cancel,
+    ) -> Result<Option<String>, String> {
+        // Only exact protected-name candidates need the lightweight remote config lookup.
+        // Local branches and remote feature/main must not be confused with remote main.
+        let candidates = self
+            .remote_refs
+            .iter()
+            .filter(|reference| matches!(reference.rsplit('/').next(), Some("main" | "master")))
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let remotes = repo
+            .fetch_specs(token)?
+            .into_iter()
+            .map(|s| s.remote().to_owned())
+            .collect::<Vec<_>>();
+        for reference in candidates {
+            // GitUtil.parseRemoteBranch chooses the first configured prefix, and
+            // falls back to the first slash for orphan remote-tracking references.
+            let target = crate::pull::parse_remote_ref(reference, &remotes).or_else(|| {
+                let (remote, branch) = reference.strip_prefix("refs/remotes/")?.split_once('/')?;
+                Some(Target {
+                    remote: remote.into(),
+                    branch: branch.into(),
+                })
+            });
+            if let Some(target) = target.filter(default_protected) {
+                return Ok(Some(format!("{}/{}", target.remote, target.branch)));
+            }
+        }
+        Ok(None)
+    }
+}
+
 /// GitSharedSettings defaults. Custom Java regex/provider rules belong to the
 /// settings layer and must supply their resulting target set to the check.
 pub fn default_protected(target: &Target) -> bool {

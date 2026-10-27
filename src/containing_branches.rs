@@ -8,9 +8,11 @@ use plico::git::{Cancel, Repository};
 use plico::i18n::{self, t};
 
 pub struct ContainingBranches {
+    identity: Option<(std::path::PathBuf, String)>,
     token: Cancel,
     _task: Task<()>,
     result: Option<Result<Vec<String>, String>>,
+    protected: Option<Result<Option<String>, String>>,
     expanded: bool,
     width: Pixels,
     link_focus: FocusHandle,
@@ -21,11 +23,32 @@ impl Drop for ContainingBranches {
     }
 }
 impl ContainingBranches {
+    /// Unknown, failed, or unrelated queries defer to the operation's authoritative check.
+    pub fn contains_head(&self, root: &std::path::Path, hash: &str) -> Option<bool> {
+        let (query_root, query_hash) = self.identity.as_ref()?;
+        if query_root != root || query_hash != hash {
+            return None;
+        }
+        self.result
+            .as_ref()?
+            .as_ref()
+            .ok()
+            .map(|branches| branches.iter().any(|branch| branch == "HEAD"))
+    }
+    pub fn is_protected(&self, root: &std::path::Path, hash: &str) -> Option<bool> {
+        let (query_root, query_hash) = self.identity.as_ref()?;
+        if query_root != root || query_hash != hash {
+            return None;
+        }
+        self.protected.as_ref()?.as_ref().ok().map(Option::is_some)
+    }
     pub fn pending(cx: &mut Context<Self>) -> Self {
         Self {
+            identity: None,
             token: Cancel::default(),
             _task: Task::ready(()),
             result: None,
+            protected: None,
             expanded: false,
             width: px(0.),
             link_focus: cx.focus_handle().tab_stop(true),
@@ -34,21 +57,51 @@ impl ContainingBranches {
     // One entity per selection. Its weak task cannot update a later selection,
     // even if the cancelled Git process finishes after the replacement query.
     pub fn new(repo: Repository, id: String, cx: &mut Context<Self>) -> Self {
+        let identity = Some((repo.path.clone(), id.clone()));
         let token = Cancel::default();
         let query_token = token.clone();
         let task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move { repo.containing_branches(&id, &query_token) })
+            let query_repo = repo.clone();
+            let query = query_token.clone();
+            let membership = cx
+                .background_spawn(async move { query_repo.branch_membership(&id, &query) })
+                .await;
+            let mut membership = match membership {
+                Ok(membership) => membership,
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.result = Some(Err(error));
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let names = std::mem::take(&mut membership.names);
+            if this
+                .update(cx, |this, cx| {
+                    this.result = Some(Ok(names));
+                    cx.notify();
+                })
+                .is_err()
+            {
+                return;
+            }
+            let protected = cx
+                .background_spawn(async move {
+                    membership.default_protected_branch(&repo, &query_token)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.result = Some(result);
+                this.protected = Some(protected);
                 cx.notify();
             });
         });
         Self {
+            identity,
             token,
             _task: task,
             result: None,
+            protected: None,
             expanded: false,
             width: px(0.),
             link_focus: cx.focus_handle().tab_stop(true),
@@ -72,18 +125,29 @@ impl Batch {
         cards: Vec<(String, WeakEntity<ContainingBranches>)>,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::from_roots(
+            cards
+                .into_iter()
+                .map(|(id, card)| (repo.clone(), id, card))
+                .collect(),
+            cx,
+        )
+    }
+    pub fn from_roots(
+        cards: Vec<(Repository, String, WeakEntity<ContainingBranches>)>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let token = Cancel::default();
         let query_token = token.clone();
         let task = cx.spawn(async move |this, cx| {
             let mut remaining = plico::git::OUTPUT_LIMIT;
-            for (id, card) in cards {
+            for (repo, id, card) in cards {
                 if query_token.cancelled() {
                     break;
                 }
                 let result = if remaining == 0 {
                     Err("Containing branches exceed the selection output limit".to_owned())
                 } else {
-                    let repo = repo.clone();
                     let token = query_token.clone();
                     cx.background_spawn(async move { repo.containing_branches(&id, &token) })
                         .await
@@ -282,5 +346,107 @@ impl Render for ContainingBranches {
                 panel
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use super::*;
+
+    #[gpui::test]
+    fn batch_queries_same_hash_in_each_cards_repository(cx: &mut gpui::TestAppContext) {
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        fn git(path: &std::path::Path, args: &[&str]) -> String {
+            let result = std::process::Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            String::from_utf8(result.stdout).unwrap().trim().into()
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let name = format!("plico-containing-roots-{}-{nonce}", std::process::id());
+        let fixture = Fixture(std::env::temp_dir().join(name));
+        let first = fixture.0.join("first");
+        let second = fixture.0.join("second");
+        for path in [&first, &second] {
+            std::fs::create_dir_all(path).unwrap();
+            git(path, &["init", "-q", "-b", "main"]);
+        }
+        git(
+            &first,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=disabled-hooks",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "base",
+            ],
+        );
+        let hash = git(&first, &["rev-parse", "HEAD"]);
+        git(&second, &["fetch", first.to_str().unwrap(), "main"]);
+        git(&second, &["reset", "--hard", "FETCH_HEAD"]);
+        git(&first, &["branch", "first-only"]);
+        git(&second, &["branch", "second-only"]);
+        cx.update(gpui::component::init);
+        let first_card = cx.new(ContainingBranches::pending);
+        let second_card = cx.new(ContainingBranches::pending);
+        let batch = cx.new(|cx| {
+            Batch::from_roots(
+                vec![
+                    (
+                        Repository::new(&first),
+                        hash.clone(),
+                        first_card.downgrade(),
+                    ),
+                    (Repository::new(&second), hash, second_card.downgrade()),
+                ],
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        for (card, expected, absent) in [
+            (&first_card, "first-only", "second-only"),
+            (&second_card, "second-only", "first-only"),
+        ] {
+            card.read_with(cx, |s, _| {
+                let result = s.result.as_ref().unwrap().as_ref().unwrap();
+                assert!(
+                    result.iter().any(|name| name.ends_with(expected)),
+                    "{result:?}"
+                );
+                assert!(
+                    !result.iter().any(|name| name.ends_with(absent)),
+                    "{result:?}"
+                );
+            });
+        }
+        let token = batch.read_with(cx, |s, _| s.token.clone());
+        drop(batch);
+        cx.update(|_| {});
+        assert!(token.cancelled());
     }
 }

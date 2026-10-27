@@ -1,4 +1,5 @@
 pub mod authors;
+pub mod branch_context;
 pub mod branches;
 pub mod date_filter;
 pub mod diff_target;
@@ -12,6 +13,8 @@ pub mod graph_print;
 pub mod history;
 pub mod layout_preferences;
 pub mod lookup_layout;
+pub mod project_log;
+pub mod project_sequence;
 pub mod ref_labels;
 
 pub mod user_filter;
@@ -232,13 +235,10 @@ pub mod working_comparison;
 
 pub mod tree_selection;
 
-pub mod project_repositories;
+pub mod submodule_update;
 pub mod submodules;
+pub mod unshallow_notice;
+
+pub mod project_repositories;
 
 pub mod project_operations;
-
-pub mod submodule_update;
-
-pub mod project_log;
-
-pub mod project_sequence;

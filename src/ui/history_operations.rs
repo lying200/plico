@@ -3,21 +3,38 @@
 use super::*;
 
 impl Review {
-    pub(super) fn confirm_abort_rebase(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn confirm_abort_rebase_in(
+        &mut self,
+        repository: Repository,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.operation.busy() {
             return;
         }
         let owner = cx.entity().downgrade();
-        let path = self.repo.path.clone();
+        let path = repository.path.clone();
+        let project_path = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, _| {
             let owner = owner.clone();
             let path = path.clone();
+            let repository = repository.clone();
+            let project_path = project_path.clone();
             dialog
                 .title(t("Abort Rebase"))
                 .w(px(460.))
                 .centered(true)
                 .overlay_closable(false)
-                .child(div().child(t("Abort the rebase in this repository?")))
+                .child(
+                    div()
+                        .whitespace_normal()
+                        .child(plico::i18n::abort_rebase_question(
+                            &path
+                                .file_name()
+                                .unwrap_or(path.as_os_str())
+                                .to_string_lossy(),
+                        )),
+                )
                 .child(div().truncate().child(path.display().to_string()))
                 .footer(crate::dialog_style::confirmation(
                     Button::new("abort-rebase-confirm")
@@ -26,33 +43,37 @@ impl Review {
                 ))
                 .on_ok(move |_, window, cx| {
                     let _ = owner.update(cx, |s, cx| {
-                        if s.repo.path == path {
-                            s.start_rebase_operation(true, window, cx);
+                        if s.repo.path == project_path {
+                            s.start_rebase_operation_in(repository.clone(), true, window, cx);
                         }
                     });
                     true
                 })
         });
     }
+    /// Squash edits one repository's history; hashes alone are insufficient.
+    pub(super) fn squash_selection_is_single_root(&self) -> bool {
+        let ids = self.commit_ids();
+        let selected = self.log_selection.ordered(&ids);
+        selected.len() >= 2 && selected.iter().all(|id| id.root == selected[0].root)
+    }
     pub(super) fn prepare_squash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.operation.busy() || self.settings_open || self.welcome {
+        if self.operation.busy()
+            || self.settings_open
+            || self.welcome
+            || !self.squash_selection_is_single_root()
+        {
             return;
         }
         let ids = self.commit_ids();
-        let selected = self
-            .log_selection
-            .ordered(&ids)
+        let selection = self.log_selection.ordered(&ids);
+        let repo = Repository::new(selection[0].root.as_ref());
+        let selected = selection
             .into_iter()
-            .map(str::to_owned)
+            .map(|id| id.hash.clone())
             .collect::<Vec<_>>();
-        if selected.len() < 2 {
-            return;
-        }
-        let Some(head) = self.snapshot.as_ref().and_then(|s| s.head_id.clone()) else {
-            return;
-        };
-        let repo = self.repo.clone();
-        let path = repo.path.clone();
+        // The project guards the dialog lifetime; the selected root owns Git work.
+        let path = self.repo.path.clone();
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Squash,
             plico::active_operation::Phase::Preparing,
@@ -66,6 +87,8 @@ impl Review {
             let result = wx
                 .background_spawn(async move {
                     use plico::{published_commits::Protection, squash_check};
+                    let head = plico::commit_operation::head(&repo, &token)?
+                        .ok_or("There is no HEAD to squash")?;
                     let prepared = squash_check::prepare(
                         &repo,
                         &head,
@@ -97,7 +120,7 @@ impl Review {
                             let owner = cx.entity().downgrade();
                             let path = path.clone();
                             crate::squash_dialog::show(
-                                s.repo.clone(),
+                                prepared.repository(),
                                 prepared.clone(),
                                 draft,
                                 window,
@@ -162,7 +185,7 @@ impl Review {
         self.squash_undo = None;
         let requests = plico::auth_request::Requests::new(token.clone());
         let worker_requests = requests.clone();
-        let repo = self.repo.clone();
+        let repo = prepared.repository();
         let directory_repo = repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
@@ -259,11 +282,13 @@ impl Review {
                                     (!notes.is_empty()).then(|| notes.join("\n"))
                                 }
                             };
-                            let focus = undo
-                                .as_ref()
-                                .and_then(|r| r.as_ref().ok())
-                                .and_then(|u| u.commit_to_focus())
-                                .map(str::to_owned);
+                            let focus = undo.as_ref().and_then(|r| r.as_ref().ok()).and_then(|u| {
+                                u.commit_to_focus()
+                                    .map(|hash| plico::project_log::CommitId {
+                                        root: Arc::new(u.repository().path),
+                                        hash: hash.to_owned(),
+                                    })
+                            });
                             match undo {
                                 Some(Ok(undo)) => s.squash_undo = Some(undo),
                                 Some(Err(error)) => s.rebase_diagnostic = Some(error),
@@ -280,7 +305,7 @@ impl Review {
                             s.operation_state = None;
                             s.user_menu.update(cx, |m, cx| m.refresh(cx));
                             if let Some(target) = focus {
-                                s.navigate_commit_impl(
+                                s.navigate_log_commit(
                                     t("Commits squashed").into(),
                                     target,
                                     false,
@@ -305,6 +330,7 @@ impl Review {
     }
     pub(super) fn prepare_reset(
         &mut self,
+        repo: Repository,
         target: String,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -312,7 +338,6 @@ impl Review {
         if self.operation.busy() || self.operation.saving_documents() || self.welcome {
             return;
         }
-        let repo = self.repo.clone();
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Reset,
             plico::active_operation::Phase::Preparing,
@@ -346,8 +371,11 @@ impl Review {
                         Ok(prepared) => {
                             let prepared = Arc::new(prepared);
                             let owner = cx.entity().downgrade();
+                            let include_repository = prepared.repository().path != s.repo.path
+                                || s.project_roots.read(cx).has_multiple_roots();
                             crate::reset_dialog::show(
                                 prepared.clone(),
+                                include_repository,
                                 w,
                                 cx,
                                 move |mode, w, cx| {
@@ -383,7 +411,7 @@ impl Review {
         if self.operation.busy() || self.welcome {
             return;
         }
-        let repo = self.repo.clone();
+        let repo = prepared.repository();
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Reset,
             plico::active_operation::Phase::Executing,
@@ -466,8 +494,11 @@ impl Review {
         };
         self.status_message = Some(t("Undoing Squash…").into());
         self.rebase_diagnostic = None;
-        let repo = self.repo.clone();
-        let target = undo.commit_to_focus_on_undo().to_owned();
+        let repo = undo.repository();
+        let target = plico::project_log::CommitId {
+            root: Arc::new(repo.path.clone()),
+            hash: undo.commit_to_focus_on_undo().to_owned(),
+        };
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -511,7 +542,7 @@ impl Review {
                     s.user_menu.update(cx, |m, cx| m.refresh(cx));
                     if success {
                         s.squash_undo = None;
-                        s.navigate_commit_impl(
+                        s.navigate_log_commit(
                             t("Squash undone").into(),
                             target,
                             false,
@@ -528,8 +559,10 @@ impl Review {
         });
         cx.notify();
     }
-    pub(super) fn start_rebase_operation(
+    /// Keep the operation owner independent of the project window's primary root.
+    pub(super) fn start_rebase_operation_in(
         &mut self,
+        repository: Repository,
         abort: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -538,8 +571,11 @@ impl Review {
             return;
         }
         if self.documents.pending(cx) {
+            let project_path = self.repo.path.clone();
             self.with_saved_documents(window, cx, move |s, w, cx| {
-                s.start_rebase_operation(abort, w, cx)
+                if s.repo.path == project_path {
+                    s.start_rebase_operation_in(repository, abort, w, cx);
+                }
             });
             return;
         }
@@ -579,7 +615,8 @@ impl Review {
         self.status_message = Some(t("Updating rebase state…").into());
         let requests = plico::auth_request::Requests::new(token.clone());
         let worker_requests = requests.clone();
-        let repo = self.repo.clone();
+        let repo = repository.clone();
+        let project_path = self.repo.path.clone();
         let directory_repo = repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
@@ -640,12 +677,18 @@ impl Review {
                             let Some(cancelled) = s.finish_operation(operation, cx) else {
                                 return;
                             };
+                            if s.repo.path != project_path {
+                                return;
+                            }
                             s.rebase_diagnostic = plico::rebase_operation::diagnostic(&result);
                             let undo = result.as_mut().ok().and_then(|r| r.squash_undo.take());
-                            let focus = undo
-                                .as_ref()
-                                .and_then(|u| u.commit_to_focus())
-                                .map(str::to_owned);
+                            let focus = undo.as_ref().and_then(|u| {
+                                u.commit_to_focus()
+                                    .map(|hash| plico::project_log::CommitId {
+                                        root: Arc::new(u.repository().path),
+                                        hash: hash.to_owned(),
+                                    })
+                            });
                             if let Some(undo) = undo {
                                 s.squash_undo = Some(Arc::new(undo));
                             }
@@ -688,9 +731,20 @@ impl Review {
                             };
                             s.operation_state = None;
                             s.status_message = Some(t(message).into());
+                            s.sync_repository_worktree(
+                                &repository.path,
+                                plico::worktree_events::Batch {
+                                    all: true,
+                                    index: true,
+                                    ..Default::default()
+                                },
+                                true,
+                                w,
+                                cx,
+                            );
                             s.user_menu.update(cx, |menu, cx| menu.refresh(cx));
                             if let Some(target) = focus {
-                                s.navigate_commit_impl(
+                                s.navigate_log_commit(
                                     t("Commits squashed").into(),
                                     target,
                                     false,
@@ -713,8 +767,9 @@ impl Review {
         });
         cx.notify();
     }
-    pub(super) fn start_merge_operation(
+    pub(super) fn start_merge_operation_in(
         &mut self,
+        repository: Repository,
         action: plico::merge_operation::Action,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -724,7 +779,7 @@ impl Review {
         }
         if self.documents.pending(cx) {
             self.with_saved_documents(window, cx, move |s, w, cx| {
-                s.start_merge_operation(action, w, cx)
+                s.start_merge_operation_in(repository, action, w, cx)
             });
             return;
         }
@@ -739,8 +794,12 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Updating merge state…").into());
-        let repo = self.repo.clone();
-        let pending = self.pending_branch_merge.clone();
+        let repo = repository.clone();
+        let project_path = self.repo.path.clone();
+        let pending = self.pending_branch_merge.clone().filter(|p| {
+            plico::recent_projects::identity(&p.repository().path)
+                == plico::recent_projects::identity(&repository.path)
+        });
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -770,6 +829,9 @@ impl Review {
                     let Some(cancelled) = s.finish_operation(operation, cx) else {
                         return;
                     };
+                    if s.repo.path != project_path {
+                        return;
+                    }
                     let (result, proposal) = result;
                     if !cancelled {
                         s.merged_branch = proposal;
@@ -778,7 +840,12 @@ impl Review {
                         .as_ref()
                         .is_ok_and(|r| r.state.as_ref().is_ok_and(|s| !s.in_progress()))
                     {
-                        s.pending_branch_merge = None;
+                        if s.pending_branch_merge.as_ref().is_some_and(|p| {
+                            plico::recent_projects::identity(&p.repository().path)
+                                == plico::recent_projects::identity(&repository.path)
+                        }) {
+                            s.pending_branch_merge = None;
+                        }
                     }
                     let restore_error = result
                         .as_ref()
@@ -819,7 +886,8 @@ impl Review {
                     };
                     s.operation_state = None;
                     s.status_message = Some(t(message).into());
-                    s.sync_worktree(
+                    s.sync_repository_worktree(
+                        &repository.path,
                         plico::worktree_events::Batch {
                             all: true,
                             index: true,
@@ -839,5 +907,228 @@ impl Review {
             });
         });
         cx.notify();
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod selection_tests {
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use gpui::component::Root;
+
+    #[gpui::test]
+    fn rebase_abort_targets_child_and_preserves_parent(cx: &mut gpui::TestAppContext) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        fn git(root: &std::path::Path, args: &[&str]) -> String {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{args:?}: {output:?}");
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "plico-rebase-root-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )));
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        let mut original = Vec::new();
+        for root in [&parent, &child] {
+            std::fs::create_dir_all(root).unwrap();
+            git(root, &["init", "-q", "-b", "main"]);
+            git(root, &["config", "user.name", "Test"]);
+            git(root, &["config", "user.email", "test@example.test"]);
+            std::fs::write(root.join("same.txt"), "base\n").unwrap();
+            git(root, &["add", "."]);
+            git(root, &["commit", "-qm", "base"]);
+            git(root, &["checkout", "-qb", "topic"]);
+            std::fs::write(root.join("same.txt"), "topic\n").unwrap();
+            git(root, &["commit", "-qam", "topic"]);
+            original.push(git(root, &["rev-parse", "HEAD"]));
+            git(root, &["checkout", "main"]);
+            std::fs::write(root.join("same.txt"), "main\n").unwrap();
+            git(root, &["commit", "-qam", "main"]);
+            git(root, &["checkout", "topic"]);
+            let result = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["rebase", "main"])
+                .output()
+                .unwrap();
+            assert!(!result.status.success());
+            assert!(root.join(".git/rebase-merge").exists());
+        }
+        let parent_head = git(&parent, &["rev-parse", "HEAD"]);
+        let parent_index = git(&parent, &["ls-files", "-u"]);
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.welcome = false;
+                s.repo = Repository::new(&parent);
+                s.start_rebase_operation_in(Repository::new(&child), true, window, cx);
+                assert!(s.operation.busy());
+            })
+        });
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert!(!s.operation.busy());
+            assert!(s.rebase_diagnostic.is_none(), "{:?}", s.rebase_diagnostic);
+        });
+        assert_eq!(git(&child, &["rev-parse", "HEAD"]), original[1]);
+        assert!(!child.join(".git/rebase-merge").exists());
+        assert!(git(&child, &["ls-files", "-u"]).is_empty());
+        assert_eq!(git(&parent, &["rev-parse", "HEAD"]), parent_head);
+        assert_eq!(git(&parent, &["ls-files", "-u"]), parent_index);
+        assert!(parent.join(".git/rebase-merge").exists());
+    }
+
+    #[gpui::test]
+    fn squash_prepares_selected_child_without_primary_head(cx: &mut gpui::TestAppContext) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+                "plico-squash-owner-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )));
+        let child = fixture.0.join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["config", "user.name", "Test"],
+            vec!["config", "user.email", "test@example.test"],
+            vec!["commit", "--allow-empty", "-m", "base"],
+            vec!["commit", "--allow-empty", "-m", "first"],
+            vec!["commit", "--allow-empty", "-m", "second"],
+        ] {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&child)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+        }
+        let commits = Repository::new(&child)
+            .snapshot(None, 2, None, &Cancel::default())
+            .unwrap()
+            .commits;
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.welcome = false;
+                s.repo = Repository::new(&fixture.0); // No primary Git repository or HEAD.
+                s.commits = Arc::new(commits);
+                s.rows = Arc::new(graph::layout(&s.commits));
+                let ids = s
+                    .commits
+                    .iter()
+                    .map(|commit| plico::project_log::CommitId {
+                        root: Arc::new(child.clone()),
+                        hash: commit.id.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log_selection.select(&ids, 0, false, false);
+                s.log_selection.select(&ids, 1, false, true);
+                s.prepare_squash(window, cx);
+                assert!(
+                    s.operation.busy(),
+                    "child selection must begin preparation without primary HEAD"
+                );
+            })
+        });
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert!(!s.operation.busy());
+            assert!(s.status_message.is_none(), "{:?}", s.status_message);
+            assert!(s.rebase_diagnostic.is_none(), "{:?}", s.rebase_diagnostic);
+        });
+    }
+
+    #[gpui::test]
+    fn squash_rejects_cross_root_selection_before_starting_work(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.welcome = false;
+                s.commits = Arc::new(
+                    ["a", "b"]
+                        .into_iter()
+                        .map(|hash| Commit {
+                            id: hash.repeat(40),
+                            parents: vec![],
+                            shallow_boundary: false,
+                            committer_timestamp: 0,
+                            author: String::new(),
+                            date: String::new(),
+                            subject: String::new(),
+                            refs: vec![],
+                        })
+                        .collect(),
+                );
+                let child = Arc::new(PathBuf::from("child"));
+                let mut ids = s
+                    .commits
+                    .iter()
+                    .map(|commit| plico::project_log::CommitId {
+                        root: child.clone(),
+                        hash: commit.id.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log_selection.select(&ids, 0, false, false);
+                assert!(!s.squash_selection_is_single_root());
+                s.log_selection.select(&ids, 1, false, true);
+                assert!(s.squash_selection_is_single_root());
+                ids[1].root = Arc::new(PathBuf::from("parent"));
+                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log_selection.select(&ids, 0, false, false);
+                s.log_selection.select(&ids, 1, false, true);
+                assert!(!s.squash_selection_is_single_root());
+                s.prepare_squash(window, cx);
+                assert!(!s.operation.busy());
+                assert!(s.status_message.is_none());
+                s.log_sources = Some(Arc::new(vec![ids[0].clone()]));
+                assert!(!s.squash_selection_is_single_root());
+            })
+        });
     }
 }

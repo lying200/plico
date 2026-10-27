@@ -11,6 +11,7 @@ use crate::{
 use std::path::PathBuf;
 
 pub struct Undo {
+    root: PathBuf,
     directory: PathBuf,
     old_head: String,
     new_head: String,
@@ -40,6 +41,10 @@ impl ResultState {
     }
 }
 impl Undo {
+    /// Keep Undo tied to the worktree that produced this result.
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.root)
+    }
     pub fn commit_to_focus(&self) -> Option<&str> {
         self.first_changed.as_deref()
     }
@@ -110,6 +115,7 @@ impl Undo {
             return Err("Original Squash history is invalid or exceeds limit".into());
         }
         let action = Self {
+            root: repo.path.clone(),
             directory: repo.editor_directory(token)?,
             old_head: old_head.to_owned(),
             new_head: new_head.to_owned(),

@@ -2,18 +2,19 @@
 use gpui_kit::component::{radio::Radio, v_flex};
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use plico::{
-    i18n::t, merge_update::Request, project_update_preferences::Preferences, update_method::Method,
+    i18n::t, project_update::Prepared, project_update_preferences::Preferences,
+    update_method::Method,
 };
 
 pub struct Options {
-    pub request: Option<Request>,
+    pub request: Option<Prepared>,
     pub method: Method,
     pub show_options: bool,
     preferences: Preferences,
     error: Option<String>,
 }
 impl Options {
-    pub fn new(request: Request, preferences: Preferences) -> Self {
+    pub fn new(request: Prepared, preferences: Preferences) -> Self {
         Self {
             request: Some(request),
             method: preferences.method,

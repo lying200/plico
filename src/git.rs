@@ -717,6 +717,35 @@ impl Repository {
         }
         Ok(specs)
     }
+    pub fn is_shallow(&self, token: &Cancel) -> Result<bool> {
+        match self
+            .text(&["rev-parse", "--is-shallow-repository"], token)?
+            .trim()
+        {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err("Invalid shallow repository state".into()),
+        }
+    }
+    /// GitUnshallowRepositoryAction uses the default fetch remote, not every remote.
+    /// Revalidate on the worker rather than trusting a displayed Log snapshot.
+    pub fn unshallow_spec(&self, token: &Cancel) -> Result<crate::fetch::Spec> {
+        if !self.is_shallow(token)? {
+            return Err("Repository already has complete history".into());
+        }
+        let targets = self.pull_targets(token)?;
+        let remote = crate::fetch::default_remote(
+            &targets.remotes,
+            targets
+                .tracked
+                .as_ref()
+                .map(|target| target.remote.as_str()),
+        )
+        .ok_or("No default remote to fetch")?;
+        let mut spec = crate::fetch::Spec::new(remote.to_owned())?;
+        spec.unshallow = true;
+        Ok(spec)
+    }
     pub(crate) fn command(&self) -> Command {
         let mut c = self.operation_command();
         c.env("GIT_NO_LAZY_FETCH", "1")
@@ -797,6 +826,14 @@ impl Repository {
             .any(|known| known.remote() == spec.remote())
         {
             return Err("Fetch remote is no longer configured".into());
+        }
+        if spec.unshallow
+            && self
+                .text(&["rev-parse", "--is-shallow-repository"], token)?
+                .trim()
+                != "true"
+        {
+            return Err("Repository already has complete history".into());
         }
         let mut command = self.operation_command();
         command.args(spec.args()?);
@@ -1670,6 +1707,15 @@ impl Repository {
     /// loaded history window. Only query the selected commit; retain no cache.
     /// HEAD is included when reachable, matching Rebased's graph-backed list.
     pub fn containing_branches(&self, id: &str, token: &Cancel) -> Result<Vec<String>> {
+        self.branch_membership(id, token)
+            .map(|membership| membership.names)
+    }
+
+    pub fn branch_membership(
+        &self,
+        id: &str,
+        token: &Cancel,
+    ) -> Result<crate::published_commits::Membership> {
         if !is_oid(id) {
             return Err("Invalid commit ID".into());
         }
@@ -1690,6 +1736,7 @@ impl Repository {
         let output = utf8(output)?;
         let mut branches = Vec::new();
         let mut head = false;
+        let mut remote_refs = Vec::new();
         for record in output.lines() {
             let fields: Vec<_> = record.split('\0').collect();
             if fields.len() != 3 || !matches!(fields[0], " " | "*") {
@@ -1712,6 +1759,7 @@ impl Repository {
                 if !fields[2].is_empty() {
                     continue;
                 }
+                remote_refs.push(fields[1].to_owned());
                 (
                     if matches!(name, "origin/main" | "origin/master") {
                         3
@@ -1737,7 +1785,7 @@ impl Repository {
             names.push("HEAD".into());
         }
         names.extend(branches.into_iter().map(|(_, name)| name));
-        Ok(names)
+        Ok(crate::published_commits::Membership { names, remote_refs })
     }
 
     pub(crate) fn shallow_boundaries(&self, token: &Cancel) -> Result<(bool, HashSet<String>)> {

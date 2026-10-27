@@ -12,14 +12,27 @@ impl Review {
             .icon_size(px(16.))
             .tooltip(t("Main menu"))
             .accessibility_label(t("Main menu"))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|s, _, window, cx| {
+                    s.main_menu_unshallow = s.unshallow_repository(window, cx);
+                }),
+            )
+            .on_key_down(cx.listener(|s, _, window, cx| {
+                s.main_menu_unshallow = s.unshallow_repository(window, cx);
+            }))
             .dropdown_menu(move |menu, window, cx| {
                 let owner = owner.clone();
+                let unshallow = owner
+                    .upgrade()
+                    .and_then(|owner| owner.read(cx).main_menu_unshallow.clone());
                 menu.submenu("Git", window, cx, move |mut menu, _, _| {
                     for (label, action) in [
                         ("Push", 0),
                         ("Update Project", 3),
                         ("Pull", 1),
                         ("Fetch", 2),
+                        ("Unshallow repository", 10),
                         ("Git Remotes", 4),
                         ("Reflog", 6),
                         ("Worktrees", 9),
@@ -27,7 +40,11 @@ impl Review {
                         ("Clone Repository…", 5),
                         ("Create Git Repository…", 8),
                     ] {
+                        if action == 10 && unshallow.is_none() {
+                            continue;
+                        }
                         let owner = owner.clone();
+                        let unshallow = unshallow.clone();
                         menu = menu.item(PopupMenuItem::new(t(label)).disabled(disabled).on_click(
                             move |_, window, cx| {
                                 let _ = owner.update(cx, |s, cx| {
@@ -45,6 +62,11 @@ impl Review {
                                         7 => s.open_tag(window, cx),
                                         8 => s.open_init(window, cx),
                                         9 => s.open_worktrees(window, cx),
+                                        10 => {
+                                            if let Some(repo) = unshallow.clone() {
+                                                s.start_unshallow(repo, window, cx);
+                                            }
+                                        }
                                         _ => s.start_fetch(window, cx),
                                     }
                                 });
@@ -295,85 +317,50 @@ impl Review {
                     )
                 },
             )
-            .when(
-                self.operation_state
-                    .as_ref()
-                    .is_some_and(|state| !state.conflicts.is_empty()),
-                |v| {
+            .when(self.project_has_conflicts(cx), |v| {
+                v.child(
+                    titlebar_button("resolve-conflicts")
+                        .label(t("Resolve Conflicts…"))
+                        .disabled(self.operation.busy() || self.settings_open)
+                        .on_click(cx.listener(|s, _, w, cx| s.open_conflicts(w, cx))),
+                )
+            })
+            .when(!self.merge_roots(cx).is_empty(), |v| {
+                v.when(!self.project_has_conflicts(cx), |v| {
                     v.child(
-                        titlebar_button("resolve-conflicts")
-                            .label(t("Resolve Conflicts…"))
-                            .disabled(self.operation.busy() || self.settings_open)
-                            .on_click(cx.listener(|s, _, w, cx| s.open_conflicts(w, cx))),
-                    )
-                },
-            )
-            .when(
-                self.operation_state.as_ref().is_some_and(|state| {
-                    state.operation == plico::operation_state::Operation::Merge
-                }),
-                |v| {
-                    v.when(
-                        self.operation_state
-                            .as_ref()
-                            .is_some_and(|state| state.conflicts.is_empty()),
-                        |v| {
-                            v.child(
-                                titlebar_button("complete-merge")
-                                    .primary()
-                                    .label(t("Complete Merge"))
-                                    .disabled(self.operation.busy() || self.settings_open)
-                                    .on_click(cx.listener(|s, _, w, cx| {
-                                        s.start_merge_operation(
-                                            plico::merge_operation::Action::Commit,
-                                            w,
-                                            cx,
-                                        )
-                                    })),
-                            )
-                        },
-                    )
-                    .child(
-                        titlebar_button("abort-merge")
-                            .label(t("Abort Merge"))
-                            .disabled(self.operation.busy() || self.settings_open)
-                            .on_click(cx.listener(|s, _, w, cx| s.confirm_abort_merge(w, cx))),
-                    )
-                },
-            )
-            .when(
-                self.operation_state.as_ref().is_some_and(|state| {
-                    matches!(
-                        state.operation,
-                        plico::operation_state::Operation::RebaseApply
-                            | plico::operation_state::Operation::RebaseMerge
-                    )
-                }),
-                |v| {
-                    v.child(
-                        titlebar_button("continue-rebase")
+                        titlebar_button("complete-merge")
                             .primary()
-                            .label(t("Continue Rebase"))
-                            .disabled(
-                                self.operation.busy()
-                                    || self.settings_open
-                                    || self
-                                        .operation_state
-                                        .as_ref()
-                                        .is_some_and(|state| !state.conflicts.is_empty()),
-                            )
-                            .on_click(
-                                cx.listener(|s, _, w, cx| s.start_rebase_operation(false, w, cx)),
-                            ),
-                    )
-                    .child(
-                        titlebar_button("abort-rebase")
-                            .label(t("Abort Rebase"))
+                            .label(t("Complete Merge"))
                             .disabled(self.operation.busy() || self.settings_open)
-                            .on_click(cx.listener(|s, _, w, cx| s.confirm_abort_rebase(w, cx))),
+                            .on_click(cx.listener(|s, _, w, cx| {
+                                s.choose_merge_root(plico::merge_operation::Action::Commit, w, cx)
+                            })),
                     )
-                },
-            )
+                })
+                .child(
+                    titlebar_button("abort-merge")
+                        .label(t("Abort Merge"))
+                        .disabled(self.operation.busy() || self.settings_open)
+                        .on_click(cx.listener(|s, _, w, cx| {
+                            s.choose_merge_root(plico::merge_operation::Action::Abort, w, cx)
+                        })),
+                )
+            })
+            .when(!self.rebase_roots(cx).is_empty(), |v| {
+                v.child(
+                    titlebar_button("continue-rebase")
+                        .primary()
+                        .label(t("Continue Rebase"))
+                        .disabled(self.operation.busy() || self.settings_open)
+                        .on_click(cx.listener(|s, _, w, cx| s.choose_rebase_root(false, w, cx))),
+                )
+                .child(
+                    titlebar_button("abort-rebase")
+                        .label(t("Abort Rebase"))
+                        .disabled(self.operation.busy() || self.settings_open)
+                        .on_click(cx.listener(|s, _, w, cx| s.choose_rebase_root(true, w, cx))),
+                )
+            })
             .child(div().flex_1())
             .child(
                 titlebar_button("settings")

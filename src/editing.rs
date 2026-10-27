@@ -1,5 +1,5 @@
 //! Shared working-tree documents. Source tabs and local diffs use the same
-//! editor entity, save queue and disk baseline for a repository-relative path.
+//! editor entity, save queue and disk baseline for a repository root and relative path.
 mod external;
 
 use gpui_kit::component::input::{EditorState, InputEvent, RopeExt as _};
@@ -9,16 +9,16 @@ use plico::{file_document::Document, file_save, git::Cancel, project_files::Proj
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     time::Duration,
 };
 
 #[derive(Clone, Default)]
 pub struct Documents {
-    entries: Rc<RefCell<BTreeMap<PathBuf, WeakEntity<Editing>>>>,
+    entries: Rc<RefCell<BTreeMap<(PathBuf, PathBuf), WeakEntity<Editing>>>>,
     locked: Rc<Cell<bool>>,
-    drafts: Rc<RefCell<BTreeMap<PathBuf, Entity<Editing>>>>,
+    drafts: Rc<RefCell<BTreeMap<(PathBuf, PathBuf), Entity<Editing>>>>,
     saved_listener: Rc<RefCell<Option<Rc<dyn Fn(&mut App)>>>>,
 }
 
@@ -74,10 +74,10 @@ impl Documents {
                 .update(cx, |editor, cx| editor.set_readonly(locked, cx));
         }
     }
-    pub fn get(&self, path: &PathBuf) -> Option<Entity<Editing>> {
+    pub fn get(&self, root: &Path, path: &Path) -> Option<Entity<Editing>> {
         self.entries
             .borrow()
-            .get(path)
+            .get(&(root.to_path_buf(), path.to_path_buf()))
             .and_then(WeakEntity::upgrade)
     }
     /// Resolve on the UI thread after asynchronous IO, so a second surface
@@ -90,13 +90,18 @@ impl Documents {
         make_editor: impl FnOnce(&str, &mut App) -> Entity<EditorState>,
         cx: &mut App,
     ) -> Entity<Editing> {
-        if let Some(existing) = self.get(&path) {
+        if let Some(existing) = self.get(&root, &path) {
             return existing;
         }
         let editor = make_editor(document.text(), cx);
         editor.update(cx, |state, cx| state.set_readonly(self.locked(), cx));
-        let editing = cx.new(|cx| Editing::new(root, path.clone(), document, editor, cx));
-        self.insert(path.clone(), &editing);
+        let key = (root.clone(), path.clone());
+        let editing = cx.new(|cx| Editing::new(root, path, document, editor, cx));
+        {
+            let mut entries = self.entries.borrow_mut();
+            entries.retain(|_, weak| weak.upgrade().is_some());
+            entries.insert(key.clone(), editing.downgrade());
+        }
         let listener = Rc::downgrade(&self.saved_listener);
         cx.subscribe(&editing, move |_, _: &Saved, cx| {
             let callback = listener.upgrade().and_then(|slot| slot.borrow().clone());
@@ -119,22 +124,20 @@ impl Documents {
                 return;
             };
             if document.read(cx).pending(cx) {
-                pending.borrow_mut().insert(path.clone(), document);
+                pending.borrow_mut().insert(key.clone(), document);
             } else {
-                pending.borrow_mut().remove(&path);
+                pending.borrow_mut().remove(&key);
             }
         })
         .detach();
         editing
     }
-    pub fn insert(&self, path: PathBuf, document: &Entity<Editing>) {
-        let mut entries = self.entries.borrow_mut();
-        entries.retain(|_, weak| weak.upgrade().is_some());
-        entries.insert(path, document.downgrade());
-    }
-    pub fn retain_pending(&self, path: PathBuf, document: &Entity<Editing>, cx: &App) {
-        if document.read(cx).pending(cx) {
-            self.drafts.borrow_mut().insert(path, document.clone());
+    pub fn retain_pending(&self, document: &Entity<Editing>, cx: &App) {
+        let state = document.read(cx);
+        if state.pending(cx) {
+            self.drafts
+                .borrow_mut()
+                .insert((state.root.clone(), state.path.clone()), document.clone());
         }
     }
     pub fn all(&self) -> Vec<Entity<Editing>> {
@@ -396,15 +399,67 @@ mod reload_tests {
             // The autosave model has not received a committed Change event.
             assert!(!editing.read(cx).document.dirty());
             assert!(documents.pending(cx));
-            documents.retain_pending("a.txt".into(), &editing, cx);
+            documents.retain_pending(&editing, cx);
         });
         drop(editing);
         cx.update(|_, cx| {
             assert!(
                 documents
-                    .get(&"a.txt".into())
+                    .get(
+                        std::path::Path::new("fixture"),
+                        std::path::Path::new("a.txt")
+                    )
                     .is_some_and(|d| d.read(cx).pending(cx))
             )
+        });
+    }
+    #[gpui::test]
+    fn same_named_drafts_in_different_roots_remain_independent(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let documents = Documents::default();
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            for root in ["first", "second"] {
+                let document = documents.get_or_create(
+                    root.into(),
+                    "a.txt".into(),
+                    Document::new(b"old".to_vec()).unwrap(),
+                    |_, cx| {
+                        cx.new(|cx| {
+                            EditorState::new(window, cx).default_value(format!("{root}\0draft"))
+                        })
+                    },
+                    cx,
+                );
+                documents.retain_pending(&document, cx);
+            }
+            Root::new(cx.new(|_| Empty), window, cx)
+        });
+        cx.update(|_, cx| {
+            let first = documents
+                .get(std::path::Path::new("first"), std::path::Path::new("a.txt"))
+                .unwrap();
+            let second = documents
+                .get(
+                    std::path::Path::new("second"),
+                    std::path::Path::new("a.txt"),
+                )
+                .unwrap();
+            assert_ne!(first.entity_id(), second.entity_id());
+            assert_eq!(documents.all().len(), 2);
+            for (root, document) in [("first", first), ("second", second)] {
+                assert_eq!(
+                    document.read(cx).editor.read(cx).text().to_string(),
+                    format!("{root}\0draft")
+                );
+                let again = documents.get_or_create(
+                    root.into(),
+                    "a.txt".into(),
+                    Document::new(b"stale".to_vec()).unwrap(),
+                    |_, _| panic!("must reuse the same root's draft"),
+                    cx,
+                );
+                assert_eq!(again.entity_id(), document.entity_id());
+            }
         });
     }
     #[gpui::test]
@@ -425,7 +480,12 @@ mod reload_tests {
             Root::new(empty, window, cx)
         });
         let editing = editing.unwrap();
-        let shared = documents.get(&"a.txt".into()).unwrap();
+        let shared = documents
+            .get(
+                std::path::Path::new("fixture"),
+                std::path::Path::new("a.txt"),
+            )
+            .unwrap();
         let editor = editing.read_with(cx, |s, _| s.editor.clone());
         cx.update(|window, cx| {
             editing.update(cx, |s, cx| {

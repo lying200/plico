@@ -7092,3 +7092,68 @@ reword各1；包括同hash不同仓库、共享common-dir不同worktree的误用
 /tmp/plico-routing-stage-{format,clippy}.log。验证快照暂不包含第8项root-rebase
 保存格式扩展，branch_create仅使用现有非空base格式，后续类型迁移保留在工作区。
 此次未启动新的Plico/Rebased界面窗口；原生测试程序全部正常结束。
+
+### 多仓库界面与浅克隆完整历史：独立快照交付（2026-10-27）
+
+本提交承接cce90ff、30bf0ac、b9beeee、3f9d421、c0844be的项目核心，将第6项
+多仓库界面及第7项Unshallow共用的活动仓库上下文一起接入。交互式Rebase计划
+界面、编码支持、root-rebase记录格式仍留给第8项，不随本提交纳入。
+
+参考源码仍为4aec35256d765c217aa0d662b82ac4e860c396fd；已安装Rebased
+1.1.20 / IC-262.10968.SNAPSHOT，不混同版本。前置实机及逐步源码读取记录
+保存在本地完整工作记录；这里归拢本提交规则与验收证据：
+
+- GitBranchesTreeMultiRepoModel.kt、GitBranchesTreeSelectedRepoModel.kt、
+  GitDefaultBranchesPopupStep：项目菜单列仓库和公共引用，子菜单固定repository，
+  同名引用按各根解析；浏览菜单不替换项目。GitBranchesPopupBase.kt及
+  SmartExpander.java的嵌套导航规则映射到branch_popup/project、branch_navigation、
+  ui/repository_project、repository_popup及vendor PopupMenu的延后回调/关闭层级。
+- VcsLogMultiRepoJoiner、CommitId、VcsLogFiltererImpl、VcsLogRootFilterImpl及
+  StructureFilterPopupComponent：聚合顺序、选择、Roots/路径条件均保持根身份，
+  过滤后再分页/计数。ui/log_query、log_selection、project_navigation、path_filter、
+  paths_menu、preview_selection、diff_tab共享已提交的project_log数据层；
+  单根失败不伪造空成功结果，切换查询取消旧任务并拒绝迟到结果。
+- GitUpdateProcess、GitSubmoduleUpdater、GitApplyChangesProcess、GitPreservingProcess：
+  detached子模块按父指针更新，附着分支作为普通仓库更新；整组恢复及冲突继续复用
+  已提交核心。ui/project_roots持有成员/状态并发出有范围的事件，auto_refresh、
+  project_merge、conflicts、sequencer/project及worktree_sync据此刷新各自视图。
+  不引入无边界全局事件总线；独立init/sync继续排除。
+- GitCommitEditingOperationResult.kt：Squash完成结果持有原repository；本地
+  squash_undo保存root，详情/Undo/后续定位使用完整仓库身份，保留写前gitdir/HEAD复验。
+- plugins/git4idea/backend/src/actions/GitUnshallowRepositoryAction.kt、
+  backend/src/repo/GitShallowRepositoryCheck.kt及GitFetchSupportImpl.kt：按上下文
+  仓库显示浅克隆入口，沿用fetch认证/取消/失败报告，成功后更新仓库；启动提醒有
+  项目级一次性记录。映射fetch/git、unshallow_notice、ui/unshallow_notice、remote、
+  chrome、project_roots。完成后刷新Log计数并移除浅边界和动作，保留HEAD/index/草稿。
+
+原生参考证据（此前已操作，非仅凭文件路径推断）：本地artifacts目录中
+collaboration-workflows-20261026的rebased-prefix-{before,menu-real,child-scaled,remote}.png，
+以及20261027的rebased-independent-log-default.png、rebased-log-filter-third-final.png；
+Unshallow的rebased-unshallow-failed.png、启动提示和取消/重试记录见此前对应章节。
+参考和本地均用独立仓库/本地bare，不操作用户项目。
+
+本次以索引导出/tmp/plico-project-ui-stage-qbn33p6i验证，避免完整WIP掩盖依赖遗漏。
+首轮缺Squash Undo.repository，补入原仓库快照后：核心918项、完整桌面154项、
+发布配置导航10项通过，均无忽略；fmt及diff检查通过；Clippy结束码0，既有警告保留。
+ContainingBranches资格查询的两个方法暂留给第8项入口；没有全局allow。
+Windows release --bins通过；原生project_branches3项、unshallow5项通过，覆盖各根
+同名引用、无历史引用读取、浅克隆完成/失败/取消/重试及只更新选中child。
+日志/tmp/plico-project-ui-stage-{core,desktop,navigation,format,clippy,windows,windows-tests}.log。
+
+当前快照Windows GUI：自有PID45716，membership-watch-iy0i7jp1/project聚合2/2；
+child菜单展开，点击检出标签或版本弹窗后取消；选择child提交时文件切为child.txt，
+详情是child base/89d758ec；Roots排除project后1/1，重新包含后2/2且保留child详情。
+截图20261027/plico-project-ui-stage-{default,branches-ready,child-scaled,child-checkout,
+child-details,paths,filter-child,filter-restored}.png。最初点击失败是预览缩放坐标错误，
+按原图2182×1361换算后正常，不作产品bug记录。自有窗口已关闭。
+
+Unshallow GUI：自有PID41864，新fixture project-ui-shallow-ilw4jmoe/project，启动提示、
+2/2浅边界、点击获取后的spinner/取消入口、完成5/5及成功消息均可见；Git菜单动作
+隐藏。独立Git验证shallow=false、HEAD仍4b370890、5条提交、工作区干净。截图
+20261027/plico-project-ui-shallow-{before,start,complete,hidden}.png及result.json。
+自有窗口正常关闭。既有分项Update冲突/草稿恢复原生记录仍适用，本次未重复全部写入场景。
+
+交付差异：低内存继续采用分页历史、按需Diff、有界缓存；轻量项目映射不复制IDE模块/VFS。
+操作进度及失败详情复用Plico状态栏，与Rebased通知气泡有视觉差异；未宣称像素级完全一致。
+第6、7项共享界面已可提交，后续仍按总计划审计剩余边界；第8项继续，不宣称全目标完成。
+本地验证不等于CI通过；本轮不推送、不发包。

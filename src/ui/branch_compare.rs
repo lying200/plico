@@ -66,6 +66,19 @@ impl View {
             })
             .collect()
     }
+    pub(super) fn repository_changed(
+        &mut self,
+        root: &std::path::Path,
+        batch: &plico::worktree_events::Batch,
+        cx: &mut Context<Self>,
+    ) {
+        if batch.history_changed()
+            && plico::recent_projects::identity(root)
+                == plico::recent_projects::identity(&self.repo.path)
+        {
+            self.refresh(false, cx);
+        }
+    }
     pub(super) fn refresh(&mut self, force: bool, cx: &mut Context<Self>) {
         self.refresh_request = Default::default();
         let token = self.refresh_request.token.clone();
@@ -600,8 +613,15 @@ impl Pane {
                         if replacing {
                             super::log_viewport::restore(
                                 &s.scroll,
-                                &s.commits,
-                                &page.commits,
+                                &s.commits
+                                    .iter()
+                                    .map(|commit| &commit.id)
+                                    .collect::<Vec<_>>(),
+                                &page
+                                    .commits
+                                    .iter()
+                                    .map(|commit| &commit.id)
+                                    .collect::<Vec<_>>(),
                                 s.offset,
                                 28.,
                             );
@@ -1321,84 +1341,123 @@ impl Review {
         reference: &str,
         cx: &App,
     ) -> PopupMenuItem {
-        let current = owner
-            .upgrade()
-            .and_then(|s| {
-                s.read(cx)
-                    .snapshot
-                    .as_ref()
-                    .and_then(|s| s.current_branch.clone())
-            })
-            .unwrap_or_else(|| "HEAD".into());
+        let Some(review) = owner.upgrade() else {
+            return PopupMenuItem::new(t("Compare Branches")).disabled(true);
+        };
+        let review = review.read(cx);
+        Self::branch_compare_item_in(
+            owner,
+            review.repo.clone(),
+            review.snapshot.as_ref(),
+            reference,
+        )
+    }
+    pub(super) fn branch_compare_item_in(
+        owner: &WeakEntity<Self>,
+        repo: Repository,
+        snapshot: Option<&plico::git::Snapshot>,
+        reference: &str,
+    ) -> PopupMenuItem {
+        let current = snapshot
+            .and_then(|s| s.current_branch.as_deref())
+            .unwrap_or("HEAD");
         let enabled = (reference.starts_with("refs/heads/")
             || reference.starts_with("refs/remotes/"))
             && reference != format!("refs/heads/{current}")
-            && owner.upgrade().is_some_and(|s| {
-                s.read(cx)
-                    .snapshot
-                    .as_ref()
-                    .is_some_and(|s| s.head_id.is_some())
-            });
-        let label = t("Compare with {current}").replace("{current}", &current);
+            && snapshot.is_some_and(|s| s.head_id.is_some());
+        let label = t("Compare with {current}").replace("{current}", current);
+        let current = snapshot
+            .and_then(|s| s.current_branch.as_ref())
+            .map(|name| format!("refs/heads/{name}"))
+            .unwrap_or_else(|| "HEAD".into());
         let owner = owner.clone();
         let reference = reference.to_owned();
         PopupMenuItem::new(label)
             .disabled(!enabled)
             .on_click(move |_, window, cx| {
                 let _ = owner.update(cx, |s, cx| {
-                    s.prepare_branch_comparison(reference.clone(), window, cx)
+                    s.prepare_branch_pair_in(
+                        repo.clone(),
+                        reference.clone(),
+                        current.clone(),
+                        window,
+                        cx,
+                    )
                 });
             })
     }
     pub(super) fn branch_working_comparison_item(
         owner: &WeakEntity<Self>,
         reference: &str,
-        _cx: &App,
+        cx: &App,
     ) -> PopupMenuItem {
-        let enabled =
-            reference.starts_with("refs/heads/") || reference.starts_with("refs/remotes/");
+        let Some(review) = owner.upgrade() else {
+            return PopupMenuItem::new(t("Show Diff with Working Tree")).disabled(true);
+        };
+        let review = review.read(cx);
+        Self::branch_working_comparison_item_in(
+            owner,
+            review.repo.clone(),
+            review.snapshot.as_ref(),
+            reference,
+        )
+    }
+    pub(super) fn branch_working_comparison_item_in(
+        owner: &WeakEntity<Self>,
+        repo: Repository,
+        snapshot: Option<&plico::git::Snapshot>,
+        reference: &str,
+    ) -> PopupMenuItem {
+        let enabled = ["refs/heads/", "refs/remotes/", "refs/tags/"]
+            .iter()
+            .any(|prefix| reference.starts_with(prefix));
+        let current = snapshot
+            .and_then(|s| s.current_branch.clone())
+            .unwrap_or_else(|| "HEAD".into());
         let owner = owner.clone();
         let reference = reference.to_owned();
         PopupMenuItem::new(t("Show Diff with Working Tree"))
             .disabled(!enabled)
             .on_click(move |_, window, cx| {
                 let _ = owner.update(cx, |s, cx| {
-                    s.dismiss_repository_menu(cx);
-                    let reference = reference.clone();
-                    s.with_saved_documents(window, cx, move |s, w, cx| {
-                        let view = cx.new(|cx| {
-                            crate::compare_view::CompareView::working_tree(
-                                s.repo.clone(),
-                                reference,
-                                s.snapshot
-                                    .as_ref()
-                                    .and_then(|s| s.current_branch.clone())
-                                    .unwrap_or_else(|| "HEAD".into()),
-                                w,
-                                cx,
-                            )
-                        });
-                        s.show_comparison(view, w, cx);
-                    });
+                    s.prepare_working_comparison_in(
+                        repo.clone(),
+                        reference.clone(),
+                        current.clone(),
+                        window,
+                        cx,
+                    );
                 });
             })
     }
-    fn prepare_branch_comparison(
+    pub(super) fn prepare_working_comparison_in(
         &mut self,
+        repo: Repository,
         reference: String,
+        current: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let current = self
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.current_branch.as_ref())
-            .map(|b| format!("refs/heads/{b}"))
-            .unwrap_or_else(|| "HEAD".into());
-        self.prepare_branch_pair(reference, current, window, cx);
+        self.dismiss_repository_menu(cx);
+        self.with_saved_documents(window, cx, move |s, window, cx| {
+            let view = cx.new(|cx| {
+                crate::compare_view::CompareView::working_tree(repo, reference, current, window, cx)
+            });
+            s.show_comparison(view, window, cx);
+        });
     }
     pub(super) fn prepare_branch_pair(
         &mut self,
+        reference: String,
+        current: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.prepare_branch_pair_in(self.repo.clone(), reference, current, window, cx);
+    }
+    pub(super) fn prepare_branch_pair_in(
+        &mut self,
+        repo: Repository,
         reference: String,
         current: String,
         window: &mut Window,
@@ -1410,13 +1469,15 @@ impl Review {
         }
         if self.documents.pending(cx) {
             self.with_saved_documents(window, cx, move |s, w, cx| {
-                s.prepare_branch_pair(reference, current, w, cx);
+                s.prepare_branch_pair_in(repo, reference, current, w, cx);
             });
             return;
         }
         if let Some(tab) = self.branch_compare_tabs.iter().find(|tab| {
-            let pair = &tab.read(cx).pair;
-            pair.first_ref == reference && pair.second_ref == current
+            let view = tab.read(cx);
+            view.repo.path == repo.path
+                && view.pair.first_ref == reference
+                && view.pair.second_ref == current
         }) {
             self.branch_compare_request = Default::default();
             self.activate_editor_neighbor(Some(tab.entity_id()), window, cx);
@@ -1425,11 +1486,11 @@ impl Review {
         self.branch_compare_request = Default::default();
         let token = self.branch_compare_request.token.clone();
         let worker_token = token.clone();
-        let repo = self.repo.clone();
+        let worker_repo = repo.clone();
         self.branch_compare_request.task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
-                    Pair::resolve(&repo, &reference, &current, &worker_token)
+                    Pair::resolve(&worker_repo, &reference, &current, &worker_token)
                 })
                 .await;
             let _ = wx.update(|window, cx| {
@@ -1438,7 +1499,7 @@ impl Review {
                         return;
                     }
                     match result {
-                        Ok(pair) => s.open_branch_comparison(pair, window, cx),
+                        Ok(pair) => s.open_branch_comparison_in(repo, pair, window, cx),
                         Err(error) => {
                             s.error = Some(error);
                             cx.notify();
@@ -1448,20 +1509,32 @@ impl Review {
             });
         });
     }
+    #[cfg(all(test, feature = "desktop-tests"))]
     pub(super) fn open_branch_comparison(
         &mut self,
         pair: Pair,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_branch_comparison_in(self.repo.clone(), pair, window, cx);
+    }
+    pub(super) fn open_branch_comparison_in(
+        &mut self,
+        repo: Repository,
+        pair: Pair,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(tab) = self.branch_compare_tabs.iter().find(|tab| {
-            let existing = &tab.read(cx).pair;
-            existing.first_ref == pair.first_ref && existing.second_ref == pair.second_ref
+            let view = tab.read(cx);
+            view.repo.path == repo.path
+                && view.pair.first_ref == pair.first_ref
+                && view.pair.second_ref == pair.second_ref
         }) {
             self.activate_editor_neighbor(Some(tab.entity_id()), window, cx);
             return;
         }
-        let view = cx.new(|cx| View::new(self.repo.clone(), pair, window, cx));
+        let view = cx.new(|cx| View::new(repo, pair, window, cx));
         cx.subscribe_in(&view, window, |s, source, event: &OpenDiff, window, cx| {
             let panes = source.read(cx).panes.clone();
             let Some(pane) = panes.into_iter().find(|pane| {
@@ -1837,8 +1910,43 @@ mod tests {
         });
         commit("hidden intermediate");
         commit("topic two");
+        let old_pair = view.read_with(cx, |view, _| view.pair.clone());
         view.update(cx, |view, cx| {
-            view.refresh(false, cx);
+            use plico::worktree_events::Batch;
+            view.repository_changed(
+                &fixture.0.join("other"),
+                &Batch {
+                    refs: true,
+                    ..Default::default()
+                },
+                cx,
+            );
+            view.repository_changed(
+                &fixture.0,
+                &Batch {
+                    index: true,
+                    paths: [PathBuf::from("review.txt")].into_iter().collect(),
+                    ..Default::default()
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.pair, old_pair,
+                "unrelated roots and staging do not resolve branch ranges"
+            )
+        });
+        view.update(cx, |view, cx| {
+            view.repository_changed(
+                &fixture.0,
+                &plico::worktree_events::Batch {
+                    refs: true,
+                    ..Default::default()
+                },
+                cx,
+            );
             let superseded = view.refresh_request.token.clone();
             view.refresh(false, cx);
             assert!(superseded.cancelled());

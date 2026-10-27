@@ -114,10 +114,33 @@ impl Review {
         self.status_message = Some(t("Preparing project update…").into());
         let repo = self.repo.clone();
         let path = repo.path.clone();
+        let project_roots = self.project_roots.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
+            // Opening Update during initial discovery must wait for the project
+            // inventory rather than silently preparing only the primary root.
+            let registered = loop {
+                if token.cancelled() {
+                    break Err("Cancelled".to_owned());
+                }
+                match wx.update(|_, cx| project_roots.read(cx).snapshot()) {
+                    Ok(Some(Ok(inventory))) => {
+                        if let Some((path, error)) = inventory.errors.first() {
+                            break Err(format!("{}: {error}", path.display()));
+                        }
+                        break Ok(inventory.roots.clone());
+                    }
+                    Ok(Some(Err(error))) => break Err(error),
+                    Err(error) => break Err(error.to_string()),
+                    Ok(None) => {}
+                }
+                wx.background_executor()
+                    .timer(std::time::Duration::from_millis(50))
+                    .await;
+            };
             let result = wx
                 .background_spawn(async move {
-                    let request = plico::project_update::prepare(&repo, &token)?;
+                    let request =
+                        plico::project_update::Prepared::read_registered(&registered?, &token)?;
                     let preferences =
                         plico::project_update_preferences::Preferences::for_repository(
                             &repo, &token,
@@ -226,7 +249,7 @@ impl Review {
     }
     pub(super) fn start_project_update(
         &mut self,
-        request: plico::merge_update::Request,
+        request: plico::project_update::Prepared,
         method: plico::update_method::Method,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -272,9 +295,10 @@ impl Review {
         let requests = plico::auth_request::Requests::persistent(token.clone());
         requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
-        let repo = self.repo.clone();
         let (mut choices, choice_ui) = plico::update_decision::channel(token.clone());
-        let directory_repo = repo.clone();
+        let (conflict_worker, conflict_ui) = plico::project_update::conflicts::channel::channel();
+        let directories = request.editor_directories;
+        let group = request.group;
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
             let result = (|| -> Result<_, String> {
@@ -282,9 +306,7 @@ impl Review {
                     plico::editor::command(&editor_helper, false).map_err(|e| e.to_string())?;
                 use plico::push_flow::Decisions as _;
                 let choices = std::cell::RefCell::new(&mut choices);
-                plico::project_update::execute(
-                    &repo,
-                    &request,
+                group.execute_with_conflicts(
                     method,
                     &editor,
                     &token,
@@ -293,6 +315,7 @@ impl Review {
                     plico::published_commits::Protection::Defaults,
                     |problem| choices.borrow_mut().rebase_over_merge(problem),
                     |problem| choices.borrow_mut().published(problem),
+                    |interaction| conflict_worker.resolve(interaction),
                 )
             })();
             let _ = tx.send(result);
@@ -302,12 +325,10 @@ impl Review {
             let mut login: Option<Entity<crate::auth_dialog::Login>> = None;
             let mut editor: Option<Entity<crate::editor_dialog::Editor>> = None;
             let mut decision: Option<Entity<crate::update_dialog::UpdateDialog>> = None;
-            let directory = wx
-                .background_spawn(
-                    async move { directory_repo.editor_directory(&Cancel::default()) },
-                )
-                .await;
             loop {
+                if let Some(pending) = conflict_ui.take_pending() {
+                    let _ = this.update_in(wx, |s, w, cx| s.open_update_conflicts(pending, w, cx));
+                }
                 if let Some(pending) = choice_ui.take_pending() {
                     if let Ok(dialog) =
                         wx.update(|w, cx| crate::update_dialog::show(pending, w, cx))
@@ -318,11 +339,11 @@ impl Review {
                 if let Some(pending) = requests.take_pending() {
                     use plico::auth_request::Kind;
                     if matches!(pending.kind, Kind::CommitEditor | Kind::SequenceEditor) {
-                        if let Ok(dir) = &directory {
-                            let dir = dir.clone();
+                        {
+                            let directories = directories.clone();
                             if let Ok(document) = wx
                                 .background_spawn(async move {
-                                    plico::editor::Document::open(pending, &dir)
+                                    plico::editor::Document::open_in_roots(pending, &directories)
                                 })
                                 .await
                             {
@@ -358,34 +379,32 @@ impl Review {
                             let Some(cancelled) = s.finish_operation(operation, cx) else {
                                 return;
                             };
-                            s.saved_changes_available |= result
-                                .as_ref()
-                                .ok()
-                                .is_some_and(|r| r.saved_oid().is_some());
-                            let message = if cancelled
-                                || result.as_ref().is_ok_and(|r| {
-                                    r.result() == plico::update_session::UpdateResult::Cancelled
-                                }) {
-                                "Update cancelled; review local changes and saved stash"
-                            } else if result.as_ref().is_ok_and(|r| r.complete()) {
-                                if result.as_ref().is_ok_and(|r| {
-                                    r.result()
-                                        == plico::update_session::UpdateResult::NothingToUpdate
-                                }) {
-                                    "Already up to date"
+                            s.clear_update_conflicts(w, cx);
+                            s.saved_changes_available |=
+                                result.as_ref().ok().is_some_and(|r| r.has_saved_changes());
+                            let message =
+                                if cancelled || result.as_ref().is_ok_and(|r| r.cancelled()) {
+                                    "Update cancelled; review local changes and saved stash"
+                                } else if result.as_ref().is_ok_and(|r| r.complete()) {
+                                    if result.as_ref().is_ok_and(|r| {
+                                        r.result()
+                                            == plico::update_session::UpdateResult::NothingToUpdate
+                                    }) {
+                                        "Already up to date"
+                                    } else {
+                                        "Project updated"
+                                    }
                                 } else {
-                                    "Project updated"
-                                }
-                            } else {
-                                "Update incomplete; review conflicts and saved local changes"
-                            };
-                            if let Err(error) = result {
-                                s.error = Some(error);
-                            }
+                                    "Update incomplete; review conflicts and saved local changes"
+                                };
                             s.status_message = Some(t(message).into());
                             s.user_menu.update(cx, |menu, cx| menu.refresh(cx));
-                            s.refresh_impl(false, true, None, cx);
-                            cx.notify();
+                            s.refresh_after_project_update(
+                                plico::project_update::group::diagnostic(&result),
+                                cx,
+                            );
+                            s.update_diagnostic_warning =
+                                result.as_ref().is_ok_and(|report| report.complete());
                         });
                     });
                     break;
@@ -395,6 +414,13 @@ impl Review {
                     .await;
             }
         });
+        cx.notify();
+    }
+    fn refresh_after_project_update(&mut self, diagnostic: Option<String>, cx: &mut Context<Self>) {
+        // Operation diagnostics outlive query refreshes and selection changes.
+        self.refresh_impl(false, true, None, cx);
+        self.update_diagnostic = diagnostic;
+        self.update_diagnostic_warning = false;
         cx.notify();
     }
     pub(super) fn confirm_force_push(
@@ -873,21 +899,34 @@ impl Review {
         });
         cx.notify();
     }
-    pub(super) fn confirm_abort_merge(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn confirm_abort_merge_in(
+        &mut self,
+        repository: Repository,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.operation.busy() {
             return;
         }
         let owner = cx.entity().downgrade();
-        let path = self.repo.path.clone();
+        let path = repository.path.clone();
+        let project = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, _| {
             let owner = owner.clone();
             let path = path.clone();
+            let project = project.clone();
+            let repository = repository.clone();
             dialog
                 .title(t("Abort Merge"))
-                .w(px(460.))
+                .w(px(760.))
+                .centered(true)
                 .overlay_closable(false)
-                .child(div().child(t("Abort the merge in this repository?")))
-                .child(div().truncate().child(path.display().to_string()))
+                .child(div().child(format!(
+                    "{} ({})",
+                    t("Abort the merge in this repository?"),
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                )))
+                .child(div().truncate().child(project_path_text(&path)))
                 .footer(crate::dialog_style::confirmation(
                     Button::new("abort-merge-confirm")
                         .primary()
@@ -895,8 +934,11 @@ impl Review {
                 ))
                 .on_ok(move |_, window, cx| {
                     let _ = owner.update(cx, |s, cx| {
-                        if s.repo.path == path {
-                            s.start_merge_operation(
+                        if s.repo.path == project
+                            && s.merge_roots(cx).iter().any(|r| r.path == path)
+                        {
+                            s.start_merge_operation_in(
+                                repository.clone(),
                                 plico::merge_operation::Action::Abort,
                                 window,
                                 cx,
@@ -913,6 +955,94 @@ impl Review {
     pub(super) fn start_fetch_named(
         &mut self,
         name: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_fetch_request(self.repo.clone(), name, false, window, cx);
+    }
+    pub(super) fn unshallow_repository(&self, window: &Window, cx: &App) -> Option<Repository> {
+        let catalog = self.project_roots.read(cx);
+        let members = catalog.snapshot()?.ok()?;
+        let mut current = self
+            .project_view
+            .as_ref()
+            .filter(|_| self.project_visible)
+            .and_then(|view| view.read(cx).operation_path(window, cx));
+        if current.is_none() && self.history_focus.contains_focused(window, cx) {
+            let ids = self.commit_ids();
+            let selected = self.log_selection.ordered(&ids);
+            // Rebased's Log data context uses the visible query roots when no
+            // rows (or more than MAX_SELECTED_COMMITS) are selected. Include
+            // failed roots: a partial load must not become a single-root context.
+            let roots = if selected.is_empty() || selected.len() > 1000 {
+                self.current_log_scope()
+                    .map(|scope| {
+                        scope
+                            .roots
+                            .iter()
+                            .map(|root| root.query.repository.path.clone())
+                            .chain(scope.errors.iter().map(|(root, _)| root.clone()))
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .unwrap_or_default()
+            } else {
+                selected
+                    .into_iter()
+                    .map(|id| id.root.as_ref().clone())
+                    .collect()
+            };
+            if roots.len() == 1 {
+                current = roots.first().cloned();
+            }
+        }
+        let editor = self
+            .active_file_index()
+            .and_then(|i| self.file_tabs.get(i))
+            .map(|tab| {
+                let tab = tab.read(cx);
+                tab.root().join(&tab.path)
+            })
+            .or_else(|| {
+                self.active_diff_index()
+                    .and_then(|i| self.tabs.get(i))
+                    .map(|tab| {
+                        let id = tab.read(cx).target.identity();
+                        id.repository.join(&id.path)
+                    })
+            });
+        let repo =
+            members.operation_repository(current.as_deref(), editor.as_deref(), &self.repo.path)?;
+        catalog.is_shallow(&repo.path).then(|| repo.clone())
+    }
+    pub(super) fn start_unshallow(
+        &mut self,
+        repo: Repository,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The menu captures its context; never re-guess after focus moves into it.
+        if !self
+            .project_roots
+            .read(cx)
+            .snapshot()
+            .is_some_and(|result| {
+                result.is_ok_and(|members| {
+                    members.roots.iter().any(|member| member.path == repo.path)
+                })
+            })
+        {
+            return;
+        }
+        self.start_fetch_request(repo, None, true, window, cx);
+        if self.operation.busy() {
+            window.remove_notification::<super::unshallow_notice::ShallowNotification>(cx);
+        }
+    }
+    fn start_fetch_request(
+        &mut self,
+        repo: Repository,
+        name: Option<String>,
+        unshallow: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -943,14 +1073,25 @@ impl Review {
         ) else {
             return;
         };
-        self.status_message = Some(t("Fetching…").into());
+        self.status_message = Some(
+            t(if unshallow {
+                "Unshallowing repository…"
+            } else {
+                "Fetching…"
+            })
+            .into(),
+        );
         let requests = plico::auth_request::Requests::persistent(token.clone());
         requests.set_project(&self.repo.path);
         let worker_requests = requests.clone();
-        let repo = self.repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
-            let result = repo.fetch_specs(&token).and_then(|mut specs| {
+            let specs = if unshallow {
+                repo.unshallow_spec(&token).map(|spec| vec![spec])
+            } else {
+                repo.fetch_specs(&token)
+            };
+            let result = specs.and_then(|mut specs| {
                 if let Some(name) = &name {
                     specs.retain(|spec| spec.remote() == name);
                     if specs.is_empty() {
@@ -1003,6 +1144,17 @@ impl Review {
                             let Some(cancelled) = s.finish_operation(operation, cx) else {
                                 return;
                             };
+                            s.update_diagnostic = if cancelled {
+                                None
+                            } else {
+                                match &result {
+                                    Ok(batch) => batch.diagnostic(),
+                                    Err(error) => {
+                                        Some(plico::remote_management::display_error(error))
+                                    }
+                                }
+                            };
+                            s.update_diagnostic_warning = false;
                             s.status_message = Some(if cancelled {
                                 t("Fetch cancelled").into()
                             } else {
@@ -1010,9 +1162,12 @@ impl Review {
                                     Ok(result) if result.remotes.is_empty() => {
                                         t("No remotes configured").into()
                                     }
-                                    Ok(result) if result.successful() => {
-                                        t("Fetch completed").into()
-                                    }
+                                    Ok(result) if result.successful() => t(if unshallow {
+                                        "The repository was converted to a complete one"
+                                    } else {
+                                        "Fetch completed"
+                                    })
+                                    .into(),
                                     Ok(result) => {
                                         let names = result
                                             .remotes
@@ -1023,9 +1178,21 @@ impl Review {
                                             .map(|r| r.remote.as_str())
                                             .collect::<Vec<_>>()
                                             .join(", ");
-                                        format!("{}: {names}", t("Fetch failed"))
+                                        format!(
+                                            "{}: {names}",
+                                            t(if unshallow {
+                                                "Failed to unshallow repository"
+                                            } else {
+                                                "Fetch failed"
+                                            })
+                                        )
                                     }
-                                    Err(_) => t("Fetch failed").into(),
+                                    Err(_) => t(if unshallow {
+                                        "Failed to unshallow repository"
+                                    } else {
+                                        "Fetch failed"
+                                    })
+                                    .into(),
                                 }
                             });
                             // Fetch may have changed refs even on failure/cancellation.
@@ -1042,5 +1209,35 @@ impl Review {
             }
         });
         cx.notify();
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod update_tests {
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use gpui::component::Root;
+    #[gpui::test]
+    fn project_update_diagnostic_survives_its_completion_refresh(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        review.update(cx, |s, cx| {
+            s.refresh_after_project_update(Some("child: update failed".into()), cx);
+            s.refresh_impl(false, true, None, cx);
+            s.reset_log_presentation();
+            assert_eq!(s.update_diagnostic.as_deref(), Some("child: update failed"));
+            s.refresh_after_project_update(None, cx);
+            assert!(
+                s.update_diagnostic.is_none(),
+                "successful update must clear the previous result"
+            );
+        });
     }
 }

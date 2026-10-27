@@ -29,6 +29,28 @@ impl BatchResult {
             .iter()
             .all(|r| r.state == RemoteState::Succeeded)
     }
+    /// Keep actionable Git failures for Details without exposing raw credentials.
+    pub fn diagnostic(&self) -> Option<String> {
+        let mut text = String::new();
+        for remote in &self.remotes {
+            if remote.state == RemoteState::Succeeded {
+                continue;
+            }
+            let line = crate::rebase_operation::display_text(&format!(
+                "{}: {}",
+                remote.remote,
+                String::from_utf8_lossy(&remote.diagnostic)
+            ));
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.extend(line.chars().take(4096));
+            if text.len() >= 16 * 1024 {
+                break;
+            }
+        }
+        (!text.is_empty()).then_some(text)
+    }
 }
 
 /// GitFetchSupportImpl's per-remote results and all-success aggregation.
@@ -203,6 +225,28 @@ pub fn default_remote<'a>(remotes: &'a [String], tracked_remote: Option<&str>) -
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failure_details_preserve_remote_reason_and_redact_credentials() {
+        let result = super::BatchResult {
+            remotes: vec![super::RemoteResult {
+                remote: "origin".into(),
+                state: super::RemoteState::Failed,
+                diagnostic:
+                    b"fatal: cannot access https://alice:private-token@example.invalid/repo"
+                        .to_vec(),
+                diagnostic_truncated: false,
+            }],
+        };
+        let details = result.diagnostic().unwrap();
+        assert!(details.contains("origin"));
+        assert!(details.contains("cannot access"));
+        assert!(!details.contains("private-token"));
+        assert!(
+            super::BatchResult { remotes: vec![] }
+                .diagnostic()
+                .is_none()
+        );
+    }
     use super::*;
     #[test]
     fn defaults_follow_tracking_then_origin_without_guessing() {

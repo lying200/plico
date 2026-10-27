@@ -131,7 +131,7 @@ impl Review {
         self.branch_filter = branch.into_iter().collect();
         self.local = false;
         self.limit = git::HISTORY_PAGE;
-        self.refresh(false, cx);
+        self.refresh_log_filter(cx);
     }
     pub(super) fn navigate_tree_ref(
         &mut self,
@@ -186,15 +186,13 @@ impl Review {
             return;
         }
         let selected = selected[0].to_owned();
-        let Some(roots) = self.snapshot.as_ref().map(|s| s.tips.clone()) else {
+        let Some(scope) = self.current_log_scope() else {
             return;
         };
         self.adjacent_token.cancel();
         self.adjacent_token = Cancel::default();
         let token = self.adjacent_token.clone();
-        let repo = self.repo.clone();
         let generation = self.log_query.stamp();
-        let filter = self.text_filter.clone();
         self.adjacent_position = if keyboard {
             let scroll = self.history_scroll.0.borrow();
             let bounds = scroll.base_handle.bounds();
@@ -213,22 +211,13 @@ impl Review {
             let target = selected.clone();
             let worker_token = token.clone();
             let result = wx
-                .background_spawn(async move {
-                    history::adjacent(
-                        &repo,
-                        &roots,
-                        &target,
-                        parent,
-                        filter.as_ref(),
-                        &worker_token,
-                    )
-                })
+                .background_spawn(async move { scope.adjacent(&target, parent, &worker_token) })
                 .await;
             let _ = wx.update(|window, cx| {
                 let _ = this.update(cx, |s, cx| {
                     if token.cancelled()
                         || s.log_query.stamp() != generation
-                        || s.log_selection.ordered(&s.commit_ids()) != [selected.as_str()]
+                        || s.log_selection.ordered(&s.commit_ids()) != [&selected]
                     {
                         return;
                     }
@@ -246,7 +235,14 @@ impl Review {
                         "Select Child Commit"
                     });
                     if targets.len() == 1 {
-                        s.navigate_commit(title.into(), targets[0].clone(), false, window, cx);
+                        s.navigate_log_commit(
+                            title.into(),
+                            targets[0].clone(),
+                            false,
+                            false,
+                            window,
+                            cx,
+                        );
                         return;
                     }
                     if targets.is_empty() {
@@ -260,18 +256,18 @@ impl Review {
                             let label = s
                                 .commits
                                 .iter()
-                                .find(|c| c.id == target)
+                                .find(|c| c.id == target.hash)
                                 .map(|c| {
                                     let subject = c.subject.chars().take(40).collect::<String>();
                                     format!(
                                         "{}  {}  {}  {}",
-                                        &target[..8],
+                                        &target.hash[..8],
                                         subject,
                                         c.author,
                                         c.date
                                     )
                                 })
-                                .unwrap_or_else(|| target[..8].to_owned());
+                                .unwrap_or_else(|| target.hash[..8].to_owned());
                             (target, label)
                         })
                         .collect::<Vec<_>>();
@@ -298,11 +294,12 @@ impl Review {
                                         let _ = owner.update(cx, |s, cx| {
                                             if s.log_query.stamp() == generation
                                                 && s.log_selection.ordered(&s.commit_ids())
-                                                    == [selected.as_str()]
+                                                    == [&selected]
                                             {
-                                                s.navigate_commit(
+                                                s.navigate_log_commit(
                                                     title.into(),
                                                     target.clone(),
+                                                    false,
                                                     false,
                                                     window,
                                                     cx,
@@ -327,6 +324,12 @@ impl Review {
             });
         });
     }
+    pub(super) fn visible_log_commit(
+        &self,
+        target: &plico::project_log::CommitId,
+    ) -> Option<usize> {
+        self.commit_ids().iter().position(|id| id == target)
+    }
     pub(super) fn navigate_commit(
         &mut self,
         name: String,
@@ -346,11 +349,32 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.navigate_log_commit(
+            name,
+            plico::project_log::CommitId {
+                root: Arc::new(self.repo.path.clone()),
+                hash: target,
+            },
+            clear_filters,
+            fresh,
+            window,
+            cx,
+        );
+    }
+    pub(super) fn navigate_log_commit(
+        &mut self,
+        name: String,
+        target: plico::project_log::CommitId,
+        clear_filters: bool,
+        fresh: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !fresh && self.log_query.history_loading() {
             return;
         }
         if !clear_filters && !fresh {
-            if let Some(index) = self.commits.iter().position(|commit| commit.id == target) {
+            if let Some(index) = self.visible_log_commit(&target) {
                 self.local = false;
                 self.select_commit(index, cx);
                 self.history_scroll
@@ -359,6 +383,18 @@ impl Review {
                 return;
             }
         }
+        if self.project_window.is_some()
+            || *target.root != self.repo.path
+            || self
+                .log_scope
+                .as_ref()
+                .is_some_and(|scope| scope.roots.len() > 1)
+        {
+            self.navigate_project_commit(name, target, clear_filters, fresh, window, cx);
+            return;
+        }
+        let identity = target;
+        let target = identity.hash.clone();
         // Cancel old work without clearing the visible comparison. A hidden
         // target must leave the user's current view intact until explicit reset.
         let (generation, token) = self.log_query.begin(log_query::Kind::Navigation);
@@ -447,17 +483,19 @@ impl Review {
                                     s.paths_menu.update(cx, |menu, cx| menu.clear_filter(cx));
                                 }
                                 let history::Window {
-                                    projected_parents: _,
                                     mut snapshot,
                                     rows,
                                     start,
                                     end,
+                                    ..
                                 } = found.window;
                                 s.history_offset = found.offset;
                                 s.window_start = start;
                                 s.window_end = end;
                                 s.rows = Arc::new(rows);
-                                s.commits = Arc::new(std::mem::take(&mut snapshot.commits));
+                                s.replace_single_root_commits(std::mem::take(
+                                    &mut snapshot.commits,
+                                ));
                                 s.snapshot = Some(snapshot);
                                 s.update_history_count(cx);
                                 s.rebuild_branches(cx);
@@ -469,7 +507,7 @@ impl Review {
                             Ok(outcome) => {
                                 s.navigation_notice = Some(NavigationNotice {
                                     name,
-                                    target,
+                                    target: identity,
                                     can_clear: matches!(outcome, history::FilteredLocation::Hidden),
                                 })
                             }
@@ -744,7 +782,7 @@ impl Review {
         self.branch_filter = branches;
         self.local = false;
         self.limit = git::HISTORY_PAGE;
-        self.refresh(false, cx);
+        self.refresh_log_filter(cx);
     }
     pub(super) fn tree_key(
         &mut self,
@@ -1238,7 +1276,7 @@ impl Review {
             })
         };
         self.limit = git::HISTORY_PAGE;
-        self.refresh(false, cx);
+        self.refresh_log_filter(cx);
     }
 }
 
@@ -1248,6 +1286,111 @@ mod selection_tests {
     use super::*;
     use core::prelude::v1::test;
     use gpui::component::Root;
+
+    #[gpui::test]
+    fn known_repository_navigation_does_not_select_another_roots_identical_hash(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+                "plico-navigation-root-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )));
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        std::fs::create_dir_all(&parent).unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec![
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.test",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "shared",
+            ],
+        ] {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&parent)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
+        }
+        let out = std::process::Command::new("git")
+            .args(["clone", "-q", "--no-hardlinks"])
+            .arg(&parent)
+            .arg(&child)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let commit = Repository::new(&parent)
+            .snapshot(None, 1, None, &Cancel::default())
+            .unwrap()
+            .commits
+            .remove(0);
+        let ids = [&child, &parent]
+            .into_iter()
+            .map(|root| plico::project_log::CommitId {
+                root: Arc::new(root.clone()),
+                hash: commit.id.clone(),
+            })
+            .collect::<Vec<_>>();
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.repo = Repository::new(&parent);
+                s.welcome = false;
+                let page = plico::project_log::Page {
+                    entries: ids
+                        .iter()
+                        .map(|id| plico::project_log::Entry {
+                            root: id.root.clone(),
+                            commit: commit.clone(),
+                            display_parents: None,
+                        })
+                        .collect(),
+                    more: false,
+                };
+                s.rows = Arc::new(page.layout(&Cancel::default()).unwrap());
+                s.commits = Arc::new(vec![commit.clone(), commit.clone()]);
+                s.log_sources = Some(Arc::new(ids.clone()));
+                assert_eq!(s.visible_log_commit(&ids[0]), Some(0));
+                assert_eq!(s.visible_log_commit(&ids[1]), Some(1));
+                s.navigate_commit("HEAD".into(), commit.id.clone(), false, window, cx);
+                assert_eq!(s.log_selection.ordered(&s.commit_ids()), vec![&ids[1]]);
+                assert_eq!(s.selected, Some(1));
+            })
+        });
+        cx.run_until_parked();
+        review.update(cx, |s, _| {
+            assert_eq!(s.selected, Some(1));
+            assert!(s.error.is_none(), "{:?}", s.error);
+            s.log_sources = Some(Arc::new(vec![ids[0].clone()]));
+            assert!(s.visible_log_commit(&ids[1]).is_none());
+        });
+    }
 
     #[gpui::test]
     fn branch_search_keeps_head_available_for_comparison(cx: &mut gpui::TestAppContext) {

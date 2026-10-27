@@ -13,6 +13,54 @@ mod tests {
     use gpui::component::Root;
 
     #[gpui::test]
+    fn multi_root_files_keep_directory_and_selection_identity(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        cx.update(|_, cx| {
+            let view = review.unwrap();
+            view.update(cx, |s, cx| {
+                let file = plico::combined_changes::Change {
+                    before: None,
+                    after: Some(plico::combined_changes::Revision { revision: "a".repeat(40), path: "src/same.txt".into() }),
+                };
+                let make_chain = |reverse: bool| {
+                    let mut roots = vec!["first", "second"];
+                    if reverse { roots.reverse(); }
+                    diff_target::Chain::combined_roots(roots.into_iter().map(|root| (Repository::new(root), vec![file.clone()])).collect(), 0).unwrap().1
+                };
+                let chain = make_chain(false);
+                s.files = Arc::new(chain.changes().to_vec());
+                s.aggregate_chain = Some(chain);
+                s.local = false;
+                s.log_files_options.directory = true;
+                s.selected_file = Some(1);
+                let preferred = s.preferred_log_file().unwrap();
+                s.collapsed_directories.insert(("first".into(), Area::Commit, "src".into()));
+                s.rebuild_files(cx);
+                assert!(!s.file_rows.iter().any(|row| matches!(row, FileRow::File(0, _))));
+                assert!(s.file_rows.iter().any(|row| matches!(row, FileRow::File(1, _))));
+                assert_eq!(s.file_rows.iter().filter(|row| matches!(row, FileRow::Folder(_, _, path, _, _, _, _) if path.as_os_str().is_empty())).count(), 2);
+                s.log_files_options.directory = false;
+                s.rebuild_files(cx);
+                assert_eq!(s.file_rows.iter().filter(|r| matches!(r, FileRow::File(..))).count(), 2);
+                assert_eq!(s.selected_file, Some(1));
+                s.aggregate_chain = Some(make_chain(true));
+                s.files = Arc::new(s.aggregate_chain.as_ref().unwrap().changes().to_vec());
+                assert_eq!(s.preferred_file_index(Some(&preferred)), Some(0), "same path in another root must not steal selection");
+                s.set_files_expanded(false, cx);
+                assert!(!s.file_rows.iter().any(|r| matches!(r, FileRow::File(..))));
+                s.set_files_expanded(true, cx);
+                assert_eq!(s.file_rows.iter().filter(|r| matches!(r, FileRow::File(..))).count(), 2);
+            });
+        });
+    }
+
+    #[gpui::test]
     fn log_grouping_keeps_selection_and_collapsed_directory_state(cx: &mut gpui::TestAppContext) {
         cx.update(gpui::component::init);
         let mut review = None;
@@ -22,7 +70,7 @@ mod tests {
             Root::new(view, window, cx)
         });
         cx.update(|_, cx| {
-            review.unwrap().update(cx, |s, _| {
+            review.unwrap().update(cx, |s, cx| {
                 s.files = Arc::new(
                     ["src/a.rs", "other/b.rs"]
                         .into_iter()
@@ -36,17 +84,18 @@ mod tests {
                 );
                 s.local = false;
                 s.selected_file = Some(1);
-                s.collapsed_directories.insert((Area::Commit, "src".into()));
+                s.collapsed_directories
+                    .insert((s.repo.path.clone(), Area::Commit, "src".into()));
                 s.log_files_options.directory = true;
-                s.rebuild_files();
+                s.rebuild_files(cx);
                 assert!(!s.file_rows.iter().any(|r| matches!(r, FileRow::File(0, _))));
                 s.log_files_options.directory = false;
-                s.rebuild_files();
+                s.rebuild_files(cx);
                 assert_eq!(s.file_rows.len(), 2);
                 assert!(matches!(s.file_rows[1], FileRow::File(1, 0)));
                 assert_eq!(s.selected_file, Some(1));
                 s.log_files_options.directory = true;
-                s.rebuild_files();
+                s.rebuild_files(cx);
                 assert!(!s.file_rows.iter().any(|r| matches!(r, FileRow::File(0, _))));
                 assert_eq!(s.selected_file, Some(1));
             })
@@ -97,7 +146,7 @@ impl Review {
         if !self.save_log_files_options(options, cx) {
             return;
         }
-        self.rebuild_files();
+        self.rebuild_files(cx);
         if let Some(row) = self
             .file_rows
             .iter()

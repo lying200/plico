@@ -3,6 +3,30 @@
 use super::*;
 
 impl Review {
+    pub(super) fn read_primary_recovery(repo: &Repository, token: &Cancel) -> (bool, bool, bool) {
+        let merge_recovery = repo
+            .editor_directory(token)
+            .and_then(|dir| plico::merge_saved::read(&dir))
+            .map(|record| record.is_some())
+            .unwrap_or(true);
+        let revert_recovery =
+            plico::revert_operation::Recovery::record_exists(repo, token).unwrap_or(true);
+        let revert_saved =
+            plico::revert_operation::SavedChanges::record_exists(repo, token).unwrap_or(true);
+        (merge_recovery, revert_recovery, revert_saved)
+    }
+    pub(super) fn record_recent_project(&mut self) {
+        if !self.recent_recorded {
+            self.recent_recorded = true;
+            match plico::recent_projects::opened(&self.repo.path) {
+                Ok(paths) => self.recent_projects = paths,
+                Err(error) => {
+                    self.status_message =
+                        Some(format!("{}: {error}", t("Could not save recent projects")))
+                }
+            }
+        }
+    }
     pub(super) fn reset_log_presentation(&mut self) {
         self.graph_hover = None;
         self.graph_print_token.cancel();
@@ -184,6 +208,9 @@ impl Review {
         ));
         self.details_cache.clear();
         self.repo = Repository::new(path);
+        self.project_roots =
+            cx.new(|cx| super::project_roots::ProjectRoots::open(self.repo.path.clone(), cx));
+        self.bind_project_roots(cx);
         self.show_long_edges = layout_preferences::load_log_long_edges(&self.repo.path);
         self.graph_model = None;
         self.log_selection = Default::default();
@@ -191,9 +218,13 @@ impl Review {
         self.selection_details.clear();
         self.selection_branches = None;
         self.rebase_diagnostic = None;
+        self.update_diagnostic = None;
+        self.sequence_diagnostic = None;
+        self.sequence_retry = None;
+        self.sequence_conflict = None;
         self.squash_undo = None;
         self.operation_state = None;
-        self.revert_recovery = None;
+        self.revert_recoveries.clear();
         self.merge_recovery_available = false;
         self.merged_branch = None;
         self.pending_branch_merge = None;
@@ -210,7 +241,7 @@ impl Review {
         self.collapsed_branches.clear();
         self.history_count.invalidate();
         self.snapshot = None;
-        self.commits = Arc::default();
+        self.replace_single_root_commits(Vec::new());
         self.rows = Arc::default();
         self.selected = None;
         self.selected_file = None;
@@ -296,7 +327,12 @@ impl Review {
             return;
         }
         let offset = self.history_offset.saturating_sub(git::HISTORY_MAX);
-        self.refresh_impl(false, false, Some(offset), cx);
+        self.reload_history(false, false, Some(offset), cx);
+    }
+    /// A filter is a new Log query, not a repository-change notification.
+    pub(super) fn refresh_log_filter(&mut self, cx: &mut Context<Self>) {
+        self.history_count.invalidate();
+        self.reload_history(false, false, None, cx);
     }
     pub(super) fn refresh_impl(
         &mut self,
@@ -306,6 +342,7 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         if !more {
+            self.project_roots.update(cx, |roots, cx| roots.refresh(cx));
             for view in &self.branch_compare_tabs {
                 view.update(cx, |view, cx| view.refresh(false, cx));
             }
@@ -315,17 +352,29 @@ impl Review {
                 view.update(cx, |s, cx| s.refresh(cx));
             }
         }
-        let preferred = self
-            .selected_file
-            .and_then(|i| self.files.get(i))
-            .cloned()
-            .or_else(|| self.pending_preview_file.clone());
+        self.reload_history(more, preserve, requested_offset, cx);
+    }
+    fn reload_history(
+        &mut self,
+        more: bool,
+        preserve: bool,
+        requested_offset: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.local
+            && (self.project_window.is_some() || self.project_roots.read(cx).has_multiple_roots())
+        {
+            self.reload_project_history(more, preserve, requested_offset, cx);
+            return;
+        }
+        let preferred = self.preferred_log_file();
         self.pending_preview_file = preferred.clone();
+        self.aggregate_chain = None;
         let initial_history = self.snapshot.is_none();
         self.reset_log_presentation();
         let (generation, token) = self.log_query.begin(log_query::Kind::History);
         self.files = Arc::default();
-        self.rebuild_files();
+        self.rebuild_files(cx);
         self.selected_file = None;
         self.message.clear();
         self.commit_metadata = Default::default();
@@ -380,17 +429,7 @@ impl Review {
                 let result = cx
                     .background_spawn(async move {
                         let state = repo.operation_state(&token);
-                        let merge_recovery = repo
-                            .editor_directory(&token)
-                            .and_then(|dir| plico::merge_saved::read(&dir))
-                            .map(|record| record.is_some())
-                            .unwrap_or(true);
-                        let revert_recovery =
-                            plico::revert_operation::Recovery::record_exists(&repo, &token)
-                                .unwrap_or(true);
-                        let revert_saved =
-                            plico::revert_operation::SavedChanges::record_exists(&repo, &token)
-                                .unwrap_or(true);
+                        let recovery = Self::read_primary_recovery(&repo, &token);
                         let result = if local {
                             repo.local_changes(&token).map(|f| (None, Some(f)))
                         } else if let Some(filter) = &text_filter {
@@ -431,12 +470,7 @@ impl Review {
                                 .transpose()?;
                             Ok((window, local))
                         });
-                        (
-                            result,
-                            state,
-                            graph_model,
-                            (merge_recovery, revert_recovery, revert_saved),
-                        )
+                        (result, state, graph_model, recovery)
                     })
                     .await;
                 let _ = this.update(cx, |this, cx| {
@@ -450,34 +484,30 @@ impl Review {
                     match result.0 {
                         Ok((
                             Some(history::Window {
-                                projected_parents: _,
                                 snapshot: mut s,
                                 rows,
                                 start,
                                 end,
+                                ..
                             }),
                             _,
                         )) => {
-                            if !this.recent_recorded {
-                                this.recent_recorded = true;
-                                match plico::recent_projects::opened(&this.repo.path) {
-                                    Ok(paths) => this.recent_projects = paths,
-                                    Err(error) => {
-                                        this.status_message = Some(format!(
-                                            "{}: {error}",
-                                            t("Could not save recent projects")
-                                        ))
-                                    }
-                                }
-                            }
+                            this.record_recent_project();
                             if offset != this.history_offset {
                                 this.history_scroll.scroll_to_item(0, ScrollStrategy::Top);
                             }
                             if preserve && offset == this.history_offset {
+                                let root = Arc::new(this.repo.path.clone());
                                 super::log_viewport::restore(
                                     &this.history_scroll,
-                                    &this.commits,
-                                    &s.commits,
+                                    &this.commit_ids(),
+                                    &s.commits
+                                        .iter()
+                                        .map(|commit| plico::project_log::CommitId {
+                                            root: root.clone(),
+                                            hash: commit.id.clone(),
+                                        })
+                                        .collect::<Vec<_>>(),
                                     offset,
                                     log_row_height(cx),
                                 );
@@ -488,7 +518,7 @@ impl Review {
                             this.limit = limit;
                             this.rows = Arc::new(rows);
                             this.graph_model = result.2;
-                            this.commits = Arc::new(std::mem::take(&mut s.commits));
+                            this.replace_single_root_commits(std::mem::take(&mut s.commits));
                             if this.squash_undo.as_ref().is_some_and(|undo| {
                                 s.head_id.as_deref() != Some(undo.result_head())
                             }) {
@@ -513,21 +543,19 @@ impl Review {
                         Ok((_, Some(f))) => {
                             this.files = Arc::new(f);
                             this.prune_directory_state();
-                            this.rebuild_files();
+                            this.rebuild_files(cx);
                             this.base = Some(i18n::ComparisonTitle::Label(
                                 "Local changes · staged and unstaged are separate comparisons",
                             ));
                             this.pending_preview_file = None;
-                            if let Some(index) =
-                                plico::preview_selection::index(&this.files, preferred.as_ref())
-                            {
+                            if let Some(index) = this.preferred_file_index(preferred.as_ref()) {
                                 this.load_file(index, cx);
                             }
                         }
                         Err(e) => {
                             this.error = Some(e);
                             if filtering {
-                                this.commits = Arc::default();
+                                this.replace_single_root_commits(Vec::new());
                                 this.rows = Arc::default();
                                 this.graph_model = None;
                                 this.selected = None;

@@ -9652,3 +9652,41 @@ fn project_log_pages_consume_per_root_prefixes_and_keep_the_original_query() {
         assert_eq!(first.git(&["rev-parse", "HEAD"]), new_head);
     }
 }
+
+#[test]
+fn membership_protection_distinguishes_ref_types_and_remote_prefixes() {
+    let f = Fixture::new();
+    f.write("file", "base\n");
+    f.commit("base");
+    let head = f.git(&["rev-parse", "HEAD"]);
+    let token = Cancel::default();
+    let check = || {
+        f.repo()
+            .branch_membership(&head, &token)
+            .unwrap()
+            .default_protected_branch(&f.repo(), &token)
+            .unwrap()
+    };
+    f.git(&["branch", "origin/main"]);
+    f.git(&["remote", "add", "origin", "."]);
+    assert_eq!(check(), None);
+    f.git(&["update-ref", "refs/remotes/origin/feature/main", &head]);
+    assert_eq!(check(), None);
+    f.git(&["config", "remote.origin/feature.url", "."]);
+    // First configured prefix wins, matching GitUtil even with a longer remote name.
+    assert_eq!(check(), None);
+    f.git(&["config", "--remove-section", "remote.origin"]);
+    assert_eq!(check().as_deref(), Some("origin/feature/main"));
+    f.git(&["config", "--remove-section", "remote.origin/feature"]);
+    // An orphan ref falls back to origin + feature/main, not origin/feature + main.
+    assert_eq!(check(), None);
+    f.git(&["update-ref", "refs/remotes/orphan/main", &head]);
+    assert_eq!(check().as_deref(), Some("orphan/main"));
+    f.git(&["update-ref", "-d", "refs/remotes/orphan/main"]);
+    f.git(&[
+        "symbolic-ref",
+        "refs/remotes/orphan/main",
+        "refs/heads/main",
+    ]);
+    assert_eq!(check(), None);
+}

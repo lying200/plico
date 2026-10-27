@@ -27,11 +27,21 @@ impl Review {
         if !self.can_merge_branch(&reference) {
             return;
         }
+        self.merge_branch_in(self.repo.clone(), reference, window, cx);
+    }
+    pub(super) fn merge_branch_in(
+        &mut self,
+        repository: Repository,
+        reference: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.dismiss_repository_menu(cx);
-        self.execute_branch_merge(reference, None, window, cx);
+        self.execute_branch_merge(repository, reference, None, window, cx);
     }
     fn execute_branch_merge(
         &mut self,
+        repository: Repository,
         reference: String,
         smart: Option<Prepared>,
         window: &mut Window,
@@ -42,7 +52,7 @@ impl Review {
         }
         if self.documents.pending(cx) {
             self.with_saved_documents(window, cx, move |s, w, cx| {
-                s.execute_branch_merge(reference, smart, w, cx)
+                s.execute_branch_merge(repository, reference, smart, w, cx)
             });
             return;
         }
@@ -79,7 +89,8 @@ impl Review {
         self.status_message = Some(t("Merging branch…").into());
         let requests = plico::auth_request::Requests::new(token.clone());
         let worker_requests = requests.clone();
-        let repo = self.repo.clone();
+        let repo = repository.clone();
+        let project_path = self.repo.path.clone();
         let directory_repo = repo.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
@@ -142,7 +153,11 @@ impl Review {
                         let Some(cancelled) = s.finish_operation(id, cx) else {
                             return;
                         };
-                        s.sync_worktree(
+                        if s.repo.path != project_path {
+                            return;
+                        }
+                        s.sync_repository_worktree(
+                            &repository.path,
                             plico::worktree_events::Batch {
                                 all: true,
                                 index: true,
@@ -195,9 +210,7 @@ impl Review {
                                 {
                                     s.merged_branch = Some(prepared.clone());
                                 }
-                                if report.status == Status::Conflicts
-                                    && prepared.may_propose_delete()
-                                {
+                                if report.status == Status::Conflicts {
                                     s.pending_branch_merge = Some(prepared.clone());
                                 }
                                 if !cancelled && report.status == Status::LocalChanges {
@@ -215,7 +228,7 @@ impl Review {
                                         .unwrap_or_default();
                                     s.smart_merge_dialog(prepared, files, w, cx);
                                 } else if !cancelled && report.status == Status::Conflicts {
-                                    s.open_conflicts(w, cx);
+                                    s.open_conflicts_in(repository.clone(), w, cx);
                                 } else if !cancelled
                                     && !matches!(
                                         report.status,
@@ -265,14 +278,14 @@ impl Review {
                 .footer(h_flex().w_full().justify_end().gap_2()
                     .child(Button::new("smart-merge").primary().label(t("Smart Merge")).on_click(move |_,w,cx| {
                         w.close_dialog(cx);let _=button_owner.update(cx,|s,cx|if s.repo.path==button_path {
-                            s.execute_branch_merge(button_prepared.reference.clone(),Some(button_prepared.clone()),w,cx);
+                            s.execute_branch_merge(button_prepared.repository(),button_prepared.reference.clone(),Some(button_prepared.clone()),w,cx);
                         });
                     }))
                     .child(Button::new("cancel-smart-merge").focus_handle(cancel_focus.clone()).label(t("Don't Merge"))
                         .on_click(|_,w,cx|w.close_dialog(cx))))
                 .on_ok(move |_,w,cx| {
                     if cancel_focus.is_focused(w) {return true;}
-                    let _=owner.update(cx,|s,cx|if s.repo.path==path {s.execute_branch_merge(prepared.reference.clone(),Some(prepared.clone()),w,cx);});true
+                    let _=owner.update(cx,|s,cx|if s.repo.path==path {s.execute_branch_merge(prepared.repository(),prepared.reference.clone(),Some(prepared.clone()),w,cx);});true
                 })
         });
     }

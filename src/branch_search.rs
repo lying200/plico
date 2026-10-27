@@ -21,6 +21,7 @@ pub struct Match {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
+    Repository(std::path::PathBuf),
     Folder(crate::branch_popup::FolderKey),
     Action(String),
     Reference(crate::branch_popup::Section, String),

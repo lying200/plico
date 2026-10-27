@@ -13,6 +13,7 @@ use plico::{
     git::{Cancel, Repository},
     i18n::t,
     stash,
+    stash::project::SavedEntry,
 };
 
 actions!(stash_review, [ShowDiff, NextFile, PreviousFile]);
@@ -25,15 +26,21 @@ pub fn init(cx: &mut App) {
     ]);
 }
 pub struct OpenDiff(pub Target, pub Chain, pub crate::diff_tab::StashOrigin);
-pub struct Restore(pub stash::Entry, pub plico::stash_operation::Action);
-pub struct Acknowledge(pub plico::rebase_saved::Pending);
-pub struct ViewLocal;
-pub struct DropStash(pub stash::Entry);
+pub struct Restore(pub SavedEntry, pub plico::stash_operation::Action);
+pub struct Acknowledge(pub Repository, pub plico::rebase_saved::Pending);
+pub struct ViewLocal(pub Repository);
+pub struct DropStash(pub SavedEntry);
 impl EventEmitter<DropStash> for StashView {}
 impl EventEmitter<Acknowledge> for StashView {}
 impl EventEmitter<Restore> for StashView {}
 impl EventEmitter<ViewLocal> for StashView {}
 impl EventEmitter<OpenDiff> for StashView {}
+#[derive(Clone)]
+enum ListRow {
+    Repository(std::path::PathBuf, usize),
+    Entry(usize),
+    Error(std::path::PathBuf, String),
+}
 #[derive(Clone)]
 enum Row {
     Group(&'static str),
@@ -48,12 +55,19 @@ pub struct StashView {
     focus: FocusHandle,
     files_scroll: UniformListScrollHandle,
     repo: Repository,
-    entries: Vec<stash::Entry>,
+    project_roots: Entity<crate::ui::project_roots::ProjectRoots>,
+    _roots_subscription: Subscription,
+    entries: Vec<SavedEntry>,
+    list_rows: Vec<ListRow>,
+    list_errors: Vec<(std::path::PathBuf, String)>,
+    grouped: bool,
+    collapsed: std::collections::BTreeSet<std::path::PathBuf>,
+    notice_repo: Option<Repository>,
     selected: Option<usize>,
     contents: Option<stash::Contents>,
     rows: Vec<Row>,
     selected_file: Option<usize>,
-    pending_selection: Option<(String, Option<stash::FileIdentity>)>,
+    pending_selection: Option<((std::path::PathBuf, String), Option<stash::FileIdentity>)>,
     preview_chains: Vec<Option<Chain>>,
     busy: bool,
     more: bool,
@@ -68,7 +82,15 @@ impl Drop for StashView {
     }
 }
 impl StashView {
-    pub fn new(repo: Repository, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        repo: Repository,
+        project_roots: Entity<crate::ui::project_roots::ProjectRoots>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let subscription = cx.subscribe(
+            &project_roots,
+            |s, _, _: &crate::ui::project_roots::Changed, cx| s.refresh(cx),
+        );
         let mut s = Self {
             recovery: None,
             recovery_error: None,
@@ -78,7 +100,14 @@ impl StashView {
             focus: cx.focus_handle(),
             files_scroll: UniformListScrollHandle::new(),
             repo,
+            project_roots,
+            _roots_subscription: subscription,
             entries: vec![],
+            list_rows: vec![],
+            list_errors: vec![],
+            grouped: false,
+            collapsed: Default::default(),
+            notice_repo: None,
             selected: None,
             contents: None,
             rows: vec![],
@@ -104,7 +133,14 @@ impl StashView {
             cx.notify();
         }
     }
-    pub fn result(&mut self, notice: String, diagnostic: Option<String>, cx: &mut Context<Self>) {
+    pub fn result(
+        &mut self,
+        repository: Repository,
+        notice: String,
+        diagnostic: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.notice_repo = Some(repository);
         self.notice = Some(notice);
         self.diagnostic = diagnostic;
         self.refresh(cx);
@@ -134,7 +170,7 @@ impl StashView {
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let current = self.selected.and_then(|i| self.entries.get(i));
         let preferred = current
-            .map(|e| e.oid.clone())
+            .map(SavedEntry::identity)
             .or_else(|| self.pending_selection.as_ref().map(|(id, _)| id.clone()));
         let preferred_file = self.current_file_identity().or_else(|| {
             self.pending_selection
@@ -145,15 +181,18 @@ impl StashView {
         self.pending_selection = preferred.clone().map(|id| (id, preferred_file.clone()));
         let (repo, token, generation) = self.begin();
         self.entries.clear();
+        self.list_rows.clear();
+        self.list_errors.clear();
         self.selected = None;
         self.more = false;
+        let Some(roots) = self.project_roots.read(cx).snapshot() else {
+            cx.notify();
+            return;
+        };
         self.task = cx.spawn(async move |this, cx| {
-            let (result, recovery) = cx
+            let result = cx
                 .background_spawn(async move {
-                    (
-                        stash::list(&repo, stash::MAX_ENTRIES, &token),
-                        plico::rebase_saved::pending(&repo, &token),
-                    )
+                    roots.and_then(|roots| stash::project::load_in(&repo, &roots, &token))
                 })
                 .await;
             let _ = this.update(cx, |s, cx| {
@@ -161,34 +200,74 @@ impl StashView {
                     return;
                 }
                 s.busy = false;
-                match recovery {
-                    Ok(value) => {
-                        s.recovery = value;
-                        s.recovery_error = None;
-                    }
-                    Err(error) => {
-                        s.recovery = None;
-                        s.recovery_error = Some(error);
-                    }
-                }
                 match result {
-                    Ok(stack) => {
-                        s.entries = stack.entries;
-                        s.more = stack.more;
+                    Ok(stash::project::Stack {
+                        entries,
+                        more,
+                        grouped,
+                        errors,
+                        recovery,
+                    }) => {
+                        s.entries = entries;
+                        s.more = more;
+                        s.grouped = grouped;
+                        s.list_errors = errors;
+                        s.rebuild_list_rows();
+                        match recovery {
+                            Ok(value) => {
+                                s.recovery = value;
+                                s.recovery_error = None;
+                            }
+                            Err(error) => {
+                                s.recovery = None;
+                                s.recovery_error = Some(error);
+                            }
+                        }
                         if !s.entries.is_empty() {
-                            let found =
-                                preferred.and_then(|id| s.entries.iter().position(|e| e.oid == id));
+                            let found = preferred
+                                .and_then(|id| s.entries.iter().position(|e| e.identity() == id));
                             s.select_with_file(found.unwrap_or(0), found.and(preferred_file), cx);
                         } else {
                             s.pending_selection = None;
                         }
                     }
-                    Err(e) => s.error = Some(e),
+                    Err(error) => s.error = Some(error),
                 }
                 cx.notify();
             });
         });
         cx.notify();
+    }
+    fn rebuild_list_rows(&mut self) {
+        self.list_rows.clear();
+        let mut index = 0;
+        while index < self.entries.len() {
+            let path = self.entries[index].repository.path.clone();
+            let end = index
+                + self.entries[index..]
+                    .iter()
+                    .take_while(|e| e.repository.path == path)
+                    .count();
+            if self.grouped {
+                self.list_rows
+                    .push(ListRow::Repository(path.clone(), end - index));
+            }
+            if !self.grouped || !self.collapsed.contains(&path) {
+                self.list_rows.extend((index..end).map(ListRow::Entry));
+            }
+            index = end;
+        }
+        self.list_rows.extend(
+            self.list_errors
+                .iter()
+                .map(|(path, error)| ListRow::Error(path.clone(), error.clone())),
+        );
+    }
+    fn selected_repository(&self) -> &Repository {
+        self.selected
+            .and_then(|i| self.entries.get(i))
+            .map(|e| &e.repository)
+            .unwrap_or(&self.repo)
     }
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.selected == Some(index) && self.contents.is_some() {
@@ -212,8 +291,9 @@ impl StashView {
             return;
         };
         // An explicit new stash selection replaces an older refresh preference.
-        self.pending_selection = Some((entry.oid.clone(), preferred.clone()));
-        let (repo, token, generation) = self.begin();
+        self.pending_selection = Some((entry.identity(), preferred.clone()));
+        let (_, token, generation) = self.begin();
+        let repo = entry.repository.clone();
         self.selected = Some(index);
         self.task = cx.spawn(async move |this, cx| {
             let result = cx
@@ -298,27 +378,30 @@ impl StashView {
             },
         };
         Some(
-            Target::new(self.repo.clone(), Some(commit.clone()), change.clone()).and_then(
-                |target| {
-                    let cached = self
-                        .preview_chains
-                        .get_mut(*group)
-                        .ok_or("Missing stash comparison group")?;
-                    let chain = match cached.as_ref().and_then(|chain| chain.fork_for(&target)) {
-                        Some(chain) => chain,
-                        None => {
-                            let chain = Chain::new(&target, &details.files)?;
-                            *cached = Some(chain.clone());
-                            chain
-                        }
-                    };
-                    Ok(OpenDiff(target, chain, origin))
-                },
-            ),
+            Target::new(
+                entry.repository.clone(),
+                Some(commit.clone()),
+                change.clone(),
+            )
+            .and_then(|target| {
+                let cached = self
+                    .preview_chains
+                    .get_mut(*group)
+                    .ok_or("Missing stash comparison group")?;
+                let chain = match cached.as_ref().and_then(|chain| chain.fork_for(&target)) {
+                    Some(chain) => chain,
+                    None => {
+                        let chain = Chain::new(&target, &details.files)?;
+                        *cached = Some(chain.clone());
+                        chain
+                    }
+                };
+                Ok(OpenDiff(target, chain, origin))
+            }),
         )
     }
     pub fn select_target(&mut self, target: &Target, cx: &mut Context<Self>) {
-        if target.identity().repository != self.repo.path || self.busy {
+        if target.identity().repository != self.selected_repository().path || self.busy {
             return;
         }
         let Some(contents) = &self.contents else {
@@ -340,7 +423,12 @@ impl StashView {
                 .files
                 .get(*index)
                 .and_then(|change| {
-                    Target::new(self.repo.clone(), Some(commit.clone()), change.clone()).ok()
+                    Target::new(
+                        self.selected_repository().clone(),
+                        Some(commit.clone()),
+                        change.clone(),
+                    )
+                    .ok()
                 })
                 .is_some_and(|candidate| candidate.identity() == target.identity())
         });
@@ -399,10 +487,64 @@ impl Render for StashView {
             .child(
                 uniform_list(
                     "stash-entries",
-                    self.entries.len(),
+                    self.list_rows.len(),
                     cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
                         range
-                            .map(|index| {
+                            .map(|row| {
+                                let index = match &s.list_rows[row] {
+                                    ListRow::Repository(path, count) => {
+                                        let path = path.clone();
+                                        let closed = s.collapsed.contains(&path);
+                                        return h_flex()
+                                            .id(("stash-root", row))
+                                            .h(px(32.))
+                                            .px_3()
+                                            .gap_2()
+                                            .child(
+                                                crate::ui_style::jb_icon(if closed {
+                                                    "chevronRight_dark.svg"
+                                                } else {
+                                                    "chevronDown_dark.svg"
+                                                })
+                                                .size(px(12.)),
+                                            )
+                                            .child(
+                                                crate::ui_style::jb_icon("folder_dark.svg")
+                                                    .size(px(16.)),
+                                            )
+                                            .child(
+                                                div().truncate().child(
+                                                    path.file_name()
+                                                        .unwrap_or_default()
+                                                        .to_string_lossy()
+                                                        .into_owned(),
+                                                ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_color(rgb(0x8b8e95))
+                                                    .child(count.to_string()),
+                                            )
+                                            .on_click(cx.listener(move |s, _, _, cx| {
+                                                if !s.collapsed.remove(&path) {
+                                                    s.collapsed.insert(path.clone());
+                                                }
+                                                s.rebuild_list_rows();
+                                                cx.notify();
+                                            }))
+                                            .into_any_element();
+                                    }
+                                    ListRow::Error(path, error) => {
+                                        return div()
+                                            .h(px(32.))
+                                            .px_3()
+                                            .truncate()
+                                            .text_color(rgb(0xf2a6a6))
+                                            .child(format!("{}: {}", path.display(), error))
+                                            .into_any_element();
+                                    }
+                                    ListRow::Entry(index) => *index,
+                                };
                                 let entry = &s.entries[index];
                                 let menu_entry = entry.clone();
                                 let owner = cx.entity().downgrade();
@@ -410,7 +552,8 @@ impl Render for StashView {
                                     .id(("stash", index))
                                     .h(px(32.))
                                     .w_full()
-                                    .px_3()
+                                    .pl(px(if s.grouped { 36. } else { 12. }))
+                                    .pr_3()
                                     .flex()
                                     .items_center()
                                     .gap_2()
@@ -465,6 +608,7 @@ impl Render for StashView {
                                                 }),
                                         )
                                     })
+                                    .into_any_element()
                             })
                             .collect()
                     }),
@@ -472,7 +616,10 @@ impl Render for StashView {
                 .flex_1(),
             )
             .when(
-                self.entries.is_empty() && !self.busy && self.error.is_none(),
+                self.entries.is_empty()
+                    && self.list_errors.is_empty()
+                    && !self.busy
+                    && self.error.is_none(),
                 |v| v.child(div().p_3().child(t("No stashes"))),
             )
             .when(self.more, |v| {
@@ -631,7 +778,14 @@ impl Render for StashView {
                             Button::new("stash-view-local")
                                 .ghost()
                                 .label(t("Local Changes"))
-                                .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewLocal))),
+                                .on_click(cx.listener(|s, _, _, cx| {
+                                    cx.emit(ViewLocal(
+                                        s.notice_repo
+                                            .as_ref()
+                                            .unwrap_or(s.selected_repository())
+                                            .clone(),
+                                    ))
+                                })),
                         )
                     }),
             );
@@ -655,7 +809,7 @@ impl Render for StashView {
                                     .disabled(self.busy || self.write_busy)
                                     .on_click(cx.listener(move |s, _, _, cx| {
                                         if !s.busy && !s.write_busy {
-                                            cx.emit(Acknowledge(pending.clone()));
+                                            cx.emit(Acknowledge(s.repo.clone(), pending.clone()));
                                         }
                                     })),
                             ),

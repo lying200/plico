@@ -1,4 +1,7 @@
 //! Rebased StructureFilterPopupComponent's newline-only path draft for one root.
+pub mod project;
+pub mod store;
+
 use crate::git::{LogFilter, Result};
 use std::{collections::HashSet, path::Path};
 

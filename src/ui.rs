@@ -27,6 +27,10 @@ mod merge_recovery;
 mod merge_result;
 mod operation;
 mod preview;
+mod project_colors;
+mod project_merge;
+mod project_navigation;
+pub(crate) mod project_roots;
 mod push_remote;
 mod reference_checkout;
 mod reflog;
@@ -34,6 +38,7 @@ mod remote;
 mod remote_management;
 mod repository;
 mod repository_popup;
+mod repository_project;
 mod revert_recovery;
 mod revert_saved;
 mod reword;
@@ -45,6 +50,7 @@ mod tag_details;
 mod tag_general;
 mod text_merge;
 mod tool_rail;
+mod unshallow_notice;
 mod worktree_sync;
 mod worktrees;
 
@@ -108,12 +114,12 @@ pub fn init(cx: &mut App) {
 enum FileRow {
     Group(Area, usize, bool),
     File(usize, usize),
-    Folder(Area, PathBuf, PathBuf, usize, usize, bool),
+    Folder(PathBuf, Area, PathBuf, PathBuf, usize, usize, bool),
 }
 #[derive(Clone)]
 struct NavigationNotice {
     name: String,
-    target: String,
+    target: plico::project_log::CommitId,
     can_clear: bool,
 }
 
@@ -123,18 +129,38 @@ pub struct Review {
     startup_report: Option<Arc<crate::startup_report::Probe>>,
     operation: plico::active_operation::Lifecycle,
     operation_task: Task<()>,
+    conflict_task: Task<()>,
     status_message: Option<String>,
     merged_branch: Option<plico::branch_merge::Prepared>,
     pending_branch_merge: Option<plico::branch_merge::Prepared>,
+    conflict_session: Option<Entity<conflicts::ConflictList>>,
     deleted_branch: Option<(PathBuf, Arc<plico::branch_delete::Prepared>)>,
     rebase_diagnostic: Option<String>,
+    update_diagnostic: Option<String>,
+    update_diagnostic_warning: bool,
+    sequence_diagnostic: Option<String>,
+    sequence_conflict: Option<(
+        Arc<()>,
+        PathBuf,
+        sequencer::project::Session,
+        std::ffi::OsString,
+    )>,
+    sequence_retry: Option<(
+        plico::operation_state::Operation,
+        PathBuf,
+        plico::project_sequence::Plan,
+    )>,
     squash_undo: Option<Arc<plico::squash_undo::Undo>>,
     operation_state: Option<plico::operation_state::State>,
     merge_recovery_available: bool,
     revert_recovery_available: bool,
     revert_saved_available: bool,
-    revert_recovery: Option<plico::revert_operation::Recovery>,
+    revert_recoveries: std::collections::HashMap<PathBuf, plico::revert_operation::Recovery>,
     repo: Repository,
+    project_roots: Entity<project_roots::ProjectRoots>,
+    main_menu_unshallow: Option<Repository>,
+    shallow_startup: unshallow_notice::Startup,
+    project_roots_subscription: Option<Subscription>,
     welcome: bool,
     ui_chinese: bool,
     recent_projects: Vec<PathBuf>,
@@ -149,15 +175,20 @@ pub struct Review {
     graph_print_loading: bool,
     graph_hover: Option<(usize, usize)>,
     commits: Arc<Vec<Commit>>,
+    // Explicit identities for project Log rows; None denotes the existing single-root query.
+    log_sources: Option<Arc<Vec<plico::project_log::CommitId>>>,
+    log_scope: Option<Arc<plico::project_log::Scope>>,
+    project_window: Option<Box<plico::project_log::navigation::Window>>,
+    pending_project_reload: Option<bool>,
     files: Arc<Vec<Change>>,
     file_rows: Arc<Vec<FileRow>>,
     collapsed_files: Vec<Area>,
-    collapsed_directories: HashSet<(Area, PathBuf)>,
+    collapsed_directories: HashSet<(PathBuf, Area, PathBuf)>,
     comparison: Option<Entity<crate::compare_view::CompareView>>,
     comparison_visible: bool,
     comparison_preview: Option<WeakEntity<DiffTab>>,
     selected: Option<usize>,
-    log_selection: plico::log_selection::Selection,
+    log_selection: plico::log_selection::IdentitySelection<plico::project_log::CommitId>,
     aggregate_chain: Option<diff_target::Chain>,
     selection_details: Vec<(
         Vec<git::RefLabel>,
@@ -167,7 +198,7 @@ pub struct Review {
     selection_branches: Option<Entity<crate::containing_branches::Batch>>,
     selected_file: Option<usize>,
     // Survives the temporary empty file model while commit details load.
-    pending_preview_file: Option<Change>,
+    pending_preview_file: Option<(PathBuf, Change)>,
     branch_filter: Vec<String>,
     selected_tree_ref: Option<String>,
     branch_selection: plico::log_selection::Selection,
@@ -265,6 +296,7 @@ pub struct Review {
     repository_pointer: Option<Point<Pixels>>,
     repository_child_selection: Option<plico::branch_search::Selection>,
     repository_child_menu: Option<WeakEntity<gpui_kit::component::menu::PopupMenu>>,
+    repository_project: Option<Arc<plico::branch_popup::project::Project>>,
     repository_recent: Vec<String>,
     repository_push_remotes: Vec<String>,
     repository_favorites: plico::branch_popup::Favorites,
@@ -401,6 +433,10 @@ impl Review {
             recent_projects: plico::recent_projects::load(),
             recent_recorded: false,
             repo: Repository::new(path.clone()),
+            project_roots_subscription: None,
+            project_roots: cx.new(|cx| project_roots::ProjectRoots::open(path.clone(), cx)),
+            main_menu_unshallow: None,
+            shallow_startup: Default::default(),
             snapshot: None,
             rows: Arc::default(),
             graph_model: None,
@@ -411,6 +447,10 @@ impl Review {
             graph_print_loading: false,
             graph_hover: None,
             commits: Arc::default(),
+            log_sources: None,
+            log_scope: None,
+            project_window: None,
+            pending_project_reload: None,
             files: Arc::default(),
             file_rows: Arc::default(),
             collapsed_files: Vec::new(),
@@ -477,14 +517,21 @@ impl Review {
             details_cache: Default::default(),
             operation: Default::default(),
             operation_task: Task::ready(()),
+            conflict_task: Task::ready(()),
             status_message: None,
             merged_branch: None,
             pending_branch_merge: None,
+            conflict_session: None,
             deleted_branch: None,
             rebase_diagnostic: None,
+            update_diagnostic: None,
+            update_diagnostic_warning: false,
+            sequence_diagnostic: None,
+            sequence_conflict: None,
+            sequence_retry: None,
             squash_undo: None,
             operation_state: None,
-            revert_recovery: None,
+            revert_recoveries: Default::default(),
             merge_recovery_available: false,
             revert_recovery_available: false,
             revert_saved_available: false,
@@ -533,6 +580,7 @@ impl Review {
             repository_pointer: None,
             repository_child_selection: None,
             repository_child_menu: None,
+            repository_project: None,
             repository_recent: Vec::new(),
             repository_push_remotes: Vec::new(),
             repository_favorites: Default::default(),
@@ -585,6 +633,8 @@ impl Review {
             |s, _, _: &crate::paths_menu::Changed, cx| s.apply_text_filter(cx),
         )
         .detach();
+        this.paths_menu
+            .update(cx, |menu, cx| menu.enable_persistence(cx));
         cx.subscribe(
             &this.user_menu,
             |s, _, event: &crate::user_menu::Changed, cx| match event {
@@ -628,6 +678,7 @@ impl Review {
             },
         )
         .detach();
+        this.bind_project_roots(cx);
         if !this.welcome {
             this.refresh(false, cx);
             this.start_auto_refresh(window, cx);
@@ -803,7 +854,7 @@ impl Render for Review {
                             .child(Button::new("clone-repository").label(t("Clone Repository…")).disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.open_clone(w,cx))))
                             .child(Button::new("open-repository").label(t("Open Repository…")).on_click(cx.listener(|s, _, w, cx| s.open(w, cx)))))
                         .when(self.recent_projects.is_empty(), |v| v.child(div().text_color(rgb(MUTED)).child(t("Browse history. Review changes."))))
-                        .when_some(self.error.clone(), |v, error| v.child(div().text_color(rgb(0xf2a6a6)).child(error)))
+                        .when_some(self.error.clone().or_else(|| self.update_diagnostic.clone()).or_else(|| self.sequence_diagnostic.clone()), |v, error| v.child(div().text_color(rgb(0xf2a6a6)).child(error)))
                         .child(v_flex().id("recent-projects-list").flex_1().min_h_0().overflow_y_scroll().children(self.recent_projects.iter().enumerate().map(|(i, path)| {
                             let open = path.clone(); let remove = path.clone();
                             h_flex().id(("recent-project", i)).w_full().min_w_0().p_3().gap_3().rounded(px(6.)).hover(|s| s.bg(rgb(0x2b2d30)))
@@ -902,7 +953,7 @@ impl Render for Review {
                 let ids = s.commit_ids();
                 let mut selected = s.log_selection.ordered(&ids);
                 selected.reverse();
-                if !selected.is_empty() { cx.write_to_clipboard(ClipboardItem::new_string(selected.join(" "))); }
+                if !selected.is_empty() { cx.write_to_clipboard(ClipboardItem::new_string(selected.iter().map(|id| id.hash.as_str()).collect::<Vec<_>>().join(" "))); }
             }))
             .child(TitleBar::new().pl_0().h(px(40.)).bg(rgb(SHELL)).border_color(rgb(SHELL)).child(self.toolbar(cx)))
 
@@ -914,7 +965,7 @@ impl Render for Review {
                     .child(if notice.can_clear { i18n::message(i18n::Message::HiddenInLog(&notice.name)) }
                            else { i18n::message(i18n::Message::NotInHistory(&notice.name)) })
                     .when(notice.can_clear, |row| row.child(Button::new("navigate-clear-filters").link().small().label(t("Clear filters and show"))
-                        .on_click(cx.listener(move |s, _, window, cx| s.navigate_commit(notice.name.clone(), notice.target.clone(), true, window, cx)))))
+                        .on_click(cx.listener(move |s, _, window, cx| s.navigate_log_commit(notice.name.clone(), notice.target.clone(), true, false, window, cx)))))
                     .child(Button::new("dismiss-navigation").ghost().small().label(t("Dismiss"))
                         .on_click(cx.listener(|s, _, _, cx| { s.navigation_notice = None; cx.notify(); })))
             ))
@@ -1039,12 +1090,12 @@ impl Render for Review {
                     .when(self.snapshot.as_ref().is_some_and(|s| s.shallow), |v| v.child(
                         div().min_w_0().truncate().child(t("Shallow repository · totals cover available history"))))
                     .child(div().flex_1())
-            .when_some(self.error.clone(), |v, error| v.child(h_flex().gap_2().min_w_0()
-                .child(div().text_color(rgb(0xf2a6a6)).child(t(if plico::git_error::is_ownership_error(&error) { "Repository access blocked" } else { "Operation failed" })))
+            .when_some(self.error.clone().or_else(|| self.update_diagnostic.clone()).or_else(|| self.sequence_diagnostic.clone()), |v, error| v.child(h_flex().gap_2().min_w_0()
+                .child(div().text_color(rgb(if self.error.is_none() && self.update_diagnostic.is_some() && self.update_diagnostic_warning { 0xd5b778 } else { 0xf2a6a6 })).child(t(if plico::git_error::is_ownership_error(&error) { "Repository access blocked" } else if self.error.is_none() && self.update_diagnostic.is_some() && self.update_diagnostic_warning { "Repositories skipped" } else { "Operation failed" })))
                 .child(Button::new("copy-operation-error").link().xsmall().label(t("Details"))
                     .on_click(cx.listener(|s, _, w, cx| s.show_error_details(w, cx))))
                 .child(Button::new("dismiss-operation-error").ghost().xsmall().label(t("Dismiss"))
-                    .on_click(cx.listener(|s, _, _, cx| { s.error = None; cx.notify(); })))))
+                    .on_click(cx.listener(|s, _, _, cx| { s.error = None; s.update_diagnostic = None; s.sequence_diagnostic = None; cx.notify(); })))))
             .when(self.operation.busy() || self.log_query.busy() || self.log_query.history_loading(), |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
             .when_some(self.status_message.clone(), |v, text| v.child(div().max_w_full().min_w_0().truncate().child(text)))
             .when_some(self.merged_branch.as_ref(), |v, merged| v.child(

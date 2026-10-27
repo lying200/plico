@@ -274,7 +274,7 @@ mod tests {
                     cx,
                 );
                 // Keep the failed draft retained even though there is no open source tab.
-                s.documents.retain_pending("bad.txt".into(), &doc, cx);
+                s.documents.retain_pending(&doc, cx);
                 s.with_saved_documents(window, cx, move |_, _, _| result.set(true));
                 assert!(s.documents.locked());
             })
@@ -285,7 +285,10 @@ mod tests {
             assert!(!s.operation.saving_documents());
             assert!(!s.documents.locked());
             assert!(s.error.is_some());
-            let doc = s.documents.get(&PathBuf::from("bad.txt")).unwrap();
+            let doc = s
+                .documents
+                .get(&PathBuf::from("fixture"), &PathBuf::from("bad.txt"))
+                .unwrap();
             assert_eq!(
                 doc.read(cx).editor.read(cx).text().to_string(),
                 "invalid\0draft"

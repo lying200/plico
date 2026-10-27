@@ -1,7 +1,6 @@
 //! Main-window repository popup coordination.
 //! Private implementation; shared lifecycle state remains owned by Review.
 use super::*;
-
 impl Review {
     pub(super) fn dismiss_repository_child(&mut self, cx: &mut Context<Self>) {
         self.repository_child_selection = None;
@@ -18,6 +17,7 @@ impl Review {
     pub(super) fn dismiss_repository_menu(&mut self, cx: &mut Context<Self>) {
         self.dismiss_repository_child(cx);
         self.repository_menu_open = false;
+        self.repository_project = None;
         self.repository_pointer = None;
         self.repository_search_task = Task::ready(());
         self.repository_search = None;
@@ -38,6 +38,12 @@ impl Review {
         let Some(snapshot) = &self.snapshot else {
             return;
         };
+        let project_roots = self
+            .project_roots
+            .read(cx)
+            .snapshot()
+            .and_then(Result::ok)
+            .filter(|roots| roots.roots.len() > 1);
         let branches = snapshot.branches.clone();
         let repo = self.repo.clone();
         let load_favorites = !self.repository_favorites_saving;
@@ -58,6 +64,9 @@ impl Review {
                                 .map(|s| s.remote().to_owned())
                                 .collect::<Vec<_>>()
                         }),
+                        project_roots.map(|roots| {
+                            plico::branch_popup::project::Project::read(&roots.roots, &token)
+                        }),
                     )
                 })
                 .await;
@@ -69,6 +78,7 @@ impl Review {
                     return;
                 }
                 s.repository_recent_token = None;
+                s.repository_project = result.3.and_then(Result::ok).map(Arc::new);
                 s.repository_push_remotes = result.2.unwrap_or_default();
                 if let Some(favorites) = result.1 {
                     match favorites {
@@ -233,6 +243,28 @@ impl Review {
                 head.map(|id| format!("{} ({})", &id[..8], t("detached HEAD")))
                     .unwrap_or_else(|| t("Branch").into())
             });
+        // Rebase temporarily detaches HEAD, but the widget describes the
+        // operation's branch (GitBranchUtil.getDisplayableBranchText).
+        let label = self
+            .operation_state
+            .as_ref()
+            .map_or(label.clone(), |state| {
+                use plico::operation_state::Operation;
+                if matches!(
+                    state.operation,
+                    Operation::RebaseApply | Operation::RebaseMerge
+                ) {
+                    format!(
+                        "{} {}",
+                        t("Rebasing"),
+                        state.rebase_branch.as_deref().unwrap_or(&label)
+                    )
+                } else if state.operation == Operation::Merge {
+                    format!("{} {}", t("Merging"), label)
+                } else {
+                    label
+                }
+            });
         gpui_kit::component::popover::Popover::new("repository-branch-popup")
             .appearance(false)
             .overlay_closable(false)
@@ -309,7 +341,13 @@ impl Review {
                 s.repository_menu_open = *open;
                 if *open {
                     s.repository_search_editing = false;
+                    let placeholder = t(if s.project_roots.read(cx).has_multiple_roots() {
+                        "Search for branches, actions, repositories"
+                    } else {
+                        "Search for branches and actions"
+                    });
                     s.repository_search_input.update(cx, |input, cx| {
+                        input.set_placeholder(placeholder, window, cx);
                         input.set_value("", window, cx);
                         input.focus(window, cx);
                     });
@@ -366,13 +404,18 @@ impl Review {
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
-        if let Some(next) = branch_navigation::navigate_visible(
-            &rows,
-            &actions,
-            self.repository_selection.as_ref(),
-            direction,
-            false,
-        ) {
+        let next = if self.repository_project.is_some() {
+            self.project_repository_move(direction)
+        } else {
+            branch_navigation::navigate_visible(
+                &rows,
+                &actions,
+                self.repository_selection.as_ref(),
+                direction,
+                false,
+            )
+        };
+        if let Some(next) = next {
             if let Some(index) = rows
                 .iter()
                 .position(|row| branch_navigation::row_matches(row, &next))
@@ -427,6 +470,8 @@ impl Review {
             self.apply_repository_search(cx);
         }
         match self.repository_selection.clone() {
+            Some(plico::branch_search::Selection::Repository(_))
+                if self.repository_roots_updating(cx) => {}
             Some(plico::branch_search::Selection::Folder(key)) => {
                 self.dismiss_repository_child(cx);
                 if final_choice {
@@ -440,7 +485,10 @@ impl Review {
             Some(plico::branch_search::Selection::Action(id)) if final_choice => {
                 self.activate_repository_action(&id, window, cx);
             }
-            Some(selection @ plico::branch_search::Selection::Reference(..)) => {
+            Some(
+                selection @ (plico::branch_search::Selection::Reference(..)
+                | plico::branch_search::Selection::Repository(..)),
+            ) => {
                 if self.repository_child_selection.as_ref() != Some(&selection) {
                     self.dismiss_repository_child(cx);
                     self.repository_child_selection = Some(selection);
@@ -531,7 +579,9 @@ impl Review {
             .map(String::as_str)
             .collect::<Vec<_>>();
         let groups = self.repository_groups();
-        let next = if self.repository_search.is_some() {
+        let next = if self.repository_project.is_some() {
+            self.project_repository_move(direction)
+        } else if self.repository_search.is_some() {
             branch_navigation::navigate(
                 &groups,
                 &actions,
@@ -633,7 +683,7 @@ impl Review {
             .w(px(360.)).p_2().gap_1().bg(rgb(0x25262a)).border_1().border_color(rgb(POPUP_BORDER)).rounded(px(8.))
             .on_mouse_down_out(cx.listener(|s,event: &MouseDownEvent,_,cx| {
                 let in_child=s.repository_child_menu.as_ref().and_then(|menu|menu.upgrade())
-                    .is_some_and(|menu|menu.read(cx).contains_position(&event.position));
+                    .is_some_and(|menu|menu.read(cx).contains_menu_position(&event.position, cx));
                 if !in_child { s.dismiss_repository_menu(cx); cx.notify(); }
             }))
             .child(h_flex().items_center().gap_1()
@@ -662,6 +712,7 @@ impl Review {
                         .on_click(cx.listener(move |s,_,w,cx| s.activate_repository_action(&action,w,cx))))
                     .when(id == "commit", |v| v.child(div().h(px(1.)).my_1().w_full().bg(rgb(POPUP_BORDER))))
             }))
+            .children(self.repository_project_rows(cx))
             .when(self.repository_favorites_error.is_some(), |v| v.child(div().text_color(rgb(0xe08888)).child(t("Could not load or save favorites"))))
             .when(count>0 && !self.repository_actions.is_empty(), |v|v.child(div().h(px(1.)).w_full().bg(rgb(POPUP_BORDER))))
             .when(count==0 && self.repository_actions.is_empty(), |v| v.child(div().p_2().text_color(rgb(MUTED)).child(t("No matching branches or actions"))))

@@ -14,16 +14,26 @@ impl Review {
     }
 
     pub(super) fn show_error_details(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(error) = self.error.clone() else {
+        let Some(error) = self
+            .error
+            .clone()
+            .or_else(|| self.update_diagnostic.clone())
+            .or_else(|| self.sequence_diagnostic.clone())
+        else {
             return;
         };
-        crate::error_ui::show_details(error, "Git error details", window, cx);
+        let title = if self.error.is_none()
+            && self.update_diagnostic.is_some()
+            && self.update_diagnostic_warning
+        {
+            "Repositories skipped"
+        } else {
+            "Git error details"
+        };
+        crate::error_ui::show_details(error, title, window, cx);
     }
     pub(super) fn empty_diff_message(&self) -> &'static str {
         if self.files.is_empty() {
-            if !self.local && self.text_filter.is_some() && self.commits.is_empty() {
-                return "No commits match the message filter. Clear the filter field and press Enter to show all history.";
-            }
             if self.local {
                 "No local changes. The index and working tree are clean."
             } else if let Some(commit) = self.selected.and_then(|i| self.commits.get(i)) {
@@ -37,10 +47,8 @@ impl Review {
             } else {
                 if !self.selection_details.is_empty() {
                     "No changes"
-                } else if !self.commits.is_empty() {
-                    "Select commits to view changes"
                 } else {
-                    "No commits in this history. Use Local Changes to review files before the first commit."
+                    "Select commits to view changes"
                 }
             }
         } else if self.selected_file.is_some() {
@@ -63,7 +71,7 @@ impl Review {
         } else {
             Some(self.commits.get(self.selected?)?.clone())
         };
-        let target = diff_target::Target::new(self.repo.clone(), commit, change).ok()?;
+        let target = diff_target::Target::new(self.log_files_repository()?, commit, change).ok()?;
         let chain = self
             .local_preview
             .as_ref()

@@ -417,6 +417,15 @@ impl ProjectView {
         self.preview_generation = self.preview_generation.wrapping_add(1);
         self.preview_task = Task::ready(());
     }
+    pub(crate) fn operation_path(&self, window: &Window, cx: &App) -> Option<PathBuf> {
+        if !self.focus.contains_focused(window, cx) {
+            return None;
+        }
+        self.rows
+            .get(self.active)
+            .filter(|(_, _, more)| !more)
+            .map(|(entry, _, _)| self.root.join(&entry.path))
+    }
     pub fn is_preview_current(&self, generation: u64) -> bool {
         self.preview_enabled && self.preview_generation == generation
     }
@@ -846,6 +855,9 @@ impl Drop for FileTab {
     }
 }
 impl FileTab {
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
+    }
     pub fn new(root: PathBuf, path: PathBuf) -> Self {
         Self {
             root,
@@ -1184,7 +1196,7 @@ impl FileTab {
         if let Some(editing) = self
             .editing
             .clone()
-            .or_else(|| self.documents.get(&self.path))
+            .or_else(|| self.documents.get(&self.root, &self.path))
         {
             self.attach_document(editing, cx);
             self.status = Notice::Label("");

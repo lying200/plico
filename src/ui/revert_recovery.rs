@@ -29,7 +29,7 @@ impl Review {
                     Ok(Some(pending)) => s.revert_queue_dialog(pending, w, cx),
                     Ok(None) => {
                         s.revert_recovery_available = false;
-                        s.revert_recovery = None;
+                        s.revert_recoveries.remove(&s.repo.path);
                         cx.notify();
                     }
                     Err(error) => {
@@ -86,7 +86,7 @@ impl Review {
                 }
                 match result {
                     Ok(()) => {
-                        s.revert_recovery = None;
+                        s.revert_recoveries.remove(&s.repo.path);
                         s.status_message =
                             Some(t("Saved queue cleared; commits and files unchanged").into());
                     }

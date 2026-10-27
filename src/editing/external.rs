@@ -30,6 +30,7 @@ impl Drop for Observation {
 impl Documents {
     pub fn observe_disk(
         &self,
+        root: &std::path::Path,
         changes: &Batch,
         poll_open_documents: bool,
         window: &mut Window,
@@ -38,8 +39,12 @@ impl Documents {
         if self.locked() {
             return;
         }
+        let root = plico::recent_projects::identity(root);
         for document in self.all() {
             document.update(cx, |d, cx| {
+                if plico::recent_projects::identity(&d.root) != root {
+                    return;
+                }
                 let affected = changes.affects(&d.path);
                 if affected || poll_open_documents {
                     d.observe_disk(affected, self.clone(), window, cx);
@@ -221,7 +226,15 @@ mod tests {
         cx.update(gpui::component::init);
         let documents = Documents::default();
         let mut document = None;
+        let mut other = None;
         let (_, cx) = cx.add_window_view(|window, cx| {
+            other = Some(documents.get_or_create(
+                "another-root".into(),
+                "a.txt".into(),
+                Document::new(b"other".to_vec()).unwrap(),
+                |text, cx| cx.new(|cx| EditorState::new(window, cx).default_value(text.to_owned())),
+                cx,
+            ));
             document = Some(documents.get_or_create(
                 "fixture".into(),
                 "a.txt".into(),
@@ -233,18 +246,23 @@ mod tests {
             Root::new(empty, window, cx)
         });
         let document = document.unwrap();
+        let other = other.unwrap();
         cx.update(|window, cx| {
             let mut batch = plico::worktree_events::Batch::default();
             batch.paths.insert("unrelated.txt".into());
-            documents.observe_disk(&batch, false, window, cx);
+            documents.observe_disk(std::path::Path::new("fixture"), &batch, false, window, cx);
             assert!(
                 !document.read(cx).external.checking,
                 "an unrelated file event must not start disk IO for every open document"
             );
-            documents.observe_disk(&batch, true, window, cx);
+            documents.observe_disk(std::path::Path::new("fixture"), &batch, true, window, cx);
             assert!(
                 document.read(cx).external.checking,
                 "periodic fallback must still check open documents"
+            );
+            assert!(
+                !other.read(cx).external.checking,
+                "root polling must not touch another repository's same-named document"
             );
         });
     }
@@ -310,7 +328,13 @@ mod tests {
             })
         });
         assert_eq!(
-            documents.get(&"a.txt".into()).unwrap().entity_id(),
+            documents
+                .get(
+                    std::path::Path::new("fixture"),
+                    std::path::Path::new("a.txt")
+                )
+                .unwrap()
+                .entity_id(),
             identity
         );
     }
@@ -346,7 +370,12 @@ mod tests {
         assert!(!cx.read(|cx| documents.pending(cx)));
         drop(document);
         assert!(
-            documents.get(&"deleted.txt".into()).is_none(),
+            documents
+                .get(
+                    std::path::Path::new("fixture"),
+                    std::path::Path::new("deleted.txt")
+                )
+                .is_none(),
             "clean read errors must not retain closed documents"
         );
     }

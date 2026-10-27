@@ -13,13 +13,13 @@ fn paths(change: &Change) -> (Option<&Path>, Option<&Path>) {
     )
 }
 
+pub fn matches(file: &Change, preferred: &Change) -> bool {
+    file.area == preferred.area && paths(file) == paths(preferred)
+}
+
 pub fn index(files: &[Change], preferred: Option<&Change>) -> Option<usize> {
     preferred
-        .and_then(|old| {
-            files
-                .iter()
-                .position(|file| file.area == old.area && paths(file) == paths(old))
-        })
+        .and_then(|old| files.iter().position(|file| matches(file, old)))
         .or_else(|| (!files.is_empty()).then_some(0))
 }
 

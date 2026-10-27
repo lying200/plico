@@ -49,20 +49,54 @@ impl Review {
         }
     }
 
-    pub(super) fn prune_directory_state(&mut self) {
-        let root_collapsed = self
-            .collapsed_directories
-            .contains(&(Area::Commit, PathBuf::new()));
-        file_tree::retain_collapsed(
-            &mut self.collapsed_directories,
-            self.files.iter().map(|f| (f.area, f.path.as_path())),
-        );
-        if root_collapsed {
-            self.collapsed_directories
-                .insert((Area::Commit, PathBuf::new()));
+    pub(super) fn file_root(&self, index: usize) -> Option<PathBuf> {
+        self.files.get(index)?;
+        if let Some(chain) = &self.aggregate_chain {
+            return chain.repository_at(index).map(|repo| repo.path.clone());
         }
+        if !self.local && self.log_sources.is_some() {
+            return self
+                .selected
+                .and_then(|row| self.log_repository(row))
+                .map(|repo| repo.path);
+        }
+        Some(self.repo.path.clone())
     }
-    pub(super) fn rebuild_files(&mut self) {
+    pub(super) fn preferred_log_file(&self) -> Option<(PathBuf, Change)> {
+        self.selected_file
+            .and_then(|index| Some((self.file_root(index)?, self.files.get(index)?.clone())))
+            .or_else(|| self.pending_preview_file.clone())
+    }
+    pub(super) fn preferred_file_index(
+        &self,
+        preferred: Option<&(PathBuf, Change)>,
+    ) -> Option<usize> {
+        preferred
+            .and_then(|(root, file)| {
+                self.files
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, candidate)| {
+                        (self.file_root(index).as_ref() == Some(root)
+                            && plico::preview_selection::matches(candidate, file))
+                        .then_some(index)
+                    })
+            })
+            .or_else(|| (!self.files.is_empty()).then_some(0))
+    }
+    pub(super) fn prune_directory_state(&mut self) {
+        let mut valid = HashSet::new();
+        for (index, file) in self.files.iter().enumerate() {
+            let Some(root) = self.file_root(index) else {
+                continue;
+            };
+            for path in file.path.ancestors().skip(1) {
+                valid.insert((root.clone(), file.area, path.to_path_buf()));
+            }
+        }
+        self.collapsed_directories.retain(|key| valid.contains(key));
+    }
+    pub(super) fn rebuild_files(&mut self, cx: &App) {
         let mut rows = Vec::new();
         if self.local {
             for area in [
@@ -71,60 +105,107 @@ impl Review {
                 Area::Staged,
                 Area::Untracked,
             ] {
-                let count = self.files.iter().filter(|f| f.area == area).count();
-                if count == 0 {
+                let indices = self
+                    .files
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.area == area)
+                    .map(|(i, _)| i)
+                    .collect::<Vec<_>>();
+                if indices.is_empty() {
                     continue;
                 }
                 let expanded = !self.collapsed_files.contains(&area);
-                rows.push(FileRow::Group(area, count, expanded));
+                rows.push(FileRow::Group(area, indices.len(), expanded));
                 if expanded {
-                    rows.extend(self.directory_rows(area));
+                    rows.extend(self.directory_rows_in(&self.repo.path, area, &indices, 0));
                 }
             }
         } else {
-            if self.log_files_options.directory && !self.files.is_empty() {
-                let expanded = !self
-                    .collapsed_directories
-                    .contains(&(Area::Commit, PathBuf::new()));
-                rows.push(FileRow::Folder(
-                    Area::Commit,
-                    PathBuf::new(),
-                    PathBuf::new(),
-                    0,
-                    self.files.len(),
-                    expanded,
-                ));
-                if expanded {
-                    rows.extend(self.directory_rows(Area::Commit));
+            let mut groups: Vec<(PathBuf, Vec<usize>)> = Vec::new();
+            let mut positions = std::collections::HashMap::new();
+            for index in 0..self.files.len() {
+                let Some(root) = self.file_root(index) else {
+                    continue;
+                };
+                let position = *positions.entry(root.clone()).or_insert_with(|| {
+                    groups.push((root, Vec::new()));
+                    groups.len() - 1
+                });
+                groups[position].1.push(index);
+            }
+            groups.sort_by(|(a, _), (b, _)| a.file_name().cmp(&b.file_name()).then(a.cmp(b)));
+            let multiple = self.project_roots.read(cx).has_multiple_roots()
+                || groups.len() > 1
+                || self.log_sources.as_ref().is_some_and(|sources| {
+                    sources
+                        .first()
+                        .is_some_and(|first| sources.iter().any(|s| s.root != first.root))
+                });
+            for (root, indices) in groups {
+                let show_root = multiple || self.log_files_options.directory;
+                let expanded = !show_root
+                    || !self.collapsed_directories.contains(&(
+                        root.clone(),
+                        Area::Commit,
+                        PathBuf::new(),
+                    ));
+                if show_root {
+                    let label = if multiple {
+                        root.file_name()
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| root.clone())
+                    } else {
+                        PathBuf::new()
+                    };
+                    rows.push(FileRow::Folder(
+                        root.clone(),
+                        Area::Commit,
+                        PathBuf::new(),
+                        label,
+                        0,
+                        indices.len(),
+                        expanded,
+                    ));
                 }
-            } else {
-                rows.extend(
-                    self.files
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| FileRow::File(i, 0)),
-                );
+                if !expanded {
+                    continue;
+                }
+                if self.log_files_options.directory {
+                    rows.extend(self.directory_rows_in(
+                        &root,
+                        Area::Commit,
+                        &indices,
+                        usize::from(show_root),
+                    ));
+                } else {
+                    rows.extend(
+                        indices
+                            .into_iter()
+                            .map(|i| FileRow::File(i, usize::from(show_root))),
+                    );
+                }
             }
         }
         self.file_rows = Arc::new(rows);
     }
-    pub(super) fn directory_rows(&self, area: Area) -> Vec<FileRow> {
+    fn directory_rows_in(
+        &self,
+        root: &std::path::Path,
+        area: Area,
+        indices: &[usize],
+        indent: usize,
+    ) -> Vec<FileRow> {
         file_tree::compact_rows(
-            self.files
-                .iter()
-                .enumerate()
-                .filter(|(_, f)| f.area == area)
-                .map(|(i, f)| (i, f.path.as_path())),
+            indices.iter().map(|&i| (i, self.files[i].path.as_path())),
             |path| {
                 self.collapsed_directories
-                    .contains(&(area, path.to_path_buf()))
+                    .contains(&(root.to_path_buf(), area, path.to_path_buf()))
             },
         )
         .into_iter()
         .map(|row| match row {
-            file_tree::Row::File { index, depth } => {
-                FileRow::File(index, depth + usize::from(area == Area::Commit))
-            }
+            file_tree::Row::File { index, depth } => FileRow::File(index, depth + indent),
             file_tree::Row::Folder {
                 path,
                 label,
@@ -132,10 +213,11 @@ impl Review {
                 count,
                 expanded,
             } => FileRow::Folder(
+                root.to_path_buf(),
                 area,
                 path,
                 label,
-                depth + usize::from(area == Area::Commit),
+                depth + indent,
                 count,
                 expanded,
             ),
@@ -170,30 +252,26 @@ impl Review {
         self.files_scroll.scroll_to_item(row, ScrollStrategy::Top);
     }
     pub(super) fn set_files_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
-        self.collapsed_files.clear();
         self.collapsed_directories.clear();
+        self.collapsed_files.clear();
         if !expanded {
-            if !self.local && self.log_files_options.directory {
-                self.collapsed_directories
-                    .insert((Area::Commit, PathBuf::new()));
-            }
-            for file in self.files.iter() {
+            for (index, file) in self.files.iter().enumerate() {
                 if self.local && !self.collapsed_files.contains(&file.area) {
                     self.collapsed_files.push(file.area);
                 }
-                for directory in file
-                    .path
-                    .ancestors()
-                    .skip(1)
-                    .filter(|p| !p.as_os_str().is_empty())
-                {
-                    self.collapsed_directories
-                        .insert((file.area, directory.to_path_buf()));
+                let Some(root) = self.file_root(index) else {
+                    continue;
+                };
+                for directory in file.path.ancestors().skip(1) {
+                    self.collapsed_directories.insert((
+                        root.clone(),
+                        file.area,
+                        directory.to_path_buf(),
+                    ));
                 }
             }
         }
-        self.rebuild_files();
-        // Retain the review target; expanding restores the same selected file.
+        self.rebuild_files(cx);
         cx.notify();
     }
     pub(super) fn branch_filter_control(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -276,7 +354,10 @@ impl Review {
         let can_diff = self
             .selected_file
             .is_some_and(|i| self.files.get(i).is_some());
-        let has_tree = !self.files.is_empty() && (self.local || self.log_files_options.directory);
+        let has_tree = self
+            .file_rows
+            .iter()
+            .any(|row| !matches!(row, FileRow::File(..)));
         h_flex()
             .h(px(LOG_TOOLBAR_HEIGHT))
             .flex_shrink_0()
@@ -354,6 +435,7 @@ impl Review {
                                     let (i, depth) = match &rows[row] {
                                         FileRow::File(i, depth) => (*i, *depth),
                                         FileRow::Folder(
+                                            root,
                                             area,
                                             path,
                                             label,
@@ -361,6 +443,7 @@ impl Review {
                                             count,
                                             expanded,
                                         ) => {
+                                            let root = root.clone();
                                             let area = *area;
                                             let path = path.clone();
                                             let owner = owner.clone();
@@ -393,11 +476,12 @@ impl Review {
                                                 ))
                                                 .on_click(move |_, _, cx| {
                                                     let _ = owner.update(cx, |s, cx| {
-                                                        let key = (area, path.clone());
+                                                        let key =
+                                                            (root.clone(), area, path.clone());
                                                         if !s.collapsed_directories.remove(&key) {
                                                             s.collapsed_directories.insert(key);
                                                         }
-                                                        s.rebuild_files();
+                                                        s.rebuild_files(cx);
                                                         cx.notify();
                                                     });
                                                 })
@@ -435,7 +519,7 @@ impl Review {
                                                         } else {
                                                             s.collapsed_files.push(area);
                                                         }
-                                                        s.rebuild_files();
+                                                        s.rebuild_files(cx);
                                                         cx.notify();
                                                     });
                                                 })

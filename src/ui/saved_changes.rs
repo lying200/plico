@@ -5,7 +5,7 @@ use super::*;
 impl Review {
     pub(super) fn restore_stash(
         &mut self,
-        entry: plico::stash::Entry,
+        entry: plico::stash::project::SavedEntry,
         action: plico::stash_operation::Action,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -30,7 +30,8 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Restoring saved changes…").into());
-        let repo = self.repo.clone();
+        let repo = entry.repository.clone();
+        let target_path = repo.path.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -92,18 +93,31 @@ impl Review {
                                 Err(error) => error,
                             })
                         };
-                        s.operation_state = report.state.ok();
+                        if s.repo.path == target_path {
+                            s.operation_state = report.state.ok();
+                        }
                         (message, diagnostic)
                     }
                     Err(error) => ("Could not restore saved changes", Some(error)),
                 };
                 s.status_message = Some(t(message).into());
                 if let Some(view) = &s.stash_view {
-                    view.update(cx, |v, cx| v.result(t(message).into(), diagnostic, cx));
+                    view.update(cx, |v, cx| {
+                        v.result(
+                            Repository::new(&target_path),
+                            t(message).into(),
+                            diagnostic,
+                            cx,
+                        )
+                    });
                 }
                 s.refresh(false, cx);
                 if resolve_conflicts {
-                    s.open_conflicts(w, cx);
+                    if s.repo.path == target_path {
+                        s.open_conflicts(w, cx);
+                    } else {
+                        s.choose_project_window(target_path.clone(), w, cx);
+                    }
                 }
                 cx.notify();
             });
@@ -112,6 +126,7 @@ impl Review {
     }
     pub(super) fn confirm_external_recovery(
         &mut self,
+        repo: Repository,
         pending: plico::rebase_saved::Pending,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -122,7 +137,7 @@ impl Review {
         let owner = cx.entity().downgrade();
         let path = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, _| {
-            let owner = owner.clone(); let path = path.clone(); let pending = pending.clone();
+            let owner = owner.clone(); let path = path.clone(); let pending = pending.clone(); let repo = repo.clone();
             dialog.title(t("Finish Rebase recovery")).w(px(510.)).centered(true).overlay_closable(false)
                 .child(div().child(t("Confirm only after handling the saved changes externally. This clears the app recovery record; it does not restore or delete any stash or change your files.")))
                 .child(div().truncate().child(path.display().to_string()))
@@ -130,7 +145,7 @@ impl Review {
                     .child(Button::new("acknowledge-recovery-confirm").min_w(px(72.)).label(t("Clear recovery record"))
                         .on_click(move |_, w, cx| {
                             let _ = owner.update(cx, |s, cx| {
-                                if s.repo.path == path && !s.operation.busy() { s.acknowledge_external_recovery(pending.clone(), cx); }
+                                if s.repo.path == path && !s.operation.busy() { s.acknowledge_external_recovery(repo.clone(), pending.clone(), cx); }
                             }); w.close_dialog(cx);
                         }))
                     .child(gpui_kit::component::dialog::DialogClose::new().trigger(|b| b.primary().min_w(px(72.)).label(t("Cancel")))))
@@ -140,6 +155,7 @@ impl Review {
     }
     pub(super) fn acknowledge_external_recovery(
         &mut self,
+        repo: Repository,
         pending: plico::rebase_saved::Pending,
         cx: &mut Context<Self>,
     ) {
@@ -154,8 +170,8 @@ impl Review {
             return;
         };
         self.status_message = Some(t("Clearing recovery record…").into());
-        let repo = self.repo.clone();
-        let path = repo.path.clone();
+        let target_path = repo.path.clone();
+        let path = self.repo.path.clone();
         self.operation_task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -176,7 +192,9 @@ impl Review {
                 });
                 s.status_message = Some(message.into());
                 if let Some(view) = &s.stash_view {
-                    view.update(cx, |v, cx| v.result(message.into(), None, cx));
+                    view.update(cx, |v, cx| {
+                        v.result(Repository::new(&target_path), message.into(), None, cx)
+                    });
                 }
                 s.rebase_diagnostic = result.err();
                 cx.notify();
@@ -189,7 +207,7 @@ impl Review {
 impl Review {
     pub(super) fn confirm_drop_stash(
         &mut self,
-        entry: plico::stash::Entry,
+        entry: plico::stash::project::SavedEntry,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -210,6 +228,11 @@ impl Review {
                 .child(div().child(t(
                     "Delete this saved stash? Its changes will not be restored.",
                 )))
+                .child(
+                    div()
+                        .truncate()
+                        .child(entry.repository.path.display().to_string()),
+                )
                 .child(div().child(format!("{}: {}", entry.selector, entry.message)))
                 .footer(crate::dialog_style::confirmation(
                     Button::new("drop-stash-confirm")
@@ -226,7 +249,7 @@ impl Review {
                 })
         });
     }
-    fn drop_stash(&mut self, entry: plico::stash::Entry, cx: &mut Context<Self>) {
+    fn drop_stash(&mut self, entry: plico::stash::project::SavedEntry, cx: &mut Context<Self>) {
         let Some((operation, token)) = self.begin_operation(
             plico::active_operation::Kind::Recovery,
             plico::active_operation::Phase::Executing,
@@ -234,7 +257,8 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = entry.repository.clone();
+        let target_path = repo.path.clone();
         self.status_message = Some(t("Dropping stash…").into());
         self.operation_task = cx.spawn(async move |this, cx| {
             let result = cx
@@ -258,7 +282,14 @@ impl Review {
                 };
                 s.status_message = Some(t(message).into());
                 if let Some(view) = &s.stash_view {
-                    view.update(cx, |v, cx| v.result(t(message).into(), diagnostic, cx));
+                    view.update(cx, |v, cx| {
+                        v.result(
+                            Repository::new(&target_path),
+                            t(message).into(),
+                            diagnostic,
+                            cx,
+                        )
+                    });
                 }
                 s.refresh(false, cx);
                 cx.notify();
@@ -308,5 +339,102 @@ mod tab_tests {
                 assert!(s.stash_open && !s.project_visible);
             })
         });
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod repository_routing_tests {
+    extern crate gpui_kit as gpui;
+    use super::*;
+    use core::prelude::v1::test;
+    use std::{fs, path::Path, process::Command};
+
+    struct Fixture(PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn git(root: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    }
+    #[gpui::test]
+    fn child_stash_apply_and_drop_do_not_use_the_parent_repository(cx: &mut gpui::TestAppContext) {
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("plico-stash-ui-routing-{}", std::process::id())),
+        );
+        fs::create_dir(&fixture.0).unwrap();
+        let child_path = fixture.0.join("child");
+        fs::create_dir(&child_path).unwrap();
+        for root in [&fixture.0, &child_path] {
+            git(root, &["init", "-q", "-b", "main"]);
+            for (key, value) in [
+                ("user.name", "Test"),
+                ("user.email", "test@example.invalid"),
+                ("commit.gpgsign", "false"),
+                ("core.hooksPath", "disabled-hooks"),
+            ] {
+                git(root, &["config", key, value]);
+            }
+            fs::write(root.join("file.txt"), "base\n").unwrap();
+            git(root, &["add", "file.txt"]);
+            git(root, &["commit", "-qm", "base"]);
+        }
+        fs::write(fixture.0.join("file.txt"), "parent saved\n").unwrap();
+        git(
+            &fixture.0,
+            &["stash", "push", "-m", "parent", "--", "file.txt"],
+        );
+        fs::write(child_path.join("file.txt"), "child saved\n").unwrap();
+        git(
+            &child_path,
+            &["stash", "push", "-m", "child", "--", "file.txt"],
+        );
+        let child = Repository::new(&child_path);
+        let saved = plico::stash::project::SavedEntry {
+            repository: child.clone(),
+            entry: plico::stash::list(&child, 1, &Cancel::default())
+                .unwrap()
+                .entries
+                .remove(0),
+        };
+        let parent_stash = git(&fixture.0, &["rev-parse", "refs/stash"]);
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|w, cx| {
+            let view = cx.new(|cx| Review::new(fixture.0.clone(), 100, None, w, cx));
+            review = Some(view.clone());
+            gpui::component::Root::new(view, w, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        cx.update(|w, cx| {
+            review.update(cx, |s, cx| {
+                s.restore_stash(saved.clone(), plico::stash_operation::Action::Apply, w, cx)
+            })
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            fs::read(child_path.join("file.txt")).unwrap(),
+            b"child saved\n"
+        );
+        assert_eq!(fs::read(fixture.0.join("file.txt")).unwrap(), b"base\n");
+        assert_eq!(git(&fixture.0, &["rev-parse", "refs/stash"]), parent_stash);
+        cx.update(|_, cx| review.update(cx, |s, cx| s.drop_stash(saved.clone(), cx)));
+        cx.run_until_parked();
+        assert!(git(&child_path, &["stash", "list"]).is_empty());
+        assert_eq!(git(&fixture.0, &["rev-parse", "refs/stash"]), parent_stash);
+        review.read_with(cx, |s, _| assert!(!s.operation.busy()));
     }
 }

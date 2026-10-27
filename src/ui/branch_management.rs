@@ -2,6 +2,53 @@
 use super::*;
 use gpui_kit::component::checkbox::Checkbox;
 use plico::branch_create::{Choice, Prepared};
+struct BranchStart {
+    repository: Repository,
+    source: String,
+    displayed_head: String,
+    displayed_target: String,
+    existing_names: Vec<String>,
+    initial_name: String,
+}
+impl BranchStart {
+    fn from_snapshot(repository: Repository, source: String, snapshot: &Snapshot) -> Option<Self> {
+        let displayed_head = snapshot.head_id.clone()?;
+        let displayed_target = if source == "HEAD" {
+            Some(displayed_head.clone())
+        } else {
+            snapshot
+                .branches
+                .iter()
+                .map(|r| (&r.name, &r.id))
+                .chain(snapshot.tags.iter().map(|r| (&r.name, &r.id)))
+                .find(|(name, _)| **name == source)
+                .map(|(_, id)| id.clone())
+                // Reflog commits can be absent from the visible Log. Prepared
+                // still resolves the full OID and revalidates before writing.
+                .or_else(|| plico::git::is_oid(&source).then(|| source.clone()))
+        };
+        let displayed_target = displayed_target?;
+        let existing_names: Vec<String> = snapshot
+            .branches
+            .iter()
+            .filter_map(|r| r.name.strip_prefix("refs/heads/").map(str::to_owned))
+            .collect();
+        let initial_name = if source == "HEAD" {
+            snapshot.current_branch.clone().unwrap_or_default()
+        } else {
+            source.strip_prefix("refs/heads/").unwrap_or("").to_owned()
+        };
+        Some(Self {
+            repository,
+            source,
+            displayed_head,
+            displayed_target,
+            existing_names,
+            initial_name,
+        })
+    }
+}
+
 struct NewBranch {
     name: Entity<InputState>,
     checkout: bool,
@@ -94,42 +141,76 @@ impl Review {
         let Some(snapshot) = &self.snapshot else {
             return;
         };
-        let Some(displayed_head) = snapshot.head_id.clone() else {
+        let Some(start) = BranchStart::from_snapshot(self.repo.clone(), source, snapshot) else {
             return;
         };
-        let displayed_target = if source == "HEAD" {
-            Some(displayed_head.clone())
-        } else {
-            snapshot
-                .branches
-                .iter()
-                .map(|r| (&r.name, &r.id))
-                .chain(snapshot.tags.iter().map(|r| (&r.name, &r.id)))
-                .find(|(name, _)| **name == source)
-                .map(|(_, id)| id.clone())
-                .or_else(|| {
-                    self.commits
-                        .iter()
-                        .find(|c| c.id == source)
-                        .map(|c| c.id.clone())
+        self.show_new_branch_dialog(start, window, cx);
+    }
+
+    pub(super) fn new_log_branch_dialog(
+        &mut self,
+        repository: Repository,
+        source: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if repository.path == self.repo.path {
+            self.new_branch_dialog(source, window, cx);
+            return;
+        }
+        if self.welcome {
+            return;
+        }
+        let Some((operation, token)) = self.begin_operation(
+            plico::active_operation::Kind::Checkout,
+            plico::active_operation::Phase::Preparing,
+            cx,
+        ) else {
+            return;
+        };
+        let project = self.repo.path.clone();
+        self.status_message = Some(t("Checking…").into());
+        self.operation_task = cx.spawn_in(window, async move |this, wx| {
+            let result = wx
+                .background_spawn(async move {
+                    let snapshot = repository.reference_snapshot(&token)?;
+                    BranchStart::from_snapshot(repository, source, &snapshot)
+                        .ok_or_else(|| "Branch starting point is unavailable".to_owned())
                 })
-                // Reflog commits can be absent from the visible Log. Prepared
-                // still resolves the full OID and revalidates before writing.
-                .or_else(|| plico::git::is_oid(&source).then(|| source.clone()))
-        };
-        let Some(displayed_target) = displayed_target else {
-            return;
-        };
-        let existing_names: Vec<String> = snapshot
-            .branches
-            .iter()
-            .filter_map(|r| r.name.strip_prefix("refs/heads/").map(str::to_owned))
-            .collect();
-        let initial_name = if source == "HEAD" {
-            snapshot.current_branch.clone().unwrap_or_default()
-        } else {
-            source.strip_prefix("refs/heads/").unwrap_or("").to_owned()
-        };
+                .await;
+            let _ = this.update_in(wx, |s, window, cx| {
+                let Some(cancelled) = s.finish_operation(operation, cx) else {
+                    return;
+                };
+                if cancelled || s.repo.path != project {
+                    return;
+                }
+                s.status_message = None;
+                match result {
+                    Ok(start) => s.show_new_branch_dialog(start, window, cx),
+                    Err(error) => {
+                        crate::error_ui::show_details(error, "Could not create branch", window, cx)
+                    }
+                }
+                cx.notify();
+            });
+        });
+    }
+
+    fn show_new_branch_dialog(
+        &mut self,
+        start: BranchStart,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let BranchStart {
+            repository: repo,
+            source,
+            displayed_head,
+            displayed_target,
+            existing_names,
+            initial_name,
+        } = start;
         self.dismiss_repository_menu(cx);
         let options = cx.new(|cx| {
             let name = cx.new(|cx| InputState::new(window, cx).default_value(initial_name));
@@ -182,10 +263,11 @@ impl Review {
         });
         let focus = options.read(cx).name.read(cx).focus_handle(cx);
         let owner = cx.entity().downgrade();
-        let repo = self.repo.clone();
+        let project_path = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, cx| {
             let confirm = options.clone(); let close = options.clone();
             let owner = owner.clone(); let repo = repo.clone(); let source = source.clone();
+            let project_path = project_path.clone();
             let expected_head = displayed_head.clone(); let expected_target = displayed_target.clone();
             dialog.title(h_flex().gap_2().child(gpui_kit::img("branding/plico.svg").size(px(16.))).child(div().font_weight(FontWeight::NORMAL).child(t("Create New Branch")))).w(px(540.)).centered(true).overlay_closable(false)
                 .child(options.clone())
@@ -202,7 +284,7 @@ impl Review {
                         s.name.update(cx, |input, cx| input.set_value(name.clone(), window, cx));
                         let checkout = s.checkout;
                         let overwrite = s.overwrite && s.existing_names.contains(&name);
-                        let token = s.token.clone(); let path = repo.path.clone();
+                        let token = s.token.clone(); let path = project_path.clone();
                         s.task = cx.spawn_in(window, async move |this, wx| {
                             let result = wx.background_spawn(async move { Prepared::read_options(&repo, &name, &source, checkout, overwrite, &token).and_then(|p| {
                                 if p.matches_displayed(&expected_head,&expected_target) { Ok(p) }
@@ -325,7 +407,9 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = prepared.repository();
+        let target_path = repo.path.clone();
+        let project_path = self.repo.path.clone();
         self.status_message = Some(t("Creating branch…").into());
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
@@ -343,11 +427,16 @@ impl Review {
                 let Some(cancelled) = s.finish_operation(id, cx) else {
                     return;
                 };
+                if s.repo.path != project_path {
+                    return;
+                }
                 let mut error = None;
                 let success = match result {
                     Ok(report) => {
-                        if let Some(state) = report.state {
-                            s.operation_state = Some(state);
+                        if target_path == s.repo.path {
+                            if let Some(state) = report.state {
+                                s.operation_state = Some(state);
+                            }
                         }
                         if !report.verified {
                             error = Some(match report.command {
@@ -411,7 +500,7 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = merged.repository();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move { merged.prepare_deletion(&repo, &token) })
@@ -440,6 +529,15 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.prepare_delete_branch_in(self.repo.clone(), reference, window, cx);
+    }
+    pub(super) fn prepare_delete_branch_in(
+        &mut self,
+        repo: Repository,
+        reference: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.operation.busy() || self.operation.saving_documents() {
             return;
         }
@@ -451,7 +549,6 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
@@ -488,6 +585,7 @@ impl Review {
             dialog.title(t(if unmerged { "Branch Is Not Fully Merged" } else { "Delete Branch" }))
                 .w(px(560.)).centered(true).overlay_closable(false)
                 .child(div().whitespace_normal().child(format!("{} ‘{}’", t("Delete branch"), prepared.name)))
+                .when(prepared.repository().path != path, |d| d.child(div().text_color(rgb(crate::ui_style::MUTED)).child(prepared.repository().path.display().to_string())))
                 .when(unmerged, |d| d.child(div().whitespace_normal().child(t("These commits are not merged into the branch's upstream or HEAD. Delete the branch anyway?")))
                     .child(v_flex().id("unmerged-branch-commits").max_h(px(240.)).overflow_y_scroll()
                         .children(prepared.unmerged.iter().take(100).map(|commit| div().truncate().child(commit.clone())))
@@ -522,7 +620,7 @@ impl Review {
         ) else {
             return;
         };
-        let repo = self.repo.clone();
+        let repo = prepared.repository();
         let recovery = prepared.clone();
         self.status_message = Some(
             t(if restore {
@@ -604,5 +702,178 @@ impl Review {
                 cx.notify();
             });
         });
+    }
+}
+
+#[cfg(all(test, feature = "desktop-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    extern crate gpui_kit as gpui;
+
+    #[gpui::test]
+    fn branch_creation_uses_child_start_and_preserves_primary_state(cx: &mut gpui::TestAppContext) {
+        use gpui::component::Root;
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        fn git(path: &std::path::Path, args: &[&str]) -> String {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{args:?}: {output:?}");
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = format!("plico-child-branch-{}-{nonce}", std::process::id());
+        let fixture = Fixture(std::env::temp_dir().join(directory));
+        let parent = fixture.0.join("parent");
+        let child = fixture.0.join("child");
+        std::fs::create_dir_all(&parent).unwrap();
+        for args in [
+            vec!["init", "-q", "-b", "main"],
+            vec!["config", "user.name", "Test"],
+            vec!["config", "user.email", "test@example.invalid"],
+            vec!["config", "commit.gpgsign", "false"],
+            vec!["config", "core.hooksPath", "disabled-hooks"],
+            vec!["commit", "--allow-empty", "-qm", "base"],
+        ] {
+            git(&parent, &args);
+        }
+        let target = git(&parent, &["rev-parse", "HEAD"]);
+        git(
+            &parent,
+            &["clone", "-q", "--no-local", ".", child.to_str().unwrap()],
+        );
+        git(&parent, &["branch", "child-only"]);
+        git(&parent, &["checkout", "--detach", "HEAD"]);
+        git(
+            &child,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "child head",
+            ],
+        );
+        let child_repo = Repository::new(&child);
+        let snapshot = child_repo
+            .snapshot(None, 1, None, &Cancel::default())
+            .unwrap();
+        let start =
+            BranchStart::from_snapshot(child_repo.clone(), target.clone(), &snapshot).unwrap();
+        assert_eq!(start.displayed_head, git(&child, &["rev-parse", "HEAD"]));
+        assert_eq!(start.displayed_target, target);
+        assert!(!start.existing_names.iter().any(|name| name == "child-only"));
+        let prepared = Arc::new(
+            Prepared::read(&child_repo, "child-only", &target, true, &Cancel::default()).unwrap(),
+        );
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(parent.clone(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            review.update(cx, |s, cx| {
+                s.new_log_branch_dialog(child_repo.clone(), target.clone(), window, cx);
+                assert!(s.operation.busy());
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            assert!(
+                window.has_active_dialog(cx),
+                "child preparation opens the prompt"
+            );
+            review.read_with(cx, |s, _| assert!(!s.operation.busy()));
+            window.close_dialog(cx);
+            review.update(cx, |s, cx| {
+                s.create_branch(prepared, Choice::Create, window, cx)
+            })
+        });
+        cx.run_until_parked();
+        assert_eq!(git(&child, &["branch", "--show-current"]), "child-only");
+        assert_eq!(git(&child, &["rev-parse", "HEAD"]), target);
+        assert_eq!(
+            git(&parent, &["rev-parse", "refs/heads/child-only"]),
+            target
+        );
+        assert_eq!(
+            git(&parent, &["rev-parse", "--symbolic-full-name", "HEAD"]),
+            "HEAD"
+        );
+        review.read_with(cx, |s, _| {
+            assert_eq!(s.repo.path, parent);
+            assert!(!s.operation.busy());
+            assert!(s.operation_state.as_ref().unwrap().detached);
+            assert_eq!(
+                s.snapshot.as_ref().unwrap().head_id.as_deref(),
+                Some(target.as_str())
+            );
+        });
+        git(&child, &["checkout", "main"]);
+        let deletion = Arc::new(
+            plico::branch_delete::Prepared::read(
+                &child_repo,
+                "refs/heads/child-only",
+                &Cancel::default(),
+            )
+            .unwrap(),
+        );
+        cx.update(|w, cx| {
+            review.update(cx, |s, cx| {
+                s.prepare_delete_branch_in(
+                    child_repo.clone(),
+                    "refs/heads/child-only".into(),
+                    w,
+                    cx,
+                )
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|w, cx| {
+            assert!(w.has_active_dialog(cx));
+            w.close_dialog(cx);
+            review.update(cx, |s, cx| s.delete_branch(deletion, false, w, cx));
+        });
+        cx.run_until_parked();
+        assert!(git(&child, &["for-each-ref", "refs/heads/child-only"]).is_empty());
+        assert_eq!(
+            git(&parent, &["rev-parse", "refs/heads/child-only"]),
+            target
+        );
+        review.read_with(cx, |s, _| {
+            assert_eq!(
+                s.deleted_branch.as_ref().unwrap().1.repository().path,
+                child
+            )
+        });
+        cx.update(|w, cx| review.update(cx, |s, cx| s.restore_deleted_branch(w, cx)));
+        cx.run_until_parked();
+        assert_eq!(git(&child, &["rev-parse", "refs/heads/child-only"]), target);
+        assert_eq!(
+            git(&parent, &["rev-parse", "refs/heads/child-only"]),
+            target
+        );
+        review.read_with(cx, |s, _| assert!(s.deleted_branch.is_none()));
     }
 }

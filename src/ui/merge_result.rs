@@ -7,41 +7,33 @@ impl Review {
         &mut self,
         prepared: Arc<Prepared>,
         text: String,
+        decisions: plico::text_merge::State,
         finished: MergeFinished,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((id, token)) = self.begin_operation(
-            plico::active_operation::Kind::Recovery,
-            plico::active_operation::Phase::Executing,
-            cx,
-        ) else {
+        let Some((id, token)) =
+            self.begin_conflict_operation(plico::active_operation::Phase::Executing, cx)
+        else {
             finished(false, window, cx);
             return;
         };
-        let repo = self.repo.clone();
-        self.operation_task = cx.spawn_in(window, async move |this, wx| {
+        let session = self.conflict_result_session(&prepared, cx);
+        let iterative = session.is_some();
+        let repo = prepared.snapshot().repository();
+        let repository = repo.clone();
+        let project_path = self.repo.path.clone();
+        let access = id.access.clone();
+        self.conflict_task = cx.spawn_in(window, async move |this, wx| {
             let worker_prepared = prepared.clone();
             let result = wx
                 .background_spawn(async move {
                     let prepared = worker_prepared;
-                    let result = (|| {
+                    let result: Result<(), String> = (|| {
                         prepared.write_text_result(text)?;
-                        prepared.apply(&repo, &token)?;
-                        let report = plico::conflicts::resolve(
-                            &repo, prepared.snapshot(), prepared.file(),
-                            plico::conflicts::Resolution::MarkResolved, &token, &Default::default(),
-                        )?;
-                        for command in report.commands {
-                            let output = command?;
-                            if !output.status.success() || output.stopped.is_some() || output.input_error.is_some() {
-                                return Err(String::from_utf8_lossy(&output.stderr.bytes()).into_owned());
-                            }
-                        }
-                        let snapshot = report.snapshot?;
-                        if snapshot.files.iter().any(|file| file.path == prepared.file().path) {
-                            return Err(t("The file is still unresolved").into());
-                        }
+                        access.apply(&prepared, &repo, &token)?;
+                        if iterative { return Ok(()); }
+                        access.stage(&prepared, &repo, &token)?;
                         Ok(())
                     })();
                     // Preserve before returning to the UI: the window may have
@@ -51,20 +43,25 @@ impl Review {
                 })
                 .await;
             let _ = this.update_in(wx, |s, w, cx| {
-                let Some(cancelled) = s.finish_operation(id, cx) else {
+                let Some(cancelled) = s.finish_conflict_operation(id, cx) else {
                     return;
                 };
+                if s.repo.path != project_path { finished(false, w, cx); return; }
                 let error = result.err();
+                if error.is_none() {
+                    if let Some(session) = &session { s.keep_conflict_resolution(session, prepared.clone(), decisions, cx); }
+                }
                 finished(error.is_none() && !cancelled, w, cx);
                 s.status_message = Some(
                     t(if error.is_none() && !cancelled {
-                        "Conflict resolved"
+                        if iterative { "Merge result saved" } else { "Conflict resolved" }
                     } else {
                         "Conflict resolution interrupted"
                     })
                     .into(),
                 );
-                s.sync_worktree(
+                s.sync_repository_worktree(
+                    &repository.path,
                     plico::worktree_events::Batch {
                         all: true,
                         index: true,
@@ -83,7 +80,7 @@ impl Review {
                         output.display());
                     crate::error_ui::show_details(detail, "Could not resolve conflict", w, cx);
                 } else {
-                    s.open_conflicts(w, cx);
+                    s.reopen_conflicts_in(repository, w, cx);
                 }
             });
         });

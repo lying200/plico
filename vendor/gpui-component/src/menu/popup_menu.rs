@@ -42,6 +42,8 @@ pub enum PopupMenuItem {
         disabled: bool,
         checked: bool,
         is_link: bool,
+        disclosure: Option<bool>,
+        content_icon: Option<Icon>,
         action: Option<Box<dyn Action>>,
         // For link item
         handler: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>>,
@@ -59,6 +61,7 @@ pub enum PopupMenuItem {
     Submenu {
         icon: Option<Icon>,
         label: SharedString,
+        secondary: Option<SharedString>,
         disabled: bool,
         menu: Entity<PopupMenu>,
     },
@@ -76,6 +79,8 @@ impl PopupMenuItem {
             checked: false,
             action: None,
             is_link: false,
+            disclosure: None,
+            content_icon: None,
             handler: None,
         }
     }
@@ -103,6 +108,7 @@ impl PopupMenuItem {
         PopupMenuItem::Submenu {
             icon: None,
             label: label.into(),
+            secondary: None,
             disabled: false,
             menu,
         }
@@ -209,6 +215,22 @@ impl PopupMenuItem {
         self
     }
 
+    /// A tree group toggles in place and responds to horizontal navigation.
+    pub fn disclosure(mut self, expanded: bool) -> Self {
+        if let Self::Item { disclosure, .. } = &mut self {
+            *disclosure = Some(expanded);
+        }
+        self
+    }
+
+    /// An icon between the disclosure control and the label.
+    pub fn content_icon(mut self, icon: impl Into<Icon>) -> Self {
+        if let Self::Item { content_icon, .. } = &mut self {
+            *content_icon = Some(icon.into());
+        }
+        self
+    }
+
     /// Create a link menu item.
     #[inline]
     pub fn link(label: impl Into<SharedString>, href: impl Into<String>) -> Self {
@@ -220,6 +242,8 @@ impl PopupMenuItem {
             checked: false,
             action: None,
             is_link: true,
+            disclosure: None,
+            content_icon: None,
             handler: Some(Rc::new(move |_, _, cx| cx.open_url(&href))),
         }
     }
@@ -298,9 +322,12 @@ pub struct PopupMenu {
     close_on_left: bool,
     close_on_confirm: bool,
     child_popup_hit_test: Option<Rc<dyn Fn(&Point<Pixels>, &App) -> bool>>,
+    item_indents: std::collections::BTreeMap<usize, Pixels>,
     min_width: Option<Pixels>,
     max_width: Option<Pixels>,
     max_height: Option<Pixels>,
+    min_height: Option<Pixels>,
+    icon_size: Option<Pixels>,
     bounds: Bounds<Pixels>,
     size: Size,
     check_side: Side,
@@ -348,9 +375,12 @@ impl PopupMenu {
             close_on_left: false,
             close_on_confirm: true,
             child_popup_hit_test: None,
+            item_indents: Default::default(),
             min_width: None,
             max_width: None,
             max_height: None,
+            min_height: None,
+            icon_size: None,
             check_side: Side::Left,
             bounds: Bounds::default(),
             scrollable: false,
@@ -483,6 +513,18 @@ impl PopupMenu {
     /// Set max width of the popup menu, default is 500px
     pub fn max_w(mut self, width: impl Into<Pixels>) -> Self {
         self.max_width = Some(width.into());
+        self
+    }
+
+    /// Reserve vertical space for menus presented as persistent navigation trees.
+    pub fn min_h(mut self, height: impl Into<Pixels>) -> Self {
+        self.min_height = Some(height.into());
+        self
+    }
+
+    /// Override item icon size without changing ordinary action menus.
+    pub fn icon_size(mut self, size: impl Into<Pixels>) -> Self {
+        self.icon_size = Some(size.into());
         self
     }
 
@@ -752,9 +794,22 @@ impl PopupMenu {
 
     /// Add a Submenu item with icon
     pub fn submenu_with_icon(
+        self,
+        icon: Option<Icon>,
+        label: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) -> Self {
+        self.submenu_with_secondary(icon, label, None, window, cx, f)
+    }
+
+    /// Add a navigation submenu with a right-aligned secondary label.
+    pub fn submenu_with_secondary(
         mut self,
         icon: Option<Icon>,
         label: impl Into<SharedString>,
+        secondary: Option<SharedString>,
         window: &mut Window,
         cx: &mut Context<Self>,
         f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
@@ -767,9 +822,11 @@ impl PopupMenu {
             view.priority = parent_priority + 1;
         });
 
-        self.menu_items.push(
-            PopupMenuItem::submenu(label, submenu).when_some(icon, |this, icon| this.icon(icon)),
-        );
+        let mut item = PopupMenuItem::submenu(label, submenu).when_some(icon, |this, icon| this.icon(icon));
+        if let PopupMenuItem::Submenu { secondary: value, .. } = &mut item {
+            *value = secondary;
+        }
+        self.menu_items.push(item);
         self
     }
 
@@ -807,6 +864,7 @@ impl PopupMenu {
     ) {
         let mut menu = std::mem::replace(self, Self::new(cx));
         menu.menu_items.clear();
+        menu.item_indents.clear();
         menu.selected_index = None;
         *self = f(menu, window, cx);
         cx.notify();
@@ -903,6 +961,20 @@ impl PopupMenu {
         self
     }
 
+    /// Restore a navigation row after rebuilding its expanded children.
+    pub fn select_item(mut self, index: usize) -> Self {
+        self.selected_index = self.menu_items.get(index).filter(|item| item.is_clickable()).map(|_| index);
+        self
+    }
+
+    /// Indent the last navigation row while preserving its full-width hit area.
+    pub fn indent_last(mut self, indent: Pixels) -> Self {
+        if let Some(index) = self.menu_items.len().checked_sub(1) {
+            self.item_indents.insert(index, indent);
+        }
+        self
+    }
+
     pub fn is_empty(&self) -> bool {
         self.menu_items.is_empty()
     }
@@ -928,7 +1000,7 @@ impl PopupMenu {
                 if matches!(item, Some(PopupMenuItem::Item { disabled: true, .. } | PopupMenuItem::ElementItem { disabled: true, .. })) { return; }
                 match item {
                     Some(PopupMenuItem::Item {
-                        handler, action, ..
+                        handler, action, disclosure, ..
                     }) => {
                         if let Some(handler) = handler {
                             handler(&ClickEvent::default(), window, cx);
@@ -936,7 +1008,7 @@ impl PopupMenu {
                             self.dispatch_confirm_action(action, window, cx);
                         }
 
-                        if self.close_on_confirm { self.dismiss(&Cancel, window, cx); }
+                        if self.close_on_confirm && disclosure.is_none() { self.dismiss(&Cancel, window, cx); }
                     }
                     Some(PopupMenuItem::ElementItem {
                         handler, action, ..
@@ -1022,9 +1094,21 @@ impl PopupMenu {
         self.set_selected_index(0, cx);
     }
 
+    fn selected_disclosure(&self) -> Option<bool> {
+        match self.menu_items.get(self.selected_index?) {
+            Some(PopupMenuItem::Item { disclosure, .. }) => *disclosure,
+            _ => None,
+        }
+    }
+
     fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
         if self.close_on_left && self.parent_menu.is_none() {
             self.dismiss(&Cancel, window, cx);
+            cx.stop_propagation();
+            return;
+        }
+        if self.selected_disclosure() == Some(true) {
+            self.confirm(&Confirm { secondary: false }, window, cx);
             cx.stop_propagation();
             return;
         }
@@ -1049,6 +1133,15 @@ impl PopupMenu {
     }
 
     fn select_right(&mut self, _: &SelectRight, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(expanded) = self.selected_disclosure() {
+            if expanded {
+                self.select_down(&SelectDown, window, cx);
+            } else {
+                self.confirm(&Confirm { secondary: false }, window, cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
         let handled = if matches!(self.submenu_anchor.0, Anchor::TopLeft | Anchor::BottomLeft) {
             self._select_submenu(window, cx)
         } else {
@@ -1131,6 +1224,7 @@ impl PopupMenu {
     ///
     /// The submenu is closed together with its parent, same as macOS menus.
     fn dismiss(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+
         self.selected_index = None;
         cx.emit(DismissEvent);
 
@@ -1164,6 +1258,15 @@ impl PopupMenu {
     /// clicks on the child as outside clicks that remove it before mouse-up.
     pub fn contains_position(&self, position: &Point<Pixels>) -> bool {
         self.bounds.contains(position)
+    }
+
+    /// Include the currently expanded submenu chain when a separate parent
+    /// popover decides whether a mouse-down is outside its owned menus.
+    pub fn contains_menu_position(&self, position: &Point<Pixels>, cx: &App) -> bool {
+        self.contains_position(position)
+            || self.active_submenu().is_some_and(|menu| {
+                menu.read(cx).contains_menu_position(position, cx)
+            })
     }
 
     fn handle_dismiss(
@@ -1240,6 +1343,7 @@ impl PopupMenu {
     }
 
     fn render_icon(
+        &self,
         has_icon: bool,
         checked: bool,
         icon: Option<Icon>,
@@ -1258,7 +1362,10 @@ impl PopupMenu {
             Icon::empty()
         };
 
-        Some(icon.xsmall())
+        Some(match self.icon_size {
+            Some(size) => icon.size(size),
+            None => icon.xsmall(),
+        })
     }
 
     #[inline]
@@ -1316,6 +1423,7 @@ impl PopupMenu {
             .text_base()
             .py_0()
             .px(INNER_PADDING)
+            .pl(INNER_PADDING + self.item_indents.get(&ix).copied().unwrap_or_default())
             .rounded(radius)
             .items_center()
             .selected(selected)
@@ -1359,7 +1467,7 @@ impl PopupMenu {
                     .cursor_default()
                     .items_center()
                     .gap_x_1()
-                    .children(Self::render_icon(has_left_icon, false, None, window, cx))
+                    .children(self.render_icon(has_left_icon, false, None, window, cx))
                     .child(div().flex_1().child(label.clone())),
             ),
             PopupMenuItem::ElementItem {
@@ -1380,7 +1488,7 @@ impl PopupMenu {
                         .min_h(item_height)
                         .items_center()
                         .gap_x_1()
-                        .children(Self::render_icon(
+                        .children(self.render_icon(
                             has_left_icon,
                             is_left_check,
                             icon.clone(),
@@ -1396,6 +1504,7 @@ impl PopupMenu {
                 action,
                 disabled,
                 is_link,
+                content_icon,
                 ..
             } => {
                 let show_link_icon = *is_link && self.external_link_icon;
@@ -1410,13 +1519,14 @@ impl PopupMenu {
                 .disabled(*disabled)
                 .h(item_height)
                 .gap_x_1()
-                .children(Self::render_icon(
+                .children(self.render_icon(
                     has_left_icon,
                     is_left_check,
                     icon.clone(),
                     window,
                     cx,
                 ))
+                .children(content_icon.clone())
                 .child(
                     h_flex()
                         .w_full()
@@ -1445,11 +1555,23 @@ impl PopupMenu {
             PopupMenuItem::Submenu {
                 icon,
                 label,
+                secondary,
                 menu,
                 disabled,
             } => this
                 .selected(selected)
                 .disabled(*disabled)
+                .when(!disabled, |this| {
+                    // A submenu is a click target too, not only a hover target.
+                    // Consume the press/click before an enclosing dropdown's
+                    // trigger sees it, and give keyboard focus to the child.
+                    this.on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        window.prevent_default();
+                        this.set_selected_index(ix, cx);
+                        this._select_submenu(window, cx);
+                    }))
+                })
                 .items_start()
                 .child(
                     h_flex()
@@ -1457,7 +1579,7 @@ impl PopupMenu {
                         .size_full()
                         .items_center()
                         .gap_x_1()
-                        .children(Self::render_icon(
+                        .children(self.render_icon(
                             has_left_icon,
                             false,
                             icon.clone(),
@@ -1470,7 +1592,12 @@ impl PopupMenu {
                                 .gap_2()
                                 .items_center()
                                 .justify_between()
-                                .child(label.clone())
+                                .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                                .when_some(secondary.clone(), |this, text| {
+                                    this.child(div().ml(px(10.)).min_w_0().truncate()
+                                        .text_color(if selected { cx.theme().foreground } else { cx.theme().muted_foreground })
+                                        .child(text))
+                                })
                                 .child(
                                     Icon::new(IconName::ChevronRight)
                                         .xsmall()
@@ -1597,6 +1724,7 @@ impl Render for PopupMenu {
                     .min_w(rems(8.))
                     .when_some(self.min_width, |this, min_width| this.min_w(min_width))
                     .max_w(max_width)
+                    .when_some(self.min_height, |this, height| this.min_h(height.min(max_height)))
                     .when(self.scrollable, |this| {
                         this.max_h(max_height)
                             .overflow_y_scroll()

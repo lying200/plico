@@ -32,7 +32,7 @@ pub(super) fn show(
                     }
                     w.close_dialog(cx);
                     w.close_dialog(cx);
-                    s.with_saved_documents(w, cx, move |s, w, cx| {
+                    s.with_conflict_documents(w, cx, move |s, w, cx| {
                         s.resolve_conflict(snapshot, file, Resolution::Accept(side), w, cx);
                     });
                 });

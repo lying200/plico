@@ -1,4 +1,4 @@
-//! Native conflict result is an isolated draft; only Apply writes and stages it.
+//! Native conflict drafts retain block decisions through iterative review.
 use super::*;
 use gpui_kit::component::input::{
     Editor, EditorState, RopeExt as _, TextDecoration, TextDecorationCollection,
@@ -22,6 +22,7 @@ struct MergeEditor {
     marks: [TextDecorationCollection; 3],
     selected: usize,
     initial: String,
+    initial_decisions: plico::text_merge::State,
     applying: bool,
     _subscription: Subscription,
 }
@@ -35,6 +36,7 @@ impl MergeEditor {
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let initial_decisions = model.state();
         let model = Rc::new(RefCell::new(model));
         let language = crate::project_view::file_language(&prepared.file().path);
         let inputs = std::array::from_fn(|i| {
@@ -105,6 +107,7 @@ impl MergeEditor {
             prepared,
             inputs,
             initial: texts[1].clone(),
+            initial_decisions,
             applying: false,
             model,
             marks,
@@ -240,11 +243,16 @@ impl MergeEditor {
         self.highlight(cx);
         cx.notify();
     }
-    fn apply(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+    fn apply(&mut self, complete: bool, w: &mut Window, cx: &mut Context<Self>) {
         if self.applying {
             return;
         }
         let prepared = self.prepared.clone();
+        self.sync(cx);
+        if complete {
+            self.model.borrow_mut().mark_all_resolved();
+        }
+        let decisions = self.model.borrow().state();
         let text = self.inputs[1].read(cx).value().to_string();
         let path = self.repository.clone();
         let editor = cx.entity();
@@ -252,7 +260,7 @@ impl MergeEditor {
         let owner = self.owner.clone();
         // Defer so completion cannot re-enter this entity if the operation gate
         // rejects immediately. Keep the editor until write-back succeeds.
-        cx.defer_in(w, move |_, w, cx| {
+        w.defer(cx, move |w, cx| {
             let callback = Box::new(move |success, w: &mut Window, cx: &mut App| {
                 editor.update(cx, |s, cx| {
                     s.applying = false;
@@ -265,13 +273,33 @@ impl MergeEditor {
             });
             let _ = owner.update(cx, |s, cx| {
                 if s.repo.path == path {
-                    s.apply_merge_result(prepared, text, callback, w, cx);
+                    s.apply_merge_result(prepared, text, decisions, callback, w, cx);
                 } else {
                     callback(false, w, cx);
                 }
             });
         });
         cx.notify();
+    }
+    fn save_and_close(&mut self, w: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.applying {
+            return false;
+        }
+        self.sync(cx);
+        if self.model.borrow().text() == self.initial
+            && self.model.borrow().state() == self.initial_decisions
+        {
+            let prepared = self.prepared.clone();
+            let owner = self.owner.clone();
+            cx.defer_in(w, move |_, _, cx| {
+                let _ = owner.update(cx, |s, cx| {
+                    s.mark_conflict_reviewed(&prepared, cx);
+                });
+            });
+            return true;
+        }
+        self.apply(false, w, cx);
+        false
     }
     fn confirm(&mut self, apply: bool, w: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.applying {
@@ -285,7 +313,7 @@ impl MergeEditor {
         };
         if !needs_confirmation {
             if apply {
-                self.apply(w, cx);
+                self.apply(true, w, cx);
             }
             return !apply;
         }
@@ -297,7 +325,7 @@ impl MergeEditor {
                 .footer(crate::dialog_style::confirmation(Button::new("confirm-merge-result").primary().label(t(if apply {"Apply and Mark Resolved"} else {"Discard"}))))
                 .on_ok(move |_,w,cx| {
                     w.close_dialog(cx);
-                    if apply { editor.update(cx,|s,cx| s.apply(w,cx)); }
+                    if apply { editor.update(cx,|s,cx| s.apply(true,w,cx)); }
                     else { w.close_dialog(cx); }
                     false
                 })
@@ -445,30 +473,41 @@ impl Review {
         w: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((id, token)) = self.begin_operation(
-            plico::active_operation::Kind::Recovery,
-            plico::active_operation::Phase::Preparing,
-            cx,
-        ) else {
+        let Some((id, token)) =
+            self.begin_conflict_operation(plico::active_operation::Phase::Preparing, cx)
+        else {
             return;
         };
-        let repo = self.repo.clone();
-        self.operation_task = cx.spawn_in(w, async move |this, wx| {
+        let saved = self.saved_conflict_resolution(&snapshot, &file.path, cx);
+        let repo = snapshot.repository();
+        let project_path = self.repo.path.clone();
+        let access = id.access.clone();
+        self.conflict_task = cx.spawn_in(w, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
-                    let prepared = Prepared::read(&repo, &snapshot, &file, &token)?;
-                    let content = prepared.native_text_inputs()?.map(|texts| {
-                        let model = Merge::new(&texts[1], &texts[0], &texts[2]);
-                        (texts, model)
-                    });
-                    Ok::<_, String>((Arc::new(prepared), content))
+                    let prepared = match &saved {
+                        Some(saved) => saved.prepared.clone(),
+                        None => access.prepare(&repo, &snapshot, &file, &token)?,
+                    };
+                    let content = match prepared.native_text_inputs()? {
+                        None => None,
+                        Some(mut texts) => {
+                            let mut model = Merge::new(&texts[1], &texts[0], &texts[2]);
+                            if let Some(saved) = saved {
+                                texts[1] = access.saved_text(&prepared, &repo, &token)?;
+                                model.restore(&saved.decisions, &texts[1]);
+                            }
+                            Some((texts, model))
+                        }
+                    };
+                    Ok::<_, String>((prepared, content))
                 })
                 .await;
             let _ = this.update_in(wx, |s, w, cx| {
-                let Some(cancelled) = s.finish_operation(id, cx) else {
+                let Some(cancelled) = s.finish_conflict_operation(id, cx) else {
                     return;
                 };
-                if cancelled {
+                if cancelled || s.repo.path != project_path {
                     return;
                 }
                 match result {
@@ -485,6 +524,7 @@ impl Review {
                         );
                     }
                     Ok((prepared, Some((texts, model)))) => {
+                        let iterative = s.conflict_result_session(&prepared, cx).is_some();
                         let owner = cx.entity().downgrade();
                         let path = s.repo.path.clone();
                         let editor = cx
@@ -498,16 +538,37 @@ impl Review {
                                 .centered(true)
                                 .overlay_closable(false)
                                 .child(editor.clone())
-                                .footer(crate::dialog_style::confirmation(
-                                    Button::new("apply-native-merge")
-                                        .primary()
-                                        .label(t("Apply and Mark Resolved")),
-                                ))
+                                .footer(
+                                    gpui_kit::component::dialog::DialogFooter::new()
+                                        .child(
+                                            gpui_kit::component::dialog::DialogAction::new().child(
+                                                Button::new("apply-native-merge")
+                                                    .primary()
+                                                    .label(t("Apply Changes")),
+                                            ),
+                                        )
+                                        .child(
+                                            gpui_kit::component::dialog::DialogClose::new()
+                                                .trigger(move |b| {
+                                                    b.label(t(if iterative {
+                                                        "Save and Close"
+                                                    } else {
+                                                        "Cancel"
+                                                    }))
+                                                }),
+                                        ),
+                                )
                                 .on_ok(move |_, w, cx| {
                                     apply.update(cx, |s, cx| s.confirm(true, w, cx))
                                 })
                                 .on_cancel(move |_, w, cx| {
-                                    cancel.update(cx, |s, cx| s.confirm(false, w, cx))
+                                    cancel.update(cx, |s, cx| {
+                                        if iterative {
+                                            s.save_and_close(w, cx)
+                                        } else {
+                                            s.confirm(false, w, cx)
+                                        }
+                                    })
                                 })
                         });
                         result_editor.read(cx).focus_handle(cx).focus(w, cx);

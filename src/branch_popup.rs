@@ -1,6 +1,8 @@
 //! Top-toolbar branch popup model, separate from Log filtering.
 //! Translated from Rebased 4aec352 GitBranchesTreeModel / SingleRepoModel /
 //! ModelUtil (JetBrains and contributors, Apache-2.0).
+pub mod project;
+
 use crate::git::{Branch, Tag};
 use std::collections::HashSet;
 
@@ -256,7 +258,7 @@ impl<'a> Group<'a> {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Expansion {
     pub expanded: HashSet<FolderKey>,
 }
@@ -264,6 +266,34 @@ impl Expansion {
     pub fn toggle(&mut self, key: FolderKey) {
         if !self.expanded.remove(&key) {
             self.expanded.insert(key);
+        }
+    }
+    /// Rebased SmartExpander: collapsing removes descendant expansion;
+    /// expanding follows a chain with exactly one folder child.
+    pub fn toggle_tree(&mut self, key: FolderKey, groups: &[Group<'_>], directory_grouping: bool) {
+        if self.expanded.contains(&key) {
+            self.expanded.retain(|other| {
+                other.section != key.section
+                    || !(other.prefix == key.prefix
+                        || key.prefix.is_empty()
+                        || other
+                            .prefix
+                            .strip_prefix(&key.prefix)
+                            .is_some_and(|rest| rest.starts_with('/')))
+            });
+            return;
+        }
+        let Some(group) = groups.iter().find(|group| group.section == key.section) else {
+            return;
+        };
+        let mut next = key;
+        loop {
+            self.expanded.insert(next.clone());
+            let children = group.children(&next.prefix, directory_grouping);
+            match children.as_slice() {
+                [Node::Folder { key, .. }] => next = key.clone(),
+                _ => break,
+            }
         }
     }
     /// Make a selected reference visible without expanding unrelated branches.
@@ -382,6 +412,44 @@ pub fn visible_rows<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn smart_expansion_follows_single_folder_chains_and_clears_descendants() {
+        let branches = [
+            "refs/remotes/origin/team/one",
+            "refs/remotes/origin/team/two",
+            "refs/heads/origin/local",
+        ]
+        .map(|name| Branch {
+            name: name.into(),
+            id: "same".into(),
+        });
+        let groups = groups(&branches, &[], None, &HashSet::new(), &[], true, None);
+        let key = FolderKey {
+            section: Section::Remote,
+            prefix: String::new(),
+        };
+        let mut expansion = Expansion::default();
+        expansion.reveal(Section::Local, "origin/local", true);
+        expansion.toggle_tree(key.clone(), &groups, true);
+        let rows = visible_rows(&groups, &expansion, true);
+        assert!(rows.iter().any(|row| matches!(
+            &row.node,
+            VisibleNode::Entry(Node::Ref { label: "one", .. })
+        ) && row.depth == 3));
+        expansion.toggle_tree(key, &groups, true);
+        assert!(
+            !expansion
+                .expanded
+                .iter()
+                .any(|key| key.section == Section::Remote)
+        );
+        assert!(
+            expansion
+                .expanded
+                .iter()
+                .any(|key| key.section == Section::Local && key.prefix == "origin")
+        );
+    }
     #[test]
     fn recent_duplicates_only_disappear_when_searching_and_identity_is_full_ref() {
         let branches = [

@@ -5,6 +5,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
+    tooltip::Tooltip,
     v_flex,
 };
 use gpui_kit::{prelude::FluentBuilder as _, *};
@@ -45,6 +46,11 @@ enum Source {
 pub struct CompareView {
     repo: Repository,
     source: Source,
+    repository_color: Option<u32>,
+    branch_context: Option<plico::branch_context::Context>,
+    branch_token: Cancel,
+    branch_task: Task<()>,
+    branch_generation: u64,
     swapped: bool,
     chain: Option<Chain>,
     rows: Vec<file_tree::Row>,
@@ -67,6 +73,7 @@ impl EventEmitter<Refresh> for CompareView {}
 impl Drop for CompareView {
     fn drop(&mut self) {
         self.token.cancel();
+        self.branch_token.cancel();
     }
 }
 fn icon(name: &'static str) -> Icon {
@@ -121,6 +128,11 @@ impl CompareView {
         let mut s = Self {
             repo,
             source,
+            repository_color: None,
+            branch_context: None,
+            branch_token: Cancel::default(),
+            branch_task: Task::ready(()),
+            branch_generation: 0,
             swapped,
             chain: None,
             rows: Vec::new(),
@@ -137,7 +149,56 @@ impl CompareView {
         };
         s.focus.focus(window, cx);
         s.refresh(cx);
+        s.refresh_branch_context(cx);
         s
+    }
+    pub fn repository_changed(
+        &mut self,
+        root: &std::path::Path,
+        batch: &plico::worktree_events::Batch,
+        cx: &mut Context<Self>,
+    ) {
+        if batch.history_changed()
+            && plico::recent_projects::identity(root)
+                == plico::recent_projects::identity(&self.repo.path)
+        {
+            self.refresh_branch_context(cx);
+        }
+    }
+    fn refresh_branch_context(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.source, Source::WorkingTree { .. }) {
+            return;
+        }
+        self.branch_token.cancel();
+        self.branch_token = Cancel::default();
+        self.branch_generation += 1;
+        let generation = self.branch_generation;
+        let token = self.branch_token.clone();
+        let repo = self.repo.clone();
+        self.branch_task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { plico::branch_context::read(&repo, &token) })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                if s.branch_generation != generation {
+                    return;
+                }
+                s.branch_context = result.ok();
+                cx.notify();
+            });
+        });
+    }
+    pub fn repository_path(&self) -> &std::path::Path {
+        &self.repo.path
+    }
+    /// The project owns root membership and colors; the view owns tree state.
+    pub fn set_repository_color(&mut self, color: Option<u32>, cx: &mut Context<Self>) {
+        if self.repository_color == color {
+            return;
+        }
+        self.repository_color = color;
+        self.rebuild();
+        cx.notify();
     }
     pub fn focus_files(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus.focus(window, cx);
@@ -409,7 +470,7 @@ impl CompareView {
         cx.notify();
     }
     fn set_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
-        if !self.group_files {
+        if !self.group_files && self.repository_color.is_none() {
             return;
         }
         let lead = self.selection.lead_node().cloned();
@@ -460,24 +521,24 @@ impl CompareView {
         if changes.is_empty() {
             return;
         }
-        if !self.group_files {
+        let mut rows = if self.group_files {
+            file_tree::compact_rows(
+                changes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (i, c.path.as_path())),
+                |p| self.collapsed.contains(p),
+            )
+        } else {
             let mut indices = (0..changes.len()).collect::<Vec<_>>();
             indices.sort_by_key(|&i| (changes[i].path.file_name(), &changes[i].path));
-            self.rows = indices
+            indices
                 .into_iter()
                 .map(|index| file_tree::Row::File { index, depth: 0 })
-                .collect();
-            return;
-        }
-        let mut rows = file_tree::compact_rows(
-            changes
-                .iter()
-                .enumerate()
-                .map(|(i, c)| (i, c.path.as_path())),
-            |p| self.collapsed.contains(p),
-        );
+                .collect()
+        };
         let common_directory = matches!(rows.first(), Some(file_tree::Row::Folder {depth:0,count,..}) if *count == changes.len());
-        if common_directory {
+        if self.repository_color.is_none() && (common_directory || !self.group_files) {
             self.rows = rows;
             return;
         }
@@ -504,6 +565,7 @@ impl CompareView {
     fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let grouped = self.group_files;
+        let has_groups = grouped || self.repository_color.is_some();
         let focus = self.focus.clone();
         let disabled = self.loading || self.chain.is_none();
         h_flex()
@@ -557,7 +619,7 @@ impl CompareView {
                     .small()
                     .icon(icon("expandAll_dark.svg"))
                     .tooltip(t("Expand All"))
-                    .disabled(disabled || !grouped)
+                    .disabled(disabled || !has_groups)
                     .on_click(cx.listener(|s, _, _, cx| s.set_expanded(true, cx))),
             )
             .child(
@@ -566,7 +628,7 @@ impl CompareView {
                     .small()
                     .icon(icon("collapseAll_dark.svg"))
                     .tooltip(t("Collapse All"))
-                    .disabled(disabled || !grouped)
+                    .disabled(disabled || !has_groups)
                     .on_click(cx.listener(|s, _, _, cx| s.set_expanded(false, cx))),
             )
     }
@@ -821,7 +883,10 @@ impl Render for CompareView {
                     range.map(|row| {
                         let entry = s.rows[row].clone();
                         let (depth, name, image, selected) = match &entry {
-                            file_tree::Row::Folder { path, label, depth, expanded, count, .. } => (*depth, if label.as_os_str().is_empty() { crate::ui_style::file_count(*count) } else { label.to_string_lossy().into_owned() }, if *expanded { "chevronDown_dark.svg" } else { "chevronRight_dark.svg" }, s.selection.contains(&Node::Directory(path.clone()))),
+                            file_tree::Row::Folder { path, label, depth, expanded, count, .. } => (*depth, if label.as_os_str().is_empty() {
+                                if s.repository_color.is_some() { s.repo.path.file_name().unwrap_or(s.repo.path.as_os_str()).to_string_lossy().into_owned() }
+                                else { crate::ui_style::file_count(*count) }
+                            } else { label.to_string_lossy().into_owned() }, if *expanded { "chevronDown_dark.svg" } else { "chevronRight_dark.svg" }, s.selection.contains(&Node::Directory(path.clone()))),
                             file_tree::Row::File { index, depth } => (*depth, s.chain.as_ref().unwrap().changes()[*index].path.file_name().unwrap_or_default().to_string_lossy().into_owned(), "file-text_dark_4x.svg", s.selection.contains(&Node::File(s.chain.as_ref().unwrap().changes()[*index].path.clone()))),
                         };
                         let color = match &entry {
@@ -829,9 +894,26 @@ impl Render for CompareView {
                             _ => crate::ui_style::FG,
                         };
                         h_flex().text_color(rgb(color)).id(("compare-file", row)).w_full().h(px(28.)).pl(px(10. + depth as f32 * 16.)).gap_2().min_w_0()
-                            .when(selected, |v| v.bg(rgb(0x2e4773))).child(match &entry { file_tree::Row::File { index, .. } => img(crate::ui_style::file_icon(&s.chain.as_ref().unwrap().changes()[*index].path)).size(px(16.)).flex_shrink_0().into_any_element(), _ => div().id(("compare-disclosure", row)).child(icon(image)).on_mouse_down(MouseButton::Left, cx.listener(move |s,_,w,cx| { cx.stop_propagation(); s.focus.focus(w,cx); s.choose_row(row,cx); s.activate(cx); })).into_any_element() }).when(matches!(entry, file_tree::Row::Folder { .. }), |v| v.child(img("jb/folder_dark.svg").size(px(16.)).flex_shrink_0()))
+                            .when(selected, |v| v.bg(rgb(0x2e4773))).child(match &entry { file_tree::Row::File { index, .. } => img(crate::ui_style::file_icon(&s.chain.as_ref().unwrap().changes()[*index].path)).size(px(16.)).flex_shrink_0().into_any_element(), _ => div().id(("compare-disclosure", row)).child(icon(image)).on_mouse_down(MouseButton::Left, cx.listener(move |s,_,w,cx| { cx.stop_propagation(); s.focus.focus(w,cx); s.choose_row(row,cx); s.activate(cx); })).into_any_element() }).when(matches!(entry, file_tree::Row::Folder { .. }), |v| {
+                                let root_color = match &entry {
+                                    file_tree::Row::Folder { path, .. } if path.as_os_str().is_empty() => s.repository_color,
+                                    _ => None,
+                                };
+                                v.child(if let Some(color) = root_color {
+                                    div().size(px(14.)).rounded(px(2.)).bg(rgb(color)).flex_shrink_0().into_any_element()
+                                } else {
+                                    img("jb/folder_dark.svg").size(px(16.)).flex_shrink_0().into_any_element()
+                                })
+                            })
                             .child(div().flex_shrink_0().child(name))
-                            .when_some(match &entry { file_tree::Row::Folder {label,count,..} if !label.as_os_str().is_empty() => Some(*count), _ => None }, |v,count| v.child(div().text_color(rgb(0x6f737a)).child(crate::ui_style::file_count(count))))
+                            .when_some(match &entry { file_tree::Row::Folder {label,count,..} if !label.as_os_str().is_empty() || s.repository_color.is_some() => Some(*count), _ => None }, |v,count| v.child(div().text_color(rgb(0x6f737a)).child(crate::ui_style::file_count(count))))
+                            .when_some(match &entry {
+                                file_tree::Row::Folder {path, ..} if path.as_os_str().is_empty() && s.repository_color.is_some() => s.branch_context.as_ref(),
+                                _ => None,
+                            }, |v, branch| {
+                                let tooltip = branch.branch.as_ref().map(|name| branch.upstream.as_ref().map(|upstream| format!("{name} → {upstream}")).unwrap_or_else(|| t("No tracking branch").to_owned()));
+                                v.child(div().id(("compare-root-branch", row)).px(px(4.)).bg(rgb(0x2b2d30)).text_color(rgb(0x909090)).flex_shrink_0().child(branch.label().to_owned()).when_some(tooltip, |v, text| v.tooltip(move |w,cx| Tooltip::new(text.clone()).build(w,cx))))
+                            })
                             .when(!s.group_files, |v| {
                                 if let file_tree::Row::File { index, .. } = &entry {
                                     let path = &s.chain.as_ref().unwrap().changes()[*index].path;
@@ -1040,10 +1122,48 @@ mod tests {
         });
         let view = comparison.unwrap();
         cx.run_until_parked();
+        view.read_with(cx, |v, _| {
+            assert_eq!(v.branch_context.as_ref().unwrap().label(), "main")
+        });
+        git(&["symbolic-ref", "HEAD", "refs/heads/topic"]);
+        let refs = plico::worktree_events::Batch {
+            refs: true,
+            ..Default::default()
+        };
+        view.update(cx, |v, cx| {
+            let generation = v.branch_generation;
+            v.repository_changed(&fixture.0.join("other"), &refs, cx);
+            assert_eq!(v.branch_generation, generation);
+            v.repository_changed(&fixture.0, &refs, cx);
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |v, _| {
+            assert_eq!(v.branch_context.as_ref().unwrap().label(), "topic");
+            assert!(matches!(&v.source, Source::WorkingTree { current, .. } if current == "main"));
+            assert_eq!(v.chain.as_ref().unwrap().changes().len(), 2);
+        });
+        git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        view.update(cx, |v, cx| v.repository_changed(&fixture.0, &refs, cx));
+        cx.run_until_parked();
         cx.simulate_keystrokes("ctrl-alt-p");
         view.read_with(cx, |v, _| assert!(!v.group_files));
         cx.simulate_keystrokes("ctrl-alt-p");
         view.read_with(cx, |v, _| assert!(v.group_files));
+        view.update(cx, |v, cx| {
+            v.set_repository_color(Some(0x865762), cx);
+            v.toggle_directory(cx);
+            assert!(!v.group_files);
+            assert!(matches!(v.rows.first(), Some(file_tree::Row::Folder { path, count: 2, .. }) if path.as_os_str().is_empty()));
+            assert_eq!(v.rows.len(), 3, "flat directory mode still groups by repository");
+            v.set_expanded(false, cx);
+            assert_eq!(v.rows.len(), 1);
+            v.set_expanded(true, cx);
+            assert_eq!(v.rows.len(), 3);
+            v.set_repository_color(None, cx);
+            assert_eq!(v.rows.len(), 2, "returning to one root removes only the repository group");
+            assert!(v.rows.iter().all(|row| matches!(row, file_tree::Row::File { depth: 0, .. })));
+            v.toggle_directory(cx);
+        });
         view.update(cx, |v, cx| {
             assert!(v.error.is_none(), "{:?}", v.error);
             assert_eq!(v.chain.as_ref().unwrap().changes().len(), 2);

@@ -20,6 +20,7 @@ mod init;
 mod interactive_rebase;
 mod log_branches;
 mod log_count;
+mod log_display;
 mod log_history;
 mod log_query;
 mod log_selection;
@@ -167,19 +168,14 @@ pub struct Review {
     recent_projects: Vec<PathBuf>,
     recent_recorded: bool,
     snapshot: Option<Snapshot>,
-    rows: Arc<Vec<Row>>,
-    graph_model: Option<Arc<plico::graph_print::Model>>,
+    log: log_display::Display,
     show_long_edges: bool,
     graph_print_token: Cancel,
     graph_print_task: Task<()>,
     graph_print_generation: u64,
     graph_print_loading: bool,
     graph_hover: Option<(usize, usize)>,
-    commits: Arc<Vec<Commit>>,
     // Explicit identities for project Log rows; None denotes the existing single-root query.
-    log_sources: Option<Arc<Vec<plico::project_log::CommitId>>>,
-    log_scope: Option<Arc<plico::project_log::Scope>>,
-    project_window: Option<Box<plico::project_log::navigation::Window>>,
     pending_project_reload: Option<bool>,
     files: Arc<Vec<Change>>,
     file_rows: Arc<Vec<FileRow>>,
@@ -252,9 +248,6 @@ pub struct Review {
     limit: usize,
     log_query: log_query::Query,
     history_count: log_count::Count,
-    history_offset: usize,
-    window_start: graph::Layout,
-    window_end: graph::Layout,
     focus: FocusHandle,
     history_focus: FocusHandle,
     tree_focus: FocusHandle,
@@ -439,18 +432,13 @@ impl Review {
             main_menu_unshallow: None,
             shallow_startup: Default::default(),
             snapshot: None,
-            rows: Arc::default(),
-            graph_model: None,
+            log: Default::default(),
             show_long_edges: layout_preferences::load_log_long_edges(&path),
             graph_print_token: Cancel::default(),
             graph_print_task: Task::ready(()),
             graph_print_generation: 0,
             graph_print_loading: false,
             graph_hover: None,
-            commits: Arc::default(),
-            log_sources: None,
-            log_scope: None,
-            project_window: None,
             pending_project_reload: None,
             files: Arc::default(),
             file_rows: Arc::default(),
@@ -539,9 +527,6 @@ impl Review {
             limit,
             log_query: Default::default(),
             history_count: Default::default(),
-            history_offset: 0,
-            window_start: graph::Layout::default(),
-            window_end: graph::Layout::default(),
             focus,
             history_focus,
             tree_focus: cx.focus_handle().tab_stop(true),
@@ -1057,7 +1042,7 @@ impl Render for Review {
                                             .when(!self.bottom_preview, |pane| pane.children(island_corners(false))),
                                     ),
                             )
-                            .when(self.bottom_preview && !(self.commits.is_empty() && self.error.is_some() && !self.local_visible && !self.stash_open), |layout| layout.child(
+                            .when(self.bottom_preview && !(self.log.commits().is_empty() && self.error.is_some() && !self.local_visible && !self.stash_open), |layout| layout.child(
                                 resizable_panel().flex_basis(relative(1. - self.preview_fraction)).size_range(px(60.)..px(4000.)).child(
                                     div().size_full().child(
                                         div()

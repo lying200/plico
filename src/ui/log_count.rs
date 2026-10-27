@@ -36,7 +36,6 @@ impl Review {
             self.history_count.invalidate();
             return;
         };
-        self.log_scope = Some(scope.clone());
         let key = Key {
             roots: scope
                 .roots
@@ -59,12 +58,12 @@ impl Review {
         if scope.errors.is_empty()
             && scope.roots.len() == 1
             && scope.roots[0].query.repository.path == self.repo.path
-            && self.snapshot.as_ref().is_some_and(|s| !s.more)
-            && (self.history_offset == 0 || !self.commits.is_empty())
+            && !self.log.more()
+            && (self.log.offset() == 0 || !self.log.commits().is_empty())
         {
             self.history_count.invalidate();
             self.history_count.key = Some(key);
-            self.history_count.total = Some(self.history_offset + self.commits.len());
+            self.history_count.total = Some(self.log.offset() + self.log.commits().len());
             return;
         }
         if self.history_count.key.as_ref() == Some(&key) {
@@ -101,9 +100,8 @@ impl Review {
     pub(super) fn history_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.log_query.history_loading();
         let counting = self.history_count.loading();
-        let loaded = self.commits.len();
-        let label =
-            plico::i18n::history_count(loaded, self.history_offset, self.history_count.total);
+        let loaded = self.log.commits().len();
+        let label = plico::i18n::history_count(loaded, self.log.offset(), self.history_count.total);
         h_flex()
             .h(px(32.))
             .flex_shrink_0()
@@ -134,7 +132,7 @@ impl Review {
                 )
             })
             .child(div().flex_1())
-            .when(self.history_offset > 0, |v| {
+            .when(self.log.offset() > 0, |v| {
                 v.child(
                     Button::new("previous-window")
                         .link()
@@ -245,7 +243,7 @@ mod tests {
         review.update(cx, |s, cx| s.refresh(false, cx));
         cx.run_until_parked();
         review.update(cx, |s, cx| {
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert!(s.snapshot.as_ref().unwrap().more);
             assert!(
                 s.history_count.loading(),
@@ -275,7 +273,7 @@ mod tests {
         cx.executor().advance_clock(Duration::from_millis(200));
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
-            assert!(s.commits.is_empty());
+            assert!(s.log.commits().is_empty());
             assert_eq!(s.history_count.total, Some(0));
             assert!(!s.history_count.loading());
         });
@@ -349,7 +347,7 @@ mod tests {
             view.update(cx, |s, cx| {
                 s.repo = queries[0].repository.clone();
                 s.snapshot = Some(primary);
-                s.log_scope = Some(scope.clone());
+                s.log = log_display::Display::fixture(vec![], Some(scope.clone()));
                 s.update_history_count(cx);
                 assert!(s.history_count.loading());
                 assert_eq!(s.history_count.total, None);
@@ -368,7 +366,7 @@ mod tests {
             failed
                 .errors
                 .push((fixture.0.join("missing"), "unavailable".into()));
-            s.log_scope = Some(Arc::new(failed));
+            s.log = log_display::Display::fixture(vec![], Some(Arc::new(failed)));
             s.update_history_count(cx);
             assert_eq!(s.history_count.total, None);
         });
@@ -377,8 +375,8 @@ mod tests {
         review.update(cx, |s, _| {
             assert_eq!(s.history_count.total, None);
             assert!(s.history_count.error.is_some());
-            s.replace_single_root_commits(vec![]);
-            assert!(s.log_scope.is_none());
+            s.log = Default::default();
+            assert!(s.log.scope().is_none());
         });
     }
 }

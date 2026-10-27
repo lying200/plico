@@ -254,7 +254,8 @@ impl Review {
                         .into_iter()
                         .map(|target| {
                             let label = s
-                                .commits
+                                .log
+                                .commits()
                                 .iter()
                                 .find(|c| c.id == target.hash)
                                 .map(|c| {
@@ -383,10 +384,11 @@ impl Review {
                 return;
             }
         }
-        if self.project_window.is_some()
+        if self.log.project_window().is_some()
             || *target.root != self.repo.path
             || self
-                .log_scope
+                .log
+                .scope()
                 .as_ref()
                 .is_some_and(|scope| scope.roots.len() > 1)
         {
@@ -418,6 +420,7 @@ impl Review {
             self.text_filter.clone()
         };
         let limit = self.limit;
+        let show_long_edges = self.show_long_edges;
         let query_target = target.clone();
         self.log_query.track(
             generation,
@@ -433,7 +436,7 @@ impl Review {
                                 .tips
                             }
                         };
-                        let located = match filter {
+                        let mut located = match filter {
                             Some(filter) => history::locate_filtered(
                                 &repo,
                                 &roots,
@@ -458,10 +461,20 @@ impl Review {
                                 .commit_position(&all_roots, &query_target, &token)?
                                 .is_some()
                             {
-                                return Ok(history::FilteredLocation::Hidden);
+                                return Ok((history::FilteredLocation::Hidden, None));
                             }
                         }
-                        Ok::<_, String>(located)
+                        let model = if let history::FilteredLocation::Found(found) = &mut located {
+                            let model = Arc::new(plico::graph_print::Model::new(
+                                &found.window.rows,
+                                &token,
+                            )?);
+                            found.window.rows = model.project(show_long_edges, &token)?;
+                            Some(model)
+                        } else {
+                            None
+                        };
+                        Ok::<_, String>((located, model))
                     })
                     .await;
                 let _ = wx.update(|window, cx| {
@@ -471,7 +484,7 @@ impl Review {
                         }
                         s.navigation_loading = None;
                         match result {
-                            Ok(history::FilteredLocation::Found(found)) => {
+                            Ok((history::FilteredLocation::Found(found), model)) => {
                                 s.local = false;
                                 if clear_filters {
                                     s.branch_filter.clear();
@@ -482,20 +495,19 @@ impl Review {
                                     s.user_menu.update(cx, |menu, cx| menu.clear_filter(cx));
                                     s.paths_menu.update(cx, |menu, cx| menu.clear_filter(cx));
                                 }
-                                let history::Window {
-                                    mut snapshot,
-                                    rows,
-                                    start,
-                                    end,
-                                    ..
-                                } = found.window;
-                                s.history_offset = found.offset;
-                                s.window_start = start;
-                                s.window_end = end;
-                                s.rows = Arc::new(rows);
-                                s.replace_single_root_commits(std::mem::take(
-                                    &mut snapshot.commits,
-                                ));
+                                let query = plico::project_log::Query {
+                                    repository: s.repo.clone(),
+                                    branches: s.branch_filter.clone(),
+                                    filter: s.text_filter.clone(),
+                                };
+                                let (display, snapshot) = log_display::Display::single(
+                                    query,
+                                    found.window,
+                                    found.offset,
+                                    model,
+                                );
+                                s.log = display;
+                                s.pending_project_reload = None;
                                 s.snapshot = Some(snapshot);
                                 s.update_history_count(cx);
                                 s.rebuild_branches(cx);
@@ -504,7 +516,7 @@ impl Review {
                                     .scroll_to_item(found.selected, ScrollStrategy::Top);
                                 s.history_focus.focus(window, cx);
                             }
-                            Ok(outcome) => {
+                            Ok((outcome, _)) => {
                                 s.navigation_notice = Some(NavigationNotice {
                                     name,
                                     target: identity,
@@ -1373,9 +1385,8 @@ mod selection_tests {
                         .collect(),
                     more: false,
                 };
-                s.rows = Arc::new(page.layout(&Cancel::default()).unwrap());
-                s.commits = Arc::new(vec![commit.clone(), commit.clone()]);
-                s.log_sources = Some(Arc::new(ids.clone()));
+
+                s.log = log_display::Display::fixture(page.entries, None);
                 assert_eq!(s.visible_log_commit(&ids[0]), Some(0));
                 assert_eq!(s.visible_log_commit(&ids[1]), Some(1));
                 s.navigate_commit("HEAD".into(), commit.id.clone(), false, window, cx);
@@ -1387,7 +1398,7 @@ mod selection_tests {
         review.update(cx, |s, _| {
             assert_eq!(s.selected, Some(1));
             assert!(s.error.is_none(), "{:?}", s.error);
-            s.log_sources = Some(Arc::new(vec![ids[0].clone()]));
+            s.log = s.log.fixture_identified(vec![ids[0].clone()]);
             assert!(s.visible_log_commit(&ids[1]).is_none());
         });
     }

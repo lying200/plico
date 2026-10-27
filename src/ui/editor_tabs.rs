@@ -24,7 +24,7 @@ impl Review {
                     let commit = if s.local {
                         None
                     } else {
-                        s.selected.and_then(|i| s.commits.get(i)).cloned()
+                        s.selected.and_then(|i| s.log.commits().get(i)).cloned()
                     };
                     let repo = s.log_files_repository()?;
                     s.files.iter().position(|change| {
@@ -408,7 +408,9 @@ impl Review {
                     } else {
                         diff_target::Target::new(
                             self.log_files_repository()?,
-                            self.selected.and_then(|i| self.commits.get(i)).cloned(),
+                            self.selected
+                                .and_then(|i| self.log.commits().get(i))
+                                .cloned(),
                             change.clone(),
                         )
                         .ok()
@@ -1044,7 +1046,9 @@ impl Review {
         let commit = if self.local {
             None
         } else {
-            self.selected.and_then(|i| self.commits.get(i)).cloned()
+            self.selected
+                .and_then(|i| self.log.commits().get(i))
+                .cloned()
         };
         let aggregate = self.aggregate_chain.clone().and_then(|mut chain| {
             chain
@@ -1277,16 +1281,17 @@ mod tests {
                 // The primary directory deliberately has no Git objects. Reading it
                 // instead of the selected child must fail this end-to-end query.
                 s.repo = Repository::new(&parent);
-                s.commits = Arc::new(commits);
-                s.log_sources = Some(Arc::new(
-                    s.commits
+                s.log = log_display::Display::fixture_single(&s.repo.path, commits);
+                s.log = s.log.fixture_identified(
+                    s.log
+                        .commits()
                         .iter()
                         .map(|c| plico::project_log::CommitId {
                             root: Arc::new(child.clone()),
                             hash: c.id.clone(),
                         })
                         .collect(),
-                ));
+                );
                 let ids = s.commit_ids();
                 s.log_selection.select(&ids, 0, false, false);
                 assert!(s.selected_comparison().is_none());
@@ -1309,7 +1314,7 @@ mod tests {
             review.update(cx, |s, cx| {
                 let mut ids = s.commit_ids();
                 ids[1].root = Arc::new(parent.clone());
-                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log = s.log.fixture_identified(ids.clone());
                 s.log_selection.select(&ids, 0, false, false);
                 s.log_selection.select(&ids, 1, false, true);
                 assert!(s.selected_comparison().is_none());
@@ -1319,7 +1324,7 @@ mod tests {
                     comparison.entity_id()
                 );
                 // Stale row metadata cannot silently fall back to the primary root.
-                s.log_sources = Some(Arc::new(vec![ids[0].clone()]));
+                s.log = s.log.fixture_identified(vec![ids[0].clone()]);
                 assert!(s.selected_comparison().is_none());
             })
         });

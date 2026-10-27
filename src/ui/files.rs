@@ -23,7 +23,7 @@ impl Review {
         cx.notify();
     }
     pub(super) fn move_commit(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.local || self.log_query.history_loading() || self.commits.is_empty() {
+        if self.local || self.log_query.history_loading() || self.log.commits().is_empty() {
             return;
         }
         self.activate_log_preview();
@@ -54,7 +54,7 @@ impl Review {
         if let Some(chain) = &self.aggregate_chain {
             return chain.repository_at(index).map(|repo| repo.path.clone());
         }
-        if !self.local && self.log_sources.is_some() {
+        if !self.local && self.log.sources().is_some() {
             return self
                 .selected
                 .and_then(|row| self.log_repository(row))
@@ -137,7 +137,7 @@ impl Review {
             groups.sort_by(|(a, _), (b, _)| a.file_name().cmp(&b.file_name()).then(a.cmp(b)));
             let multiple = self.project_roots.read(cx).has_multiple_roots()
                 || groups.len() > 1
-                || self.log_sources.as_ref().is_some_and(|sources| {
+                || self.log.sources().as_ref().is_some_and(|sources| {
                     sources
                         .first()
                         .is_some_and(|first| sources.iter().any(|s| s.root != first.root))
@@ -643,7 +643,10 @@ impl Review {
         if self.local || !self.log_files_options.details {
             return file_list.into_any_element();
         }
-        let detail_commit = self.selected.and_then(|i| self.commits.get(i)).cloned();
+        let detail_commit = self
+            .selected
+            .and_then(|i| self.log.commits().get(i))
+            .cloned();
         let details = v_flex()
             .relative()
             .overflow_hidden()

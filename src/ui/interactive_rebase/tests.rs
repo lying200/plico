@@ -81,10 +81,14 @@ fn initial_commit_warning_precedes_writes_and_captured_repository_is_used(
         review.update(cx, |s, cx| {
             s.select_log_row(0, false, false, false, cx);
             assert!(s.can_interactive_rebase(0, cx));
-            Arc::make_mut(&mut s.commits)[0].shallow_boundary = true;
+            let root = s.log.repository(0).unwrap().path;
+            let mut commits = s.log.commits().as_ref().clone();
+            commits[0].shallow_boundary = true;
+            s.log = crate::ui::log_display::Display::fixture_single(&root, commits.clone());
             assert!(!s.can_interactive_rebase(0, cx));
-            Arc::make_mut(&mut s.commits)[0].shallow_boundary = false;
-            Arc::make_mut(&mut s.commits)[0].parents = vec!["a".repeat(40), "b".repeat(40)];
+            commits[0].shallow_boundary = false;
+            commits[0].parents = vec!["a".repeat(40), "b".repeat(40)];
+            s.log = crate::ui::log_display::Display::fixture_single(&root, commits);
             assert!(!s.can_interactive_rebase(0, cx));
         })
     });
@@ -108,7 +112,7 @@ fn non_head_selection_uses_matching_cached_ancestry(cx: &mut gpui::TestAppContex
     cx.run_until_parked();
     let index = cx.update(|_, cx| {
         review.update(cx, |s, cx| {
-            let index = s.commits.iter().position(|c| c.id == side).unwrap();
+            let index = s.log.commits().iter().position(|c| c.id == side).unwrap();
             s.select_log_row(index, false, false, false, cx);
             index
         })
@@ -125,7 +129,7 @@ fn non_head_selection_uses_matching_cached_ancestry(cx: &mut gpui::TestAppContex
     });
     cx.update(|_, cx| {
         review.update(cx, |s, cx| {
-            let index = s.commits.iter().position(|c| c.id != side).unwrap();
+            let index = s.log.commits().iter().position(|c| c.id != side).unwrap();
             s.select_log_row(index, false, false, false, cx);
         });
     });

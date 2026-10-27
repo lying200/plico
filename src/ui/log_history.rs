@@ -11,10 +11,10 @@ impl Review {
         {
             return;
         }
-        let Some(model) = self.graph_model.clone() else {
+        let Some(model) = self.log.model().clone() else {
             return;
         };
-        if self.rows.is_empty() {
+        if self.log.rows().is_empty() {
             return;
         }
         self.graph_print_token.cancel();
@@ -31,7 +31,8 @@ impl Review {
             let _ = this.update(cx, |s, cx| {
                 if generation != s.graph_print_generation
                     || !s
-                        .graph_model
+                        .log
+                        .model()
                         .as_ref()
                         .is_some_and(|m| Arc::ptr_eq(m, &current))
                 {
@@ -42,7 +43,7 @@ impl Review {
                     Ok(rows) => {
                         match layout_preferences::save_log_long_edges(&s.repo.path, enabled) {
                             Ok(()) => {
-                                s.rows = Arc::new(rows);
+                                s.log.reproject(&current, rows);
                                 s.show_long_edges = enabled;
                                 s.graph_hover = None;
                             }
@@ -65,8 +66,8 @@ impl Review {
         let checked = self.show_long_edges;
         let disabled = self.log_query.history_loading()
             || self.graph_print_loading
-            || self.rows.is_empty()
-            || self.graph_model.is_none();
+            || self.log.rows().is_empty()
+            || self.log.model().is_none();
         Button::new("log-view-options")
             .ghost()
             .small()
@@ -84,8 +85,8 @@ impl Review {
                         let enabled = s.repo.path == current_path
                             && !s.log_query.history_loading()
                             && !s.graph_print_loading
-                            && !s.rows.is_empty()
-                            && s.graph_model.is_some();
+                            && !s.log.rows().is_empty()
+                            && s.log.model().is_some();
                         menu.set_item_state(0, checked, enabled, cx);
                     });
                     menu = menu.with_subscription(subscription);
@@ -128,10 +129,16 @@ impl Review {
             crate::startup_report::Frame {
                 welcome: self.welcome,
                 requested: self.limit,
-                commits: self.commits.len(),
-                graph_rows: self.rows.len(),
-                max_columns: self.rows.iter().map(|row| row.width).max().unwrap_or(0),
-                offset: self.history_offset,
+                commits: self.log.commits().len(),
+                graph_rows: self.log.rows().len(),
+                max_columns: self
+                    .log
+                    .rows()
+                    .iter()
+                    .map(|row| row.width)
+                    .max()
+                    .unwrap_or(0),
+                offset: self.log.offset(),
                 more: self.history_has_more(),
                 filtered: !self.branch_filter.is_empty() || self.text_filter.is_some(),
             },
@@ -148,18 +155,18 @@ impl Review {
             .as_ref()
             .map(|s| s.ref_titles.clone())
             .unwrap_or_default();
-        let project_ref_titles = self.log_scope.as_ref().map(|scope| {
+        let project_ref_titles = self.log.scope().as_ref().map(|scope| {
             scope
                 .roots
                 .iter()
                 .map(|root| (root.query.repository.path.clone(), root.ref_titles.clone()))
                 .collect::<std::collections::HashMap<_, _>>()
         });
-        let commits = self.commits.clone();
-        let rows = self.rows.clone();
+        let commits = self.log.commits().clone();
+        let rows = self.log.rows().clone();
         let graph_hover = self.graph_hover;
         let selected = self.log_selection.clone();
-        let sources = self.log_sources.clone();
+        let sources = self.log.sources().cloned();
         let root = Arc::new(self.repo.path.clone());
         let owner = cx.entity().downgrade();
         let recommended_width = rows.iter().map(|r| r.width).max().unwrap_or(1);
@@ -475,7 +482,7 @@ impl Review {
                                     .viewport_from_layout(),
                             ),
                     )
-                    .when(self.commits.is_empty() && self.error.is_none() && !self.log_query.history_loading()
+                    .when(self.log.commits().is_empty() && self.error.is_none() && !self.log_query.history_loading()
                         && self.paths_menu.read(cx).selected_roots().is_some(), |v| v.child(
                         v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(BG))
                             .child(t("No commits matching filters"))
@@ -489,7 +496,7 @@ impl Review {
                                     s.apply_text_filter(cx);
                                 })))
                     ))
-                    .when(self.commits.is_empty() && self.error.is_some(), |v| v.child(
+                    .when(self.log.commits().is_empty() && self.error.is_some(), |v| v.child(
                         v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(BG))
                             .child(t(plico::git_error::summary(self.error.as_deref().unwrap_or_default())))
                             .child(h_flex().gap_3()
@@ -544,7 +551,7 @@ fn interactive_graph_cell(
         tooltip,
         move |segment, cx| {
             let _ = hover_owner.update(cx, |s, cx| {
-                if !Arc::ptr_eq(&hover_rows, &s.rows)
+                if !Arc::ptr_eq(&hover_rows, &s.log.rows())
                     || s.log_query.history_loading()
                     || s.graph_print_loading
                 {
@@ -562,10 +569,10 @@ fn interactive_graph_cell(
         },
         move |target, window, cx| {
             let _ = owner.update(cx, |s, cx| {
-                if !Arc::ptr_eq(&rows, &s.rows)
+                if !Arc::ptr_eq(&rows, &s.log.rows())
                     || s.log_query.history_loading()
                     || s.graph_print_loading
-                    || target >= s.commits.len()
+                    || target >= s.log.commits().len()
                 {
                     return;
                 }

@@ -63,7 +63,7 @@ impl Review {
                                 let primary = plico::recent_projects::identity(&s.repo.path);
                                 let refresh_shallow =
                                     notices.iter().any(|notice| notice.batch.shallow);
-                                let refresh_project_log = s.project_window.is_some()
+                                let refresh_project_log = s.log.project_window().is_some()
                                     && !s.local
                                     && notices.iter().any(|notice| {
                                         notice.batch.history_changed()

@@ -128,29 +128,17 @@ impl Review {
     }
     fn install_project_window(
         &mut self,
-        mut page: project_log::navigation::Window,
+        page: project_log::navigation::Window,
         model: Option<Arc<plico::graph_print::Model>>,
         cx: &mut Context<Self>,
     ) {
         self.local = false;
-        self.history_offset = page.offset;
-        self.rows = Arc::new(std::mem::take(&mut page.rows));
-        self.graph_model = model;
-        let entries = std::mem::take(&mut page.read.page.entries);
-        self.log_sources = Some(Arc::new(
-            entries.iter().map(project_log::Entry::identity).collect(),
-        ));
-        self.commits = Arc::new(entries.into_iter().map(|entry| entry.commit).collect());
-        self.log_scope = Some(page.read.scope.clone());
-        self.project_window = Some(Box::new(page));
+        self.log = log_display::Display::project(page, model);
         self.update_history_count(cx);
     }
 
     pub(super) fn history_has_more(&self) -> bool {
-        self.project_window.as_ref().map_or_else(
-            || self.snapshot.as_ref().is_some_and(|s| s.more),
-            |page| page.read.page.more,
-        )
+        self.log.more()
     }
 
     pub(super) fn reload_project_history(
@@ -185,9 +173,9 @@ impl Review {
         let next_window = more && self.limit >= git::HISTORY_MAX;
         let offset = requested_offset.unwrap_or_else(|| {
             if next_window {
-                self.history_offset.saturating_add(self.commits.len())
+                self.log.offset().saturating_add(self.log.commits().len())
             } else if more || preserve {
-                self.history_offset
+                self.log.offset()
             } else {
                 0
             }
@@ -203,7 +191,8 @@ impl Review {
         };
         let continuation = if next_window && requested_offset.is_none() {
             match self
-                .project_window
+                .log
+                .project_window()
                 .as_ref()
                 .map(|page| page.continuation())
                 .transpose()
@@ -336,7 +325,7 @@ impl Review {
                                     }
                                 }
                             }
-                            if (preserve || more) && page.offset == s.history_offset {
+                            if (preserve || more) && page.offset == s.log.offset() {
                                 let after = page
                                     .read
                                     .page
@@ -351,7 +340,7 @@ impl Review {
                                     page.offset,
                                     log_row_height(cx),
                                 );
-                            } else if page.offset != s.history_offset {
+                            } else if page.offset != s.log.offset() {
                                 s.history_scroll.scroll_to_item(0, ScrollStrategy::Top);
                             }
                             s.limit = limit;
@@ -445,8 +434,8 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert!(s.project_window.is_some());
-            assert_eq!(s.commits.len(), 2);
+            assert!(s.log.project_window().is_some());
+            assert_eq!(s.log.commits().len(), 2);
             assert!(s.recent_recorded);
             assert!(!s.merge_recovery_available);
             assert!(!s.revert_recovery_available);
@@ -470,9 +459,9 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.log_repository(0).unwrap().path, paths[0]);
-            assert_eq!(s.commits[0].subject, "parent-only");
+            assert_eq!(s.log.commits()[0].subject, "parent-only");
             assert_eq!(s.history_count.total, Some(1));
         });
         review.update(cx, |s, cx| {
@@ -485,9 +474,9 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.log_repository(0).unwrap().path, paths[1]);
-            assert_eq!(s.commits[0].subject, "child-only");
+            assert_eq!(s.log.commits()[0].subject, "child-only");
         });
         // The path editor/tree emits absolute selections, including sibling
         // repositories outside the primary root. Clearing text must not lose it.
@@ -501,7 +490,7 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.log_repository(0).unwrap().path, paths[1]);
             assert_eq!(s.history_count.total, Some(1));
         });
@@ -516,7 +505,7 @@ mod tests {
             .advance_clock(std::time::Duration::from_millis(200));
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.log_repository(0).unwrap().path, paths[1]);
             assert_eq!(s.history_count.total, Some(1));
         });
@@ -530,7 +519,7 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert!(s.commits.is_empty());
+            assert!(s.log.commits().is_empty());
             assert_eq!(s.history_count.total, Some(0));
             assert!(!s.history_has_more());
             assert_eq!(s.empty_diff_message(), "Select commits to view changes");
@@ -544,7 +533,7 @@ mod tests {
             .advance_clock(std::time::Duration::from_millis(200));
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
-            assert_eq!(s.commits.len(), 2);
+            assert_eq!(s.log.commits().len(), 2);
             assert_eq!(s.history_count.total, Some(2));
         });
     }
@@ -659,10 +648,22 @@ mod tests {
                 s.repo = queries[0].repository.clone();
                 s.project_roots = catalog.clone();
                 s.bind_project_roots(cx);
-                s.commits = Arc::new(primary.commits.clone());
-                s.rows = Arc::new(graph::layout(&primary.commits));
+                s.log = log_display::Display::fixture_single(&s.repo.path, primary.commits.clone());
+
                 s.snapshot = Some(primary);
-                s.log_scope = Some(scope);
+                s.log = log_display::Display::fixture(
+                    s.log
+                        .commits()
+                        .iter()
+                        .cloned()
+                        .map(|commit| plico::project_log::Entry {
+                            root: Arc::new(s.repo.path.clone()),
+                            commit,
+                            display_parents: None,
+                        })
+                        .collect(),
+                    Some(scope),
+                );
                 s.navigate_log_commit("child".into(), target.clone(), false, false, window, cx);
             });
             review = Some(view.clone());
@@ -674,11 +675,11 @@ mod tests {
             assert!(s.error.is_none(), "{:?}", s.error);
             assert_eq!(s.repo.path, parent);
             assert_eq!(s.snapshot.as_ref().unwrap().head_id, head);
-            assert_eq!(s.history_offset, 1);
+            assert_eq!(s.log.offset(), 1);
             assert_eq!(s.selected, Some(0));
             assert_eq!(s.commit_ids(), vec![target.clone()]);
             assert_eq!(s.log_repository(0).unwrap().path, child);
-            assert!(s.project_window.is_some());
+            assert!(s.log.project_window().is_some());
             assert_eq!(s.files.len(), 1);
             assert_eq!(s.files[0].path, std::path::Path::new("file.txt"));
         });
@@ -689,7 +690,7 @@ mod tests {
         review.read_with(cx, |s, _| {
             assert!(s.error.is_some());
             assert_eq!(s.commit_ids(), vec![target.clone()]);
-            assert_eq!(s.history_offset, 1);
+            assert_eq!(s.log.offset(), 1);
         });
         std::fs::rename(child.join(".git-saved"), child.join(".git")).unwrap();
         git(
@@ -711,8 +712,12 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.history_offset, 0);
-            assert_eq!(s.commits.len(), 2, "previous window retains fixed tips");
+            assert_eq!(s.log.offset(), 0);
+            assert_eq!(
+                s.log.commits().len(),
+                2,
+                "previous window retains fixed tips"
+            );
             assert_eq!(s.commit_ids()[1], target);
             assert!(!s.history_has_more());
         });
@@ -720,9 +725,13 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 3, "explicit refresh resolves new tips");
+            assert_eq!(
+                s.log.commits().len(),
+                3,
+                "explicit refresh resolves new tips"
+            );
             assert_ne!(s.snapshot.as_ref().unwrap().head_id, head);
-            assert_eq!(s.log_scope.as_ref().unwrap().roots.len(), 2);
+            assert_eq!(s.log.scope().as_ref().unwrap().roots.len(), 2);
         });
         review.update(cx, |s, cx| {
             s.limit = 1;
@@ -730,23 +739,23 @@ mod tests {
         });
         cx.run_until_parked();
         review.update(cx, |s, cx| {
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert!(s.history_has_more());
             s.refresh(true, cx);
         });
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 3);
+            assert_eq!(s.log.commits().len(), 3);
             assert!(!s.history_has_more());
             assert!(s.commit_ids().contains(&target));
-            assert_eq!(s.log_scope.as_ref().unwrap().roots.len(), 2);
+            assert_eq!(s.log.scope().as_ref().unwrap().roots.len(), 2);
         });
         let (completed_rows, completed_scope, completed_total) = review.read_with(cx, |s, _| {
             assert!(!s.log_query.running());
             (
-                s.commits.clone(),
-                s.log_scope.clone().unwrap(),
+                s.log.commits().clone(),
+                s.log.scope().clone().unwrap(),
                 s.history_count.total,
             )
         });
@@ -754,10 +763,13 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(
-                Arc::ptr_eq(&s.commits, &completed_rows),
+                Arc::ptr_eq(&s.log.commits(), &completed_rows),
                 "unchanged membership must not reload completed rows"
             );
-            assert!(Arc::ptr_eq(s.log_scope.as_ref().unwrap(), &completed_scope));
+            assert!(Arc::ptr_eq(
+                s.log.scope().as_ref().unwrap(),
+                &completed_scope
+            ));
             assert_eq!(s.history_count.total, completed_total);
             assert!(s.pending_project_reload.is_none());
             assert!(!s.log_query.running());
@@ -771,7 +783,7 @@ mod tests {
             assert!(!s.log_query.finish(stamp));
             assert!(s.pending_project_reload.is_none());
             assert!(
-                !Arc::ptr_eq(&s.commits, &completed_rows),
+                !Arc::ptr_eq(&s.log.commits(), &completed_rows),
                 "interrupted query needs a replacement"
             );
         });
@@ -784,16 +796,16 @@ mod tests {
         review.read_with(cx, |s, _| {
             assert!(s.pending_project_reload.is_none());
             assert!(s.commit_ids().iter().all(|id| *id.root == parent));
-            assert_eq!(s.log_scope.as_ref().unwrap().roots.len(), 1);
-            assert_eq!(s.log_scope.as_ref().unwrap().errors.len(), 1);
+            assert_eq!(s.log.scope().as_ref().unwrap().roots.len(), 1);
+            assert_eq!(s.log.scope().as_ref().unwrap().errors.len(), 1);
         });
         std::fs::rename(child.join(".git-saved"), child.join(".git")).unwrap();
         catalog.update(cx, |roots, cx| roots.refresh(cx));
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
-            assert_eq!(s.log_scope.as_ref().unwrap().roots.len(), 2);
-            assert!(s.log_scope.as_ref().unwrap().errors.is_empty());
-            assert_eq!(s.commits.len(), 3);
+            assert_eq!(s.log.scope().as_ref().unwrap().roots.len(), 2);
+            assert!(s.log.scope().as_ref().unwrap().errors.is_empty());
+            assert_eq!(s.log.commits().len(), 3);
             assert!(s.commit_ids().contains(&target));
         });
         cx.update(|window, cx| {
@@ -804,7 +816,7 @@ mod tests {
         });
         cx.run_until_parked();
         review.update(cx, |s, cx| {
-            assert!(s.history_offset > 0);
+            assert!(s.log.offset() > 0);
             s.project_roots.update(cx, |roots, cx| roots.refresh(cx));
             s.text_filter = Some(git::LogFilter {
                 text: "shared".into(),
@@ -817,11 +829,12 @@ mod tests {
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
             assert_eq!(
-                s.history_offset, 0,
+                s.log.offset(),
+                0,
                 "filter change during discovery must start at the first matching row"
             );
-            assert_eq!(s.commits.len(), 1);
-            assert_eq!(s.commits[0].subject, "shared");
+            assert_eq!(s.log.commits().len(), 1);
+            assert_eq!(s.log.commits()[0].subject, "shared");
             assert!(s.pending_project_reload.is_none());
         });
     }

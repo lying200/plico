@@ -170,7 +170,9 @@ impl Review {
         let mut matched = 0;
         for (index, id) in self.commit_ids().iter().enumerate() {
             if selected.contains(id) {
-                if self.log_repository(index).is_none() || self.commits[index].parents.len() > 1 {
+                if self.log_repository(index).is_none()
+                    || self.log.commits()[index].parents.len() > 1
+                {
                     return false;
                 }
                 matched += 1;

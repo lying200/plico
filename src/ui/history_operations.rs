@@ -1048,17 +1048,18 @@ mod selection_tests {
             review.update(cx, |s, cx| {
                 s.welcome = false;
                 s.repo = Repository::new(&fixture.0); // No primary Git repository or HEAD.
-                s.commits = Arc::new(commits);
-                s.rows = Arc::new(graph::layout(&s.commits));
+                s.log = log_display::Display::fixture_single(&s.repo.path, commits);
+
                 let ids = s
-                    .commits
+                    .log
+                    .commits()
                     .iter()
                     .map(|commit| plico::project_log::CommitId {
                         root: Arc::new(child.clone()),
                         hash: commit.id.clone(),
                     })
                     .collect::<Vec<_>>();
-                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log = s.log.fixture_identified(ids.clone());
                 s.log_selection.select(&ids, 0, false, false);
                 s.log_selection.select(&ids, 1, false, true);
                 s.prepare_squash(window, cx);
@@ -1089,7 +1090,8 @@ mod selection_tests {
         cx.update(|window, cx| {
             review.update(cx, |s, cx| {
                 s.welcome = false;
-                s.commits = Arc::new(
+                s.log = log_display::Display::fixture_single(
+                    &s.repo.path,
                     ["a", "b"]
                         .into_iter()
                         .map(|hash| Commit {
@@ -1106,27 +1108,28 @@ mod selection_tests {
                 );
                 let child = Arc::new(PathBuf::from("child"));
                 let mut ids = s
-                    .commits
+                    .log
+                    .commits()
                     .iter()
                     .map(|commit| plico::project_log::CommitId {
                         root: child.clone(),
                         hash: commit.id.clone(),
                     })
                     .collect::<Vec<_>>();
-                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log = s.log.fixture_identified(ids.clone());
                 s.log_selection.select(&ids, 0, false, false);
                 assert!(!s.squash_selection_is_single_root());
                 s.log_selection.select(&ids, 1, false, true);
                 assert!(s.squash_selection_is_single_root());
                 ids[1].root = Arc::new(PathBuf::from("parent"));
-                s.log_sources = Some(Arc::new(ids.clone()));
+                s.log = s.log.fixture_identified(ids.clone());
                 s.log_selection.select(&ids, 0, false, false);
                 s.log_selection.select(&ids, 1, false, true);
                 assert!(!s.squash_selection_is_single_root());
                 s.prepare_squash(window, cx);
                 assert!(!s.operation.busy());
                 assert!(s.status_message.is_none());
-                s.log_sources = Some(Arc::new(vec![ids[0].clone()]));
+                s.log = s.log.fixture_identified(vec![ids[0].clone()]);
                 assert!(!s.squash_selection_is_single_root());
             })
         });

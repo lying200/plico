@@ -4,14 +4,7 @@ use super::*;
 
 impl Review {
     pub(super) fn log_repository(&self, index: usize) -> Option<Repository> {
-        let commit = self.commits.get(index)?;
-        match &self.log_sources {
-            None => Some(self.repo.clone()),
-            Some(sources) => sources
-                .get(index)
-                .filter(|source| source.hash == commit.id)
-                .map(|source| Repository::new(source.root.as_ref().clone())),
-        }
+        self.log.repository(index)
     }
     pub(super) fn log_files_repository(&self) -> Option<Repository> {
         if self.local {
@@ -20,36 +13,8 @@ impl Review {
             self.selected.and_then(|index| self.log_repository(index))
         }
     }
-    pub(super) fn replace_single_root_commits(&mut self, commits: Vec<Commit>) {
-        self.commits = Arc::new(commits);
-        self.log_sources = None;
-        self.log_scope = None;
-        self.project_window = None;
-        self.pending_project_reload = None;
-    }
-
-    /// Query identity is independent of row metadata and the primary branch UI.
     pub(super) fn current_log_scope(&self) -> Option<Arc<plico::project_log::Scope>> {
-        if let Some(scope) = &self.log_scope {
-            return Some(scope.clone());
-        }
-        if self.log_sources.is_some() {
-            return None;
-        }
-        let snapshot = self.snapshot.as_ref()?;
-        Some(Arc::new(plico::project_log::Scope {
-            roots: vec![plico::project_log::LoadedRoot {
-                query: plico::project_log::Query {
-                    repository: self.repo.clone(),
-                    branches: self.branch_filter.clone(),
-                    filter: self.text_filter.clone(),
-                },
-                tips: snapshot.tips.clone(),
-                current_branch: snapshot.current_branch.clone(),
-                ref_titles: snapshot.ref_titles.clone(),
-            }],
-            errors: vec![],
-        }))
+        self.log.scope()
     }
 
     pub(super) fn select_commit(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -62,27 +27,7 @@ impl Review {
         self.load_log_selection(cx);
     }
     pub(super) fn commit_ids(&self) -> Vec<plico::project_log::CommitId> {
-        if let Some(sources) = &self.log_sources {
-            // A stale parallel source list must not turn a child selection into
-            // a parent selection, nor shift the row indices by dropping entries.
-            if sources.len() != self.commits.len()
-                || sources
-                    .iter()
-                    .zip(self.commits.iter())
-                    .any(|(id, commit)| id.hash != commit.id)
-            {
-                return Vec::new();
-            }
-            return sources.as_ref().clone();
-        }
-        let root = Arc::new(self.repo.path.clone());
-        self.commits
-            .iter()
-            .map(|commit| plico::project_log::CommitId {
-                root: root.clone(),
-                hash: commit.id.clone(),
-            })
-            .collect()
+        self.log.ids().as_ref().clone()
     }
     pub(super) fn select_log_row(
         &mut self,
@@ -248,7 +193,7 @@ impl Review {
         if self.log_query.history_loading() {
             return;
         }
-        let Some(commit) = self.commits.get(index).cloned() else {
+        let Some(commit) = self.log.commits().get(index).cloned() else {
             return;
         };
         let Some(repo) = self.log_repository(index) else {
@@ -292,7 +237,9 @@ impl Review {
                     match result {
                         Ok(d) => {
                             let d = Arc::new(d);
-                            if let Some(commit) = this.selected.and_then(|i| this.commits.get(i)) {
+                            if let Some(commit) =
+                                this.selected.and_then(|i| this.log.commits().get(i))
+                            {
                                 this.details_cache
                                     .insert(&repository_path, commit, d.clone());
                             }
@@ -312,7 +259,7 @@ impl Review {
         preferred: Option<&(PathBuf, Change)>,
         cx: &mut Context<Self>,
     ) {
-        let commit = self.selected.and_then(|i| self.commits.get(i));
+        let commit = self.selected.and_then(|i| self.log.commits().get(i));
         let presentation = commit_presentation::build(d, commit);
         self.message = presentation.message;
         self.commit_metadata = presentation.metadata;
@@ -421,16 +368,7 @@ mod repository_tests {
                     .collect(),
                 more: false,
             };
-            s.commits = Arc::new(
-                page.entries
-                    .iter()
-                    .map(|entry| entry.commit.clone())
-                    .collect(),
-            );
-            s.rows = Arc::new(page.layout(&Cancel::default()).unwrap());
-            s.log_sources = Some(Arc::new(
-                page.entries.iter().map(|entry| entry.identity()).collect(),
-            ));
+            s.log = log_display::Display::fixture(page.entries, None);
             // A parent cache entry for the same hash must not satisfy child details.
             s.details_cache.insert(
                 &parent,
@@ -498,8 +436,13 @@ mod repository_tests {
                     root: Arc::new(child.clone()),
                     hash: commit.id.clone(),
                 };
-                s.commits = Arc::new(vec![commit.clone(), commit.clone()]);
-                s.log_sources = Some(Arc::new(vec![parent_key.clone(), child_key.clone()]));
+                s.log = log_display::Display::fixture_single(
+                    &s.repo.path,
+                    vec![commit.clone(), commit.clone()],
+                );
+                s.log = s
+                    .log
+                    .fixture_identified(vec![parent_key.clone(), child_key.clone()]);
                 let ids = s.commit_ids();
                 s.log_selection.select(&ids, 1, false, false);
                 assert_eq!(s.log_selection.ordered(&ids), vec![&child_key]);
@@ -509,15 +452,15 @@ mod repository_tests {
                 assert_eq!(s.log_selection.ordered(&ids), vec![&parent_key, &child_key]);
                 s.log_selection.reconcile(std::slice::from_ref(&child_key));
                 assert_eq!(s.log_selection.ordered(&ids), vec![&child_key]);
-                s.log_sources = Some(Arc::new(vec![]));
+                s.log = s.log.fixture_identified(vec![]);
                 assert!(s.commit_ids().is_empty());
                 assert!(
                     s.log_preview_target(cx).is_none(),
                     "missing row ownership must not fall back to parent"
                 );
-                s.replace_single_root_commits(vec![commit.clone()]);
+                s.log = log_display::Display::fixture_single(&s.repo.path, vec![commit.clone()]);
                 s.selected = Some(0);
-                assert!(s.log_sources.is_none());
+                assert!(s.log.sources().is_none());
             })
         });
         cx.run_until_parked();
@@ -527,14 +470,17 @@ mod repository_tests {
             .commits
             .remove(0);
         review.update(cx, |s, cx| {
-            s.commits = Arc::new(vec![parent_commit.clone(), commit.clone()]);
-            s.log_sources = Some(Arc::new(vec![
+            s.log = log_display::Display::fixture_single(
+                &s.repo.path,
+                vec![parent_commit.clone(), commit.clone()],
+            );
+            s.log = s.log.fixture_identified(vec![
                 plico::project_log::CommitId {
                     root: Arc::new(parent.clone()),
                     hash: parent_commit.id.clone(),
                 },
                 child_key.clone(),
-            ]));
+            ]);
             let ids = s.commit_ids();
             s.log_selection.select(&ids, 0, false, false);
             s.log_selection.select(&ids, 1, true, false);

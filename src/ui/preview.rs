@@ -36,7 +36,7 @@ impl Review {
         if self.files.is_empty() {
             if self.local {
                 "No local changes. The index and working tree are clean."
-            } else if let Some(commit) = self.selected.and_then(|i| self.commits.get(i)) {
+            } else if let Some(commit) = self.selected.and_then(|i| self.log.commits().get(i)) {
                 if commit.shallow_boundary {
                     "Parent history is unavailable at this shallow boundary. Deepen the clone with your Git tool, then refresh to review its changes."
                 } else if commit.parents.len() > 1 {
@@ -69,7 +69,7 @@ impl Review {
         let commit = if self.local {
             None
         } else {
-            Some(self.commits.get(self.selected?)?.clone())
+            Some(self.log.commits().get(self.selected?)?.clone())
         };
         let target = diff_target::Target::new(self.log_files_repository()?, commit, change).ok()?;
         let chain = self
@@ -174,7 +174,8 @@ mod ownership_tests {
         });
         cx.update(|_, cx| {
             review.unwrap().update(cx, |s, cx| {
-                s.commits = Arc::new(
+                s.log = log_display::Display::fixture_single(
+                    &s.repo.path,
                     ['a', 'b']
                         .into_iter()
                         .map(|id| git::Commit {
@@ -232,16 +233,19 @@ mod ownership_tests {
         let view = review.unwrap();
         cx.update(|window, cx| {
             view.update(cx, |s, cx| {
-                s.commits = Arc::new(vec![git::Commit {
-                    id: "a".into(),
-                    parents: vec![],
-                    shallow_boundary: false,
-                    committer_timestamp: 0,
-                    author: String::new(),
-                    date: String::new(),
-                    subject: "commit".into(),
-                    refs: vec![],
-                }]);
+                s.log = log_display::Display::fixture_single(
+                    &s.repo.path,
+                    vec![git::Commit {
+                        id: "a".into(),
+                        parents: vec![],
+                        shallow_boundary: false,
+                        committer_timestamp: 0,
+                        author: String::new(),
+                        date: String::new(),
+                        subject: "commit".into(),
+                        refs: vec![],
+                    }],
+                );
                 s.log_selection.select(&s.commit_ids(), 0, false, false);
                 s.log_query.finish(s.log_query.stamp());
                 s.open_local(window, cx);

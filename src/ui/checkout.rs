@@ -22,7 +22,7 @@ impl Review {
         let Some(repository) = self.log_repository(index) else {
             return vec![];
         };
-        let Some(commit) = self.commits.get(index) else {
+        let Some(commit) = self.log.commits().get(index) else {
             return vec![];
         };
         let scope = self.current_log_scope();
@@ -778,28 +778,13 @@ mod tests {
         let review = review.unwrap();
         cx.run_until_parked();
         review.update(cx, |s, _| {
-            let previous_commits = s.commits.clone();
-            let previous_sources = s.log_sources.clone();
-            let previous_scope = s.log_scope.clone();
-            s.log_sources = Some(Arc::new(
-                loaded
-                    .page
-                    .entries
-                    .iter()
-                    .map(|entry| entry.identity())
-                    .collect(),
-            ));
-            s.log_scope = Some(loaded.scope.clone());
-            s.commits = Arc::new(
-                loaded
-                    .page
-                    .entries
-                    .into_iter()
-                    .map(|entry| entry.commit)
-                    .collect(),
+            let previous = std::mem::replace(
+                &mut s.log,
+                log_display::Display::fixture(loaded.page.entries, Some(loaded.scope)),
             );
             let index = s
-                .commits
+                .log
+                .commits()
                 .iter()
                 .position(|commit| commit.id == head)
                 .unwrap();
@@ -812,9 +797,7 @@ mod tests {
                 ],
                 "exclude the child's current branch and tags, not the parent's current branch"
             );
-            s.commits = previous_commits;
-            s.log_sources = previous_sources;
-            s.log_scope = previous_scope;
+            s.log = previous;
         });
         git(&child, &["tag", "base-tag", &base]);
         git(

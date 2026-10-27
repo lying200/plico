@@ -301,7 +301,9 @@ impl super::Review {
                     cx.notify();
                     return;
                 }
-                if !s.local && (s.project_window.is_some() || roots.read(cx).has_multiple_roots()) {
+                if !s.local
+                    && (s.log.project_window().is_some() || roots.read(cx).has_multiple_roots())
+                {
                     match event {
                         Changed::Operations => unreachable!(),
                         Changed::Checking => {
@@ -314,7 +316,7 @@ impl super::Review {
                             s.log_query.cancel();
                         }
                         Changed::Ready { history_changed } => {
-                            if *history_changed || s.project_window.is_none() {
+                            if *history_changed || s.log.project_window().is_none() {
                                 s.history_count.invalidate();
                                 s.pending_project_reload.get_or_insert(true);
                             }
@@ -403,7 +405,10 @@ mod tests {
                 }],
                 errors: vec![],
             };
-            s.log_scope = Some(Arc::new(child_scope.clone()));
+            s.log = crate::ui::log_display::Display::fixture(
+                vec![],
+                Some(Arc::new(child_scope.clone())),
+            );
             assert_eq!(
                 s.unshallow_repository(window, cx).unwrap().path,
                 child,
@@ -411,12 +416,12 @@ mod tests {
             );
             let mut partial = child_scope;
             partial.errors.push((parent.clone(), "Unavailable".into()));
-            s.log_scope = Some(Arc::new(partial));
+            s.log = crate::ui::log_display::Display::fixture(vec![], Some(Arc::new(partial)));
             assert!(
                 s.unshallow_repository(window, cx).is_none(),
                 "a failed root must not turn a multi-root Log into a child-only context"
             );
-            s.log_scope = None;
+            s.log = Default::default();
             let file = cx.new(|_| {
                 crate::project_view::FileTab::new(parent.clone(), "child/file.txt".into())
             });
@@ -493,7 +498,10 @@ mod tests {
         let install_file = |s: &mut Review, cx: &mut Context<Review>| {
             // This synthetic file belongs to the primary repository; there is
             // deliberately no selected project-log row in this fixture.
-            s.log_sources = None;
+            s.log = crate::ui::log_display::Display::fixture_single(
+                &s.repo.path,
+                s.log.commits().as_ref().clone(),
+            );
             s.files = Arc::new(vec![plico::git::Change {
                 area: plico::git::Area::Commit,
                 path: "only.txt".into(),
@@ -557,7 +565,7 @@ mod tests {
             assert!(s.merge_roots(cx).is_empty());
         });
         review.read_with(cx, |s, _| {
-            assert!(s.commits.is_empty());
+            assert!(s.log.commits().is_empty());
             assert!(matches!(&s.file_rows[0], FileRow::Folder(root, _, _, label, _, 1, true) if root == &first && label == std::path::Path::new("first")));
         });
         review.update(cx, |s, cx| {

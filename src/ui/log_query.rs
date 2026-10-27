@@ -181,7 +181,7 @@ mod tests {
         cx.run_until_parked();
         review.update(cx, |s, cx| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.selected, Some(0), "retain existing initial-open behavior");
             s.select_commit(0, cx);
             s.refresh(false, cx);
@@ -203,7 +203,7 @@ mod tests {
         cx.run_until_parked();
         review.update(cx, |s, cx| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert!(s.commits.is_empty());
+            assert!(s.log.commits().is_empty());
             assert!(s.selected.is_none());
             assert!(s.message.is_empty());
             s.text_filter = None;
@@ -212,7 +212,7 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, cx| {
             assert!(s.error.is_none(), "{:?}", s.error);
-            assert_eq!(s.commits.len(), 1);
+            assert_eq!(s.log.commits().len(), 1);
             assert!(
                 s.selected.is_none(),
                 "clearing filters must preserve empty selection"
@@ -307,7 +307,7 @@ mod tests {
                     files: vec![],
                 });
                 s.details_cache.insert(&s.repo.path, &commit, details);
-                s.commits = Arc::new(vec![commit]);
+                s.log = crate::ui::log_display::Display::fixture_single(&s.repo.path, vec![commit]);
                 s.select_commit(0, cx);
                 assert!(!s.log_query.busy());
                 assert!(s.message.contains("cached message"));

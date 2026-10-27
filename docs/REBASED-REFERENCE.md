@@ -13477,3 +13477,27 @@ Fork实际写入测试使用两个本地bare：仅origin/topic变化，origin/ma
 也不证明真实网络远端更新。没有修改产品行为或界面，无新增原生交互验收声明。
 独立Rebase五项定向测试全部通过（含本例四组fixture），无失败/忽略，日志
 `/tmp/plico-rebase-skipped-patch.log`；格式及diff空白检查通过。本次未运行CI或发包。
+
+### Log 页面状态所有权重构（2026-10-27）
+
+参考仍为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.20 /
+IC-262.10968.SNAPSHOT。本次实际读取：
+`platform/vcs-log/api/src/com/intellij/vcs/log/CommitId.java`，身份相等同时要求
+hash与root相等；`platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VisiblePack.kt`，
+持有dataPack、visibleGraph、canRequestMore和filters，根来源由同一dataPack解释。
+
+本地映射：`src/ui/log_display.rs`集中页面接纳、身份、Scope、分页和图投影；
+`ui/repository.rs`、`project_navigation.rs`、`log_branches.rs`接纳完整页面，
+`log_selection.rs`从页面读取仓库身份，`log_count.rs`只读取同页范围。
+保留有界按需历史和独立异步总数，不复制上游永久索引；Query继续负责迟到结果。
+这是内部重构，不新增UI或交互；沿用第6项及Log既有原生参考记录，重构后另做
+Windows同场景验证。不把内部字段集中等同于全部视觉或行为已对齐。
+
+Windows 原生验收：最新 release 构建，自有 PID 23884，独立
+submodule-reference-80s4zk56/project。父提交显示 project/child gitlink；选择
+child extra file 显示 child/extra.txt 与对应 hash，项目主分支保持 main；
+extra 文本过滤提交后从 12/12 收敛为 1/1，清除后恢复 12/12，详情仍归属子仓库。
+截图 artifacts/architecture-log-display-20261027/{initial,child,filter-settled,restored}.png。
+初次输入被中文 IME 保留，完成组合再 Enter 后核对最终结果；未将中间截图当成
+筛选验收。177 项桌面、10 项发布配置导航测试及 Windows release bins 构建通过；
+格式检查通过，自有测试进程正常关闭。未运行 CI、未自动化滚动。

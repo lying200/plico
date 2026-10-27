@@ -14,7 +14,8 @@ impl Review {
             && !self.log_query.history_loading()
             && self.log_selection.ordered(&self.commit_ids()).len() == 1
             && self
-                .commits
+                .log
+                .commits()
                 .get(index)
                 .is_some_and(|c| c.parents.len() < 2 && !c.shallow_boundary)
             && self.log_repository(index).is_some_and(|repo| {
@@ -28,7 +29,7 @@ impl Review {
                 }
                 self.containing_branches.as_ref().is_none_or(|query| {
                     let query = query.read(cx);
-                    let hash = &self.commits[index].id;
+                    let hash = &self.log.commits()[index].id;
                     query.contains_head(&repo.path, hash) != Some(false)
                         && query.is_protected(&repo.path, hash) != Some(true)
                 })

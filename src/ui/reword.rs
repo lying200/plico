@@ -82,7 +82,7 @@ impl Review {
         let Some(index) = ids.iter().position(|id| id == *identity) else {
             return false;
         };
-        let Some(commit) = self.commits.get(index) else {
+        let Some(commit) = self.log.commits().get(index) else {
             return false;
         };
         let is_head = gate.result.as_ref().is_some_and(|result| {
@@ -298,7 +298,12 @@ mod tests {
             window_cx.update(|window, cx| {
                 review.update(cx, |s, cx| {
                     assert!(s.error.is_none(), "{:?}", s.error);
-                    let row = s.commits.iter().position(|c| c.id == original).unwrap();
+                    let row = s
+                        .log
+                        .commits()
+                        .iter()
+                        .position(|c| c.id == original)
+                        .unwrap();
                     s.select_commit(row, cx);
                     s.start_reword(prepared, "new message".into(), window, cx);
                 })

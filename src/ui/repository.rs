@@ -212,7 +212,6 @@ impl Review {
             cx.new(|cx| super::project_roots::ProjectRoots::open(self.repo.path.clone(), cx));
         self.bind_project_roots(cx);
         self.show_long_edges = layout_preferences::load_log_long_edges(&self.repo.path);
-        self.graph_model = None;
         self.log_selection = Default::default();
         self.aggregate_chain = None;
         self.selection_details.clear();
@@ -241,8 +240,8 @@ impl Review {
         self.collapsed_branches.clear();
         self.history_count.invalidate();
         self.snapshot = None;
-        self.replace_single_root_commits(Vec::new());
-        self.rows = Arc::default();
+        self.log = Default::default();
+        self.pending_project_reload = None;
         self.selected = None;
         self.selected_file = None;
         self.pending_preview_file = None;
@@ -271,9 +270,6 @@ impl Review {
         self.close_settings(cx);
         self.collapsed_files.clear();
         self.collapsed_directories.clear();
-        self.history_offset = 0;
-        self.window_start = graph::Layout::default();
-        self.window_end = graph::Layout::default();
         self.history_scroll = UniformListScrollHandle::new();
         self.tree_scroll = UniformListScrollHandle::new();
         self.history_horizontal = ScrollHandle::new();
@@ -323,10 +319,10 @@ impl Review {
         self.refresh_impl(false, true, None, cx);
     }
     pub(super) fn previous_window(&mut self, cx: &mut Context<Self>) {
-        if self.log_query.busy() || self.log_query.history_loading() || self.history_offset == 0 {
+        if self.log_query.busy() || self.log_query.history_loading() || self.log.offset() == 0 {
             return;
         }
-        let offset = self.history_offset.saturating_sub(git::HISTORY_MAX);
+        let offset = self.log.offset().saturating_sub(git::HISTORY_MAX);
         self.reload_history(false, false, Some(offset), cx);
     }
     /// A filter is a new Log query, not a repository-change notification.
@@ -362,7 +358,8 @@ impl Review {
         cx: &mut Context<Self>,
     ) {
         if !self.local
-            && (self.project_window.is_some() || self.project_roots.read(cx).has_multiple_roots())
+            && (self.log.project_window().is_some()
+                || self.project_roots.read(cx).has_multiple_roots())
         {
             self.reload_project_history(more, preserve, requested_offset, cx);
             return;
@@ -390,16 +387,16 @@ impl Review {
         let offset = if let Some(offset) = requested_offset {
             offset
         } else if next_window {
-            self.history_offset + self.commits.len()
+            self.log.offset() + self.log.commits().len()
         } else if more || preserve {
-            self.history_offset
+            self.log.offset()
         } else {
             0
         };
         let start = if next_window {
-            self.window_end.clone()
+            self.log.end().clone()
         } else if more {
-            self.window_start.clone()
+            self.log.start().clone()
         } else {
             graph::Layout::default()
         };
@@ -484,7 +481,7 @@ impl Review {
                     match result.0 {
                         Ok((
                             Some(history::Window {
-                                snapshot: mut s,
+                                snapshot: s,
                                 rows,
                                 start,
                                 end,
@@ -493,10 +490,10 @@ impl Review {
                             _,
                         )) => {
                             this.record_recent_project();
-                            if offset != this.history_offset {
+                            if offset != this.log.offset() {
                                 this.history_scroll.scroll_to_item(0, ScrollStrategy::Top);
                             }
-                            if preserve && offset == this.history_offset {
+                            if preserve && offset == this.log.offset() {
                                 let root = Arc::new(this.repo.path.clone());
                                 super::log_viewport::restore(
                                     &this.history_scroll,
@@ -512,13 +509,26 @@ impl Review {
                                     log_row_height(cx),
                                 );
                             }
-                            this.history_offset = offset;
-                            this.window_start = start;
-                            this.window_end = end;
                             this.limit = limit;
-                            this.rows = Arc::new(rows);
-                            this.graph_model = result.2;
-                            this.replace_single_root_commits(std::mem::take(&mut s.commits));
+                            let query = plico::project_log::Query {
+                                repository: this.repo.clone(),
+                                branches: this.branch_filter.clone(),
+                                filter: this.text_filter.clone(),
+                            };
+                            let (display, s) = log_display::Display::single(
+                                query,
+                                history::Window {
+                                    snapshot: s,
+                                    rows,
+                                    start,
+                                    end,
+                                    projected_parents: None,
+                                },
+                                offset,
+                                result.2,
+                            );
+                            this.log = display;
+                            this.pending_project_reload = None;
                             if this.squash_undo.as_ref().is_some_and(|undo| {
                                 s.head_id.as_deref() != Some(undo.result_head())
                             }) {
@@ -555,9 +565,8 @@ impl Review {
                         Err(e) => {
                             this.error = Some(e);
                             if filtering {
-                                this.replace_single_root_commits(Vec::new());
-                                this.rows = Arc::default();
-                                this.graph_model = None;
+                                this.log = Default::default();
+                                this.pending_project_reload = None;
                                 this.selected = None;
                                 this.snapshot = None;
                             }

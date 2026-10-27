@@ -46,6 +46,106 @@ impl Drop for Fixture {
     }
 }
 #[test]
+fn automatic_merge_preserves_zero_effect_files_index_and_external_edits() {
+    let f = Fixture::new();
+    let content = |first: &str, last: &str| {
+        format!(
+            "{first}\n{}\n{last}\n",
+            (0..8)
+                .map(|i| format!("line {i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+    for path in ["a", "b", "c"] {
+        fs::write(f.0.join(path), content("alpha beta gamma", "base end")).unwrap();
+    }
+    f.git(&["add", "."], true);
+    f.git(&["commit", "-qm", "base"], true);
+    f.git(&["checkout", "-qb", "topic"], true);
+    for path in ["a", "b", "c"] {
+        fs::write(
+            f.0.join(path),
+            content(
+                if path == "b" {
+                    "theirs"
+                } else {
+                    "alpha beta GAMMA"
+                },
+                "theirs end",
+            ),
+        )
+        .unwrap();
+    }
+    f.git(&["commit", "-qam", "topic"], true);
+    f.git(&["checkout", "main"], true);
+    for path in ["a", "b", "c"] {
+        fs::write(
+            f.0.join(path),
+            content(
+                if path == "b" {
+                    "ours"
+                } else {
+                    "ALPHA beta gamma"
+                },
+                "ours end",
+            ),
+        )
+        .unwrap();
+    }
+    f.git(&["commit", "-qam", "main"], true);
+    f.git(&["merge", "topic"], false);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let snapshot = Snapshot::read(&repo, &token).unwrap();
+    let read = |index| {
+        plico::merge_result::Prepared::read(&repo, &snapshot, &snapshot.files[index], &token)
+            .unwrap()
+    };
+    let a = read(0);
+    let cancelled = Cancel::default();
+    cancelled.cancel();
+    let original = fs::read(f.0.join("a")).unwrap();
+    assert!(a.resolve_automatically(&repo, None, &cancelled).is_err());
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), original);
+    let result = a
+        .resolve_automatically(&repo, None, &token)
+        .unwrap()
+        .unwrap();
+    assert!(result.changed);
+    assert_eq!(result.decisions.progress(), (1, 2));
+    assert_eq!(
+        fs::read_to_string(f.0.join("a")).unwrap(),
+        content("ALPHA beta GAMMA", "base end")
+    );
+    let again = a
+        .resolve_automatically(&repo, Some(&result.decisions), &token)
+        .unwrap()
+        .unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.decisions, result.decisions);
+    let b = read(1);
+    let before = fs::read(f.0.join("b")).unwrap();
+    let untouched = b
+        .resolve_automatically(&repo, None, &token)
+        .unwrap()
+        .unwrap();
+    assert!(!untouched.changed);
+    assert_eq!(untouched.decisions.progress(), (0, 2));
+    assert_eq!(fs::read(f.0.join("b")).unwrap(), before);
+    let c = read(2);
+    fs::write(f.0.join("c"), "external edit\n").unwrap();
+    assert!(c.resolve_automatically(&repo, None, &token).is_err());
+    assert_eq!(fs::read(f.0.join("c")).unwrap(), b"external edit\n");
+    fs::write(f.0.join("a"), "external after auto\n").unwrap();
+    assert!(
+        a.resolve_automatically(&repo, Some(&result.decisions), &token)
+            .is_err()
+    );
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), b"external after auto\n");
+    assert_eq!(Snapshot::read(&repo, &token).unwrap().files, snapshot.files);
+}
+#[test]
 fn snapshots_merge_and_rebase_versions_and_detects_external_resolution() {
     let f = Fixture::new();
     fs::write(f.0.join("a"), "base\n").unwrap();
@@ -498,14 +598,7 @@ fn native_merge_retry_after_staging_failure_keeps_external_edit_guard() {
     prepared.write_text_result("resolved\n".into()).unwrap();
     prepared.apply(&repo, &token).unwrap();
     fs::write(f.0.join(".git/index.lock"), "audit").unwrap();
-    let report = conflicts::resolve(
-        &repo,
-        &snap,
-        &snap.files[0],
-        conflicts::Resolution::MarkResolved,
-        &token,
-        &Default::default(),
-    );
+    let report = prepared.stage(&repo, &token, &Default::default());
     let failed = match report {
         Err(_) => true,
         Ok(r) => r
@@ -532,15 +625,7 @@ fn native_merge_retry_after_staging_failure_keeps_external_edit_guard() {
     );
     fs::write(f.0.join("a"), "revised result\n").unwrap();
     prepared.apply(&repo, &token).unwrap();
-    let report = conflicts::resolve(
-        &repo,
-        &snap,
-        &snap.files[0],
-        conflicts::Resolution::MarkResolved,
-        &token,
-        &Default::default(),
-    )
-    .unwrap();
+    let report = prepared.stage(&repo, &token, &Default::default()).unwrap();
     assert!(
         report
             .commands
@@ -692,4 +777,194 @@ fn operation_observation_tracks_linked_worktree_markers_and_nested_metadata() {
     assert!(observe(&main, Some(&main_key), &token).unwrap().is_none());
     fs::remove_dir_all(directory.join("sequencer")).unwrap();
     f.git(&["worktree", "remove", "linked"], true);
+}
+
+#[test]
+fn identical_conflicts_in_another_repository_or_worktree_reject_the_original_snapshot() {
+    let source = Fixture::new();
+    fs::write(source.0.join("a"), "base\n").unwrap();
+    source.git(&["add", "a"], true);
+    source.git(&["commit", "-qm", "base"], true);
+    source.git(&["checkout", "-qb", "task"], true);
+    fs::write(source.0.join("a"), "task\n").unwrap();
+    source.git(&["commit", "-qam", "task"], true);
+    source.git(&["checkout", "main"], true);
+    fs::write(source.0.join("a"), "main\n").unwrap();
+    source.git(&["commit", "-qam", "main"], true);
+    source.git(&["merge", "task"], false);
+    let token = Cancel::default();
+    let source_repo = Repository::new(&source.0);
+    let snapshot = Snapshot::read(&source_repo, &token).unwrap();
+    let other = Fixture::new();
+    other.git(&["fetch", source.0.to_str().unwrap(), "main"], true);
+    other.git(&["checkout", "-B", "main", "FETCH_HEAD"], true);
+    other.git(&["fetch", source.0.to_str().unwrap(), "task"], true);
+    other.git(&["merge", "FETCH_HEAD"], false);
+    let linked = source.0.join("linked");
+    source.git(
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            linked.to_str().unwrap(),
+            "main",
+        ],
+        true,
+    );
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&linked)
+        .args(["merge", "task"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    for path in [&other.0, &linked] {
+        let repo = Repository::new(path);
+        let same = Snapshot::read(&repo, &token).unwrap();
+        assert_eq!(same.head, snapshot.head);
+        assert_eq!(same.files, snapshot.files);
+        assert_eq!(same.operation, snapshot.operation);
+        let before = fs::read(path.join("a")).unwrap();
+        assert!(
+            conflicts::resolve(
+                &repo,
+                &snapshot,
+                &snapshot.files[0],
+                conflicts::Resolution::Accept(Side::Theirs),
+                &token,
+                &Default::default()
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read(path.join("a")).unwrap(), before);
+        assert_eq!(Snapshot::read(&repo, &token).unwrap().files, same.files);
+        same.revalidate(&repo, &same.files[0], &token).unwrap();
+    }
+    snapshot
+        .revalidate(&source_repo, &snapshot.files[0], &token)
+        .unwrap();
+}
+
+#[test]
+fn old_conflict_snapshot_cannot_resolve_a_different_merge_with_identical_stages() {
+    let f = Fixture::new();
+    fs::write(f.0.join("a"), "base\n").unwrap();
+    f.git(&["add", "a"], true);
+    f.git(&["commit", "-qm", "base"], true);
+    f.git(&["checkout", "-qb", "first"], true);
+    fs::write(f.0.join("a"), "theirs\n").unwrap();
+    f.git(&["commit", "-qam", "first"], true);
+    f.git(&["checkout", "-qb", "second"], true);
+    fs::write(f.0.join("unrelated"), "second merge target\n").unwrap();
+    f.git(&["add", "unrelated"], true);
+    f.git(&["commit", "-qm", "second"], true);
+    f.git(&["checkout", "main"], true);
+    fs::write(f.0.join("a"), "ours\n").unwrap();
+    f.git(&["commit", "-qam", "ours"], true);
+    f.git(&["merge", "first"], false);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let old = Snapshot::read(&repo, &token).unwrap();
+    let draft = plico::merge_result::Prepared::read(&repo, &old, &old.files[0], &token).unwrap();
+    draft
+        .write_text_result("stale merge draft\n".into())
+        .unwrap();
+    f.git(&["merge", "--abort"], true);
+    f.git(&["merge", "second"], false);
+    let current = Snapshot::read(&repo, &token).unwrap();
+    assert_eq!(old.head, current.head);
+    assert_eq!(
+        old.files, current.files,
+        "file-level revalidation alone cannot distinguish these merges"
+    );
+    let before = fs::read(f.0.join("a")).unwrap();
+    let marker = fs::read(f.0.join(".git/MERGE_HEAD")).unwrap();
+    assert!(old.revalidate(&repo, &old.files[0], &token).is_err());
+    assert!(draft.apply(&repo, &token).is_err());
+    assert!(
+        conflicts::resolve(
+            &repo,
+            &old,
+            &old.files[0],
+            conflicts::Resolution::Accept(Side::Yours),
+            &token,
+            &Default::default()
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), before);
+    assert_eq!(fs::read(f.0.join(".git/MERGE_HEAD")).unwrap(), marker);
+    current
+        .revalidate(&repo, &current.files[0], &token)
+        .unwrap();
+}
+
+#[test]
+fn saved_merge_results_stage_only_on_finish_and_reject_intervening_edits() {
+    let f = Fixture::new();
+    fs::write(f.0.join("a"), "base\n").unwrap();
+    f.git(&["add", "a"], true);
+    f.git(&["commit", "-qm", "base"], true);
+    f.git(&["checkout", "-qb", "topic"], true);
+    fs::write(f.0.join("a"), "theirs\n").unwrap();
+    f.git(&["commit", "-qam", "theirs"], true);
+    f.git(&["checkout", "main"], true);
+    fs::write(f.0.join("a"), "ours\n").unwrap();
+    f.git(&["commit", "-qam", "ours"], true);
+    f.git(&["merge", "topic"], false);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let initial = Snapshot::read(&repo, &token).unwrap();
+    let marker = fs::read(f.0.join(".git/MERGE_HEAD")).unwrap();
+    let draft =
+        plico::merge_result::Prepared::read(&repo, &initial, &initial.files[0], &token).unwrap();
+    assert!(draft.saved_text(&repo, &token).is_err());
+    assert!(draft.stage(&repo, &token, &Default::default()).is_err());
+    draft.write_text_result("reviewed result\n".into()).unwrap();
+    draft.apply(&repo, &token).unwrap();
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), b"reviewed result\n");
+    // A subsequent un-applied editor draft must not replace the saved review result.
+    draft
+        .write_text_result("unsaved next draft\n".into())
+        .unwrap();
+    assert_eq!(
+        draft.saved_text(&repo, &token).unwrap(),
+        "reviewed result\n"
+    );
+    assert_eq!(
+        Snapshot::read(&repo, &token).unwrap().files,
+        initial.files,
+        "saving the chosen text must leave the unmerged index intact"
+    );
+    let cancelled = Cancel::default();
+    cancelled.cancel();
+    assert!(draft.stage(&repo, &cancelled, &Default::default()).is_err());
+    fs::write(f.0.join("a"), "external edit\n").unwrap();
+    assert!(draft.saved_text(&repo, &token).is_err());
+    assert!(draft.stage(&repo, &token, &Default::default()).is_err());
+    assert_eq!(fs::read(f.0.join("a")).unwrap(), b"external edit\n");
+    assert_eq!(Snapshot::read(&repo, &token).unwrap().files, initial.files);
+    // Only a return to the exact reviewed bytes permits final staging.
+    fs::write(f.0.join("a"), "reviewed result\n").unwrap();
+    fs::write(f.0.join("unrelated"), "keep staged\n").unwrap();
+    f.git(&["add", "unrelated"], true);
+    let report = draft.stage(&repo, &token, &Default::default()).unwrap();
+    assert!(report.commands.iter().all(|r| {
+        r.as_ref()
+            .is_ok_and(|o| o.status.success() && o.stopped.is_none())
+    }));
+    assert!(report.snapshot.unwrap().files.is_empty());
+    assert_eq!(
+        fs::read(f.0.join(".git/MERGE_HEAD")).unwrap(),
+        marker,
+        "finishing conflict resolution must not commit the merge"
+    );
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&f.0)
+        .args(["show", ":unrelated"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(out.stdout, b"keep staged\n");
 }

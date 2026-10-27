@@ -6955,3 +6955,57 @@ baseline_changed，以保留HEAD/ref更新时的比较基线刷新；其余多�
 移除根释放监听、外部冲突解决/中止及取消/不可读状态。没有用交叉编译代替宿主运行。
 暂未被该基础提交消费的Guard::owns保留在后续工作区，不提前引入未使用API。
 格式及暂存差异检查通过；CI未运行。本次没有启动桌面实例，也没有新增可见UI。
+
+
+### 第6项整组 Update 核心独立提交（2026-10-27）
+
+本次从累计实现中拆出可独立构建的 Update/恢复核心，不包括聚合 Log、GPUI
+多仓库接线、Unshallow 或交互式 Rebase 计划界面。参考 commit
+4aec35256d765c217aa0d662b82ac4e860c396fd；安装版仍为 Rebased 1.1.20 /
+IC-262.10968.SNAPSHOT。
+
+已读源码：plugins/git4idea/backend/src/update/GitUpdateProcess.java、
+GitUpdateResult.java、GitSubmoduleUpdater.kt、GitMergeUpdater.java、
+GitRebaseUpdater.java，以及 rebase/GitRebaser.java、GitPreservingProcess。
+词级自动解决沿用 platform/util/diff/src/com/intellij/diff/comparison/MergeResolveUtil.kt
+及对应上游测试；只采用 simple resolver，不采用 greedy 删除区间合并。
+
+规则与本地映射：project_update/{roots,group,preservation}.rs 区分普通跟踪分支、
+游离子模块和不可更新根，先 Fetch/复验再整组保存。submodule_update.rs 递归更新
+已初始化子模块，不添加 --init；附着分支按自身 upstream 更新。关闭当前根冲突
+交互返回 Incomplete 并继续其他根；只有整组成功才恢复修改。conflicts::Interaction
+及 channel 保持 worker 对写锁的所有权；取消和迟到回复不能绕过索引/仓库身份验证。
+merge_result/text_merge 复用已验证的保存、暂存及自动解决规则。editor::open_in_roots
+只接受本次捕获目录下允许的编辑文件，不将父 .git 前缀当作所有子模块的授权。
+stash::project 按项目映射重新发现保存结果，支持关闭窗口后的恢复发现。
+
+前置及原生证据沿用本轮已完成的同场景验证：20261026 的
+rebased-update-{conflict-a,parent-conflict,incomplete}.png；20261027 的
+plico-update-ui-final-state.json、plico-update-close-state.json、
+rebased-merge-state.json、plico-merge-state.json、plico-independent-detached-state.json
+和各自同名前缀截图（均位于 artifacts/collaboration-workflows-日期）。
+本轮重新读取 Merge/普通多根磁盘结果，确认双亲提交、无未合并索引、保留草稿及
+跳过游离主根的结果。以上完整应用的 UI 验证不等同于本次核心提交新增了入口；
+现有单仓库入口保持兼容，多仓库 UI 接线随后独立提交。
+
+保留差异：本地使用 Git Stash 保存，参考测试实例使用 Shelf；暂不提供多仓库同步
+控制设置，采用已实测的非同步规则；普通根可跳过并给出原因。父/子处理次序及
+冲突列表精确视觉差异延续原记录，未宣称第6项或像素级还原全部完成。
+
+独立提交快照验证（不依赖后续未提交模块）：核心839项通过，桌面106项、发布配置
+导航10项通过；格式检查与Clippy完成，后者保留既有警告，没有为本次新增全局allow。
+最终测试夹具修正后，子模块/项目更新52项再次通过。日志为
+/tmp/plico-update-stage-{core,desktop,navigation,clippy,submodules-final,format}.log。
+
+Windows真实Git验证覆盖conflicts14项、editor16项、project_operations4项、
+submodules50项。首轮editor有1项因原生askpass路径未配置失败，配置后定向通过；
+submodules首轮41通过、9失败，其中7项是Windows路径前缀/分隔符的测试断言，
+2项是并行真实Git流程超过夹具15秒等待。已用既有仓库identity比较实际/预期根，
+保持顺序、具体根、Stash内容、索引及工作区保护断言；诊断仍检查对应保存根的实际
+展示路径。Windows夹具等待60秒、整段死锁看门狗120秒，Unix保持15/30秒，产品
+取消/超时不变。修正后9项定向原生复验全部通过，无忽略用例。
+子仓库编辑测试支持与既有测试一致的GITUI_TEST_EDITOR_EXE/GITUI_TEST_ASKPASS_EXE，
+避免交叉编译机绝对路径混入宿主运行。原生证据日志：
+/tmp/plico-update-stage-windows-{tests,final-tests,retests}.log。
+本节“通过”是初次通过项与修正后定向复验的合并覆盖，并非声称首轮全部绿色。
+没有新开Plico/Rebased界面窗口；原生测试程序均已结束。UI接线继续留待后续提交。

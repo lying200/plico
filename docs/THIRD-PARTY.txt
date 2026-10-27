@@ -427,3 +427,17 @@ Copyright JetBrains s.r.o. and contributors. Apache License, Version 2.0.
 Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
 Rust uses bounded native filesystem invalidations and immutable state snapshots
 instead of the IntelliJ VFS and message bus. License: licenses/assets/icons/LICENSE.txt.
+
+
+Project-wide update, conflict preservation and editor routing
+
+src/project_update/, src/submodule_update.rs, src/submodule_update/, and
+src/update_session.rs adapt GitUpdateProcess, GitUpdateResult, GitSubmoduleUpdater,
+GitMergeUpdater, GitRebaseUpdater and GitPreservingProcess at Rebased 4aec352.
+src/conflicts/project.rs, src/merge_result/, src/stash/project.rs and src/editor.rs
+follow repository-scoped conflict, saved-change and Git editor lifecycle rules.
+src/text_merge/automatic.rs adapts MergeResolveUtil.kt and MergeResolveUtilTest.kt
+(simple resolver, not the greedy variant) from JetBrains/Rebased.
+Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+License text: licenses/assets/icons/LICENSE.txt.

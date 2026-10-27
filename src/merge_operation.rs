@@ -71,30 +71,7 @@ pub fn execute(
     let mut command = repo.operation_command();
     match action {
         Action::Commit => {
-            if !state.conflicts.is_empty() {
-                return Err("Resolve and stage all conflicts before completing the merge".into());
-            }
-            let message = repo.editor_directory(token)?.join("MERGE_MSG");
-            command.arg("commit");
-            // try_exists preserves access errors instead of treating them as a missing message.
-            if message.try_exists().map_err(|e| e.to_string())? {
-                command.arg("-F").arg(message);
-            } else {
-                let branch = repo.text(&["symbolic-ref", "--quiet", "--short", "HEAD"], token);
-                if token.cancelled() {
-                    return Err("Cancelled".into());
-                }
-                let branch = if state.detached {
-                    String::new()
-                } else {
-                    branch?.trim_end().to_owned()
-                };
-                command.arg("-m").arg(format!(
-                    "Merge branch '{branch}' of {} with conflicts.",
-                    repo.path.display()
-                ));
-            }
-            command.arg("--");
+            command = commit_command(repo, &state, token)?;
         }
         Action::Abort => {
             command.args(["merge", "--abort"]);
@@ -119,4 +96,42 @@ pub fn execute(
         state,
         restore,
     })
+}
+
+/// Shared by independent recovery and the still-owned project update session.
+pub(crate) fn commit_command(
+    repo: &Repository,
+    state: &State,
+    token: &Cancel,
+) -> Result<std::process::Command, String> {
+    if state.operation != Operation::Merge {
+        return Err("There is no merge to complete".into());
+    }
+    let mut command = repo.operation_command();
+    if !state.conflicts.is_empty() {
+        return Err("Resolve and stage all conflicts before completing the merge".into());
+    }
+    let message = repo.editor_directory(token)?.join("MERGE_MSG");
+    command.arg("commit");
+    // try_exists preserves access errors instead of treating them as a missing message.
+    if message.try_exists().map_err(|e| e.to_string())? {
+        command.arg("-F").arg(message);
+    } else {
+        let branch = repo.text(&["symbolic-ref", "--quiet", "--short", "HEAD"], token);
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        let branch = if state.detached {
+            String::new()
+        } else {
+            branch?.trim_end().to_owned()
+        };
+        command.arg("-m").arg(format!(
+            "Merge branch '{branch}' of {} with conflicts.",
+            repo.path.display()
+        ));
+    }
+    command.arg("--");
+
+    Ok(command)
 }

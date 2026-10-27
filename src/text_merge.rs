@@ -3,6 +3,8 @@
 use crate::line_changes::{self, Block};
 use std::ops::Range;
 
+mod automatic;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Choice {
     Yours,
@@ -82,6 +84,12 @@ impl Change {
 /// Undo stores only mutable block metadata, never copies of the source files.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State(Vec<ChangeState>);
+impl State {
+    /// Completed blocks and total blocks, independent of saved file contents.
+    pub fn progress(&self) -> (usize, usize) {
+        (self.0.iter().filter(|c| c.resolved).count(), self.0.len())
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ChangeState {
     result: Range<usize>,
@@ -190,6 +198,14 @@ impl Merge {
     }
     pub fn text(&self) -> &str {
         &self.text
+    }
+    /// Explicitly accept the current result, including manual edits, as complete.
+    /// Mirrors MergeConflictModel.markAllChangesResolved without replacing text.
+    pub fn mark_all_resolved(&mut self) {
+        for change in &mut self.changes {
+            change.resolved = true;
+            change.sides = [true; 2];
+        }
     }
     pub fn remaining(&self) -> usize {
         self.changes.iter().filter(|c| !c.resolved).count()
@@ -347,6 +363,21 @@ impl Merge {
         } else {
             None
         }
+    }
+
+    /// Resolve one simple conflict without changing manually edited or partially
+    /// accepted blocks. The caller owns saving and marking the result reviewed.
+    pub fn resolve_automatically(&mut self, index: usize) -> Option<(Range<usize>, String)> {
+        let c = self.changes.get(index)?;
+        if c.resolved || c.ambiguous || c.manual || c.sides.iter().any(|done| *done) {
+            return None;
+        }
+        let text = automatic::resolve(&c.base, &c.yours, &c.theirs)?;
+        let replacement = self.replace(index, text);
+        let c = &mut self.changes[index];
+        c.resolved = true;
+        c.sides = [true; 2];
+        Some(replacement)
     }
 }
 fn line_offsets(text: &str) -> Vec<usize> {
@@ -511,6 +542,47 @@ mod tests {
         assert!(m.automatic_choice(0).is_none());
         m.choose(0, Choice::Theirs).unwrap();
         assert_eq!(m.text(), "a\n");
+    }
+    #[test]
+    fn automatic_resolution_preserves_unresolved_blocks_and_restored_decisions() {
+        let base = "alpha beta gamma\nunchanged\nbase two\n";
+        let yours = "ALPHA beta gamma\nunchanged\nours two\n";
+        let theirs = "alpha beta GAMMA\nunchanged\ntheirs two\n";
+        let mut merge = Merge::new(base, yours, theirs);
+        assert_eq!(merge.changes.len(), 2);
+        assert!(merge.resolve_automatically(0).is_some());
+        assert!(merge.resolve_automatically(1).is_none());
+        assert_eq!(merge.text(), "ALPHA beta GAMMA\nunchanged\nbase two\n");
+        assert_eq!(merge.state().progress(), (1, 2));
+        let state = merge.state();
+        let mut restored = Merge::new(base, yours, theirs);
+        restored.restore(&state, merge.text());
+        assert!(restored.resolve_automatically(0).is_none());
+        restored.choose(1, Choice::Theirs).unwrap();
+        assert_eq!(restored.text(), "ALPHA beta GAMMA\nunchanged\ntheirs two\n");
+    }
+    #[test]
+    fn automatic_resolution_does_not_replace_manual_or_partly_accepted_changes() {
+        let make = || Merge::new("alpha beta gamma", "ALPHA beta gamma", "alpha beta GAMMA");
+        let mut edited = make();
+        edited.edited("my result");
+        assert!(edited.resolve_automatically(0).is_none());
+        assert_eq!(edited.text(), "my result");
+        for side in [Side::Yours, Side::Theirs] {
+            let mut accepted = make();
+            accepted.accept(0, side, false).unwrap();
+            let state = accepted.state();
+            let text = accepted.text().to_owned();
+            assert!(accepted.resolve_automatically(0).is_none());
+            assert_eq!(accepted.state(), state);
+            assert_eq!(accepted.text(), text);
+            let mut ignored = make();
+            ignored.ignore(0, side, false);
+            let state = ignored.state();
+            assert!(ignored.resolve_automatically(0).is_none());
+            assert_eq!(ignored.state(), state);
+        }
+        assert!(make().resolve_automatically(usize::MAX).is_none());
     }
     #[test]
     fn independent_changes_and_conflicts_preserve_all_text() {

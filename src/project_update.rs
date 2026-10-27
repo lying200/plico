@@ -6,6 +6,38 @@ use crate::{
     merge_update::Request,
 };
 
+pub mod conflicts;
+pub mod group;
+pub mod preservation;
+pub mod roots;
+
+/// Snapshot all update roots and their allowed editor files before confirmation.
+/// After document saving, the executor revalidates identities and re-reads the
+/// worktrees under its reservation before deciding which changes to preserve.
+pub struct Prepared {
+    pub group: group::Group,
+    pub editor_directories: Vec<std::path::PathBuf>,
+}
+impl Prepared {
+    pub fn read_registered(registered: &[Repository], token: &Cancel) -> Result<Self, String> {
+        let group = group::Group::prepare_registered(registered, token)?;
+        let editor_directories = group.editor_directories(token)?;
+        Ok(Self {
+            group,
+            editor_directories,
+        })
+    }
+
+    pub fn read(repo: &Repository, token: &Cancel) -> Result<Self, String> {
+        let group = group::Group::prepare(repo, prepare(repo, token)?, token)?;
+        let editor_directories = group.editor_directories(token)?;
+        Ok(Self {
+            group,
+            editor_directories,
+        })
+    }
+}
+
 /// Capture the current branch and its actual upstream. No fallback to origin or
 /// a same-named branch: those are Pull dialog conveniences, not update rules.
 /// This is a read-only snapshot, not authorization to skip worker revalidation.

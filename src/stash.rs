@@ -1,6 +1,8 @@
 //! Rebased GitStashUtils: metadata first, contents only when selected.
 use crate::git::{Cancel, Commit, Details, Repository, Result, is_oid};
 
+pub mod project;
+
 pub const MAX_ENTRIES: usize = 1000;
 #[derive(Clone, Debug)]
 pub struct Entry {

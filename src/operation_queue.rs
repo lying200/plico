@@ -43,6 +43,12 @@ pub(crate) fn acquire_many(
     }
 }
 
+impl Guard {
+    pub(crate) fn owns(&self, directory: &std::path::Path) -> bool {
+        self.0.iter().any(|owned| owned == directory)
+    }
+}
+
 impl Drop for Guard {
     fn drop(&mut self) {
         let mut busy = busy().lock().unwrap_or_else(|e| e.into_inner());

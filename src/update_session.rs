@@ -17,6 +17,24 @@ pub enum UpdateResult {
     NotReady,
 }
 impl UpdateResult {
+    /// GitUpdateResult.join: configuration/fetch failure dominates command
+    /// failure, cancellation, unresolved conflicts and successful updates.
+    pub fn join(self, other: Self) -> Self {
+        let priority = |result| match result {
+            Self::NothingToUpdate => 1,
+            Self::Success => 2,
+            Self::ResolvedConflicts => 3,
+            Self::Incomplete => 4,
+            Self::Cancelled => 5,
+            Self::Error => 6,
+            Self::NotReady => 7,
+        };
+        if priority(self) >= priority(other) {
+            self
+        } else {
+            other
+        }
+    }
     /// Actual GitUpdateProcess autoLoadDecision, not its older method comment.
     fn restore(self) -> bool {
         matches!(
@@ -28,7 +46,8 @@ impl UpdateResult {
 
 pub struct Session<'a> {
     repo: &'a Repository,
-    _guard: Guard,
+    _guard: Option<Guard>,
+    _group: Option<&'a Guard>,
     saved: Option<String>,
     save_attempted: bool,
     save_succeeded: bool,
@@ -89,7 +108,30 @@ impl<'a> Session<'a> {
     pub fn begin(repo: &'a Repository, cancel: &Cancel) -> Result<Self, String> {
         Ok(Self {
             repo,
-            _guard: repo.operation_guard(cancel)?,
+            _guard: Some(repo.operation_guard(cancel)?),
+            _group: None,
+            saved: None,
+            save_attempted: false,
+            save_succeeded: false,
+            load_attempted: false,
+            rebase_started: false,
+            merge_started: false,
+        })
+    }
+    /// Borrow a reservation covering this repository for a multi-root update.
+    /// The lifetime keeps that reservation alive through save and restoration.
+    pub(crate) fn under_guard(
+        repo: &'a Repository,
+        group: &'a Guard,
+        cancel: &Cancel,
+    ) -> Result<Self, String> {
+        if !group.owns(&repo.operation_key(cancel)?) {
+            return Err("Update session does not own this repository".into());
+        }
+        Ok(Self {
+            repo,
+            _guard: None,
+            _group: Some(group),
             saved: None,
             save_attempted: false,
             save_succeeded: false,
@@ -340,6 +382,27 @@ impl<'a> Session<'a> {
             outcome,
             state,
             cancellation_abort: None,
+        })
+    }
+
+    /// Complete this updater's merge without acquiring its reservation again.
+    /// The outer preserving process alone decides when to restore saved changes.
+    pub(crate) fn continue_merge(
+        &mut self,
+        cancel: &Cancel,
+        progress: &Progress,
+    ) -> Result<MergeStep, String> {
+        if !self.merge_started {
+            return Err("No merge was started by this session".into());
+        }
+        let state = self.repo.operation_state(cancel)?;
+        let mut command = crate::merge_operation::commit_command(self.repo, &state, cancel)?;
+        let outcome = operation_process::run(&mut command, cancel, progress, None)
+            .map_err(|e| e.to_string())?;
+        Ok(MergeStep {
+            outcome,
+            state: self.repo.operation_state(&Cancel::default()),
+            cancellation_reset: None,
         })
     }
 

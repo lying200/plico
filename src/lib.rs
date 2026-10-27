@@ -236,3 +236,5 @@ pub mod project_repositories;
 pub mod submodules;
 
 pub mod project_operations;
+
+pub mod submodule_update;

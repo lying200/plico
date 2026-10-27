@@ -1443,3 +1443,77 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
         }
     }
 }
+
+#[test]
+fn multi_root_editor_routes_real_git_commits_without_accepting_unlisted_roots() {
+    let parent = Fixture::new();
+    let child = Fixture::new();
+    let helper = parent.helper();
+    let requests = Requests::new(Cancel::default());
+    let server = Server::start(requests.clone()).unwrap();
+    for accept in [false, true] {
+        let mut command = Command::new("git");
+        server.configure(&mut command);
+        let process = command
+            .arg("-C")
+            .arg(&child.0)
+            .args(["commit", "--allow-empty", "--edit", "-m", "child message"])
+            .env("GIT_EDITOR", editor::command(&helper, false).unwrap())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut roots = vec![parent.0.join(".git")];
+        if accept {
+            roots.push(child.0.join(".git"));
+        }
+        let document = Document::open_in_roots(pending(&requests), &roots);
+        if accept {
+            let mut document = document.unwrap();
+            assert!(document.text().contains("child message"));
+            document.save("edited child message\n").unwrap();
+        } else {
+            assert!(document.is_err());
+        }
+        assert_eq!(process.wait_with_output().unwrap().status.success(), accept);
+    }
+    assert_eq!(
+        child.git(&["log", "-1", "--format=%s"]),
+        "edited child message"
+    );
+    assert!(!parent.0.join(".git/COMMIT_EDITMSG").exists());
+}
+
+#[test]
+fn multi_root_editor_does_not_authorize_nested_git_directory_by_parent_prefix() {
+    let parent = Fixture::new();
+    let nested_git = parent.0.join(".git/modules/nested");
+    fs::create_dir_all(&nested_git).unwrap();
+    let file = nested_git.join("COMMIT_EDITMSG");
+    fs::write(&file, "nested draft").unwrap();
+    let helper = parent.helper();
+    let requests = Requests::new(Cancel::default());
+    let server = Server::start(requests.clone()).unwrap();
+    for allow in [false, true] {
+        let mut command = Command::new(&helper);
+        server.configure(&mut command);
+        let process = command
+            .arg(&file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut roots = vec![parent.0.join(".git")];
+        if allow {
+            roots.push(nested_git.clone());
+        }
+        let document = Document::open_in_roots(pending(&requests), &roots);
+        if allow {
+            document.unwrap().save("nested edited").unwrap();
+        } else {
+            assert!(document.is_err());
+        }
+        assert_eq!(process.wait_with_output().unwrap().status.success(), allow);
+    }
+    assert_eq!(fs::read_to_string(file).unwrap(), "nested edited");
+}

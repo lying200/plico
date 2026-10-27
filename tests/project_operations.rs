@@ -137,3 +137,116 @@ fn membership_errors_and_cancellation_never_turn_unknown_into_idle() {
     assert!(observer.poll(&[], &cancelled).is_err());
     assert!(observer.poll(&[], &token).unwrap().unwrap().is_empty());
 }
+
+#[test]
+fn project_conflicts_keep_same_named_files_and_root_specific_write_guards() {
+    use plico::conflicts::project;
+    let fixture = Fixture::new();
+    let parent = fixture.repo("parent");
+    let child = fixture.repo("child");
+    for repo in [&parent, &child] {
+        git(&repo.path, &["checkout", "-qb", "topic"], true);
+        std::fs::write(repo.path.join("a"), "theirs\n").unwrap();
+        git(&repo.path, &["commit", "-qam", "theirs"], true);
+        git(&repo.path, &["checkout", "main"], true);
+        std::fs::write(repo.path.join("a"), "ours\n").unwrap();
+        git(&repo.path, &["commit", "-qam", "ours"], true);
+        git(&repo.path, &["merge", "topic"], false);
+    }
+    let token = Cancel::default();
+    let entries = project::read(&[parent.clone(), child.clone(), parent.clone()], &token).unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].file().path, entries[1].file().path);
+    assert_ne!(entries[0].key(), entries[1].key());
+    assert!(entries[0].full_path() < entries[1].full_path());
+    for entry in &entries {
+        let own = entry.snapshot().repository();
+        let other = if own.path == parent.path {
+            &child
+        } else {
+            &parent
+        };
+        entry
+            .snapshot()
+            .revalidate(&own, entry.file(), &token)
+            .unwrap();
+        assert!(
+            entry
+                .snapshot()
+                .revalidate(other, entry.file(), &token)
+                .is_err()
+        );
+    }
+    git(&child.path, &["merge", "--abort"], true);
+    let remaining = project::read(&[parent.clone(), child], &token).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].snapshot().repository().path, parent.path);
+    assert!(
+        project::read(
+            &[parent.clone(), Repository::new(fixture.0.join("missing"))],
+            &token
+        )
+        .is_err()
+    );
+    token.cancel();
+    assert!(project::read(&[parent], &token).is_err());
+}
+
+#[test]
+fn finalizing_drafts_uses_each_root_and_preserves_partial_success() {
+    use plico::{
+        conflicts::Snapshot,
+        merge_result::{Prepared, stage_resolved},
+    };
+    use std::sync::Arc;
+    let fixture = Fixture::new();
+    let first = fixture.repo("first");
+    let second = fixture.repo("second");
+    let third = fixture.repo("third");
+    let token = Cancel::default();
+    let mut drafts = Vec::new();
+    for repo in [&first, &second, &third] {
+        git(&repo.path, &["checkout", "-qb", "topic"], true);
+        std::fs::write(repo.path.join("a"), "theirs\n").unwrap();
+        git(&repo.path, &["commit", "-qam", "theirs"], true);
+        git(&repo.path, &["checkout", "main"], true);
+        std::fs::write(repo.path.join("a"), "ours\n").unwrap();
+        git(&repo.path, &["commit", "-qam", "ours"], true);
+        git(&repo.path, &["merge", "topic"], false);
+        let snapshot = Snapshot::read(repo, &token).unwrap();
+        let prepared =
+            Arc::new(Prepared::read(repo, &snapshot, &snapshot.files[0], &token).unwrap());
+        prepared.write_text_result("resolved\n".into()).unwrap();
+        prepared.apply(repo, &token).unwrap();
+        drafts.push(prepared);
+    }
+    std::fs::write(second.path.join("a"), "external edit\n").unwrap();
+    let result = stage_resolved(&drafts, &token);
+    assert!(result.error.is_some());
+    assert_eq!(result.completed.len(), 1);
+    assert_eq!(result.completed[0].repository.path, first.path);
+    assert_eq!(result.snapshots.len(), 1);
+    assert_eq!(result.touched.len(), 2);
+    assert!(git(&first.path, &["ls-files", "-u"], true).is_empty());
+    for repo in [&second, &third] {
+        assert_eq!(
+            git(&repo.path, &["ls-files", "-u"], true).lines().count(),
+            3
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(second.path.join("a")).unwrap(),
+        "external edit\n"
+    );
+    // Resume only the untouched third root; the failure never staged it implicitly.
+    let resumed = stage_resolved(&drafts[2..], &token);
+    assert!(resumed.error.is_none(), "{:?}", resumed.error);
+    assert_eq!(resumed.completed[0].repository.path, third.path);
+    assert_ne!(result.completed[0].key, resumed.completed[0].key);
+    assert!(git(&third.path, &["ls-files", "-u"], true).is_empty());
+    token.cancel();
+    let cancelled = stage_resolved(&drafts[1..2], &token);
+    assert!(cancelled.error.is_some());
+    assert!(cancelled.completed.is_empty());
+    assert!(cancelled.touched.is_empty());
+}

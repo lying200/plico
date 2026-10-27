@@ -1,5 +1,7 @@
 //! Unmerged index identities, based on Rebased 4aec352 GitMergeProvider and
 //! GitMergeUtil (JetBrains and contributors, Apache-2.0).
+pub mod project;
+
 use crate::{
     git::{self, Cancel, Repository},
     operation_state::Operation,
@@ -35,15 +37,25 @@ impl File {
 }
 #[derive(Clone, Debug)]
 pub struct Snapshot {
+    repository: Repository,
+    directory: PathBuf,
     pub files: Vec<File>,
     pub operation: Operation,
     pub head: Option<String>,
     pub reversed: bool,
+    // HEAD and index versions can be identical after aborting and restarting
+    // a merge. Retain its marker identity, independent of index refreshes.
+    merge_identity: Option<(Vec<u8>, std::time::SystemTime)>,
 }
 impl Snapshot {
+    pub fn repository(&self) -> Repository {
+        self.repository.clone()
+    }
     pub fn read(repo: &Repository, token: &Cancel) -> Result<Self, String> {
+        let directory = repo.editor_directory(token)?;
         let head = crate::commit_operation::head(repo, token)?;
         let state = repo.operation_state(token)?;
+        let merge_identity = read_merge_identity(&directory, state.operation, token)?;
         let data = repo.read(
             &[
                 OsStr::new("ls-files"),
@@ -54,15 +66,21 @@ impl Snapshot {
         )?;
         let files = parse(&data)?;
         let after = repo.operation_state(token)?;
-        if crate::commit_operation::head(repo, token)? != head || after.operation != state.operation
+        if repo.editor_directory(token)? != directory
+            || crate::commit_operation::head(repo, token)? != head
+            || after.operation != state.operation
+            || read_merge_identity(&directory, after.operation, token)? != merge_identity
         {
             return Err("Repository changed while reading conflicts; refresh and retry".into());
         }
         let saved_changes = state.operation == Operation::None
             && saved_changes_context(repo, head.as_deref(), &files, token)?;
         Ok(Self {
+            repository: repo.clone(),
+            directory,
             files,
             head,
+            merge_identity,
             operation: state.operation,
             reversed: saved_changes
                 || matches!(
@@ -71,15 +89,27 @@ impl Snapshot {
                 ),
         })
     }
+    /// Session identity excludes index changes caused by resolving sibling files.
+    pub fn same_operation(&self, other: &Self) -> bool {
+        self.directory == other.directory
+            && self.head == other.head
+            && self.operation == other.operation
+            && self.reversed == other.reversed
+            && self.merge_identity == other.merge_identity
+    }
     /// Check the selected file's exact index versions again before a resolution.
     /// Other files may have been resolved independently in the meantime.
     pub fn revalidate(&self, repo: &Repository, file: &File, token: &Cancel) -> Result<(), String> {
+        if repo.editor_directory(token)? != self.directory {
+            return Err("Conflict snapshot belongs to another repository".into());
+        }
         if !self.files.contains(file) {
             return Err("File does not belong to this conflict snapshot".into());
         }
         let current = Self::read(repo, token)?;
         if current.head != self.head
             || current.operation != self.operation
+            || current.merge_identity != self.merge_identity
             || current.reversed != self.reversed
             || current.files.iter().find(|f| f.path == file.path) != Some(file)
         {
@@ -87,6 +117,48 @@ impl Snapshot {
         }
         Ok(())
     }
+}
+
+// Read through one handle so bytes and timestamp describe the same marker.
+// This is bounded metadata, never history or conflict-file content.
+fn read_merge_identity(
+    directory: &std::path::Path,
+    operation: Operation,
+    token: &Cancel,
+) -> Result<Option<(Vec<u8>, std::time::SystemTime)>, String> {
+    use std::io::Read;
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    if operation != Operation::Merge {
+        return Ok(None);
+    }
+    let mut file = std::fs::File::open(directory.join("MERGE_HEAD"))
+        .map_err(|error| format!("Could not read merge identity: {error}"))?;
+    let before = file
+        .metadata()
+        .map_err(|e| e.to_string())?
+        .modified()
+        .map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    let after = file
+        .metadata()
+        .map_err(|e| e.to_string())?
+        .modified()
+        .map_err(|e| e.to_string())?;
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    if bytes.len() > 1024 * 1024 || bytes.is_empty() || before != after {
+        return Err(
+            "Merge identity changed or exceeds the supported size; refresh and retry".into(),
+        );
+    }
+    Ok(Some((bytes, after)))
 }
 
 // Context belongs to this worktree, not to the position-dependent stash selector.
@@ -279,9 +351,46 @@ pub fn resolve(
     token: &Cancel,
     progress: &crate::operation_process::Progress,
 ) -> Result<ResolutionResult, String> {
-    let _guard = repo.operation_guard(token)?;
+    resolve_checked(repo, snapshot, file, resolution, token, progress, || Ok(()))
+}
+
+/// An additional worktree precondition for an already-saved iterative result.
+/// Run it under the same repository ownership as revalidation and staging.
+/// Keeping it here avoids dropping/reacquiring the queue between those steps.
+pub(crate) fn resolve_checked(
+    repo: &Repository,
+    snapshot: &Snapshot,
+    file: &File,
+    resolution: Resolution,
+    token: &Cancel,
+    progress: &crate::operation_process::Progress,
+    check: impl FnOnce() -> Result<(), String>,
+) -> Result<ResolutionResult, String> {
+    let guard = repo.operation_guard(token)?;
+    resolve_reserved(
+        repo, &guard, snapshot, file, resolution, token, progress, check,
+    )
+}
+
+/// Reuse the caller's reservation during an Update Project conflict interaction.
+/// Ownership and snapshot identity are both checked; this is not a lock bypass.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_reserved(
+    repo: &Repository,
+    guard: &crate::operation_queue::Guard,
+    snapshot: &Snapshot,
+    file: &File,
+    resolution: Resolution,
+    token: &Cancel,
+    progress: &crate::operation_process::Progress,
+    check: impl FnOnce() -> Result<(), String>,
+) -> Result<ResolutionResult, String> {
+    if !guard.owns(&repo.operation_key(token)?) {
+        return Err("Conflict interaction does not own this repository".into());
+    }
     snapshot.revalidate(repo, file, token)?;
     validate_resolution_path(repo, file)?;
+    check()?;
     let sparse = supports_sparse_conflict_paths(&repo.text(&["--version"], token)?)?;
     let mut commands = Vec::new();
     let mut run = |args: &[&str]| {

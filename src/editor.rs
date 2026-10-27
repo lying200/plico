@@ -45,6 +45,12 @@ pub struct Document {
 }
 impl Document {
     pub fn open(pending: Pending, git_dir: &Path) -> io::Result<Self> {
+        Self::open_in_roots(pending, std::slice::from_ref(&git_dir.to_path_buf()))
+    }
+    /// Route an operation-scoped request only to its captured Git directories.
+    /// Prefix containment alone is insufficient: parent .git/modules/... must
+    /// not implicitly authorize every descendant repository or arbitrary file.
+    pub fn open_in_roots(pending: Pending, git_dirs: &[PathBuf]) -> io::Result<Self> {
         let mut document = Self {
             sequence: pending.kind == Kind::SequenceEditor,
             path: PathBuf::new(),
@@ -56,27 +62,34 @@ impl Document {
         if !matches!(pending.kind, Kind::CommitEditor | Kind::SequenceEditor) {
             return Err(io::ErrorKind::InvalidInput.into());
         }
-        let root = git_dir.canonicalize()?;
-        let path = Path::new(&pending.prompt).canonicalize()?;
-        let relative = path
-            .strip_prefix(&root)
-            .map_err(|_| io::ErrorKind::PermissionDenied)?;
-        let allowed = if document.sequence {
-            relative == Path::new("rebase-merge/git-rebase-todo")
-        } else {
-            [
-                "COMMIT_EDITMSG",
-                "MERGE_MSG",
-                "SQUASH_MSG",
-                "rebase-merge/message",
-            ]
-            .iter()
-            .any(|p| relative == Path::new(p))
-        };
-        if !allowed {
-            return Err(io::ErrorKind::PermissionDenied.into());
+        if git_dirs.len() > 4096 {
+            return Err(io::ErrorKind::InvalidInput.into());
         }
-        document.git_directory = root;
+        let path = Path::new(&pending.prompt).canonicalize()?;
+        let mut selected = None;
+        for directory in git_dirs {
+            let root = directory.canonicalize()?;
+            let Ok(relative) = path.strip_prefix(&root) else {
+                continue;
+            };
+            let allowed = if document.sequence {
+                relative == Path::new("rebase-merge/git-rebase-todo")
+            } else {
+                [
+                    "COMMIT_EDITMSG",
+                    "MERGE_MSG",
+                    "SQUASH_MSG",
+                    "rebase-merge/message",
+                ]
+                .iter()
+                .any(|p| relative == Path::new(p))
+            };
+            if allowed {
+                selected = Some(root);
+                break;
+            }
+        }
+        document.git_directory = selected.ok_or(io::ErrorKind::PermissionDenied)?;
         document.original = read_bounded(&path)?;
         document.path = path;
         Ok(document)

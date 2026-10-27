@@ -16,6 +16,12 @@ use std::{
     },
 };
 
+mod automatic;
+mod staging;
+pub use automatic::AutomaticResult;
+pub(crate) use staging::stage_resolved_with;
+pub use staging::{StageResult, StagedFile, checked_report, stage_resolved};
+
 struct Temporary(PathBuf, AtomicBool);
 impl Drop for Temporary {
     fn drop(&mut self) {
@@ -191,7 +197,19 @@ impl Prepared {
         if repo.path != self.root {
             return Err("The repository has changed".into());
         }
-        let _guard = repo.operation_guard(token)?;
+        let guard = repo.operation_guard(token)?;
+        self.apply_reserved(repo, &guard, token)
+    }
+
+    pub(crate) fn apply_reserved(
+        &self,
+        repo: &Repository,
+        guard: &crate::operation_queue::Guard,
+        token: &Cancel,
+    ) -> Result<(), String> {
+        if repo.path != self.root || !guard.owns(&repo.operation_key(token)?) {
+            return Err("Merge result does not belong to this update interaction".into());
+        }
         self.snapshot.revalidate(repo, &self.file, token)?;
         let meta = fs::symlink_metadata(&self.inputs[3]).map_err(|e| e.to_string())?;
         if !meta.is_file() || meta.file_type().is_symlink() {
@@ -237,6 +255,118 @@ impl Prepared {
             let _ = fs::remove_file(next);
         }
         result
+    }
+
+    /// Read the last saved result for review, not the mutable editor output.
+    /// The original conflict versions and current disk bytes must still match.
+    pub fn saved_text(&self, repo: &Repository, token: &Cancel) -> Result<String, String> {
+        if repo.path != self.root {
+            return Err("The repository has changed".into());
+        }
+        let guard = repo.operation_guard(token)?;
+        self.saved_text_reserved(repo, &guard, token)
+    }
+
+    pub(crate) fn saved_text_reserved(
+        &self,
+        repo: &Repository,
+        guard: &crate::operation_queue::Guard,
+        token: &Cancel,
+    ) -> Result<String, String> {
+        if repo.path != self.root || !guard.owns(&repo.operation_key(token)?) {
+            return Err("Merge result does not belong to this update interaction".into());
+        }
+        self.snapshot.revalidate(repo, &self.file, token)?;
+        let applied = self
+            .applied
+            .lock()
+            .map_err(|_| "Merge result state is unavailable")?;
+        let expected = applied
+            .as_ref()
+            .ok_or("Save the merge result before reviewing it")?;
+        let project = Project::new(&repo.path).map_err(|e| format!("{e:?}"))?;
+        let actual = project
+            .resolve(&self.file.path, token)
+            .map_err(|e| format!("{e:?}"))?;
+        if !crate::file_save::same_file_bytes(expected, &actual, token)
+            .map_err(|e| format!("{e:?}"))?
+        {
+            return Err(
+                "Merge result changed on disk; review it before marking it resolved".into(),
+            );
+        }
+        let mut bytes = Vec::new();
+        fs::File::open(expected)
+            .map_err(|e| e.to_string())?
+            .take(crate::project_files::FILE_LIMIT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        let document = crate::file_document::Document::new(bytes)
+            .map_err(|e| format!("Unsupported merge text: {e:?}"))?;
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        Ok(document.text().to_owned())
+    }
+
+    /// Finalize an explicitly saved result without rewriting the worktree.
+    /// Rebased's iterative flow calls this when closing/finishing its conflict
+    /// session. The immediate editor path uses the same check after apply.
+    pub fn stage(
+        &self,
+        repo: &Repository,
+        token: &Cancel,
+        progress: &Progress,
+    ) -> Result<conflicts::ResolutionResult, String> {
+        if repo.path != self.root {
+            return Err("The repository has changed".into());
+        }
+        let guard = repo.operation_guard(token)?;
+        self.stage_reserved(repo, &guard, token, progress)
+    }
+
+    pub(crate) fn stage_reserved(
+        &self,
+        repo: &Repository,
+        guard: &crate::operation_queue::Guard,
+        token: &Cancel,
+        progress: &Progress,
+    ) -> Result<conflicts::ResolutionResult, String> {
+        if repo.path != self.root {
+            return Err("The repository has changed".into());
+        }
+        conflicts::resolve_reserved(
+            repo,
+            guard,
+            &self.snapshot,
+            &self.file,
+            conflicts::Resolution::MarkResolved,
+            token,
+            progress,
+            || {
+                // Repository ownership is acquired before this mutex, just as
+                // in apply; the two paths cannot deadlock or interleave saves.
+                let applied = self
+                    .applied
+                    .lock()
+                    .map_err(|_| "Merge result state is unavailable")?;
+                let expected = applied
+                    .as_ref()
+                    .ok_or("Save the merge result before marking it resolved")?;
+                let project = Project::new(&repo.path).map_err(|e| format!("{e:?}"))?;
+                let actual = project
+                    .resolve(&self.file.path, token)
+                    .map_err(|e| format!("{e:?}"))?;
+                if !crate::file_save::same_file_bytes(expected, &actual, token)
+                    .map_err(|e| format!("{e:?}"))?
+                {
+                    return Err(
+                        "Merge result changed on disk; review it before marking it resolved".into(),
+                    );
+                }
+                Ok(())
+            },
+        )
     }
 
     pub fn file(&self) -> &File {

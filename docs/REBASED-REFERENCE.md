@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态（2026-10-27，提交90a1eb4后更新）：八项主流程均已提交，整体验收仍在收尾，不等于全部行为或像素细节对齐。第1项6505a25、第2项030edf1、第3项e4046e0、第4项0f85a32、第5项818b5cb；第6项基础至界面由cce90ff、30bf0ac、b9beeee、3f9d421、c0844be及4e87912交付，第7项随4e87912交付，第8项90a1eb4。第8项详情分组、键盘/鼠标选择、普通拖动、子根操作及编码修正已有后续验收，旧阶段“待验收”不能重复作为当前待办。当前明确未齐的行为包括Worktree列表右键/键盘入口、长Rebase计划拖动边缘自动滚动；其他差异及证据见文末“全局收尾证据索引”。独立init/sync仍排除，不自动推送或发布。
+当前状态（2026-10-27，提交14317f2后更新）：八项主流程均已提交，整体验收仍在收尾，不等于全部行为或像素细节对齐。第1项6505a25、第2项030edf1、第3项e4046e0、第4项0f85a32、第5项818b5cb；第6项基础至界面由cce90ff、30bf0ac、b9beeee、3f9d421、c0844be及4e87912交付，第7项随4e87912交付，第8项90a1eb4。第8项详情分组、键盘/鼠标选择、普通拖动、子根操作及编码修正已有后续验收，旧阶段“待验收”不能重复作为当前待办。Worktree列表右键、Delete、上下选择及菜单提示已由a1f8617、14317f2补齐。当前明确未齐的行为是长Rebase计划拖动边缘自动滚动；其他差异及证据见文末“全局收尾证据索引”。独立init/sync仍排除，不自动推送或发布。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -13404,3 +13404,63 @@ Escape取消后Up返回当前树。右键菜单两列提示无重叠，删除图
 保护拒绝，未向其他窗口发键；改用PID/HWND核对的目标窗口消息完成验收。
 仅两行列表，不做长列表滚动自动化。关闭自有25888并WaitForExit确认，保留Rebased。
 本条关闭上下选择及菜单图标/提示缺口；Enter及锁定仍为安装版版本差异，不纳入本次。
+
+
+### 长Rebase计划拖动边缘：源码规则与实现约束（2026-10-27，待手测）
+
+实读参考4aec352的platform/platform-api/src/com/intellij/ui/RowsDnDSupport.java
+和同模块com/intellij/ide/dnd/SmoothAutoScroller.java全文件。前者安装后者，设置
+默认autoscrolls=false；同组件/启用状态才允许行拖动，落点需是有效行，交换前仍查
+canExchangeRows，完成选中目标行。这里不能只复刻位移而跳过目标重算。
+
+SmoothAutoScroller.ScrollListener以10ms timer维护最近一次屏幕坐标；每次tick转回
+当前组件坐标并检查visibleRect，离开/隐藏/drop时停止。纵向count=5，margin为
+5*sysScale，边缘区offset=min(count*margin, visibleHeight/2)。getDelta用距内边缘
+的margin倍数平方取floor并带方向，超出count范围返回0；中间区域位移0。
+滚动后若内容坐标发生变化，即模拟dragOver重新命中，故静止鼠标也能持续更新落点。
+这与本地src/rebase_plan_table/drag.rs仅on_drag_move更新target有实质差异。
+
+本地依赖Cargo.lock确认gpui-fast=0.1.8；已读该版本elements/list.rs的scroll_by、
+logical_scroll_top、bounds_for_item。scroll_by接收逻辑Pixels并使状态失效；
+bounds_for_item基于最近布局和已测量行，未测量返回None，不能用旧行高算变高的
+Reword编辑行。现有pointer.rs已具备布局后重命中方式，可在实现中复用该时序，
+不必增加全局事件总线。需要将列表可视bounds、指针位置、drag身份及tick任务的
+生命周期归属PlanTable；Escape/drop/离开/隐藏/实体销毁均停止，重新进入按新事件
+启动。帧间隔应按实际经过时间换算位移，不把Java物理像素和GPUI逻辑像素直接混用。
+
+当前尚未满足长表场景的原生前置：AGENTS要求“滚动交互由用户手测，不继续投入
+滚动自动化排查”，已请求用户手测Rebased拖到底边停留和移回中部的行为。普通
+四行拖动的既有截图不能证明边缘滚动，故此处仅记录已核对规则，不提前修改产品
+滚动行为或宣布完成；继续其他独立审计，不重复自动化滚动尝试。
+
+### 原八项清单补充证据：分支重命名（2026-10-27）
+
+重新读取tests/branch_create.rs的rename_*五个集成用例正文：当前分支重命名保留
+HEAD、staged和工作区字节，pushRemote跟随配置迁移；取消upstream显式验证为空；
+其他分支成功不切当前分支；非法/重复/配置快照失效拒绝；refs锁失败/取消保持原名；
+已在linked工作树检出的分支同步改名但保留该树草稿；include配置导致upstream
+仍存在时报告部分成功而不假称全部完成。这些属于原“占用及刷新”要求的具体证据，
+占用不是一概禁用。最新955项核心日志包含上述用例通过，本轮没有因审计重跑测试。
+菜单与原生表现仍使用第3项既有记录，不将执行层断言冒充UI证据。
+
+
+### 原八项清单补充证据：Fork与独立Rebase（2026-10-27）
+
+本轮读取tests/repository.rs中Fork四个用例及独立Rebase四个用例正文，并核对
+`/tmp/plico-interactive-stage-core.log`对应结果均为ok；没有因归档重复运行测试。
+Fork实际写入测试使用两个本地bare：仅origin/topic变化，origin/main及upstream
+保持不变，pull tracking、index树和未暂存字节保持不变。其余用例覆盖pushRemote
+优先级、无效remote拒绝、选定remote的refspec以及push.default各模式。这里证明的是
+单分支Push目标选择，不声称实现matching模式的多分支推送。
+
+独立Rebase证据来自branch_rebase::execute路径，不以branch_create的checkout-and-rebase
+测试替代：`independent_rebase_preserves_index_and_recovers_conflicts_across_sessions`
+遍历merge/apply两个backend及success/continue/abort三个结果；冲突后重新创建Repository
+再继续或中止，确认当前分支、目标父提交或原HEAD、staged/unstaged/untracked内容，
+以及stash与恢复记录清理。其余三个用例分别证明固定OID/无remote与detached拒绝、
+目标引用变动在保存草稿前拒绝、pre-rebase hook失败和运行中取消保留可恢复草稿。
+最后一项为Unix测试，不能当成Windows取消按钮或重启界面已验收的证据；原生界面的
+覆盖与限制仍以第2项后续截图记录为准。此次仅整理现有证据，没有新增产品行为。
+
+用户已明确长表边缘滚动稍后手测。该项保留待验证，既有四行拖动验证不扩大为长表
+验证；不再次催测，也不把等待此项解释为暂停其他已授权工作。全局目标未完成。

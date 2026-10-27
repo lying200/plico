@@ -7114,6 +7114,7 @@ fn push_commit_changes_follow_combined_merge_and_root_rules() {
         id,
         parents,
         shallow_boundary: false,
+        committer_timestamp: 0,
         author: String::new(),
         date: String::new(),
         subject: String::new(),
@@ -7347,6 +7348,7 @@ fn log_commit_changes_follow_parent_merge_and_root_rules() {
         id,
         parents,
         shallow_boundary: false,
+        committer_timestamp: 0,
         author: String::new(),
         date: String::new(),
         subject: String::new(),
@@ -9140,4 +9142,513 @@ fn multiple_branch_history_uses_one_union_for_pages_filters_and_counts() {
     let same = history::read_branches(&repo, &duplicate, 0, 10, None, None, &token).unwrap();
     assert_eq!(same.snapshot.tips.len(), 1);
     assert!(history::read_branches(&repo, &["--all".into()], 0, 10, None, None, &token).is_err());
+}
+
+#[test]
+fn project_log_reads_scoped_commits_filters_and_counts_without_deduplicating_hashes() {
+    use plico::project_log::{self, Query};
+    let first = Fixture::new();
+    first.write("shared.txt", "base\n");
+    first.git(&["add", "shared.txt"]);
+    let commit = Command::new("git")
+        .arg("-C")
+        .arg(&first.0)
+        .args(["commit", "-m", "needle base"])
+        .env("GIT_AUTHOR_DATE", "2001-01-01T00:00:00+00:00")
+        .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00+00:00")
+        .output()
+        .unwrap();
+    assert!(commit.status.success());
+    let shared = first.git(&["rev-parse", "HEAD"]);
+    let second = Fixture::new();
+    second.git(&["fetch", first.0.to_str().unwrap(), "main"]);
+    second.git(&["reset", "--hard", "FETCH_HEAD"]);
+    second.write("local.txt", "second only\n");
+    second.commit("other commit");
+    let token = Cancel::default();
+    let queries = [first.repo(), second.repo()].map(|repository| Query {
+        repository,
+        branches: vec![],
+        filter: None,
+    });
+    let read = project_log::read(&queries, 10, &token).unwrap();
+    assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+    assert_eq!(read.page.entries.len(), 3);
+    assert_eq!(read.scope.count(&token).unwrap(), 3);
+    let same = read
+        .page
+        .entries
+        .iter()
+        .filter(|r| r.commit.id == shared)
+        .collect::<Vec<_>>();
+    assert_eq!(same.len(), 2);
+    assert_ne!(same[0].identity(), same[1].identity());
+    for row in &read.page.entries {
+        let timestamp = Command::new("git")
+            .arg("-C")
+            .arg(row.root.as_ref())
+            .args(["show", "-s", "--format=%ct", &row.commit.id])
+            .output()
+            .unwrap();
+        assert!(timestamp.status.success());
+        assert_eq!(
+            row.commit.committer_timestamp,
+            String::from_utf8(timestamp.stdout)
+                .unwrap()
+                .trim()
+                .parse::<i64>()
+                .unwrap()
+        );
+    }
+    let prefix = project_log::read(&queries, 1, &token).unwrap();
+    assert_eq!(prefix.page.entries.len(), 1);
+    assert!(prefix.page.more);
+    assert_eq!(prefix.scope.count(&token).unwrap(), 3);
+    let filtered = queries.map(|mut query| {
+        query.filter = Some(LogFilter {
+            text: "needle".into(),
+            ..Default::default()
+        });
+        query
+    });
+    let read = project_log::read(&filtered, 10, &token).unwrap();
+    assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+    assert_eq!(read.page.entries.len(), 2);
+    assert_eq!(read.scope.count(&token).unwrap(), 2);
+    assert!(read.page.entries.iter().all(|row| row.commit.id == shared));
+    let selected_root = project_log::read(&filtered[..1], 10, &token).unwrap();
+    assert_eq!(selected_root.page.entries.len(), 1);
+    assert_eq!(selected_root.scope.count(&token).unwrap(), 1);
+    token.cancel();
+    assert!(project_log::read(&filtered, 10, &token).is_err());
+    assert!(read.scope.count(&token).is_err());
+}
+
+#[test]
+fn project_log_keeps_readable_roots_but_never_reports_partial_total_as_complete() {
+    use plico::project_log::{self, Query};
+    let f = Fixture::new();
+    f.write("base", "base");
+    f.commit("base");
+    let query = Query {
+        repository: f.repo(),
+        branches: vec![],
+        filter: None,
+    };
+    let missing = Query {
+        repository: Repository::new(f.0.join("does-not-exist")),
+        ..query.clone()
+    };
+    let token = Cancel::default();
+    let result = project_log::read(&[query.clone(), missing], 10, &token).unwrap();
+    assert_eq!(result.page.entries.len(), 1);
+    assert_eq!(result.scope.errors.len(), 1);
+    assert!(result.scope.count(&token).is_err());
+    assert!(project_log::read(&[query.clone(), query], 10, &token).is_err());
+}
+
+#[test]
+fn project_log_graph_preserves_filtered_links_without_replacing_real_git_parents() {
+    use plico::project_log::{self, Query};
+    let f = Fixture::new();
+    f.write("base", "base");
+    f.commit("keep base");
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("middle", "hidden");
+    f.commit("hidden middle");
+    let middle = f.git(&["rev-parse", "HEAD"]);
+    f.write("tip", "tip");
+    f.commit("keep tip");
+    let token = Cancel::default();
+    let read = project_log::read(
+        &[Query {
+            repository: f.repo(),
+            branches: vec![],
+            filter: Some(LogFilter {
+                text: "keep".into(),
+                ..Default::default()
+            }),
+        }],
+        10,
+        &token,
+    )
+    .unwrap();
+    assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+    assert_eq!(read.page.entries.len(), 2);
+    let first = &read.page.entries[0];
+    assert_eq!(first.commit.parents, vec![middle]);
+    assert_eq!(first.display_parents.as_ref().unwrap(), &vec![(base, true)]);
+    let graph = read.page.layout(&token).unwrap();
+    assert!(graph[0].segments.iter().any(|segment| segment.dotted()));
+    assert_eq!(graph[0].color, graph[1].color);
+}
+
+#[test]
+fn project_log_selection_keeps_same_hash_and_same_path_separate_by_root() {
+    use plico::project_log::{CommitId, selection};
+    use std::sync::Arc;
+    let first = Fixture::new();
+    first.write("shared.txt", "base\n");
+    first.commit("base");
+    let base = first.git(&["rev-parse", "HEAD"]);
+    let second = Fixture::new();
+    second.git(&["fetch", first.0.to_str().unwrap(), "main"]);
+    second.git(&["reset", "--hard", "FETCH_HEAD"]);
+    second.write("shared.txt", "child change\n");
+    second.commit("child change");
+    let tip = second.git(&["rev-parse", "HEAD"]);
+    let ids = vec![
+        CommitId {
+            root: Arc::new(second.0.clone()),
+            hash: tip.clone(),
+        },
+        CommitId {
+            root: Arc::new(first.0.clone()),
+            hash: base.clone(),
+        },
+        CommitId {
+            root: Arc::new(second.0.clone()),
+            hash: base.clone(),
+        },
+    ];
+    let token = Cancel::default();
+    let result = selection::load(&ids, &token).unwrap();
+    assert_eq!(
+        result
+            .commits
+            .iter()
+            .map(|e| e.identity())
+            .collect::<Vec<_>>(),
+        ids
+    );
+    assert_eq!(result.changes.len(), 2);
+    for (root, expected) in [(&first.0, &base), (&second.0, &tip)] {
+        let group = result
+            .changes
+            .iter()
+            .find(|g| g.root.as_ref() == root)
+            .unwrap();
+        assert_eq!(group.files.len(), 1);
+        let file = &group.files[0];
+        assert!(file.before.is_none());
+        let after = file.after.as_ref().unwrap();
+        assert_eq!(after.path, PathBuf::from("shared.txt"));
+        assert_eq!(&after.revision, expected);
+    }
+    let groups = result
+        .changes
+        .into_iter()
+        .map(|g| (Repository::new(g.root.as_ref()), g.files))
+        .collect();
+    let (child_target, mut chain) = plico::diff_target::Chain::combined_roots(groups, 0).unwrap();
+    assert_eq!(child_target.identity().repository, second.0);
+    assert_eq!(
+        child_target
+            .read_contents(&token)
+            .unwrap()
+            .unwrap()
+            .after
+            .unwrap(),
+        "child change\n"
+    );
+    let parent_target = chain.step(true).unwrap();
+    assert_eq!(parent_target.identity().repository, first.0);
+    assert_eq!(
+        parent_target
+            .read_contents(&token)
+            .unwrap()
+            .unwrap()
+            .after
+            .unwrap(),
+        "base\n"
+    );
+    assert_eq!(
+        chain.step(false).unwrap().identity(),
+        child_target.identity()
+    );
+    let mut duplicate = ids.clone();
+    duplicate.push(ids[0].clone());
+    assert!(selection::load(&duplicate, &token).is_err());
+    let mut missing = ids.clone();
+    missing[0].root = Arc::new(first.0.join("missing"));
+    assert!(
+        selection::load(&missing, &token).is_err(),
+        "never publish a partial selection"
+    );
+    token.cancel();
+    assert!(selection::load(&ids, &token).is_err());
+}
+
+#[test]
+fn project_navigation_keeps_each_roots_filters_and_frozen_tips() {
+    use plico::project_log::{self, CommitId, Query};
+    use std::sync::Arc;
+    let first = Fixture::new();
+    let mut ids = Vec::new();
+    for subject in ["visible base", "hidden middle", "visible tip"] {
+        first.write("file", subject);
+        first.commit(subject);
+        ids.push(first.git(&["rev-parse", "HEAD"]));
+    }
+    let second = Fixture::new();
+    second.git(&["fetch", first.0.to_str().unwrap(), "main"]);
+    second.git(&["reset", "--hard", "FETCH_HEAD"]);
+    let token = Cancel::default();
+    let read = project_log::read(
+        &[
+            Query {
+                repository: first.repo(),
+                branches: vec![],
+                filter: Some(LogFilter {
+                    text: "visible".into(),
+                    ..Default::default()
+                }),
+            },
+            Query {
+                repository: second.repo(),
+                branches: vec![],
+                filter: None,
+            },
+        ],
+        10,
+        &token,
+    )
+    .unwrap();
+    assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+    let identity = |root: &Fixture, hash: &str| CommitId {
+        root: Arc::new(root.0.clone()),
+        hash: hash.into(),
+    };
+    let first_tip = identity(&first, &ids[2]);
+    let second_tip = identity(&second, &ids[2]);
+    assert_eq!(
+        read.scope.adjacent(&first_tip, true, &token).unwrap(),
+        vec![identity(&first, &ids[0])]
+    );
+    assert_eq!(
+        read.scope.adjacent(&second_tip, true, &token).unwrap(),
+        vec![identity(&second, &ids[1])]
+    );
+    assert_eq!(
+        read.scope
+            .adjacent(&identity(&first, &ids[0]), false, &token)
+            .unwrap(),
+        vec![first_tip.clone()]
+    );
+    assert!(
+        read.scope
+            .adjacent(&identity(&first, &ids[1]), true, &token)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        read.scope.roots[0]
+            .adjacent(&second_tip, true, &token)
+            .is_err()
+    );
+    let absent = CommitId {
+        root: Arc::new(first.0.join("not-a-loaded-root")),
+        hash: ids[2].clone(),
+    };
+    assert!(read.scope.adjacent(&absent, true, &token).is_err());
+    for target in [&first_tip, &second_tip, &identity(&second, &ids[0])] {
+        let expected = read
+            .page
+            .entries
+            .iter()
+            .position(|entry| entry.identity() == *target)
+            .unwrap();
+        let plico::project_log::navigation::Location::Found(located) =
+            plico::project_log::navigation::locate(read.scope.clone(), target, 1, &token).unwrap()
+        else {
+            panic!("expected visible project target");
+        };
+        assert_eq!(located.offset + located.selected, expected);
+        assert_eq!(
+            located.read.page.entries[located.selected].identity(),
+            *target
+        );
+        assert_eq!(located.rows.len(), located.read.page.entries.len());
+    }
+    assert!(matches!(
+        plico::project_log::navigation::locate(
+            read.scope.clone(),
+            &identity(&first, &ids[1]),
+            1,
+            &token
+        )
+        .unwrap(),
+        plico::project_log::navigation::Location::Hidden
+    ));
+    let identities = read
+        .page
+        .entries
+        .iter()
+        .map(plico::project_log::Entry::identity)
+        .collect::<Vec<_>>();
+    for offset in 0..=identities.len() + 1 {
+        let mut page =
+            plico::project_log::navigation::window_at(read.scope.clone(), offset, 2, &token)
+                .unwrap();
+        let start = offset.min(identities.len());
+        assert_eq!(page.offset, start);
+        assert_eq!(
+            page.read
+                .page
+                .entries
+                .iter()
+                .map(plico::project_log::Entry::identity)
+                .collect::<Vec<_>>(),
+            identities[start..(start + 2).min(identities.len())]
+        );
+        assert_eq!(page.read.page.more, start + 2 < identities.len());
+        let next_offset = page.offset + page.read.page.entries.len();
+        let expected =
+            plico::project_log::navigation::window_at(read.scope.clone(), next_offset, 2, &token)
+                .unwrap();
+        // Publication transfers both buffers to UI; continuation must not depend on them.
+        page.read.page.entries.clear();
+        page.rows.clear();
+        let resumed = page.continuation().unwrap().load(2, &token).unwrap();
+        assert_eq!(resumed.offset, expected.offset);
+        assert!(Arc::ptr_eq(&resumed.read.scope, &page.read.scope));
+        assert_eq!(
+            resumed
+                .read
+                .page
+                .entries
+                .iter()
+                .map(plico::project_log::Entry::identity)
+                .collect::<Vec<_>>(),
+            expected
+                .read
+                .page
+                .entries
+                .iter()
+                .map(plico::project_log::Entry::identity)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(resumed.rows.len(), expected.rows.len());
+        for (row, expected) in resumed.rows.iter().zip(&expected.rows) {
+            assert_eq!(
+                (row.node, row.color, row.width),
+                (expected.node, expected.color, expected.width)
+            );
+            assert_eq!(row.segments, expected.segments);
+        }
+    }
+    first.write("file", "later");
+    first.commit("visible later");
+    assert!(
+        read.scope
+            .adjacent(&first_tip, false, &token)
+            .unwrap()
+            .is_empty(),
+        "navigation must not silently change graph tips"
+    );
+    assert!(
+        read.scope
+            .adjacent(&second_tip, false, &token)
+            .unwrap()
+            .is_empty()
+    );
+    let first_head = first.git(&["rev-parse", "HEAD"]);
+    token.cancel();
+    assert!(read.scope.adjacent(&first_tip, true, &token).is_err());
+    assert_eq!(first.git(&["rev-parse", "HEAD"]), first_head);
+    assert_eq!(second.git(&["rev-parse", "HEAD"]), ids[2]);
+    assert!(first.git(&["status", "--porcelain"]).is_empty());
+    assert!(second.git(&["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn project_log_pages_consume_per_root_prefixes_and_keep_the_original_query() {
+    use plico::project_log::{self, Entry, Query};
+    let first = Fixture::new();
+    for (index, subject) in ["visible base", "hidden middle", "visible tip"]
+        .iter()
+        .enumerate()
+    {
+        first.write("file", subject);
+        first.git(&["add", "file"]);
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(&first.0)
+            .args(["commit", "-m", subject])
+            .env(
+                "GIT_AUTHOR_DATE",
+                format!("2020-01-0{}T00:00:00+00:00", index + 1),
+            )
+            .env(
+                "GIT_COMMITTER_DATE",
+                format!("2020-01-0{}T00:00:00+00:00", index + 1),
+            )
+            .output()
+            .unwrap();
+        assert!(status.status.success());
+    }
+    let second = Fixture::new();
+    second.git(&["fetch", first.0.to_str().unwrap(), "main"]);
+    second.git(&["reset", "--hard", "FETCH_HEAD"]);
+    for filter in [
+        None,
+        Some(LogFilter {
+            text: "visible".into(),
+            ..Default::default()
+        }),
+    ] {
+        let token = Cancel::default();
+        let queries = [first.repo(), second.repo()].map(|repository| Query {
+            repository,
+            branches: vec![],
+            filter: filter.clone(),
+        });
+        let all = project_log::read(&queries, 100, &token).unwrap();
+        let expected = all
+            .page
+            .entries
+            .iter()
+            .map(Entry::identity)
+            .collect::<Vec<_>>();
+        assert!(expected.len() >= 4);
+        let mut page = project_log::read(&queries, 1, &token).unwrap();
+        let mut actual = std::mem::take(&mut page.page.entries)
+            .iter()
+            .map(Entry::identity)
+            .collect::<Vec<_>>();
+        // Moving refs after the first page must not shift pagination ordinals.
+        first.write(
+            "new",
+            if filter.is_some() {
+                "second visible content"
+            } else {
+                "first visible content"
+            },
+        );
+        first.commit("visible new after snapshot");
+        let new_head = first.git(&["rev-parse", "HEAD"]);
+        assert!(!expected.iter().any(|id| id.hash == new_head));
+        // A later root failing cannot publish only the earlier root's prefix.
+        fs::rename(second.0.join(".git"), second.0.join(".git-saved")).unwrap();
+        assert!(page.next_page(2, &token).is_err());
+        fs::rename(second.0.join(".git-saved"), second.0.join(".git")).unwrap();
+        for _ in 0..expected.len() {
+            if !page.page.more {
+                break;
+            }
+            page = page.next_page(2, &token).unwrap();
+            assert_eq!(page.scope.count(&token).unwrap(), expected.len());
+            actual.extend(
+                std::mem::take(&mut page.page.entries)
+                    .iter()
+                    .map(Entry::identity),
+            );
+        }
+        assert!(!page.page.more);
+        assert_eq!(actual, expected);
+        assert!(page.next_page(2, &token).unwrap().page.entries.is_empty());
+        token.cancel();
+        assert!(page.next_page(2, &token).is_err());
+        assert_eq!(first.git(&["rev-parse", "HEAD"]), new_head);
+    }
 }

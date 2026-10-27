@@ -460,6 +460,7 @@ mod tests {
             subject: String::new(),
             refs: Vec::new(),
             shallow_boundary: false,
+            committer_timestamp: 0,
         }
     }
     #[test]
@@ -649,6 +650,7 @@ mod wide_regression {
             subject: String::new(),
             refs: vec![],
             shallow_boundary: false,
+            committer_timestamp: 0,
         }
     }
     #[test]

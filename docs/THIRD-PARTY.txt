@@ -441,3 +441,15 @@ src/text_merge/automatic.rs adapts MergeResolveUtil.kt and MergeResolveUtilTest.
 Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
 Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
 License text: licenses/assets/icons/LICENSE.txt.
+
+
+Multi-repository Log identities, ordering and query scope
+
+src/project_log.rs and submodules adapt CommitId.java, VcsLogMultiRepoJoiner.java,
+VcsLogFiltererImpl.kt and VcsLogUtil.java at Rebased 4aec352. src/log_selection.rs
+shares existing selection semantics across root-qualified and single-root IDs;
+src/history.rs, src/filtered_graph.rs and src/diff_target.rs retain per-root
+history, graph projection and file navigation identities with bounded metadata.
+Copyright 2000-2025 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+License text: licenses/assets/icons/LICENSE.txt.

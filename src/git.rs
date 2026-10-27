@@ -177,6 +177,8 @@ pub struct Commit {
     pub id: String,
     pub parents: Vec<String>,
     pub shallow_boundary: bool,
+    /// Unix seconds for ordering across repository histories.
+    pub committer_timestamp: i64,
     pub author: String,
     pub date: String,
     pub subject: String,
@@ -211,6 +213,9 @@ pub struct Snapshot {
     pub included_in_head: Arc<HashSet<String>>,
     pub current_branch: Option<String>,
     pub ref_titles: Arc<HashMap<String, String>>,
+    /// Full local ref name to its remote-tracking display name (e.g. origin/main).
+    /// Kept separate from commit decorations, since multiple refs may share an OID.
+    pub tracked_branches: Arc<HashMap<String, String>>,
     pub commits: Vec<Commit>,
     pub branches: Vec<Branch>,
     pub tags: Vec<Tag>,
@@ -444,7 +449,7 @@ impl Repository {
             "--encoding=UTF-8".into(),
             "--date=iso-strict".into(),
             "-z".into(),
-            "--format=%H%x00%P%x00%an%x00%ad%x00%s".into(),
+            "--format=%H%x00%P%x00%an%x00%ad%x00%s%x00%ct".into(),
             format!("--max-count={count}"),
             format!("--skip={offset}"),
         ];
@@ -1248,6 +1253,12 @@ impl Repository {
             |out, _| crate::topology::read(out),
         )
     }
+    /// Branch menus need reference metadata, not a history page. Reuse the
+    /// same peeling/parser rules with an explicitly empty commit selection.
+    pub fn reference_snapshot(&self, token: &Cancel) -> Result<Snapshot> {
+        self.snapshot_query(&[], 0, 1, None, None, Some(&[]), token)
+    }
+
     pub fn snapshot(
         &self,
         branch: Option<&str>,
@@ -1492,7 +1503,7 @@ impl Repository {
                 "-z",
                 &count,
                 &skip,
-                "--format=%H%x00%P%x00%an%x00%ad%x00%s",
+                "--format=%H%x00%P%x00%an%x00%ad%x00%s%x00%ct",
             ];
             let filter_args = text_filter.map(LogFilter::arguments).unwrap_or_default();
             args.extend(filter_args.iter().map(String::as_str));
@@ -1570,6 +1581,12 @@ impl Repository {
             included_in_head,
             current_branch,
             ref_titles,
+            tracked_branches: Arc::new(
+                upstreams
+                    .into_iter()
+                    .map(|(local, (remote, _))| (format!("refs/heads/{local}"), remote))
+                    .collect(),
+            ),
             commits,
             branches,
             tags,
@@ -2522,11 +2539,11 @@ pub(crate) fn parse_history(output: &str) -> Result<Vec<Commit>> {
         .unwrap_or(output)
         .split('\0')
         .collect::<Vec<_>>();
-    if fields.len() % 5 != 0 {
+    if fields.len() % 6 != 0 {
         return Err("Incomplete Git history record".into());
     }
     fields
-        .chunks_exact(5)
+        .chunks_exact(6)
         .map(|f| {
             let parents = f[1]
                 .split_whitespace()
@@ -2543,6 +2560,9 @@ pub(crate) fn parse_history(output: &str) -> Result<Vec<Commit>> {
                 subject: f[4].into(),
                 refs: Vec::new(),
                 shallow_boundary: false,
+                committer_timestamp: f[5]
+                    .parse()
+                    .map_err(|_| "Invalid commit timestamp".to_owned())?,
             })
         })
         .collect()

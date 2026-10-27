@@ -101,6 +101,7 @@ mod tests {
             id: format!("{id:040x}"),
             parents: vec![],
             shallow_boundary: false,
+            committer_timestamp: 0,
             author: String::new(),
             date: String::new(),
             subject: String::new(),

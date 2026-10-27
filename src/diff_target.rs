@@ -276,7 +276,7 @@ struct ChainData {
     repository: Repository,
     commit: Option<Commit>,
     changes: Vec<Change>,
-    combined: Option<Vec<crate::combined_changes::Change>>,
+    combined: Option<Vec<(std::sync::Arc<Repository>, crate::combined_changes::Change)>>,
     working_comparison: Option<Vec<crate::working_comparison::Change>>,
 }
 
@@ -316,16 +316,36 @@ impl Chain {
         endpoints: Vec<crate::combined_changes::Change>,
         index: usize,
     ) -> Result<(Target, Self)> {
-        let target = Target::combined(
-            repository.clone(),
-            endpoints
-                .get(index)
-                .ok_or("Invalid diff file index")?
-                .clone(),
-        )?;
+        Self::combined_roots(vec![(repository, endpoints)], index)
+    }
+    /// Every file keeps its root, including identical paths and revisions in
+    /// different repositories. Root handles are shared within each group.
+    pub fn combined_roots(
+        groups: Vec<(Repository, Vec<crate::combined_changes::Change>)>,
+        index: usize,
+    ) -> Result<(Target, Self)> {
+        let count = groups
+            .iter()
+            .try_fold(0usize, |count, (_, files)| count.checked_add(files.len()))
+            .ok_or("Diff chain exceeds the change limit")?;
+        if count > crate::combined_changes::MAX_INPUT_CHANGES {
+            return Err("Diff chain exceeds the change limit".into());
+        }
+        let endpoints = groups
+            .into_iter()
+            .flat_map(|(repo, files)| {
+                let repo = std::sync::Arc::new(repo);
+                files.into_iter().map(move |file| (repo.clone(), file))
+            })
+            .collect::<Vec<_>>();
+        let (repo, file) = endpoints.get(index).ok_or("Invalid diff file index")?;
+        let repository = repo.as_ref().clone();
+        let target = Target::combined(repository.clone(), file.clone())?;
         let changes = endpoints
             .iter()
-            .map(|c| Target::combined(repository.clone(), c.clone()).map(|t| t.change))
+            .map(|(repo, file)| {
+                Target::combined(repo.as_ref().clone(), file.clone()).map(|target| target.change)
+            })
             .collect::<Result<Vec<_>>>()?;
         let chain = Self {
             data: std::sync::Arc::new(ChainData {
@@ -401,12 +421,10 @@ impl Chain {
             });
         }
         if let Some(endpoints) = &self.data.combined {
-            if self.data.repository.path != target.repository.path {
-                return None;
-            }
-            let index = endpoints
-                .iter()
-                .position(|c| Some(c) == target.identity.combined.as_ref())?;
+            let index = endpoints.iter().position(|(repo, file)| {
+                repo.path == target.repository.path
+                    && Some(file) == target.identity.combined.as_ref()
+            })?;
             return Some(Self {
                 data: self.data.clone(),
                 index,
@@ -472,6 +490,15 @@ impl Chain {
             index,
         })
     }
+    pub fn repository_at(&self, index: usize) -> Option<&Repository> {
+        self.data.changes.get(index)?;
+        Some(
+            self.data
+                .combined
+                .as_ref()
+                .map_or(&self.data.repository, |files| files[index].0.as_ref()),
+        )
+    }
     pub fn changes(&self) -> &[Change] {
         &self.data.changes
     }
@@ -486,9 +513,8 @@ impl Chain {
             return Some(target);
         }
         if let Some(endpoints) = &self.data.combined {
-            let target =
-                Target::combined(self.data.repository.clone(), endpoints.get(index)?.clone())
-                    .ok()?;
+            let (repo, file) = endpoints.get(index)?;
+            let target = Target::combined(repo.as_ref().clone(), file.clone()).ok()?;
             self.index = index;
             return Some(target);
         }
@@ -576,6 +602,44 @@ mod tests {
     }
 
     #[test]
+    fn combined_chain_keeps_root_identity_through_navigation_reordering_and_forks() {
+        let file = crate::combined_changes::Change {
+            before: None,
+            after: Some(crate::combined_changes::Revision {
+                revision: "a".repeat(40),
+                path: "same.txt".into(),
+            }),
+        };
+        let (first, mut chain) = Chain::combined_roots(
+            vec![
+                (Repository::new("first"), vec![file.clone()]),
+                (Repository::new("second"), vec![file.clone()]),
+            ],
+            0,
+        )
+        .unwrap();
+        let second = chain.step(true).unwrap();
+        assert_eq!(second.identity().repository, PathBuf::from("second"));
+        assert_ne!(first.identity(), second.identity());
+        let mut fork = chain.fork_for(&first).unwrap();
+        assert_eq!(fork.index(), 0);
+        assert_eq!(chain.index(), 1);
+        assert!(Arc::ptr_eq(&fork.data, &chain.data));
+        assert_eq!(fork.step(true).unwrap().identity(), second.identity());
+        let mut reordered = chain.reordered(&[1, 0]).unwrap();
+        assert_eq!(reordered.index(), 0);
+        assert_eq!(reordered.select(0).unwrap().identity(), second.identity());
+        assert_eq!(reordered.step(true).unwrap().identity(), first.identity());
+        let mut subset = chain.subset(&[1]).unwrap();
+        assert_eq!(subset.select(0).unwrap().identity(), second.identity());
+        assert!(subset.fork_for(&first).is_none());
+        assert!(subset.step(true).is_none());
+        let foreign = Target::combined(Repository::new("third"), file).unwrap();
+        assert!(chain.fork_for(&foreign).is_none());
+        assert!(Chain::combined_roots(vec![], 0).is_err());
+    }
+
+    #[test]
     fn combined_chain_keeps_revision_identity_for_same_path_and_independent_cursors() {
         use crate::combined_changes::{Change as Combined, Revision};
         let repo = Repository::new("fixture");
@@ -638,6 +702,7 @@ mod tests {
             id: "a".repeat(40),
             parents: vec!["b".repeat(40)],
             shallow_boundary: false,
+            committer_timestamp: 0,
             author: "author".into(),
             date: "date".into(),
             subject: "review".into(),
@@ -687,6 +752,7 @@ mod tests {
             id: "a".repeat(40),
             parents: vec![],
             shallow_boundary: false,
+            committer_timestamp: 0,
             author: String::new(),
             date: String::new(),
             subject: String::new(),

@@ -249,6 +249,8 @@ fn snapshot_edges<T: GraphNode>(
 /// One bounded visible window. Commit metadata is owned by the caller; indices
 /// identify the exact source commits whose Diff comparisons must be preserved.
 pub struct Window {
+    /// Display-only projected parents, aligned with indices/rows.
+    pub parents: Vec<Vec<(String, bool)>>,
     pub indices: Vec<usize>,
     pub rows: Vec<crate::graph::Row>,
     pub more: bool,
@@ -275,6 +277,7 @@ pub fn window<T: GraphNode>(
     let mut state = crate::graph::Layout::default();
     let mut rows = Vec::new();
     let mut indices = Vec::new();
+    let mut parents = Vec::new();
     let mut ordinal = 0usize;
     let mut geometry = crate::graph::GeometryPool::default();
     for (index, commit) in commits.iter().enumerate() {
@@ -296,10 +299,12 @@ pub fn window<T: GraphNode>(
             }
             rows.push(row);
             indices.push(index);
+            parents.push(links);
         }
         ordinal += 1;
     }
     Ok(Window {
+        parents,
         indices,
         rows,
         more: end < total,

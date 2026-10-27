@@ -5,6 +5,8 @@ use crate::{
 };
 
 pub struct Window {
+    /// None for unfiltered history; Git parents remain untouched.
+    pub projected_parents: Option<Vec<Vec<(String, bool)>>>,
     pub snapshot: Snapshot,
     pub rows: Vec<Row>,
     pub start: Layout,
@@ -62,6 +64,7 @@ pub fn read_branches(
         return Ok(Window {
             snapshot,
             rows,
+            projected_parents: None,
             start,
             end,
         });
@@ -108,6 +111,7 @@ pub fn read_branches(
     Ok(Window {
         snapshot,
         rows,
+        projected_parents: None,
         start,
         end,
     })
@@ -155,6 +159,7 @@ pub fn read_branches_filtered(
         return Ok(Window {
             snapshot,
             rows: Vec::new(),
+            projected_parents: None,
             start: Layout::default(),
             end: Layout::default(),
         });
@@ -180,6 +185,7 @@ pub fn read_branches_filtered(
         return Ok(Window {
             snapshot,
             rows: projected.rows,
+            projected_parents: Some(projected.parents),
             start: Layout::default(),
             end: Layout::default(),
         });
@@ -196,6 +202,7 @@ pub fn read_branches_filtered(
     Ok(Window {
         snapshot,
         rows: projected.rows,
+        projected_parents: Some(projected.parents),
         start: Layout::default(),
         end: Layout::default(),
     })
@@ -231,6 +238,7 @@ fn read_hashes(
     Ok(Some(Window {
         snapshot,
         rows: projected.rows,
+        projected_parents: Some(projected.parents),
         start: Layout::default(),
         end: Layout::default(),
     }))
@@ -345,6 +353,7 @@ pub fn locate_filtered(
         window: Window {
             snapshot,
             rows: projected.rows,
+            projected_parents: Some(projected.parents),
             start: Layout::default(),
             end: Layout::default(),
         },

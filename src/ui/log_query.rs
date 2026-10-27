@@ -277,6 +277,7 @@ mod tests {
                     id: "a".repeat(40),
                     parents: vec![],
                     shallow_boundary: false,
+                    committer_timestamp: 0,
                     author: "author".into(),
                     date: String::new(),
                     subject: "cached".into(),

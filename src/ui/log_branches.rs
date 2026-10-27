@@ -447,6 +447,7 @@ impl Review {
                                     s.paths_menu.update(cx, |menu, cx| menu.clear_filter(cx));
                                 }
                                 let history::Window {
+                                    projected_parents: _,
                                     mut snapshot,
                                     rows,
                                     start,
@@ -1262,6 +1263,7 @@ mod selection_tests {
                     current_branch: Some("main".into()),
                     included_in_head: Default::default(),
                     ref_titles: Default::default(),
+                    tracked_branches: Default::default(),
                     commits: vec![],
                     branches: vec![],
                     tags: vec![],
@@ -1355,6 +1357,7 @@ mod selection_tests {
                 current_branch: Some("a".into()),
                 included_in_head: Default::default(),
                 ref_titles: Default::default(),
+                tracked_branches: Default::default(),
                 commits: vec![],
                 branches: vec![],
                 tags: vec![],

@@ -450,6 +450,7 @@ impl Review {
                     match result.0 {
                         Ok((
                             Some(history::Window {
+                                projected_parents: _,
                                 snapshot: mut s,
                                 rows,
                                 start,

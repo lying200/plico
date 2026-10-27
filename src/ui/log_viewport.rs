@@ -54,6 +54,7 @@ mod tests {
                 id: (*id).into(),
                 parents: vec![],
                 shallow_boundary: false,
+                committer_timestamp: 0,
                 author: String::new(),
                 date: String::new(),
                 subject: String::new(),

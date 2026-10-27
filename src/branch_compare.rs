@@ -93,7 +93,7 @@ impl Pair {
             "-z",
             &count,
             &skip,
-            "--format=%H%x00%P%x00%an%x00%ad%x00%s",
+            "--format=%H%x00%P%x00%an%x00%ad%x00%s%x00%ct",
         ];
         args.extend(filter_args.iter().map(String::as_str));
         args.extend([range.as_str(), "--"]);

@@ -7009,3 +7009,41 @@ submodules首轮41通过、9失败，其中7项是Windows路径前缀/分隔符�
 /tmp/plico-update-stage-windows-{tests,final-tests,retests}.log。
 本节“通过”是初次通过项与修正后定向复验的合并覆盖，并非声称首轮全部绿色。
 没有新开Plico/Rebased界面窗口；原生测试程序均已结束。UI接线继续留待后续提交。
+
+
+### 第6项多仓库 Log 数据层独立提交（2026-10-27）
+
+从已完成分项原生验证的累计实现中拆出数据层，保留单仓库界面兼容；此提交没有
+提前接入多仓库菜单或Roots控件。参考commit为4aec35256d765c217aa0d662b82ac4e860c396fd，
+安装版Rebased 1.1.20 / IC-262.10968.SNAPSHOT。
+
+本轮重新实读 platform/vcs-log/api/src/com/intellij/vcs/log/CommitId.java 和
+platform/vcs-log/impl/src/com/intellij/vcs/log/data/VcsLogMultiRepoJoiner.java；
+范围规则沿用已读 VcsLogFiltererImpl.kt::filter、VcsLogUtil.java::getAllVisibleRoots。
+CommitId以根与hash共同确定身份，不能跨根去重；每次只在各根下一条提交之间按
+committer时间选择，保留单根Git顺序，不能全局sort破坏拓扑。本地相同时间按输入
+根顺序稳定排序；上游HashMap迭代没有固定平局顺序，这是保留的确定性差异。
+
+映射：git.rs提供committer_timestamp、根内引用/跟踪元数据；project_log.rs统一
+查询scope、错误、有限前缀合并、分页cursor与异步计数入口。每根固定tips与过滤条件，
+只按实际输出条数推进该根offset；失败不发布半份下一页，部分根失败不把subtotal
+当作完整总数。分页不保留之前提交正文/几何，图前沿保留根身份。history/filtered_graph
+保留用于画图的投影parents，真实Git parents不改写。project_log/navigation.rs使用同一
+scope恢复位置；selection.rs按根加载提交/文件，diff_target::Chain让同名文件跨根导航
+仍指向正确仓库。log_selection复用同一选择语义并保留原单仓库API。
+
+原生前置/对照证据沿用 artifacts/collaboration-workflows-20261027 中
+rebased-independent-log-default.png、rebased-log-filter-third-final.png，以及
+plico-log-default-final.png、plico-log-filter-third-final.png、
+plico-log-child-details-ready.png、plico-log-cleared-final.png；完整界面验收记录见
+上述默认聚合首屏章节。本提交只包含数据层和现有界面结构字段兼容，根颜色条、
+菜单/过滤控件接线与精确视觉差异仍留后续提交，不以数据测试宣称界面全部完成。
+
+独立索引快照验证：853项核心、106项桌面和10项发布配置Diff导航通过；
+Windows原生新增6项真实Git场景全部通过（同hash/同路径跨根、过滤图真parents、
+部分根失败与总数、固定tips与过滤的导航、跨根分页不重复/不漏项）。日志：
+/tmp/plico-log-stage-{core,desktop,navigation,windows-tests}.log。
+格式检查通过；Clippy完成，仍有包括navigation::Location大小建议在内的警告，
+未通过全局allow或关闭检查隐藏，日志/tmp/plico-log-stage-clippy.log。
+验证使用精确暂存内容导出的独立目录，未依赖未提交UI/Unshallow/交互式Rebase。
+本次未启动原生界面窗口；Windows集成测试已结束，原生UI对照沿用上述已记录场景。

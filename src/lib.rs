@@ -238,3 +238,5 @@ pub mod submodules;
 pub mod project_operations;
 
 pub mod submodule_update;
+
+pub mod project_log;

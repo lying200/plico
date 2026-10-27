@@ -313,6 +313,7 @@ mod tests {
                     current_branch: Some("main".into()),
                     included_in_head: Default::default(),
                     ref_titles: Default::default(),
+                    tracked_branches: Default::default(),
                     commits: vec![],
                     branches: vec![
                         git::Branch {

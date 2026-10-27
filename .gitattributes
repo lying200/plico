@@ -1,0 +1,6 @@
+# Keep Rust source compatible with rustfmt's newline_style = "Unix" on Windows.
+*.rs text eol=lf
+/.gitattributes text eol=lf
+
+# Preserve third-party formatting and checkout behavior.
+vendor/** !text !eol

@@ -13464,3 +13464,16 @@ Fork实际写入测试使用两个本地bare：仅origin/topic变化，origin/ma
 
 用户已明确长表边缘滚动稍后手测。该项保留待验证，既有四行拖动验证不扩大为长表
 验证；不再次催测，也不把等待此项解释为暂停其他已授权工作。全局目标未完成。
+
+
+### 独立Rebase重复补丁回归补充（2026-10-27）
+
+新增tests/repository.rs::independent_rebase_skips_upstream_patch_and_restores_local_edits，
+使用真实临时仓库构造目标已含等价补丁、topic另含后续独有提交的场景。分别通过
+本地refs/heads/main与远端跟踪refs/remotes/origin/main目标调用branch_rebase::execute，
+遍历merge/apply backend。验证重复补丁跳过后仅保留独有提交、父提交为固定目标，
+当前分支和目标引用不变，staged/unstaged/untracked内容恢复，stash及恢复记录清理。
+这是补充原计划第2项的重复补丁边界证据，不等同于冲突解决后提交变空的全部场景，
+也不证明真实网络远端更新。没有修改产品行为或界面，无新增原生交互验收声明。
+独立Rebase五项定向测试全部通过（含本例四组fixture），无失败/忽略，日志
+`/tmp/plico-rebase-skipped-patch.log`；格式及diff空白检查通过。本次未运行CI或发包。

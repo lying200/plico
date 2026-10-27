@@ -8933,6 +8933,75 @@ fn independent_rebase_preserves_index_and_recovers_conflicts_across_sessions() {
 }
 
 #[test]
+fn independent_rebase_skips_upstream_patch_and_restores_local_edits() {
+    use plico::{branch_rebase, rebase_saved};
+    for backend in ["merge", "apply"] {
+        for reference in ["refs/heads/main", "refs/remotes/origin/main"] {
+            let f = Fixture::new();
+            f.write("shared.txt", "base\n");
+            f.write("local.txt", "base\n");
+            f.commit("base");
+            f.git(&["config", "rebase.backend", backend]);
+            f.git(&["checkout", "-b", "topic"]);
+            f.write("shared.txt", "already upstream\n");
+            f.commit("topic duplicate patch");
+            f.write("topic.txt", "unique patch\n");
+            f.commit("topic unique patch");
+            f.git(&["checkout", "main"]);
+            f.write("shared.txt", "already upstream\n");
+            f.commit("upstream equivalent patch");
+            let target = f.git(&["rev-parse", "HEAD"]);
+            f.git(&["update-ref", "refs/remotes/origin/main", &target]);
+            f.git(&["checkout", "topic"]);
+            f.write("local.txt", "staged\n");
+            f.git(&["add", "local.txt"]);
+            f.write("local.txt", "unstaged\n");
+            f.write("untracked.txt", "keep\n");
+            let repo = f.repo();
+            let token = Cancel::default();
+            let prepared = branch_rebase::Prepared::read(&repo, reference, &token).unwrap();
+            let report = branch_rebase::execute(
+                &repo,
+                &prepared,
+                std::ffi::OsStr::new("true"),
+                None,
+                &token,
+                &Default::default(),
+            )
+            .unwrap();
+            assert!(
+                report.succeeded(),
+                "{}: {}: {}",
+                backend,
+                reference,
+                report.diagnostic()
+            );
+            assert_eq!(f.git(&["branch", "--show-current"]), "topic");
+            assert_eq!(f.git(&["rev-parse", "HEAD^"]), target);
+            assert_eq!(f.git(&["log", "-1", "--format=%s"]), "topic unique patch");
+            assert_eq!(f.git(&["show", "HEAD:shared.txt"]), "already upstream");
+            assert_eq!(f.git(&["show", "HEAD:topic.txt"]), "unique patch");
+            assert_eq!(f.git(&["rev-parse", reference]), target);
+            assert_eq!(f.git(&["show", ":local.txt"]), "staged");
+            assert_eq!(
+                fs::read_to_string(f.0.join("local.txt")).unwrap(),
+                "unstaged\n"
+            );
+            assert_eq!(
+                fs::read_to_string(f.0.join("untracked.txt")).unwrap(),
+                "keep\n"
+            );
+            assert_eq!(f.git(&["stash", "list"]), "");
+            assert!(
+                rebase_saved::read(&repo.editor_directory(&token).unwrap())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
 fn independent_rebase_rejects_stale_target_before_saving_changes() {
     use plico::branch_rebase;
     let f = Fixture::new();

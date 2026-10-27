@@ -569,13 +569,16 @@ fn save_project_boolean(path: &Path, key: &str, value: bool) -> std::io::Result<
 }
 
 fn log_long_edges_file(root: &Path) -> Option<(PathBuf, String)> {
+    log_boolean_file(root, "log-long-edges")
+}
+fn log_boolean_file(root: &Path, prefix: &str) -> Option<(PathBuf, String)> {
     root.to_str()?;
     let key = crate::recent_projects::identity(root);
     let hash = key.bytes().fold(0xcbf29ce484222325u64, |h, b| {
         (h ^ b as u64).wrapping_mul(0x100000001b3)
     });
     Some((
-        settings_path()?.with_file_name(format!("log-long-edges-{hash:016x}")),
+        settings_path()?.with_file_name(format!("{prefix}-{hash:016x}")),
         key,
     ))
 }
@@ -586,6 +589,21 @@ pub fn load_log_long_edges(root: &Path) -> bool {
 }
 pub fn save_log_long_edges(root: &Path, value: bool) -> std::io::Result<()> {
     let Some((path, key)) = log_long_edges_file(root) else {
+        return Ok(());
+    };
+    save_project_boolean(&path, &key, value)
+}
+
+fn log_root_names_file(root: &Path) -> Option<(PathBuf, String)> {
+    log_boolean_file(root, "log-root-names")
+}
+pub fn load_log_root_names(root: &Path) -> bool {
+    log_root_names_file(root)
+        .and_then(|(path, key)| read_history_details(&path, &key))
+        .unwrap_or(false)
+}
+pub fn save_log_root_names(root: &Path, value: bool) -> std::io::Result<()> {
+    let Some((path, key)) = log_root_names_file(root) else {
         return Ok(());
     };
     save_project_boolean(&path, &key, value)

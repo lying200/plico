@@ -147,6 +147,9 @@ impl Review {
     pub(super) fn history(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selection_color = row_selection(&self.history_focus, window);
         let row_height = log_row_height(cx);
+        let root_column = log_root_column::Column::new(self, window, cx);
+        let root_scroll = self.history_scroll.clone();
+        let root_ids = self.log.ids().clone();
         let checkout_head = self.snapshot.as_ref().and_then(|s| s.head_id.clone());
         let checkout_enabled = !self.operation.busy() && !self.operation.saving_documents();
         let checkout_path = self.repo.path.clone();
@@ -244,6 +247,8 @@ impl Review {
                                                     "history",
                                                     commits.len(),
                                                     move |range, _, _| {
+                                                        let offset = root_scroll.0.borrow().base_handle.offset().y;
+                                                        let first_readable = ((-f32::from(offset) / row_height - 0.5).ceil().max(0.)) as usize;
                                                         range
                                                             .map(|i| {
                                                                 let c = &commits[i];
@@ -264,15 +269,20 @@ impl Review {
                                         .h(px(row_height))
                                         .px_2()
                                         .gap_2()
+                                        .when(root_column.is_some(), |d| d.pl_0().gap_0())
                                         .min_w(px(736.))
                                         .when(included.contains(&c.id), |d| d.bg(rgb(0x1d2336)))
                                         // VcsLogNewUiCellWrapper: single-repository selection
                                         // has 4px side insets and Popup.Selection.arc=8 (diameter).
                                         .when(is_selected, |d| d.child(
-                                            div().absolute().left(px(4.)).right(px(4.)).top_0().h_full()
+                                            div().absolute().left(root_column.as_ref().map_or(px(4.), |c| c.width())).right(px(4.)).top_0().h_full()
                                                 .rounded(px(4.)).bg(rgb(selection_color))
                                         ))
+                                        .when_some(root_column.as_ref(), |d, column| d.child(
+                                            column.cell(i, &root_ids, first_readable, owner.clone(), if included.contains(&c.id) { 0x1d2336 } else { BG })
+                                        ))
                                         .child(h_flex().flex_1().min_w_0().overflow_hidden().gap_2()
+                                            .when(root_column.is_some(), |d| d.mr_2())
                                             .child(interactive_graph_cell(rows[i].clone(), graph::text_offset_columns(&rows[i], recommended_width) * 16. + 12., row_height, i,
                                                 GraphNodeStyle { head: checkout_head.as_deref() == Some(c.id.as_str()),
                                                     background: if is_selected { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG } },
@@ -320,6 +330,7 @@ impl Review {
                                         .child(
                                             div()
                                                 .w(px(110.)).flex_shrink_0()
+                                                .when(root_column.is_some(), |d| d.mr_2())
                                                 .text_color(rgb(MUTED))
                                                 .truncate()
                                                 .child(c.author.clone()),

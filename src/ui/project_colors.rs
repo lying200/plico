@@ -8,7 +8,7 @@ use std::{
 };
 
 #[derive(Default)]
-pub(super) struct RepositoryColors(BTreeMap<PathBuf, u32>);
+pub(super) struct RepositoryColors(BTreeMap<PathBuf, (u32, u32)>);
 impl RepositoryColors {
     pub fn new<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Self {
         let mut paths: Vec<_> = paths.into_iter().collect();
@@ -21,12 +21,20 @@ impl RepositoryColors {
             paths
                 .into_iter()
                 .enumerate()
-                .map(|(i, path)| (path.to_owned(), color(i, count)))
+                .map(|(i, path)| {
+                    (
+                        path.to_owned(),
+                        (color(i, count), palette_color(i, count, &OPENED)),
+                    )
+                })
                 .collect(),
         )
     }
+    pub fn opened(&self, path: &Path) -> Option<u32> {
+        self.0.get(path).map(|colors| colors.1)
+    }
     pub fn get(&self, path: &Path) -> Option<u32> {
-        self.0.get(path).copied()
+        self.0.get(path).map(|colors| colors.0)
     }
 }
 
@@ -34,15 +42,22 @@ const DARK: [u32; 14] = [
     0x865762, 0x436946, 0x5b53af, 0x825845, 0x389895, 0x826a41, 0x88458a, 0x947259, 0x178e63,
     0x583d7a, 0x227985, 0x875887, 0x8c7b58, 0x5a5d6b,
 ];
+const OPENED: [u32; 14] = [
+    0x603239, 0x375239, 0x383275, 0x614438, 0x1d4d4a, 0x5e4d33, 0x562b58, 0x624e3f, 0x0d573c,
+    0x3b3147, 0x204145, 0x503250, 0x594d36, 0x494b57,
+];
 fn color(index: usize, count: usize) -> u32 {
-    if index < DARK.len() {
-        return DARK[index];
+    palette_color(index, count, &DARK)
+}
+fn palette_color(index: usize, count: usize, palette: &[u32; 14]) -> u32 {
+    if index < palette.len() {
+        return palette[index];
     }
-    let rounds = count / DARK.len();
-    let balance = (index / DARK.len()) as f64 / rounds as f64;
+    let rounds = count / palette.len();
+    let balance = (index / palette.len()) as f64 / rounds as f64;
     let tones = ((balance - 0.5).abs() * 2. * rounds as f64 + 1.) as usize;
-    let first = DARK[index % DARK.len()];
-    let second = DARK[(index + 1) % DARK.len()];
+    let first = palette[index % palette.len()];
+    let second = palette[(index + 1) % palette.len()];
     let channels = [16, 8, 0].map(|shift| {
         let a = ((first >> shift) & 255) as f64;
         let b = ((second >> shift) & 255) as f64;
@@ -74,6 +89,10 @@ mod tests {
         let b = RepositoryColors::new([child, parent, child]);
         assert_eq!(a.get(child), Some(0x865762));
         assert_eq!(a.get(parent), Some(0x436946));
+        assert_eq!(a.opened(child), Some(0x603239));
+        assert_eq!(a.opened(parent), Some(0x375239));
+        assert_eq!(a.opened(child), b.opened(child));
+        assert_eq!(a.opened(parent), b.opened(parent));
         assert_eq!(a.get(parent), b.get(parent));
         assert_eq!(a.get(child), b.get(child));
         assert_eq!(a.get(Path::new("/unknown")), None);

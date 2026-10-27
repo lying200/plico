@@ -206,6 +206,7 @@ impl Review {
             cx.new(|cx| super::project_roots::ProjectRoots::open(self.repo.path.clone(), cx));
         self.bind_project_roots(cx);
         self.show_long_edges = layout_preferences::load_log_long_edges(&self.repo.path);
+        self.show_log_root_names = layout_preferences::load_log_root_names(&self.repo.path);
         self.log_selection = Default::default();
         self.aggregate_chain = None;
         self.selection_details.clear();

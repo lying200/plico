@@ -13551,3 +13551,45 @@ artifacts/architecture-popup-20261027/{ready,search,closed,reopened-ready}.png�
 项目切换迟到结果由新增桌面测试覆盖，不冒充原生手测。181 项桌面、10 项发布
 配置导航、347 项核心单元测试和 Windows release 构建通过；Clippy 与格式通过，
 已有警告数量保持基线。未运行 CI、推送或发布。
+
+## Log 仓库颜色列：实现前核对（2026-10-27）
+
+参考源码 `4aec35256d765c217aa0d662b82ac4e860c396fd`；原生 Rebased
+1.1.20 / IC-262.10968.SNAPSHOT，与源码快照分别记录。独立 fixture
+`submodule-reference-80s4zk56/project`，主根与 child 子模块；已有 Compare Log
+按 child 过滤。原生点击左侧色条展开 child 名称列，再次点击收起，右侧保持
+未选择提交状态。截图 `artifacts/log-root-column-20261027/root-stripe-{before,expanded,collapsed}.png`。
+原生 tooltip 显示完整路径及 Click to expand / collapse，过滤到单根不隐藏项目的多根列。
+操作完成恢复收起状态，保留已有窗口。
+
+已读 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/RootCellRenderer.java`、
+`NewUiRootCellRenderer.kt`、`ui/actions/ShowRootsColumnAction.java`、
+`ui/VcsLogColorManagerFactory.kt` 及
+`platform/vcs-impl/shared/src/com/intellij/platform/vcs/impl/shared/ui/RepositoryColorStripe.kt`：
+单根列宽为零；窄列宽 10、色条宽 4、左空隙 2；相邻同根连接为段，两端圆角，末端空隙 2。
+点击切换 SHOW_ROOT_NAMES，不选择提交；展开宽度按名称测量并限于 300；名称显示于分段
+首行及首个可读行；展开使用独立暗色背景调色板。计划本地使用已接纳 Log 行的 CommitId.root、
+ProjectRoots 统一颜色及轻量渲染模块，不添加 Git 查询，不改变分页、选择或过滤。
+
+本地实现：`src/ui/log_root_column.rs` 负责列宽、分段、tooltip 与点击；
+`src/ui/log_history.rs` 在 graph 前挂载列，按实际 viewport offset 计算首个半行可读项；
+`src/ui/project_colors.rs` 共用原调色算法生成窄条与展开背景两套颜色；
+`src/layout_preferences.rs` 按项目保存展开状态。没有复制整份提交列表，也没有新增 Git 查询。
+点击阻止事件冒泡，不改提交选择、详情或过滤。根样式查询复用
+`recent_projects::identity`：Windows 子模块发现可能返回 `\\?\` canonical 路径，
+Log identities 使用普通路径，不能用未经规范化的 PathBuf 直接匹配。
+本轮范围为主 Log 仓库列；没有新增 View Options 中的同义菜单开关，现有 branch compare
+独立视图不在此次挂载范围。滚动到分段中间时的名称重现遵循源码规则，滚动实测仍由用户进行。
+
+验收记录：Windows 原生同一 submodule fixture 的主 Log 12/12 条，child 与 project
+交替分段，展开后连续 child 六条仅首行标名；重启保留展开，收起后保留原选中提交与详情。
+文本过滤 squash 后为 2/2，只有 child 仍保留色条，点击展开后右侧继续为空选择提示。
+对应截图 `plico-root-expanded-final.png`、`plico-root-collapsed-final.png`、
+`plico-root-filtered.png`、`plico-root-filtered-expanded.png` 位于同一 artifacts 目录。
+桌面回归 181 项通过；偏好读写定向 8 项通过；两套根颜色的身份/排序回归 2 项通过。
+Windows release 构建通过，既有 Request dead-code warning 保留；clippy 完成，修改模块未新增警告。
+最后以真实前台点击复验新 tooltip 身份：点击后旧提示消失；重新悬停显示对应根路径。
+截图 `plico-root-expanded-verified.png`、`plico-root-hover.png`；单独打开 child 的
+9/9 条 Log 无根颜色列，截图 `plico-root-single.png`。所有本轮启动的 Plico 进程
+14516、45172、41428、40524 已正常关闭，既有 Rebased 保留。精确多 DPI／长名称
+边界截图未覆盖；tooltip 排版沿用 Plico 控件，未宣称全局像素级一致。

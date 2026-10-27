@@ -24,6 +24,7 @@ mod log_count;
 mod log_display;
 mod log_history;
 mod log_query;
+mod log_root_column;
 mod log_selection;
 mod log_viewport;
 mod merge_recovery;
@@ -171,6 +172,7 @@ pub struct Review {
     snapshot: Option<Snapshot>,
     log: log_display::Display,
     show_long_edges: bool,
+    show_log_root_names: bool,
     graph_print_token: Cancel,
     graph_print_task: Task<()>,
     graph_print_generation: u64,
@@ -408,6 +410,7 @@ impl Review {
             snapshot: None,
             log: Default::default(),
             show_long_edges: layout_preferences::load_log_long_edges(&path),
+            show_log_root_names: layout_preferences::load_log_root_names(&path),
             graph_print_token: Cancel::default(),
             graph_print_task: Task::ready(()),
             graph_print_generation: 0,

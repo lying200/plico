@@ -96,6 +96,9 @@ impl ProjectRoots {
         cx.notify();
         true
     }
+    pub fn opened_color(&self, root: &std::path::Path) -> Option<u32> {
+        self.colors.opened(root)
+    }
     pub fn color(&self, root: &std::path::Path) -> Option<u32> {
         self.colors.get(root)
     }

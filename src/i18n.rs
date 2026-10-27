@@ -504,6 +504,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Directory" => "目录",
         "Layout" => "布局",
         "Show Diff Preview" => "显示差异预览",
+        "Click to expand repository names" => "点击展开仓库名称",
+        "Click to collapse repository names" => "点击收起仓库名称",
         "Show Details" => "显示详情",
         "Commit cancelled" => "已取消提交",
         "Commit timed out" => "提交超时",

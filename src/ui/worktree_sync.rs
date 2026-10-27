@@ -175,7 +175,7 @@ impl Review {
         {
             self.project_roots.update(cx, |roots, cx| roots.refresh(cx));
         }
-        if batch.history_changed() && self.repository_menu_open {
+        if batch.history_changed() && self.branch_popup.open {
             self.dismiss_repository_child(cx);
             self.load_repository_recents(cx);
         }

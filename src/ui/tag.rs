@@ -199,7 +199,7 @@ impl Review {
             return menu;
         };
         let state = view.read(cx);
-        let remotes = state.repository_push_remotes.clone();
+        let remotes = state.branch_popup.push_remotes.clone();
         let disabled = state.operation.busy() || state.operation.saving_documents();
         let owner = owner.clone();
         let reference = reference.to_owned();
@@ -220,7 +220,7 @@ impl Review {
             }
             menu
         };
-        if state.repository_push_remotes.len() >= 6 {
+        if state.branch_popup.push_remotes.len() >= 6 {
             menu.submenu(t("Push Tag"), window, cx, move |menu, _, _| items(menu))
         } else {
             items(menu)

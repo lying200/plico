@@ -5,11 +5,11 @@ use gpui_kit::component::menu::PopupMenu;
 
 impl Review {
     pub(super) fn repository_roots_updating(&self, cx: &App) -> bool {
-        self.repository_recent_token.is_some() || self.project_roots.read(cx).snapshot().is_none()
+        self.branch_popup.loading() || self.project_roots.read(cx).snapshot().is_none()
     }
 
     pub(super) fn repository_popup_roots(&self) -> Vec<&plico::branch_popup::project::Root> {
-        let Some(project) = &self.repository_project else {
+        let Some(project) = &self.branch_popup.project else {
             return vec![];
         };
         if project.roots.len() < 2 {
@@ -19,7 +19,7 @@ impl Review {
             .roots
             .iter()
             .filter(|root| {
-                self.repository_search.as_ref().is_none_or(|search| {
+                self.branch_popup.search.as_ref().is_none_or(|search| {
                     search
                         .find(
                             &root
@@ -47,9 +47,10 @@ impl Review {
     ) -> Option<plico::branch_search::Selection> {
         use plico::{branch_navigation, branch_search::Selection};
         let groups = self.repository_groups();
-        let rows = plico::branch_popup::visible_rows(&groups, &self.repository_expansion, true);
+        let rows = plico::branch_popup::visible_rows(&groups, &self.branch_popup.expansion, true);
         let entries = self
-            .repository_actions
+            .branch_popup
+            .actions
             .iter()
             .map(|id| Selection::Action(id.clone()))
             .chain(
@@ -62,9 +63,9 @@ impl Review {
             .collect::<Vec<_>>();
         branch_navigation::navigate_selections(
             &entries,
-            self.repository_selection.as_ref(),
+            self.branch_popup.selection.as_ref(),
             direction,
-            self.repository_search.is_some(),
+            self.branch_popup.search.is_some(),
         )
     }
     pub(super) fn repository_project_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -102,8 +103,8 @@ impl Review {
                 .unwrap_or_default();
             let identity = plico::branch_search::Selection::Repository(repository.path.clone());
             let hover = identity.clone();
-            let opened = self.repository_child_selection.as_ref() == Some(&identity);
-            let selected = self.repository_selection.as_ref() == Some(&identity);
+            let opened = self.branch_popup.child_selection.as_ref() == Some(&identity);
+            let selected = self.branch_popup.selection.as_ref() == Some(&identity);
             let menu_identity = identity.clone();
             let change_owner = cx.entity().downgrade();
             let owner = cx.entity().downgrade();
@@ -149,9 +150,9 @@ impl Review {
                     let child = cx.entity().downgrade();
                     let _ = owner.update(cx, |s, cx| {
                         s.dismiss_repository_child(cx);
-                        s.repository_child_menu = Some(child);
-                        s.repository_child_selection = Some(menu_identity.clone());
-                        s.repository_selection = Some(menu_identity.clone());
+                        s.branch_popup.child_menu = Some(child);
+                        s.branch_popup.child_selection = Some(menu_identity.clone());
+                        s.branch_popup.selection = Some(menu_identity.clone());
                     });
                     match &snapshot {
                         Some(snapshot) => Self::repository_root_menu(
@@ -170,10 +171,10 @@ impl Review {
                 .on_open_change(move |open, _, cx| {
                     let _ = change_owner.update(cx, |s, cx| {
                         if *open {
-                            s.repository_child_selection = Some(identity.clone());
-                        } else if s.repository_child_selection.as_ref() == Some(&identity) {
-                            s.repository_child_selection = None;
-                            s.repository_child_menu = None;
+                            s.branch_popup.child_selection = Some(identity.clone());
+                        } else if s.branch_popup.child_selection.as_ref() == Some(&identity) {
+                            s.branch_popup.child_selection = None;
+                            s.branch_popup.child_menu = None;
                         }
                         cx.notify();
                     });

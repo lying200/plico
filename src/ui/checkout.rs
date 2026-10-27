@@ -837,28 +837,29 @@ mod tests {
                 )
             });
             s.bind_project_roots(cx);
-            s.repository_menu_open = true;
+            s.branch_popup.open = true;
         });
         cx.run_until_parked();
         review.update(cx, |s, cx| s.load_repository_recents(cx));
         cx.run_until_parked();
         cx.update(|window, cx| {
             review.update(cx, |s, cx| {
-                assert_eq!(s.repository_project.as_ref().unwrap().roots.len(), 2);
+                assert_eq!(s.branch_popup.project.as_ref().unwrap().roots.len(), 2);
                 assert_eq!(s.repo.path, parent);
-                s.repository_selection =
+                s.branch_popup.selection =
                     Some(plico::branch_search::Selection::Action("revision".into()));
                 s.repository_visible_move(plico::branch_navigation::Move::Next, cx);
                 assert!(matches!(
-                    s.repository_selection,
+                    s.branch_popup.selection,
                     Some(plico::branch_search::Selection::Repository(_))
                 ));
                 let selected = plico::branch_search::Selection::Repository(child.clone());
-                s.repository_selection = Some(selected.clone());
-                s.repository_search_input
+                s.branch_popup.selection = Some(selected.clone());
+                s.branch_popup
+                    .input
                     .update(cx, |input, cx| input.focus(window, cx));
                 s.repository_activate_selection(false, window, cx);
-                assert_eq!(s.repository_child_selection, Some(selected));
+                assert_eq!(s.branch_popup.child_selection, Some(selected));
             })
         });
         for _ in 0..3 {
@@ -872,7 +873,8 @@ mod tests {
         let viewport = cx.update(|window, _| window.bounds().size);
         let origin = review.read_with(cx, |s, cx| {
             let menu = s
-                .repository_child_menu
+                .branch_popup
+                .child_menu
                 .as_ref()
                 .and_then(|m| m.upgrade())
                 .expect("child menu exists");
@@ -886,7 +888,13 @@ mod tests {
                 .expect("child menu has painted bounds")
         });
         review.read_with(cx, |s, cx| {
-            let menu = s.repository_child_menu.as_ref().unwrap().upgrade().unwrap();
+            let menu = s
+                .branch_popup
+                .child_menu
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap();
             let menu = menu.read(cx);
             assert!(
                 menu.contains_position(&(origin + gpui::point(px(373.), px(310.)))),
@@ -905,10 +913,10 @@ mod tests {
             });
             review.read_with(cx, |s, _| {
                 assert!(
-                    s.repository_menu_open,
+                    s.branch_popup.open,
                     "group navigation keeps the parent open"
                 );
-                assert!(s.repository_child_selection.is_some());
+                assert!(s.branch_popup.child_selection.is_some());
             });
         }
         // Rebased overrides Left in nested repository popups: close the
@@ -916,14 +924,15 @@ mod tests {
         cx.simulate_keystrokes("left");
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
-            assert!(s.repository_menu_open);
-            assert!(s.repository_child_selection.is_none());
+            assert!(s.branch_popup.open);
+            assert!(s.branch_popup.child_selection.is_none());
         });
         cx.update(|window, cx| {
             review.update(cx, |s, cx| {
-                s.repository_selection =
+                s.branch_popup.selection =
                     Some(plico::branch_search::Selection::Repository(child.clone()));
-                s.repository_search_input
+                s.branch_popup
+                    .input
                     .update(cx, |input, cx| input.focus(window, cx));
                 s.repository_activate_selection(false, window, cx);
             });
@@ -943,7 +952,8 @@ mod tests {
         });
         review.read_with(cx, |s, cx| {
             let menu = s
-                .repository_child_menu
+                .branch_popup
+                .child_menu
                 .as_ref()
                 .and_then(|m| m.upgrade())
                 .unwrap();
@@ -959,7 +969,8 @@ mod tests {
         cx.update(|window, cx| {
             review.read_with(cx, |s, cx| {
                 let menu = s
-                    .repository_child_menu
+                    .branch_popup
+                    .child_menu
                     .as_ref()
                     .and_then(|m| m.upgrade())
                     .unwrap();
@@ -972,11 +983,11 @@ mod tests {
         cx.simulate_click(reference, Default::default());
         review.read_with(cx, |s, _| {
             assert!(
-                s.repository_menu_open,
+                s.branch_popup.open,
                 "clicking a reference submenu must keep the branch popup open"
             );
             assert!(
-                s.repository_child_selection.is_some(),
+                s.branch_popup.child_selection.is_some(),
                 "reference click must retain the repository menu"
             );
         });
@@ -991,8 +1002,8 @@ mod tests {
             window.close_dialog(cx);
             review.update(cx, |s, cx| {
                 s.dismiss_repository_menu(cx);
-                assert!(s.repository_project.is_none());
-                s.repository_menu_open = true;
+                assert!(s.branch_popup.project.is_none());
+                s.branch_popup.open = true;
                 s.load_repository_recents(cx);
                 s.dismiss_repository_menu(cx);
             })
@@ -1000,7 +1011,7 @@ mod tests {
         cx.run_until_parked();
         review.read_with(cx, |s, _| {
             assert!(
-                s.repository_project.is_none(),
+                s.branch_popup.project.is_none(),
                 "dismissed popup must reject late metadata"
             );
             assert_eq!(s.repo.path, parent);

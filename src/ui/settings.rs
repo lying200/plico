@@ -61,10 +61,10 @@ impl Review {
         self.branch_search.update(cx, |input, cx| {
             input.set_placeholder(t("Branches and Tags"), window, cx)
         });
-        self.repository_search_input.update(cx, |input, cx| {
+        self.branch_popup.input.update(cx, |input, cx| {
             input.set_placeholder(t("Search for branches and actions"), window, cx)
         });
-        if self.repository_menu_open {
+        if self.branch_popup.open {
             self.apply_repository_search(cx);
         }
     }

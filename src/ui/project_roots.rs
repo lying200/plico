@@ -326,15 +326,11 @@ impl super::Review {
                         }
                     }
                 }
-                if s.repository_menu_open {
+                if s.branch_popup.open {
                     s.dismiss_repository_child(cx);
                     // Keep the last rendered roots during discovery/reference loading.
                     // Their entry points remain disabled until fresh metadata arrives.
-                    if let Some(token) = s.repository_recent_token.take() {
-                        token.cancel();
-                    }
-                    s.repository_recent_generation += 1;
-                    s.repository_recent_task = Task::ready(());
+                    s.branch_popup.invalidate();
                     if matches!(event, Changed::Ready { .. }) {
                         s.load_repository_recents(cx);
                     }
@@ -570,7 +566,7 @@ mod tests {
         });
         review.update(cx, |s, cx| {
             s.snapshot = Some(s.repo.reference_snapshot(&Cancel::default()).unwrap());
-            s.repository_menu_open = true;
+            s.branch_popup.open = true;
             s.load_repository_recents(cx);
         });
         cx.run_until_parked();
@@ -606,13 +602,14 @@ mod tests {
         );
         review.update_in(cx, |s, window, cx| {
             assert!(s.repository_roots_updating(cx));
-            s.repository_selection =
+            s.branch_popup.selection =
                 Some(plico::branch_search::Selection::Repository(second.clone()));
-            s.repository_search_input
+            s.branch_popup
+                .input
                 .update(cx, |input, cx| input.focus(window, cx));
             s.repository_activate_selection(false, window, cx);
             assert!(
-                s.repository_child_selection.is_none(),
+                s.branch_popup.child_selection.is_none(),
                 "stale roots cannot open an action menu"
             );
         });

@@ -195,13 +195,7 @@ impl Review {
         self.recent_recorded = false;
         self.welcome = false;
         self.dismiss_repository_menu(cx);
-        self.repository_recent.clear();
-        self.repository_favorites = Default::default();
-        self.repository_favorites_path = None;
-        self.repository_favorites_saving = false;
-        self.repository_favorites_error = None;
-        self.repository_favorites_epoch += 1;
-        self.repository_expansion = Default::default();
+        self.branch_popup.reset_project(path.clone());
         window.set_window_title(&format!(
             "Plico – {}",
             path.file_name().unwrap_or_default().to_string_lossy()

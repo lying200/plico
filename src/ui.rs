@@ -279,40 +279,13 @@ pub struct Review {
     date_filter: plico::date_filter::Bounds,
     user_menu: Entity<crate::user_menu::UserMenu>,
     paths_menu: Entity<crate::paths_menu::PathsMenu>,
-    repository_menu_open: bool,
-    // Logical search focus; the input retains platform text/IME handling in both modes.
-    repository_search_editing: bool,
-    repository_search_input: Entity<InputState>,
-    repository_search: Option<plico::branch_search::Search>,
-    repository_applied_query: String,
-    repository_search_task: Task<()>,
-    repository_selection: Option<plico::branch_search::Selection>,
-    repository_actions: Vec<String>,
-    repository_pointer: Option<Point<Pixels>>,
-    repository_child_selection: Option<plico::branch_search::Selection>,
-    repository_child_menu: Option<WeakEntity<gpui_kit::component::menu::PopupMenu>>,
-    repository_project: Option<Arc<plico::branch_popup::project::Project>>,
-    repository_recent: Vec<String>,
-    repository_push_remotes: Vec<String>,
-    repository_favorites: plico::branch_popup::Favorites,
-    repository_favorites_path: Option<PathBuf>,
-    repository_favorites_saving: bool,
-    repository_favorites_error: Option<String>,
-    repository_favorites_epoch: u64,
-    repository_recent_token: Option<Cancel>,
-    repository_recent_generation: u64,
-    repository_recent_task: Task<()>,
-    repository_expansion: plico::branch_popup::Expansion,
-    repository_scroll: UniformListScrollHandle,
+    branch_popup: repository_popup::session::Session,
 }
 impl Drop for Review {
     fn drop(&mut self) {
         self.graph_print_token.cancel();
         self.adjacent_token.cancel();
         self.source_token.cancel();
-        if let Some(token) = &self.repository_recent_token {
-            token.cancel();
-        }
     }
 }
 // Measure the allocated pane, not the whole window: a tool window or a dragged
@@ -554,32 +527,7 @@ impl Review {
             filter_regex: false,
             filter_match_case: false,
             date_filter: Default::default(),
-            repository_menu_open: false,
-            repository_search_editing: false,
-            repository_search_input: cx.new(|cx| {
-                InputState::new(window, cx).placeholder(t("Search for branches and actions"))
-            }),
-            repository_search: None,
-            repository_applied_query: String::new(),
-            repository_search_task: Task::ready(()),
-            repository_selection: None,
-            repository_actions: vec!["commit".into(), "new-branch".into(), "revision".into()],
-            repository_pointer: None,
-            repository_child_selection: None,
-            repository_child_menu: None,
-            repository_project: None,
-            repository_recent: Vec::new(),
-            repository_push_remotes: Vec::new(),
-            repository_favorites: Default::default(),
-            repository_favorites_path: None,
-            repository_favorites_saving: false,
-            repository_favorites_error: None,
-            repository_favorites_epoch: 0,
-            repository_recent_token: None,
-            repository_recent_generation: 0,
-            repository_recent_task: Task::ready(()),
-            repository_expansion: Default::default(),
-            repository_scroll: UniformListScrollHandle::new(),
+            branch_popup: repository_popup::session::Session::new(path.clone(), window, cx),
             paths_menu: cx.new(|cx| crate::paths_menu::PathsMenu::new(path.clone(), cx)),
             user_menu: cx
                 .new(|cx| crate::user_menu::UserMenu::new(Repository::new(path.clone()), cx)),
@@ -646,24 +594,21 @@ impl Review {
             }
         })
         .detach();
-        cx.subscribe(
-            &this.repository_search_input,
-            |s, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) && s.repository_menu_open {
-                    s.dismiss_repository_child(cx);
-                    s.repository_search_task = cx.spawn(async move |owner, cx| {
-                        cx.background_executor()
-                            .timer(std::time::Duration::from_millis(100))
-                            .await;
-                        let _ = owner.update(cx, |s, cx| {
-                            if s.repository_menu_open {
-                                s.apply_repository_search(cx);
-                            }
-                        });
+        cx.subscribe(&this.branch_popup.input, |s, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) && s.branch_popup.open {
+                s.dismiss_repository_child(cx);
+                s.branch_popup.search_task = cx.spawn(async move |owner, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(100))
+                        .await;
+                    let _ = owner.update(cx, |s, cx| {
+                        if s.branch_popup.open {
+                            s.apply_repository_search(cx);
+                        }
                     });
-                }
-            },
-        )
+                });
+            }
+        })
         .detach();
         this.bind_project_roots(cx);
         if !this.welcome {
@@ -921,10 +866,10 @@ impl Render for Review {
             }))
             .on_action(cx.listener(|s, _: &crate::project_view::SaveFile, _, cx| { drop(s.documents.save_all(cx)); }))
             .on_action(cx.listener(|s, _: &Find, w, cx| {
-                if s.repository_menu_open {
-                    s.repository_search_editing = true;
+                if s.branch_popup.open {
+                    s.branch_popup.search_editing = true;
                     s.dismiss_repository_child(cx);
-                    s.repository_search_input.read(cx).focus_handle(cx).focus(w, cx);
+                    s.branch_popup.input.read(cx).focus_handle(cx).focus(w, cx);
                     cx.stop_propagation(); cx.notify(); return;
                 }
                 s.leave_diff_tab(cx);

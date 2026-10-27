@@ -1104,7 +1104,7 @@ impl Review {
                 if let Some(pending) = requests.take_pending() {
                     match wx.update(|window, cx| {
                         let _ = this.update(cx, |s, cx| {
-                            s.repository_menu_open = false;
+                            s.dismiss_repository_menu(cx);
                             cx.notify();
                         });
                         crate::auth_dialog::show(pending, window, cx)

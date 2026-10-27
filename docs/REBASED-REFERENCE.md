@@ -13527,3 +13527,27 @@ UI线程等待所属编辑器结果，取消返回 false；GitHandlerAuthenticat
 保留授权生命周期和翻译，取消原窗口不恢复自动继续权。Rust 独立实现仍保留精确
 stash ID、共享 common-dir 锁和目录身份复验，未改变命令、界面或操作入口。
 本轮是内部重构，不声明新原生视觉验收。
+
+### 分支弹窗会话内部收拢（2026-10-27）
+
+复读4aec352：plugins/git4idea/shared/src/com/intellij/vcs/git/branch/popup/
+GitBranchesPopupBase.kt 的 searchPatternStateFlow / collectLatest、
+subscribeOnUpdates / runPreservingTreeState；同 shared 路径 branch/tree/
+GitBranchesTreeUpdatesService.kt 将收藏更新映射为 repaint、仓库创建／删除／状态
+变化映射为 refresh，并合并重复更新。规则是弹窗所属搜索任务与刷新、保持树状态，
+而非把全应用事件全部送入同一处理器。
+
+本地 ui/repository_popup/session.rs 管理加载取消与项目身份、搜索 flush 和收藏
+写入 epoch；repository_popup.rs 仍渲染既有 UI，project_roots.rs 调用统一失效入口。
+保留 Rust 的有界按需读取、现有通知订阅与收藏持久化，不引入 IntelliJ 常驻索引或
+全局消息总线。安装版仍1.1.20，原生参考沿用项目多根分支弹窗记录；本轮未改变
+布局、图标、搜索策略或根归属，最新 Plico 原生复验另记。
+
+最新 Windows release 原生复验：独立 submodule-reference-80s4zk56/project，
+自有 PID 20720。打开后 child/project 及各自当前分支正确，近期／本地引用保留；
+搜索 child 匹配子仓库，清空后 Esc 关闭，重开并完成读取后恢复两根。截图
+artifacts/architecture-popup-20261027/{ready,search,closed,reopened-ready}.png。
+未执行 checkout／fetch 等写操作，未做滚动自动化，自有进程正常退出。收藏失败／
+项目切换迟到结果由新增桌面测试覆盖，不冒充原生手测。181 项桌面、10 项发布
+配置导航、347 项核心单元测试和 Windows release 构建通过；Clippy 与格式通过，
+已有警告数量保持基线。未运行 CI、推送或发布。

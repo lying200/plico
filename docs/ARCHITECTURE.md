@@ -162,3 +162,21 @@ release bins 构建、cargo fmt 和 diff 空白检查通过。原生独立多仓
 确认父／子仓库详情绑定、12/12 总数、extra 过滤后 1/1、清除后恢复 12/12。
 截图见 artifacts/architecture-log-display-20261027/；自有 PID 23884 已正常关闭。
 未做滚动自动化，未运行 CI；不代表后面三项已实现。
+
+### 2. Git 交互会话（已实现并验证）
+
+`ui/git_interaction::Session`持有 operation Id、Review 弱引用、Requests、授权 Git
+目录和实际打开的编辑器／认证／变基计划／更新决策弹窗。普通 Merge、Rebase、
+Squash、多根序列操作及显式 Pull 通过同一入口消费请求；文件读取仍在后台，
+读取前后验证所属 operation，取消后的文件结果不再新开编辑器。完成时先验证 Id
+再清理本会话弹窗；不会让旧 completion 关闭新操作弹窗。
+
+operation 生命周期、取消与文档锁仍由 active_operation 和 ui/operation 负责；
+结果解释、恢复选项、具体刷新和各操作轮询节奏留在原 module。未引入通用 runner，
+没有改动 Git 命令、凭据存储、Document 的路径授权与严格编码。交互式变基保留
+原计划的 dismissed 状态和所属嵌套弹窗清理规则，不能继续授权已关闭的冲突流程。
+
+新增桌面回归直接构造真实认证请求，覆盖旧完成不得关闭替代弹窗／释放新操作，
+以及取消后保留所有权直到 worker 完成才关闭所属提示。179 项桌面测试、4 项
+operation 核心生命周期测试、10 项发布配置导航测试全部通过，Windows release
+bins 构建、格式与 diff 空白检查通过。本项无新增可见布局，不声明新原生视觉验收。

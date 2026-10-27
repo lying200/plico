@@ -168,45 +168,18 @@ impl Review {
                     async move { directory_repo.editor_directory(&Cancel::default()) },
                 )
                 .await;
-            let mut plan: Option<Entity<crate::rebase_plan_dialog::PlanDialog>> = None;
-            let mut editor: Option<Entity<crate::editor_dialog::Editor>> = None;
-            let mut auth: Option<Entity<crate::auth_dialog::Login>> = None;
+            let mut interaction = super::git_interaction::Session::new(
+                id,
+                this.clone(),
+                requests,
+                directory.as_ref().ok().cloned().into_iter().collect(),
+            )
+            .with_authentication();
             loop {
                 if let Some(pending) = plans.take_pending() {
-                    let repository = repo.clone();
-                    if let Ok(Ok(dialog)) = wx.update(|w, cx| {
-                        crate::rebase_plan_dialog::show(repository, project.clone(), pending, w, cx)
-                    }) {
-                        plan = Some(dialog);
-                    }
+                    interaction.show_plan(pending, repo.clone(), project.clone(), wx);
                 }
-                if let Some(pending) = requests.take_pending() {
-                    if matches!(
-                        pending.kind,
-                        plico::auth_request::Kind::CommitEditor
-                            | plico::auth_request::Kind::SequenceEditor
-                    ) {
-                        if let Ok(directory) = &directory {
-                            let directory = directory.clone();
-                            if let Ok(document) = wx
-                                .background_spawn(async move {
-                                    plico::editor::Document::open(pending, &directory)
-                                })
-                                .await
-                            {
-                                if let Ok(dialog) =
-                                    wx.update(|w, cx| crate::editor_dialog::show(document, w, cx))
-                                {
-                                    editor = Some(dialog);
-                                }
-                            }
-                        }
-                    } else if let Ok(dialog) =
-                        wx.update(|w, cx| crate::auth_dialog::show(pending, w, cx))
-                    {
-                        auth = Some(dialog);
-                    }
-                }
+                interaction.poll(wx).await;
                 let result = match rx.try_recv() {
                     Ok(r) => Some(r),
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -216,19 +189,8 @@ impl Review {
                 };
                 if let Some(result) = result {
                     let _ = this.update_in(wx, |s, w, cx| {
-                        let dismissed = plan.as_ref().is_some_and(|p| p.read(cx).dismissed());
-                        // The Log action creates a root modal. Only while one of its
-                        // owned dialogs remains open can nested descendants be closed.
-                        if plan.as_ref().is_some_and(|p| p.read(cx).is_open())
-                            || editor.as_ref().is_some_and(|e| e.read(cx).active())
-                            || auth.as_ref().is_some_and(|a| a.read(cx).active())
-                        {
-                            if let Some(plan) = &plan {
-                                plan.update(cx, |p, cx| p.close(cx));
-                            }
-                            w.close_all_dialogs(cx);
-                        }
-                        let Some(cancelled) = s.finish_operation(id, cx) else {
+                        let dismissed = interaction.dismissed(cx);
+                        let Some(cancelled) = interaction.finish(s, w, cx) else {
                             return;
                         };
                         if s.repo.path != project {

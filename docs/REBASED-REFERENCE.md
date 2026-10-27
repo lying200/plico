@@ -13501,3 +13501,17 @@ extra 文本过滤提交后从 12/12 收敛为 1/1，清除后恢复 12/12，详
 初次输入被中文 IME 保留，完成组合再 Enter 后核对最终结果；未将中间截图当成
 筛选验收。177 项桌面、10 项发布配置导航测试及 Windows release bins 构建通过；
 格式检查通过，自有测试进程正常关闭。未运行 CI、未自动化滚动。
+
+### Git 交互会话内部收拢（2026-10-27）
+
+参考4aec352，安装版仍1.1.20 / IC-262.10968.SNAPSHOT。本轮复读
+plugins/git4idea/backend/src/commands/GitImplBase.java 的
+loadFileAndShowInSimpleEditor / showUnstructuredEditorAndWait：后台加载消息，
+UI线程等待所属编辑器结果，取消返回 false；GitHandlerAuthenticationManager.java
+的 close() 释放命令所属 disposable。沿用既有 http-auth-20261022 的认证取消／
+重试原生记录和 collaboration-workflows-20261027 的交互式变基编辑器记录。
+
+本地 ui/git_interaction.rs 收拢 Requests 与所属弹窗，不复制 IntelliJ 线程模型；
+保留 Rust Pending 的 drop 取消语义、精确 Git 目录校验和各操作的结果处理。
+内部归属校验通过 operation Id，晚到结果在碰触弹窗前拒绝。没有新增／调整界面，
+本轮不宣称新增原生视觉验收；以已有原生参考和新增生命周期桌面回归核对内部重构。

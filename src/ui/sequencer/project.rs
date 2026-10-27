@@ -470,23 +470,14 @@ impl Review {
                 let _ = tx.send(results);
             })
             .detach();
-            let mut editor_dialog: Option<Entity<crate::editor_dialog::Editor>> = None;
+            let mut interaction = crate::ui::git_interaction::Session::new(
+                id,
+                this.clone(),
+                requests,
+                directories.clone(),
+            );
             loop {
-                if let Some(pending) = requests.take_pending() {
-                    let directories = directories.clone();
-                    if let Ok(document) = wx
-                        .background_spawn(async move {
-                            plico::editor::Document::open_in_roots(pending, &directories)
-                        })
-                        .await
-                    {
-                        if let Ok(dialog) =
-                            wx.update(|w, cx| crate::editor_dialog::show(document, w, cx))
-                        {
-                            editor_dialog = Some(dialog);
-                        }
-                    }
-                }
+                interaction.poll(wx).await;
                 let result = match rx.try_recv() {
                     Ok(result) => Some(result),
                     Err(std::sync::mpsc::TryRecvError::Empty) => None,
@@ -496,13 +487,7 @@ impl Review {
                 };
                 if let Some(result) = result {
                     let _ = this.update_in(wx, |s, w, cx| {
-                        if editor_dialog
-                            .as_ref()
-                            .is_some_and(|editor| editor.read(cx).active())
-                        {
-                            w.close_dialog(cx);
-                        }
-                        let Some(cancelled) = s.finish_operation(id, cx) else {
+                        let Some(cancelled) = interaction.finish(s, w, cx) else {
                             return;
                         };
                         if s.repo.path != project_path {

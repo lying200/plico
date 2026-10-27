@@ -211,30 +211,19 @@ impl Review {
         })
         .detach();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
-            let mut editor: Option<Entity<crate::editor_dialog::Editor>> = None;
             let directory = wx
                 .background_spawn(
                     async move { directory_repo.editor_directory(&Cancel::default()) },
                 )
                 .await;
+            let mut interaction = super::git_interaction::Session::new(
+                operation,
+                this.clone(),
+                requests,
+                directory.as_ref().ok().cloned().into_iter().collect(),
+            );
             loop {
-                if let Some(pending) = requests.take_pending() {
-                    if let Ok(dir) = &directory {
-                        let dir = dir.clone();
-                        if let Ok(document) = wx
-                            .background_spawn(async move {
-                                plico::editor::Document::open(pending, &dir)
-                            })
-                            .await
-                        {
-                            if let Ok(dialog) =
-                                wx.update(|w, cx| crate::editor_dialog::show(document, w, cx))
-                            {
-                                editor = Some(dialog);
-                            }
-                        }
-                    }
-                }
+                interaction.poll(wx).await;
                 let result = match rx.try_recv() {
                     Ok(result) => Some(result),
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -244,11 +233,8 @@ impl Review {
                 };
                 if let Some((result, undo)) = result {
                     let _ = wx.update(|w, cx| {
-                        if editor.as_ref().is_some_and(|d| d.read(cx).active()) {
-                            w.close_dialog(cx);
-                        }
                         let _ = this.update(cx, |s, cx| {
-                            if s.finish_operation(operation, cx).is_none() {
+                            if interaction.finish(s, w, cx).is_none() {
                                 return;
                             }
                             let success = result.as_ref().is_ok_and(|r| r.succeeded());
@@ -637,30 +623,19 @@ impl Review {
         })
         .detach();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
-            let mut editor: Option<Entity<crate::editor_dialog::Editor>> = None;
             let directory = wx
                 .background_spawn(
                     async move { directory_repo.editor_directory(&Cancel::default()) },
                 )
                 .await;
+            let mut interaction = super::git_interaction::Session::new(
+                operation,
+                this.clone(),
+                requests,
+                directory.as_ref().ok().cloned().into_iter().collect(),
+            );
             loop {
-                if let Some(pending) = requests.take_pending() {
-                    if let Ok(dir) = &directory {
-                        let dir = dir.clone();
-                        if let Ok(document) = wx
-                            .background_spawn(async move {
-                                plico::editor::Document::open(pending, &dir)
-                            })
-                            .await
-                        {
-                            if let Ok(dialog) =
-                                wx.update(|w, cx| crate::editor_dialog::show(document, w, cx))
-                            {
-                                editor = Some(dialog);
-                            }
-                        }
-                    }
-                }
+                interaction.poll(wx).await;
                 let result = match rx.try_recv() {
                     Ok(result) => Some(result),
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -670,11 +645,8 @@ impl Review {
                 };
                 if let Some(mut result) = result {
                     let _ = wx.update(|w, cx| {
-                        if editor.as_ref().is_some_and(|d| d.read(cx).active()) {
-                            w.close_dialog(cx);
-                        }
                         let _ = this.update(cx, |s, cx| {
-                            let Some(cancelled) = s.finish_operation(operation, cx) else {
+                            let Some(cancelled) = interaction.finish(s, w, cx) else {
                                 return;
                             };
                             if s.repo.path != project_path {

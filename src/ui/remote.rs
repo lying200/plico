@@ -833,23 +833,12 @@ impl Review {
         })
         .detach();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
-            let mut login: Option<Entity<crate::auth_dialog::Login>> = None;
-            let mut editor: Option<Entity<crate::editor_dialog::Editor>> = None;
-            let mut decision: Option<Entity<crate::update_dialog::UpdateDialog>> = None;
+            let mut interaction = super::git_interaction::Session::new(operation, this.clone(), requests, vec![directory.clone()]).with_authentication();
             loop {
                 if let Some(pending) = choice_ui.take_pending() {
-                    if let Ok(dialog) = wx.update(|w, cx| crate::update_dialog::show(pending, w, cx)) { decision = Some(dialog); }
+                    interaction.show_decision(pending, wx);
                 }
-                if let Some(pending) = requests.take_pending() {
-                    use plico::auth_request::Kind;
-                    if matches!(pending.kind, Kind::CommitEditor | Kind::SequenceEditor) {
-                        let dir = directory.clone();
-                        let document = wx.background_spawn(async move { plico::editor::Document::open(pending, &dir) }).await;
-                        if let Ok(document) = document {
-                            if let Ok(dialog) = wx.update(|w, cx| crate::editor_dialog::show(document, w, cx)) { editor = Some(dialog); }
-                        }
-                    } else if let Ok(dialog) = wx.update(|w, cx| crate::auth_dialog::show(pending, w, cx)) { login = Some(dialog); }
-                }
+                interaction.poll(wx).await;
                 let result = match rx.try_recv() {
                     Ok(result) => Some(result),
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("Pull worker ended".into())),
@@ -857,9 +846,8 @@ impl Review {
                 };
                 if let Some(result) = result {
                     let _ = wx.update(|w, cx| {
-                        if login.as_ref().is_some_and(|d| d.read(cx).active()) || editor.as_ref().is_some_and(|d| d.read(cx).active()) || decision.as_ref().is_some_and(|d| d.read(cx).active()) { w.close_dialog(cx); }
                         let _ = this.update(cx, |s, cx| {
-                            let Some(cancelled) = s.finish_operation(operation, cx) else { return; };
+                            let Some(cancelled) = interaction.finish(s, w, cx) else { return; };
                             let saved = matches!(&result, Ok(PullResult::Rebase(report)) if report.saved_oid.is_some());
                             s.saved_changes_available |= saved;
                             let message = if cancelled {

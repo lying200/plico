@@ -50,6 +50,12 @@ impl Lifecycle {
             .as_ref()
             .is_some_and(|running| running.kind == kind)
     }
+    /// Whether a UI interaction still belongs to the running worker.
+    pub fn owns(&self, id: Id) -> bool {
+        self.running
+            .as_ref()
+            .is_some_and(|running| running.id == id)
+    }
     pub fn busy(&self) -> bool {
         self.running.is_some()
     }

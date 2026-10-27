@@ -17,6 +17,7 @@ mod get_revision;
 mod history_operations;
 mod identity;
 mod init;
+mod interactive_rebase;
 mod log_branches;
 mod log_count;
 mod log_history;

@@ -400,6 +400,33 @@ Repository initialization / first-push behavioral adaptations (Rebased 4aec352):
   Local mappings: src/init_repository.rs, src/ui/init.rs, src/ui/push_remote.rs,
   src/push_dialog.rs; remote configuration and authentication reuse existing modules.
 
+Interactive rebase plan model
+
+src/interactive_rebase/model.rs adapts GitRebaseTodoModel.kt and selection rules
+from ChangeEntryStateActions.kt under plugins/git4idea/backend/src/rebase/interactive/.
+src/interactive_rebase/draft.rs adapts bounded history/message editing from
+GitRebaseCommitsTableModel.kt and ChangeEntryStateActions.kt in the same directory.
+src/interactive_rebase/todo.rs follows parsing/validation behavior from
+GitInteractiveRebaseFile.java, GitRebaseEntry.kt, GitInteractiveRebaseUsingLog.kt
+and log/GitInteractiveRebaseEntriesProvider.kt under the rebase source directory.
+Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+src/interactive_rebase/model/conversion.rs adapts GitRebaseTodoModelConverter.kt
+and GitSquashedCommitsMessage.kt conversion semantics.
+src/interactive_rebase/messages.rs follows GitRewordedCommitMessageProvider.kt
+ordered message mappings, with per-rebase persistent storage and identity checks.
+src/interactive_rebase/prepare.rs and operation.rs follow GitSingleCommitEditingAction,
+GitCommitEditingActionBase and GitRebaseProcess availability/preserving lifecycle.
+Rust uses stable row IDs and contiguous groups instead of mutable object references.
+License text: licenses/assets/icons/LICENSE.txt.
+src/rebase_plan_table.rs and its submodules adapt the interactive dialog's selection,
+inline editor and toolbar interaction from GitInteractiveRebaseDialog.kt,
+ChangeEntryStateActions.kt, GitRebaseCommitsTableView.kt, and view/{MoveTableItemRunnable,
+CommitMessageCellEditor}.kt at the same Rebased commit (JetBrains, Apache-2.0).
+src/interactive_rebase/details.rs and src/rebase_plan_{dialog,details}.rs follow
+GitInteractiveRebaseDialog, FullCommitDetailsListPanel and GitDetailsCollector
+selection/loading/dialog lifecycle at the same reference commit (JetBrains, Apache-2.0).
+
 
 Project repository membership and submodule discovery
 

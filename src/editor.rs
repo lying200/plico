@@ -1,6 +1,8 @@
 //! Rebased GitRebaseEditorApp / GitSimpleEditorHandler bridge (4aec352, Apache-2.0).
 //! Helper sends a file path; the application edits it and returns an exit code.
 use crate::auth_request::{Kind, Pending};
+mod encoding;
+use encoding::Encoding;
 use std::{
     ffi::OsString,
     fs::{self, OpenOptions},
@@ -8,6 +10,41 @@ use std::{
     path::{Path, PathBuf},
 };
 const LIMIT: u64 = 1024 * 1024;
+
+/// Immutable encoding snapshot for validating messages before accepting a plan.
+/// Load on a worker; validation performs no Git or filesystem access.
+#[derive(Clone, Copy)]
+pub struct MessageEncoding(Encoding);
+impl Default for MessageEncoding {
+    fn default() -> Self {
+        Self(Encoding::Utf8)
+    }
+}
+impl MessageEncoding {
+    pub fn load(repo: &crate::git::Repository, stop: &crate::git::Cancel) -> io::Result<Self> {
+        Encoding::configured(repo, false, stop).map(Self)
+    }
+    pub fn validate(&self, text: &str) -> io::Result<()> {
+        if text.len() as u64 > LIMIT || text.contains('\0') {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let bytes = self.0.encode(text)?;
+        if bytes.len() as u64 > LIMIT {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        Ok(())
+    }
+}
+
+/// Check both editor encodings before an operation saves changes or rewrites history.
+pub(crate) fn validate_encodings(
+    repo: &crate::git::Repository,
+    stop: &crate::git::Cancel,
+) -> io::Result<()> {
+    Encoding::configured(repo, false, stop)?;
+    Encoding::configured(repo, true, stop)?;
+    Ok(())
+}
 
 pub fn command(helper: &Path, sequence: bool) -> io::Result<OsString> {
     if !helper.is_absolute() || !helper.is_file() {
@@ -40,7 +77,9 @@ pub struct Document {
     pending: Option<Pending>,
     path: PathBuf,
     git_directory: PathBuf,
-    original: String,
+    original: Vec<u8>,
+    text: String,
+    encoding: Encoding,
     pub sequence: bool,
 }
 impl Document {
@@ -55,7 +94,9 @@ impl Document {
             sequence: pending.kind == Kind::SequenceEditor,
             path: PathBuf::new(),
             git_directory: PathBuf::new(),
-            original: String::new(),
+            original: Vec::new(),
+            text: String::new(),
+            encoding: Encoding::Utf8,
             pending: Some(pending),
         };
         let pending = document.pending.as_ref().unwrap();
@@ -90,7 +131,13 @@ impl Document {
             }
         }
         document.git_directory = selected.ok_or(io::ErrorKind::PermissionDenied)?;
+        document.encoding = Encoding::configured(
+            &crate::git::Repository::new(&document.git_directory),
+            document.sequence,
+            &pending.cancel_token(),
+        )?;
         document.original = read_bounded(&path)?;
+        document.text = document.encoding.decode(&document.original)?;
         document.path = path;
         Ok(document)
     }
@@ -98,7 +145,7 @@ impl Document {
         &self.git_directory
     }
     pub fn text(&self) -> &str {
-        &self.original
+        &self.text
     }
     /// Forward an unmatched automatic editor request to the ordinary UI without
     /// writing the stale text originally read by this document back over it.
@@ -129,15 +176,19 @@ impl Document {
         if text.len() as u64 > LIMIT || text.contains('\0') {
             return Err(io::ErrorKind::InvalidInput.into());
         }
+        let encoded = self.encoding.encode(text)?;
+        if encoded.len() as u64 > LIMIT {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
         let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
-        let mut current = String::new();
-        (&mut file).take(LIMIT + 1).read_to_string(&mut current)?;
+        let mut current = Vec::new();
+        (&mut file).take(LIMIT + 1).read_to_end(&mut current)?;
         if current != self.original {
             return Err(io::Error::other("Editor file changed while editing"));
         }
         file.rewind()?;
-        file.write_all(text.as_bytes())?;
-        file.set_len(text.len() as u64)?;
+        file.write_all(&encoded)?;
+        file.set_len(encoded.len() as u64)?;
         file.flush()?;
         self.pending
             .take()
@@ -153,7 +204,7 @@ impl Drop for Document {
         }
     }
 }
-fn read_bounded(path: &Path) -> io::Result<String> {
+fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     fs::File::open(path)?
         .take(LIMIT + 1)
@@ -161,5 +212,5 @@ fn read_bounded(path: &Path) -> io::Result<String> {
     if bytes.len() as u64 > LIMIT {
         return Err(io::ErrorKind::InvalidData.into());
     }
-    String::from_utf8(bytes).map_err(|_| io::ErrorKind::InvalidData.into())
+    Ok(bytes)
 }

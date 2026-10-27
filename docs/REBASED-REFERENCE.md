@@ -1035,7 +1035,7 @@ Windows release 通过（31.01s）；原生编辑器继续/取消重试两项 16
 
 ### Compare Versions 两版本语义与读取（2026-10-17）
 
-读取参考 4aec35256d765c217aa0d662b82ac4e860c396fd 的 platform/vcs-log/impl/src/com/intellij/vcs/log/ui/actions/CompareRevisionsFromLogAction.kt 全文：仅恰好两个同仓库提交显示并启用，传入 commits[1] 为左、commits[0] 为右。GitLogDiffHandler.java::showDiffForPaths 调用 GitChangeUtils.getDiff；读取 plugins/git4idea/backend/src/changes/GitChangeUtils.java 的 getDiff 重载及内部实现：detectRenames=true，threeDots=false，解析双方固定引用后构造两个版本的变化，不做 merge-base 或逐提交 zip。
+读取参考 4aec35256d765c217aa0d662b82ac4e860c396fd 的 platform/vcs-log/impl/src/com/intellij/vcs/log/ui/actions/CompareRevisionsFromLogAction.kt 全文：恰好两个提交时显示，仅同仓库时启用，传入 commits[1] 为左、commits[0] 为右。GitLogDiffHandler.java::showDiffForPaths 调用 GitChangeUtils.getDiff；读取 plugins/git4idea/backend/src/changes/GitChangeUtils.java 的 getDiff 重载及内部实现：detectRenames=true，threeDots=false，解析双方固定引用后构造两个版本的变化，不做 merge-base 或逐提交 zip。
 
 继续读取 VcsLogUtil.java::getAffectedPaths、VcsLogUiPropertiesImpl.kt：SHOW_ONLY_AFFECTED_CHANGES 默认 false，仅显式启用时使用结构过滤路径。读取 platform/vcs-impl/src/com/intellij/vcs/CompareWithLocalDialog.java 的 showChanges/showAsTab/showDialog/createPanel/MyChangesBrowser：LocalContent.NONE，不保存工作区文档；默认经 Changes 工具窗口显示文件浏览器与 DiffPreview，非模态弹窗是 registry/模态场景回退。AbstractVcsHelperImpl.showCommittedChangesAsTab 与 registry.properties 确认 vcs.show.affected.files.as.tab 默认 true。文件树使用 KEEP_NON_EMPTY，选择逻辑不能复用多提交累计变化的范围。
 
@@ -4485,7 +4485,7 @@ Windows原生同条件验收→独立提交推进，不批量铺设未经参考�
 | 3 | 分支重命名 | 当前/其他本地分支、非法/重名、保留或取消upstream、工作树占用及刷新 | GitRenameBranchAction、GitNewBranchDialog、GitRenameBranchOperation |
 | 4 | Worktree管理 | 列表、创建新/已有分支、打开、确认删除含本地修改的工作树、已占用分支、失败/取消和跨窗口刷新 | workingTrees actions/dialogs/services、GitWorktreesViewModel及测试 |
 | 5 | 分支对比 | 任意两分支独有提交、整体文件差异、方向交换/空结果/按需Diff/引用刷新 | GitCompareBranchesHelper、CompareBranchesHelper、GitCompareBranchesUi |
-| 6 | 子模块初始化/同步/更新 | clone未递归后补初始化；父指针变化后更新；嵌套/dirty子模块/URL同步/失败恢复 | GitSubmoduleUpdater、GitSubmoduleTest及对应UI入口 |
+| 6 | 子模块更新与多仓库Log（对齐Rebased） | 父指针变化后更新；附着分支走普通更新；嵌套/dirty子模块/失败恢复；保留既有递归clone，不做独立init/sync；多仓库Log、Roots过滤及提交操作按真实仓库路由 | GitSubmoduleUpdater、GitSubmoduleTest、GitUpdateProcess及对应UI入口 |
 | 7 | 浅克隆获取完整历史 | 仅shallow仓库入口、确认remote、认证/取消/失败、完成后历史计数刷新 | GitUnshallowRepositoryAction、GitFetchSupport及测试 |
 | 8 | 交互式历史整理 | 补齐此前表中提到的完整交互式Rebase：顺序调整、pick/reword/edit/squash/fixup/drop、资格限制、冲突恢复；具体控件按上游实机确认 | Git交互式Rebase action/dialog/editor/model及测试（待定位） |
 
@@ -4495,7 +4495,7 @@ Rebased参考checkout为4aec35256d765c217aa0d662b82ac4e860c396fd，安装版1.1.
 IC-262.10968.SNAPSHOT。若其行为与Git配置或本轮用户目标不同，先记录差异依据，
 不能把上游存在的限制直接当成我们的功能目标。
 
-当前状态：第1项已提交6505a25；第2项已提交030edf1；第3项已提交e4046e0；第4项主流程已实现并通过验收（本次独立提交；来源搜索、键盘/右键、Windows权限重试等剩余对齐项见提交前记录）；第5项进行中（分支对比原生参考与有界查询）；第6—8项待实现。
+当前状态（2026-10-27更新）：第1项已提交6505a25；第2项030edf1；第3项e4046e0；第4项主流程0f85a32；第5项功能阶段818b5cb（保留精确视觉差异）。第6项基础已提交cce90ff（仓库成员、子模块发现与映射持久化）、30bf0ac（根限定事件、操作状态与写入协调）、b9beeee（整组Update、子模块分流、冲突交互/保存恢复核心和子根编辑路由）、3f9d421（聚合Log查询/分页/计数、根限定选择和Diff导航数据层）及c0844be（仓库绑定写操作、批量分支回滚、Cherry-pick/Revert原会话续跑核心）；界面接线及第7项共享上下文已提交4e87912：项目根持久化、整组Update及冲突恢复、普通根/子模块分流、聚合Log、引用身份、Roots/路径过滤及过滤持久化已实现并有分项验收；尚需归拢剩余边界与视觉差异，不以单项测试冒充整项完成。独立init/sync明确排除。第7项已随4e87912提交：主根Unshallow正向及失败重试、Project树选择子根后的入口/执行/聚合Log刷新均通过Windows验收；首次启动提醒及取消/重开/重试已通过Windows验收；Log单根过滤执行、外部shallow变化刷新已通过Windows验收；关闭编辑页不保留旧目标的规则已由源码和Rebased实机确认，本地桌面回归及Plico同条件原生验收均通过（详见关闭编辑页原生验收记录）。第8项主流程已接入：计划表、草稿历史、todo 与消息编辑路由、Reword/Edit/Squash/Fixup/Drop、顺序拖动、资格限制及暂停继续已有分项核心/原生证据；本轮 Latin-1 Reword 也已通过 Windows 原生验证。计划分隔布局、详情Enter、子根Drop/Reword及编码错误原位修正已通过分项原生验收；仍需完成详情分组/键盘与计划拖动等剩余边界，不将主流程贯通当作整项完成。所有未提交改动保留，不自动推送发布。
 
 
 ### 1. Fork推送目标：原生前置结果
@@ -6907,6 +6907,6067 @@ whitespace检查通过。Windows构建沿用最近group-preview成功产物，�
 与参考一致，引用刷新通过双分支日志比较入口完成。大规模内存基准未在本轮重测。
 第6项仅清单基础，代码不纳入第5项提交；第7、8项未开始，总目标仍未完成。
 
+第6项按需子仓库探测（2026-10-25）：基于已记录原生项目detached识别、部分失败与
+重试场景，沿用实读GitSubmodule.getDirectSubmodules、GitUpdateProcess的
+collectDetachedSubmodules/isSaveNeeded规则。src/submodules.rs新增inspect，只探测
+选中路径；通过现有Project路径解析拒绝链接祖先/管理目录，先检查.git标记，再核对
+Git返回的根目录与声明路径，避免缺失子目录时Git向上找到父仓库而误判。
+Checkout区分未初始化（含目录是否已有内容）、已初始化（HEAD、完整分支ref或
+ detached、tracked/untracked/conflicts）。复用Repository.local_changes的Git状态
+解析和只读命令环境，损坏.git/无有效HEAD保持错误；不将读取快照当作后续写操作
+许可，执行前仍需重新检查。根目录解析与清单共用。
+
+tests/submodules真实Git八项全部通过（/tmp/plico-submodule-probe-tests.log）：新增
+缺失/占用/损坏目录、真实gitfile子模块分支与detached、tracked/untracked、子模块
+内部未合并index、链接祖先及取消；检查字节与index保留。格式与diff检查通过。
+未增加UI，未重新启动原生实例。初始化/同步/更新及本地修改保存恢复仍未实现，
+第6项保持进行中，不把此探测阶段视为完整子模块功能交付；7—8项范围不变。
+
+
+### 第6项子模块：干净递归更新执行层（2026-10-25，未交付）
+
+前置实机沿用submodule-update-reference、submodule-updated-reference与
+submodule-retry-final-reference：父已更新后仍能重试子模块；失败保留旧子HEAD，成功
+跟随父gitlink且保持detached。未新增UI，也未把本次核心测试替代原生Plico验收。
+本次实读4aec352的backend/src/update/GitSubmoduleUpdater.kt、GitUpdateProcess.java
+collectDetachedSubmodules/defineUpdaters，以及backend/src/util/GitPreservingProcess.kt
+和backend/src/stash/GitStashChangesSaver.java。路径均位于plugins/git4idea/。
+保存流程规则：save处于不可取消段，保存失败不执行更新；自动恢复由整体结果决定；
+load最多执行一次；Stash保存记录各root与stash hash，恢复用pop，启用staging时带--index。
+不能据updateImpl旧注释推断错误结果也自动恢复，应以实际autoLoadDecision为准。
+
+src/submodule_update.rs新增不透明Update快照：确认声明、index gitlink、子HEAD与
+分支状态、嵌套目录、未完成Git操作；执行时占用已发现仓库并重读快照，过期则拒绝。
+从父仓库运行submodule update --recursive -- <path>，复用认证/进度/取消边界；不带
+force/init，不对可能部分成功的操作自动重放。返回原始Outcome及独立的更新后探测
+结果，刷新失败不能吞掉操作结果。输出仍须由UI使用现有脱敏器，不能直接显示URL。
+operation_queue新增原子多仓库占用，同组包含重复common-dir时去重，不持有部分锁
+等待其他锁；单仓库调用继续复用同一队列。此锁仅协调本进程，不宣称跨应用原子性，
+也不覆盖更新后新出现且尚未发现的仓库；完整初始化/拓扑变更编排仍需补齐。
+
+本层当前只执行干净detached子树，分支子模块、dirty/untracked及未初始化子树明确
+交给尚待实现的上层流程，不把拒绝操作当成这些场景已经支持。父子gitlink漂移本身
+不应当作可stash文件；递归检查每个子节点实际文件修改，保留已暂存gitlink修改。
+保存/恢复、普通分支更新路由、init/sync、恢复入口、中英文UI均仍在第6项范围内。
+
+验证：cargo test --locked --no-default-features完整通过，日志
+/tmp/plico-submodule-core-tests.log；其中tests/submodules.rs共12项，通过真实Git覆盖
+父HEAD/index不变、跟随gitlink、陈旧请求、预取消、dirty/attached拒绝、失败保留结果、
+嵌套指针漂移与嵌套文件修改区别。队列测试覆盖重叠集合取消、独立仓库可用和释放。
+本轮未运行Windows新增执行层原生验收或CI，未提交第6项；第7—8项继续保留。
+
+### 第6项子模块：dirty更新原生前置（2026-10-25）
+
+自有Rebased26528/27005464，原独立submodule-reference-80s4zk56/project；启动前
+核对父仅.idea未跟踪、子干净。向child-source添加extra.txt并推本地bare，再推进父
+remote的gitlink；项目子HEAD仍cf261c3f，readme.txt追加local preserved edit。
+Ctrl+T打开Update Project：沿用Merge/Rebase单选与OK/Cancel，不额外弹出子模块
+保存确认。截图submodule-dirty-reference.png。确认Merge后父更新，子HEAD推进到
+54838af25323d453907d8eeaa3898a63a36787a5，保持detached；readme.txt仍含本地追加，
+extra.txt已存在。截图submodule-dirty-restored-reference.png显示新提交和更新成功通知。
+两图已查看并保存于artifacts/collaboration-workflows-20261024/。
+日志显示GitUpdateProcess为子root标记needs save；本机配置选择VcsShelveChangesSaver，
+先保存/restore工作文件，再merge父、submodule update --recursive，成功后恢复本地编辑。
+本场景未制造恢复冲突或dirty更新失败，不能声称这些状态已有原生验收。
+
+源码实读4aec352 GitPreservingProcess.kt、GitStashChangesSaver.java及GitImpl.java
+stashSave：Stash方式用stash push -m（无include-untracked）；成功后pop，staging可用
+时--index；整体更新失败不自动恢复。Plico复用已有update_session的Stash方式，作为
+已支持的保存策略，保留与本机默认Shelf的存储差异，UI应明确恢复方式，不伪装Shelf。
+接下来复用同一保存语义到子模块，扩展会话以共享多仓库队列占用，避免重复加锁死锁。
+
+
+第6项Stash保存恢复核心（2026-10-25）：src/submodule_update.rs增加
+execute_preserving，整组锁占用下重验快照；从内层到外层保存真正有tracked文件修改的
+root，整个保存段不可取消，未跟踪文件留在原处。复用update_session::Session.save /
+finish，新增under_guard借用已拥有的仓库组，检查common-dir归属并以生命周期保证
+共享占用不早于会话释放。保存后复验拓扑/目标/HEAD；发生变化保留stash且停止更新。
+子模块更新只执行一次，不自动重放；更新成功才逐root恢复index和worktree，失败、
+取消或恢复冲突保留各root与stash OID、save/update/restore结果。更新后查询失败单独
+保留，不能把可能已完成的写操作误报成可直接重放。Git stash本身持久化；父级恢复
+入口和重开窗口后的跨子模块恢复发现尚未完成，不把内存Report视作UI交付。
+
+tests/submodules共17项通过（/tmp/plico-submodule-preserve-final.log），在原有12项
+上新增暂存/未暂存修改分别恢复、失败不自动pop、恢复冲突、未跟踪路径冲突不覆盖、
+index.lock保存失败不启动更新；原嵌套测试扩充两层各自stash及恢复index。完整核心
+回归通过（/tmp/plico-submodule-preserve-core.log）；随后将多root保存段统一为不可
+取消并补index.lock测试，重跑17项定向测试。格式/whitespace检查通过，Clippy结果
+单独见/tmp/plico-submodule-preserve-clippy.log，已有告警仍保留。
+
+自有Rebased26528正常退出（确认退出弹窗后核对进程不存在），原生fixture readme.txt
+恢复测试前字节；保留既有Plico44076及Rebased44688，没有关闭用户实例。此轮无新UI，
+未构建或宣称Plico Windows原生保存恢复验收完成。第6项保持未提交；后续优先补齐
+init/sync、attached分支路由、可见恢复入口及原生验收，第7—8项仍在完整目标内。
+
+
+### 第6项子模块：扩大检索及未初始化实机复核（2026-10-25）
+
+用户要求再次查找后，扩大到全仓初始化/同步组合关键词、全部GitCommand.SUBMODULE
+调用、GitMainMenu/GitRepositoryActions及资源注册、GitRootChecker.suggestDependentRoots、
+GitCheckoutProvider克隆成功回调。已实读相关实现：GitIndexUtil.loadStagedSubmoduleHash
+只执行status --cached；GitSubmoduleUpdater执行update --recursive；GitImpl.clone依据
+advanced setting增加--recurse-submodules；RootChecker仅建议已存在目录的VCS root；
+checkout成功回调只刷新目录/添加映射/通知完成，未发现补init/sync执行。
+GitRepositoryManager.shouldProposeSyncControl的sync是多仓库分支操作协调，不是URL同步。
+全仓搜索中命中的update --init --recursive位于GitComplexSubmoduleTest夹具，不能
+作为产品动作实现依据；生成的事件元数据及Python submodule同名结果排除。
+
+另核对远端最新HEAD db13477117db68585f8f9f814255926ca779ee1b（仅fetch到工作区外参考
+checkout，不切换原HEAD 4aec352）；git diff --name-only HEAD db134... -- plugins/git4idea
+为空，该目录内容相同。已安装Rebased1.1.20的plugins/vcs-git/lib及modules JAR中，
+子模块类、plugin.xml/backend.xml和GitBundle资源亦仅发现既有识别、Diff、update及
+递归克隆设置，没有找到独立初始化/URL同步action。这是所检查版本范围的结论，
+不据此断言其他版本或第三方插件不存在。
+
+实机新增独立非递归clone：submodule-uninitialized-o45t3krt/project，仅引用此前本地
+parent.git；Rebased44756/5572884。Find Action搜索submodule，再启用Include disabled
+ actions，结果仍只有Recursively clone submodules in the project设置。截图
+submodule-find-final-reference.png与submodule-find-disabled-reference.png。Ctrl+T
+ Update Project选Merge并确认，提示All files are up to date；git submodule status仍为
+-54838af25323d453907d8eeaa3898a63a36787a5 modules/child，证明该场景没有补初始化。
+截图submodule-uninit-update-reference.png、submodule-uninit-updated-reference.png，均
+已查看归档到artifacts/collaboration-workflows-20261024/。未在本次实机逐项打开项目树
+所有右键子菜单；其动作注册及执行代码已按上述范围检查，不把源码检查冒充菜单实测。
+
+当前结论：已确认上游递归clone和已初始化子模块update；尚未找到独立init/sync产品
+入口，不能宣称这两项UI已存在可直接复刻。计划第6项仍保留补初始化和URL同步目标，
+若需补充入口应明确记录产品扩展，采用既有Git操作组织方式，不凭印象编造参考界面。
+Git官方语义辅助依据：https://git-scm.com/docs/git-submodule（init/update/sync章节）。
+init保留已有本地配置；sync只同步已注册URL，支持递归；相对URL交给Git按父remote
+解析。这些是Git规则，不作为Rebased UI存在的证据。本次没有修改产品实现。
+
+### 第6项子模块：初始化与URL同步执行层（2026-10-25）
+
+沿用上一节已检查的Rebased 4aec352/db134771及原生1.1.20证据：没有找到独立
+init/sync入口，因此这两项明确作为产品扩展，不能标为上游界面复刻。实现位于
+src/submodule_update/management.rs，Git负责相对URL解析、保留已有本地URL及同步语义。
+Initialize只对尚未初始化且目录为空的节点执行update --init --recursive；已初始化
+节点只遍历缺失后代，不移动其现有分支或覆盖修改。SyncUrls执行sync --recursive，
+不fetch、不改变HEAD/index；未注册的声明保持未注册。失败保留部分结果，重新准备
+后再重试；不删除部分克隆目录，不自动重放，不修改用户协议策略。执行前原子占用
+已发现的仓库并复验声明/状态，注销后保留的modules Git目录也纳入占用。新克隆过程
+中尚未发现的仓库协调仍是后续编排需要处理的边界，不宣称跨进程锁或完整拓扑事务。
+
+src/submodules.rs改为按保守8KiB参数预算分批查询已声明路径，避免大量子模块路径
+挤入一条Windows命令行；仍只保留声明及gitlink，不主动加载子模块文件内容。
+新增真实Git场景覆盖相对URL、本地覆盖、已占用目录、准备后状态变化、同步dirty分支
+不移动HEAD/修改index、初始化失败后同步URL重试、初始化嵌套节点保留既有分支编辑、
+注销后重建保留本地refs、预取消无副作用及400个长路径声明。file传输仅在隔离的测试
+子进程允许，未修改用户/global Git配置。此阶段尚未接入可见UI，不能算第6项已交付。
+
+验证日志：/tmp/plico-submodule-management-core.log（完整核心回归）、
+/tmp/plico-submodule-management-clippy.log（与CI同参数Clippy）；最终结果见本节后续记录。
+Windows原生Plico初始化/同步界面验收及CI仍未运行；附着分支更新路由、恢复入口和UI
+待完成，第7项获取完整历史和第8项完整交互式Rebase仍保留，不以本层测试代替整体目标。
+
+本轮结果：完整核心回归exit 0，其中子模块集成测试25项通过；Clippy exit 0，仍有
+项目既有告警，日志未出现新增submodules/submodule_update或其测试文件告警。
+包级格式检查通过。新增测试首次失败来自夹具尚未提交父gitlink便执行deinit；已将
+自有夹具child/父index/父HEAD对齐后再注销，没有加入force或放宽产品保护。
+
+
+### 第6项范围调整：不新增init/sync入口（2026-10-25，用户明确要求）
+
+用户最终确认：仅按 Rebased 范围，不做独立 init/sync；既不新增页面入口，也不保留独立底层实现。
+据此修改上方执行计划，不再将补初始化、同步URL入口作为本轮交付项。删除尚未接入
+的src/submodule_update/management.rs及7项专用初始化/同步测试；此前的实现/测试记录
+保留为历史，不能当作当前产品能力。保留已有clone递归选项、子模块清单/探测、更新
+与Stash保护代码，以及大量路径的Windows命令行预算修正和对应回归测试。
+第6项继续对齐Rebased Update Project的detached/attached路由及失败恢复，不另造管理面板。
+第7—8项不变。
+
+### 第6项：附着分支更新原生前置（2026-10-25）
+
+自有Rebased38392/3343938，独立submodule-reference-80s4zk56/project；child从
+54838af建立attached-test跟踪origin/main。仅向child本地bare推送693ff992，父HEAD
+仍f0ce679且gitlink仍54838af。Ctrl+T显示既有Merge/Rebase单选、Don't show again、
+OK/Cancel；选择Merge后显示1 file updated in 1 commit，child保留attached-test并跟随
+origin/main，父gitlink未随之提交。截图submodule-attached-reference.png与
+submodule-attached-updated-reference.png已查看并归档到本轮artifacts目录。不是新增
+子模块弹窗，也没有init/sync入口。此轮未原生验证该分支的rebase冲突。
+
+实读4aec352 GitUpdateProcess.java.collectDetachedSubmodules/defineUpdaters：仅不在
+分支上的子模块归入GitSubmoduleUpdater；普通trackedBranches用GitUpdater按所选
+Merge/Rebase构造。tests/git4idea/update/GitSubmoduleTest.kt的on branch用例明确要求
+Rebase后保留master并以远端提交为父。Plico将采用同样分流，附着分支直接复用
+project_update::prepare/execute及其保护/认证/编辑器决策，不用submodule update替代。
+下一步实现请求分流；整体多root调度和UI结果聚合尚待接入。
+
+附着分支分流已实现于src/submodule_update/routing.rs：prepare保留声明/子树及普通
+update request，execute复验后附着分支复用project_update::execute（Merge/Rebase、
+认证、编辑器和发布提交保护回调）；detached复用execute_preserving。没有upstream
+明确返回错误，不回退父gitlink。结果保留各执行器的完整恢复状态；较大的普通更新
+Report采用Box，避免所有detached结果占用同等大小。整体多root执行仍待接入，不能
+将这个单root分流当作完成Update Project整合。
+
+新增真实Git测试：附着分支Merge跟随自身upstream且父index不变；无upstream拒绝且
+不切换HEAD；Rebase重放未发布本地提交、保留topic分支及父index。子模块定向测试
+目前21项。日志/tmp/plico-submodule-routing-tests.log和
+/tmp/plico-submodule-routing-clippy.log。此轮未运行完整核心/桌面回归或Plico Windows
+原生验收。自有Rebased38392已正常确认退出，并核对进程不存在；既有参考实例保留。
+
+### 第6项：多root调度规则核对（2026-10-25）
+
+进一步实读GitUpdateProcess.updateImpl/checkTrackedBranchesConfiguration：先检查
+所有root并fetch，普通分支更新器在前、detached子模块更新器在后；detached父节点
+负责递归，不重复安排其detached子节点。所有需保存root先统一保存，整体结果成功
+且无INCOMPLETE才恢复，不能逐root成功即pop。非同步控制下，无跟踪分支可记为skipped，
+不能因为某个root已更新就报告整组全成功。此前单rootrouting仍只是构件，不能直接
+循环调用它充当该事务；整体保存/恢复和结果聚合需要单独接入。
+
+未初始化的嵌套子模块应由不含--init的递归update跳过，与此前原生未初始化场景一致。
+本地check_clean/check_detached先前拒绝整个树，过于严格；将修正为保留未初始化目录，
+不自动初始化，也不阻止其他已初始化节点更新。顶层直接请求缺失子模块仍拒绝，
+整组发现层不为它创建更新器。
+
+本轮实现：src/project_update/roots.rs只读发现初始化子模块，按普通跟踪分支和
+detached更新器分组；detached父已负责递归时不重复安排其detached子节点，父处于
+分支时则为子节点安排独立detached更新器。未初始化和无upstream节点记录跳过原因，
+不创建仓库、不修改配置；无upstream的跳过行为对应非同步控制，本项目尚无多root
+同步控制设置，不能声称实现了该可选策略。发现层检查未完成操作、common-dir重复、
+32层/4096节点边界；执行前仍需复验，不把只读发现结果当作写入许可。
+
+src/submodule_update.rs允许已初始化树中存在未初始化后代，实际执行不含--init，
+测试确认其他节点前进时占位目录文件保留。新增发现路由及嵌套去重测试；本层尚未
+接入主窗口，没有新增页面。多root统一保存/恢复、总结果展示、跨root恢复入口仍待
+完成，不以单root执行器循环替代Rebased整体成功才恢复的语义。
+
+验证：子模块24项测试通过（/tmp/plico-submodule-discovery-tests.log）；Clippy exit 0，
+保留既有告警，新增发现/子模块模块未报告告警（/tmp/plico-submodule-discovery-clippy.log）。
+包级格式化及git diff --check通过。此轮未新增原生UI操作、未运行CI，仍未提交第6项。
+
+### 第6项：整组保存状态所有权（2026-10-25）
+
+将已由原生dirty子模块场景和GitPreservingProcess/GitStashChangesSaver核对的保存规则
+收敛到src/project_update/preservation.rs::SavedChanges，现已由submodule_update的
+execute_preserving实际调用。它借用整组common-dir占用，构造全部Session后才保存；
+保存段整体不可取消，保存失败停止后续保存且保留已经产生的stash身份。finish接收
+整体UpdateResult，只有整组成功且全部保存成功才恢复；保存/finish禁止重复执行。
+SavedRoot保留每root路径、save/restore结果和仍需恢复的OID，供后续UI/恢复入口使用。
+现有子模块执行器不再自行维护第二份sessions与save/restore循环。
+
+扩充真实嵌套Git测试：两层均有独立修改时，在外层设置自有index.lock，使内层保存
+成功、外层保存失败；验证不执行更新，不自动恢复任何root，内层stash OID仍可解析，
+外层文件和HEAD保留。测试结束只删除自建锁。该错误状态尚未做Rebased/Plico原生
+界面复现，不能以核心测试冒充UI验收。整组调度及跨root恢复界面依旧待完成。
+
+本轮完整核心回归exit 0（/tmp/plico-group-preservation-core.log），Clippy exit 0
+（/tmp/plico-group-preservation-clippy.log），新增保存状态模块未报告告警；已有全仓
+告警保留。包级格式化和whitespace检查通过。未运行桌面/Windows新增界面验收或CI。
+
+### 第6项：整组Merge执行器（2026-10-25）
+
+沿用前述GitUpdateProcess和原生父/子更新证据，新增project_update/group.rs::Group：
+prepare保存根请求及发现的子root；execute_merge先验证所有分支并执行fetch，任何
+fetch失败不启动本地更新；再原子占用已知common-dir，复验detached树及分支请求，
+计算Merge需保存的root，深层先保存，再按普通分支→detached顺序更新。整体失败、
+取消、冲突均不恢复任一stash。Report保留逐root结果、fetch结果、跳过原因与恢复身份，
+complete不以父仓库成功代表整组成功。
+
+submodule_update新增内部reserved执行路径，复用同组占用，避免子操作重复加锁死锁。
+父更新允许改变顶层gitlink，但子HEAD/分支与内部声明仍须符合原选择；执行时检查
+当前发现的keys均在占用组内，不自动初始化未发现节点。此锁仍只协调Plico进程，
+不能宣称跨进程原子性，也未完成新拓扑及附着后代混合更新的全部处理。
+
+新增两项真实Git端到端核心测试：父remote推进gitlink，子模块跟随后恢复draft；
+父remote推进到缺失子提交时，父Merge成功但子更新失败，父/子stash都保留且不pop。
+本轮只实现整组Merge；Rebase快进优化、发布提交确认和整组调度仍需补齐再接入UI，
+不能将尚未支持的选项悄悄改为Merge。没有新增init/sync页面入口。
+
+验证：26项子模块集成测试通过（/tmp/plico-group-merge-tests.log）；Clippy exit 0
+（/tmp/plico-group-merge-clippy.log），新增整组执行器未报告告警；包级格式化和
+whitespace检查通过。排序后保存root去重使用路径集合，避免同深度其他路径隔开
+重复root导致重复保存。未运行本轮新增Windows产品UI验收或CI，第6项尚未提交。
+
+### 第6项：整组Rebase原生前置（2026-10-25）
+
+独立submodule-reference-80s4zk56/project，自有Rebased45996/28250024；child的
+attached-test有本地提交0240694，远端main另有3104d53，readme.txt含未提交追加。
+Ctrl+T选择Rebase（相同Merge/Rebase弹窗，无子模块专用页）确认；结果本地提交重写
+为60f62ee，其父为3104d53，分支仍attached-test，readme.txt追加恢复。界面通知
+2 files updated in 1 commit。截图submodule-rebase-selected-reference.png及
+submodule-rebase-updated-reference.png已查看归档；Git输出独立核对提交关系及draft。
+本轮未实机触发已发布提交确认/恢复冲突，不把正向场景当作这些边界验收。
+
+实读4aec352 GitRebaseUpdater.java：dirty时先尝试ff-only优化；需rebase时先保存，
+doUpdate内检查已发布提交后再执行，取消可中止；GitUpdateProcess在统一保存前对
+有merge问题的root统一询问，选择Merge只替换这些root。Plico整组执行器将复用
+Session的FF/Merge/Rebase和现有发布提交检查，实现同一整组保存/恢复边界。
+
+整组Rebase执行层已接入Group::execute：dirty根先用Session.try_fast_forward，记录
+成功/失败及前后HEAD；成功后更新预期HEAD并跳过后续rebase，后续准备失败仍返回
+已完成快进的证据。统一收集merge问题，只询问一次；改选Merge只替换问题root。
+保存后逐root检查已发布提交，拒绝或取消时保留整组stash；真正rebase复用Session
+的取消/中止行为。Report分别保留FF、Merge、Rebase、submodule结果，未执行且需要
+更新的root使用NotReady，避免把取消后未处理root误标成NothingToUpdate。
+
+新增整组测试：父仓库dirty但可快进，子分支分叉且dirty，验证父FF、子rebase和draft
+恢复；拒绝受保护分支上的已发布提交时，子HEAD不动、stash身份保留且不恢复。
+测试发现FastForward.after是含换行的Git原始输出；本地写回request.head时现已trim，
+避免错误触发后续HEAD复验。此修正只规范内部OID，不放宽真实状态变化检测。
+
+界面尚未接入：现有编辑器Document::open只接受单Git目录，整组更新须按已验证的
+root选择编辑器目录；恢复入口也须携带所属子root，不能继续只打开父仓库stash。
+仍需处理附着后代/拓扑变化及原生失败状态，不能将核心正向测试作为完整第6项交付。
+
+本轮完整核心回归exit 0（/tmp/plico-group-rebase-core.log），其中子模块28项通过；
+Clippy exit 0（/tmp/plico-group-rebase-clippy.log），保留既有告警。包级格式化及
+whitespace检查通过。自有Rebased45996正常确认退出、进程已核对不存在；测试追加
+的readme.txt字节核对后恢复，保留隔离fixture中的历史演进。未运行新增Plico原生UI
+或CI，仍未提交第6项。
+
+### 第6项：多root Git编辑器请求（2026-10-25）
+
+实读4aec352 rebase/GitRebaseEditorService.kt：处理器使用helper传入的path及workingDir
+解析实际Git文件，再交给同一编辑器handler，不假设所有编辑请求都属于父root。
+本地editor::Document新增open_in_roots，原单root open委托同一路径验证；只接受
+显式传入Git目录下既有允许文件名（commit/merge/squash/rebase消息或sequence文件），
+父.git的前缀不能授权未登记的modules子目录。请求失败/关闭仍通过Document Drop
+返回退出1，不取消整次操作token。Group.editor_directories返回已准备的普通分支
+root对应Git目录，待UI在启动worker之前捕获。
+
+新增真实Git/helper测试：未列入的仓库拒绝，列入后只编辑子仓库；嵌套.git/modules
+目录必须单独授权；整组Merge触发子仓库编辑、保存消息后提交完成。最后一个测试
+在自有fixture用branch.topic.mergeOptions=--edit显式要求编辑，不改变产品命令和
+用户配置。此前未设置--edit时Git在无TTY环境无需编辑，测试因此未触发请求；没有
+以放宽测试断言代替真实请求链路验证。
+
+补读GitUpdateResult.java：join优先级NOT_READY > ERROR > CANCEL > INCOMPLETE >
+SUCCESS_WITH_RESOLVED_CONFLICTS > SUCCESS > NOTHING_TO_UPDATE。未来UI聚合需保留
+此顺序及逐root详情；不能把未执行root或恢复失败标为成功。现有核心Report已保留
+这些信息，但主窗口的单root编辑器/结果展示尚未切换，跨root恢复入口仍待完成。
+
+本轮完整核心回归exit 0（/tmp/plico-group-editor-core.log），其中editor16项及子模块
+29项通过；Clippy exit 0（/tmp/plico-group-editor-clippy.log），无新增模块告警，
+既有告警保留。包级格式化、git diff --check通过。尚未运行新增Windows产品界面
+验收或CI；第6项未提交。
+
+### 第6项：跨仓库Stash恢复的实机前置（2026-10-25）
+
+Rebased1.1.20自有进程42224，独立submodule-reference-80s4zk56/project；父仓库
+和child各创建一份仅含测试修改的stash，工作文件恢复原字节。实际点击Commit→Stash，
+截图artifacts/collaboration-workflows-20261024/submodule-stashes-{commit,tree}-reference.png。
+Stash位于Commit/Shelf同一栏；多个仓库各自有可展开根节点、计数，stash行显示主题、
+时间及右侧分支；选中后下方文件区显示对应仓库文件；底部Apply/Pop按钮。此轮未点击
+Apply/Pop，也未验证更新失败通知自动定位，不将这些状态标为已验收。
+
+实读4aec352的plugins/git4idea/backend/src/stash/GitStashTracker.kt::performUpdate、
+stash/ui/GitStashProvider.kt::buildPatchesTree、GitStashUIHandler.kt及
+GitStashChangesSaver.java::showSavedChanges：按每个repository独立读stash，错误留在
+对应根下，不以该仓库是否可执行更新为前置；多个仓库分组，空仓库不另建节点；
+恢复入口定位首个有保存内容的仓库。GitVcsSettings/GitVcsOptions确认保存策略在项目
+workspace中，默认SHELVE；Plico继续沿用已有Stash策略，该差异不隐瞒。
+
+本地现有StashView及Restore事件只绑定父仓库，不能直接承接整组更新。先实现只读的
+跨子模块仓库发现，复用路径和Git根校验，但不要求无冲突、存在upstream或无进行中操作；
+个别子模块损坏应报告该路径而保留其他仓库。后续将仓库身份贯穿Stash选择与恢复，
+仍使用现有Commit内Stash页，不增加独立init/sync或管理页面。
+
+随后原生选择child recovery fixture→Pop：没有额外确认，子模块readme.txt恢复两行
+测试内容，child stash消失而parent stash保持；列表移除空child分组并选中父stash，
+底部出现Stash successfully applied。截图submodule-stashes-pop-reference.png；
+Git命令复核父stash仍1条、child为0条，仅child工作文件变化。此步骤仅作用于自有fixture。
+
+实现src/stash/project.rs::Repositories::discover，最多4096个声明/仓库、32层，逐root
+保留错误，不读取stash文件内容；提取src/submodules.rs::initialized_repository共用
+路径约束、禁止符号链接和Git根身份验证，恢复发现不再依赖HEAD/upstream/status。
+当前发现依据仍是工作树.gitmodules：若它损坏，保留父仓库并报告错误，但不会猜测
+已移除声明的子仓库；后续整组恢复入口还需保留已捕获root身份，避免这种情况失联。
+新增冲突gitlink、进行中merge、损坏/未初始化子模块、配置损坏及取消测试；扩展真实
+整组更新失败测试，重新发现stash并仅Pop子模块，验证父stash保留。30项子模块测试
+通过（/tmp/plico-stash-discovery-tests.log）。Plico可见UI仍待接入，不能据核心测试
+宣称第6项完成，也尚未进行本轮Plico原生验收。
+
+完整核心回归exit 0（/tmp/plico-stash-discovery-core.log）；Clippy全targets exit 0
+（/tmp/plico-stash-discovery-clippy.log），保留既有警告，本轮发现/探测模块无新增告警。
+包级格式检查及git diff --check通过。自有Rebased42224已正常关闭并确认进程退出；
+其余已有测试实例未额外新增。下一步接入StashView的仓库分组/事件目标，再接整组
+Update Project，仍保留父更新改变子模块拓扑、恢复root持久化和Plico原生验收待办。
+
+### 第6项：Stash仓库分组接入（2026-10-25，进行中）
+
+沿用上一节已实机验证的GitStashProvider分组与Pop规则。新增
+stash::project::SavedEntry将Repository与stash OID/selector绑定；project::load按仓库
+独立读元数据并共用1000条上限，读取失败按路径保留，其余仓库继续可用，内容仍按选择
+加载。StashView使用仓库路径+OID保持选择，提供根折叠，预览与恢复/删除事件携带
+真实仓库；主窗口不得把子模块operation_state写入父仓库状态。
+
+新增桌面真实Git回归：父子仓库均有同名文件与stash@{0}，由父Review执行子模块Apply
+及删除，子文件恢复、父文件与父stash保持。定向测试exit 0
+（/tmp/plico-stash-routing-tests.log）。待完成原生Plico同条件验收。
+保留差异：组图标暂用已有folder图标，stash行仍显示selector而非上游完整时间/分支布局；
+子模块Local Changes/冲突暂转到既有打开仓库入口，后续需对齐同窗口冲突处理；这项
+差异尚未关闭，不能作为第6项完成依据。父更新改变拓扑及已捕获恢复root持久化仍待办。
+
+Plico原生验收：release xwin构建exit 0，自有36332打开相同Windows本地fixture，
+Commit→Stash显示child/project两组。实际折叠child，显示差异仍指向child/readme.txt
+及child的60f62ee4基线；点击Pop后Git复核child stash为0、readme恢复测试修改、父
+stash仍1条。截图artifacts/collaboration-workflows-20261024/
+submodule-stash-plico-{tree-ready,collapsed,diff,pop}.png。页面仍保留上述布局差异，
+未声明像素级还原；本轮未原生验证错误/取消/同名stash OID的选择恢复。
+测试Plico36332已正常关闭，WaitForExit确认退出。
+
+完整核心回归exit 0（/tmp/plico-stash-ui-core.log）；默认桌面107项全部通过
+（/tmp/plico-stash-ui-full-desktop.log），新增测试覆盖实际Review操作执行而非仅构造
+事件。Clippy全targets exit 0（/tmp/plico-stash-ui-clippy.log），新增核心模块无告警。
+包级fmt初查发现新测试单行超长，已由cargo fmt修正；尚未提交、推送或发布。
+发布断言配置的导航10项通过（/tmp/plico-stash-ui-navigation.log）；fmt复查与
+Git空白检查exit 0。第6项仍未达到提交阶段，下一步接通同窗口子模块冲突上下文和
+整组Update Project结果/编辑器路由；第7、8项保持原范围。
+
+### 第6项：整组Update Project入口接入（2026-10-25，进行中）
+
+前置沿用本章已验证的原生Ctrl+T Merge/Rebase、attached子模块跟踪分支更新和dirty
+恢复场景，不新建弹窗。再次实读4aec352 GitUpdateProcess::updateImpl/defineUpdaters/
+joinResults、GitUpdateResult::join，确认普通更新器在前、detached在后、整组保存恢复
+及结果优先级；前面已核对GitRebaseEditorService的工作目录和编辑文件路径规则。
+
+project_update::Prepared在弹窗前捕获Group与全部允许的Git编辑器目录；原UI仍收集
+Merge/Rebase选择与显示选项，执行时调用Group，不再绕回单root执行器。外部编辑器
+请求改用Document::open_in_roots，仍精确限制允许文件。更新结果显示整组是否完成、
+是否取消/仍有Stash，以及带仓库路径、限长和URL凭据清理的诊断；未跟踪子分支不会
+无提示消失。独立Pull和推送拒绝后的更新流程保持原接口，避免将项目发现套入单目标操作。
+同窗口子模块冲突、拓扑变化及恢复root持久化仍未关闭，不宣称第6项完成。
+
+
+整组入口原生验收补记：Windows release 构建成功。相同独立 fixture 选择 Rebase 后，
+子模块 attached-test 从60f62ee重放至2eb6ab6，其父提交为远端c5c1cc6；未提交内容
+恢复，父仓库f0ce679和父Stash 06698fd保持不变，界面显示“项目已更新”。
+随后仅将测试子模块origin临时改为不存在的本地bare路径，执行更新：界面显示
+“更新未完成，请检查冲突和保存的本地改动”，父子HEAD与Stash保持不变。
+该场景尚未验证用户能否从界面直接查看具体失败仓库，不能宣称失败提示已完整对齐。
+测试origin已恢复。截图位于artifacts/collaboration-workflows-20261024/
+submodule-group-plico-{options-ready,rebase-selected,result,failure-options,failure-result}.png。
+完整核心、桌面107项、导航10项及Clippy日志均通过（/tmp/plico-group-ui-*.log）；
+Clippy仍有既有告警。第6项仍待同窗口冲突、恢复root持久化和拓扑变化等收尾。
+
+### 第6项：保存失败诊断与保存时序核对（2026-10-25）
+
+再次读取参考4aec352的plugins/git4idea/backend/src/stash/GitStashChangesSaver.java
+中save：Git返回非成功结果时，异常包含仓库root与getErrorOutputAsJoinedString。
+现有group::Report::diagnostic仅处理save的Rust Err，漏掉进程正常启动但Git退出失败的
+Ok(Outcome)。已补齐非成功Outcome的stdout/stderr错误摘要，继续使用既有脱敏及限长。
+沿用此前dirty保存/失败保护实机依据，不新增界面。本次未补原生index.lock截图，
+该错误状态的可见展示仍待原生验收。
+
+新增真实Git回归group_save_failure_names_the_child_and_preserves_worktrees：更新前
+对子模块index加测试锁，验证汇总包含子仓库路径、index.lock与Git错误，父子HEAD、
+工作文件和Stash均保持。32项submodules测试通过，日志/tmp/plico-group-save-diagnostic.log。
+测试断言遵循现有NotReady聚合优先级及collect_errors过滤规则，不要求原始stderr逐字展示。
+
+另读取platform/vcs-impl/src/com/intellij/openapi/vcs/update/AbstractCommonUpdateAction.kt、
+VcsUpdateProcess.kt及VcsUpdateTask.kt：选项对话框结束后，任务execute先在EDT保存所有
+文档，再进入后台更新。Plico目前在弹窗前捕获含dirty标志的Group，在确认后才保存
+文档，存在快照因自身保存而失效的风险。不能简单把保存前移到打开弹窗（会改变取消
+行为），也不能无条件重捕获分支而覆盖用户确认的目标。后续需原生验证取消/未保存
+编辑场景，再将仓库身份快照和保存后的工作树快照分离；本轮尚未修改此行为。
+
+
+### 第6项补充：子模块Log归属（2026-10-25，用户指出缺口）
+
+原生Rebased1.1.20，测试实例26788、独立submodule-reference-80s4zk56/project：
+默认Log包含project与child两仓库提交及各自ref；选中child的2eb6ab63后，右侧树
+根为child，文件local-topic.txt，详情对应child提交。右键可见Checkout Revision、
+Reset、Reword等；本轮没有执行这些写操作，不凭菜单可见断言执行通过。Paths菜单
+Roots分组显示带仓库色的child/project勾选项。尝试鼠标切换时命中校验判定弹出窗
+非主窗口，已停止该点击；仅菜单展示已验证，筛选执行待验证。
+截图artifacts/collaboration-workflows-20261024/submodule-log-{reference,child-menu,
+child-details,roots-filter}.png。此实例留作后续验收，现有测试Rebased共两个，无Plico。
+
+实读4aec352：platform/vcs-log/api/.../CommitId.java以root+hash共同判等；
+platform/vcs-log/impl/.../data/VcsLogMultiRepoJoiner.java及其测试，仅比较每个仓库
+下一条记录时间，保留各仓库内部顺序。不能整体按时间重新排序，也不能按hash跨仓库
+去重。VcsLogRootFilterImpl保存root集合；StructureFilterPopupComponent的
+createActionGroup将多root选择放在Paths的Roots组。GitLogSingleCommitAction与
+platform/dvcs-impl/.../VcsLogSingleCommitAction.java按选中CommitId.root解析实际
+Repository，再传hash给操作，不使用当前主窗口默认仓库。
+
+本地缺口：Review.commit_ids仅返回hash，log_selection详情与多选加载使用self.repo；
+Commit尚未携带committer timestamp，不能拿格式化作者日期代替合并时间。
+新增src/project_log.rs核心身份/合并模块，保留每条及parent所属root，整体数量预算；
+使用最大堆合并前缀避免逐条扫描所有仓库。等时间固定输入root顺序，上游HashMap顺序
+不稳定，这是有意保留的差异。三项定向测试通过（/tmp/plico-project-log-tests.log）。
+尚未接实际Git查询、Review、graph、详情/多选、右键操作、Roots过滤及计数；不能仅
+上线混合列表让后续操作落到父仓库。此项纳入第6项完成条件，不替代未完成的更新保存
+时序、同窗口冲突和拓扑/恢复root工作。第7—8项范围不变。
+
+### 第6项：多仓库Log查询接入核心（2026-10-26，未接界面）
+
+沿用前节原生多root Log/详情/Roots菜单证据。补读4aec352
+plugins/git4idea/backend/src/log/GitLogProvider.kt的readFirstBlock和getCommitsMatchingFilter
+入口，均以root为查询单位；history/GitLogUtil.java的COMMIT_METADATA_OPTIONS与
+createTimedCommit/createCommitMetadata使用GitLogRecord.getCommitTime。初始块上游
+会超额读取并处理ref，本地继续沿用既有固定tips和加载上限，不引入全量元数据缓存。
+
+Commit新增committer_timestamp，从既有log查询中附加%ct一并读取；snapshot、选定
+commit、分支比较和push outgoing共用解析器均更新为6字段。作者日期展示保持原字段。
+没有按每条commit再发起Git查询。原本project_log的TimedCommit包装已合并到Commit，
+避免两个时间字段失配。
+
+project_log::read接收已解析的逐仓库Query，使用原history过滤实现，逐root读取后
+合并整体前N条；合并过程中最多保留两个N条前缀的提交元数据。仓库规范路径去重，
+可读仓库保留结果，错误按root保留。count独立遍历相同捕获tips及过滤条件，供后续
+UI后台计数；任一root读取失败则总数未知，不能显示不完整小计为精确总数。
+Roots筛选由传入Query集合表达，尚未接UI；历史图仍需按root隔离边与布局，详情、
+多选、右键写操作、增量加载/刷新请求身份和错误展示均待接入。
+
+验证：元数据字段调整后完整核心回归exit0（/tmp/plico-project-log-core.log）；新增
+查询核心后定向真实Git测试2项通过（/tmp/plico-project-log-query-tests.log），覆盖
+两个仓库相同hash、作者/提交者不同时间、前N条与过滤总数、选root、取消、损坏root
+导致总数不可用与重复root拒绝。合并单测3项通过（/tmp/plico-project-log-unit.log）；
+桌面107项通过（/tmp/plico-project-log-desktop.log）。本轮没有可见UI改动，也未做
+Plico原生多仓库Log验收；不能把查询核心通过当作功能已交付。
+Clippy全targets exit0（/tmp/plico-project-log-clippy.log），保留既有告警，新增project_log
+无告警；Git空白检查通过。未提交、推送或发布，第6项继续进行。
+
+### 第6项：多仓库图与选择身份（2026-10-26，未接主窗口）
+
+沿用前节原生父子仓库混合图证据，补读4aec352
+platform/vcs-log/impl/src/com/intellij/vcs/log/data/InMemoryStorage.java及
+VcsLogStorageImpl.java的getCommitIndex/getOrPut：图节点先按(root,hash)枚举成独立
+索引，不允许两个仓库的同hash共用节点。
+
+project_log::Page::layout对每个root分配仅供布局内部使用的命名空间，节点与每条父边
+均在本root解析；这种内部key不返回给UI，不可用于Git命令或持久化选择。继续使用
+已有512lane、500000几何预算及取消规则，调用已有graph_print生成显示几何。
+
+过滤图不能从原始Git parents重建：filtered_graph::Window现在同时返回当前可见窗口
+的投影父边及dotted标记，history::Window以Option保存（未过滤为None），project_log
+将其随对应Entry合并。真实Commit.parents保持原样，供Diff使用。增加的是有界显示
+边数据，不保留完整历史元数据；单仓库调用方不用这些边，消费Window后即释放。
+
+log_selection提取IdentitySelection<Id>，多仓库可用CommitId；原Selection保留String
+兼容接口并委托相同实现，避免复制一套toggle/range/anchor/reconcile行为。当前主窗口
+仍是单仓库Selection，尚未切换到多仓库身份，不能宣称菜单/详情已对齐。
+新增核心测试覆盖同hash两套图的节点/父边隔离、跨root选择与reconcile、取消；真实Git
+过滤测试覆盖隐藏中间提交后的虚线及原始parents保留。当前完整回归正在执行，结果
+另记。第6项仍需主窗口查询、root选择、graph呈现和全部提交操作按root路由。
+本轮完整核心回归exit0（/tmp/plico-project-graph-core.log），包含真实Git过滤虚线回归；
+桌面107项通过（/tmp/plico-project-graph-desktop.log）。Clippy全targets exit0，保留
+既有告警（/tmp/plico-project-graph-clippy.log），包级fmt检查和git diff --check通过。
+尚未做Plico原生多仓库Log验收，主窗口仍未切换；未提交、推送或发布。
+
+### 第6项：主窗口单条Log详情与Diff仓库路由（2026-10-26）
+
+沿用前节原生子模块提交详情和菜单证据。读取4aec352
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangesBrowser.kt及
+VcsLogAsyncChangesTreeModel.kt：详情查询使用CommitId.hash/root；多父比较的parent
+CommitId沿用当前提交root；ChangesState保存实际详情的root集合。本轮不新增菜单。
+追加实机验证：自有26788双击child的local-topic.txt，在原项目窗口打开Repository Diff，
+标题为2eb6ab63与modules\\child\\local-topic.txt，内容为local commit to replay。
+截图artifacts/collaboration-workflows-20261024/submodule-log-child-diff.png。
+
+Review新增可选逐行log_sources身份，log_repository必须同时匹配行位置与hash，已存在
+显式来源但缺失/错位时不回退父仓库。历史整体替换通过replace_single_root_commits清除
+旧来源。select_commit_with_file的详情加载、缓存读写、ContainingBranches和Reword
+资格查询使用目标root；log_preview_target、open_diff_tab及Diff导航跟随也使用该root。
+项目自身repo身份不被子提交选择替换；请求迟到仍由现有log_query generation拒绝。
+
+新增真实Git桌面测试child_details_cache_preview_and_diff_tab_use_the_selected_repository：
+父子各自独立对象库，注入子提交并在父cache写同hash的错误值，经过实际选择/后台详情
+加载及打开Diff Tab入口，验证子文件、子cache、子Diff身份、父cache与项目root不变；
+显式来源缺失拒绝预览；恢复单root历史清除来源。测试首次因缺少Rust内建test导入发生
+宏递归，已按现有GPUI测试方式补导入；第二次fixture缺少graph rows触发渲染断言，已
+用真实布局补全fixture。定向测试通过（/tmp/plico-log-root-routing.log）。
+
+尚未启用混合查询：多选、同hash选择键、右键写操作（含Reword执行、Get Revision）、
+导航/刷新及根筛选仍须按root贯穿；本轮不是全部操作路由完成，也未进行Plico原生
+混合Log验收。下一步接这些上下文后才能启用项目级查询。
+完整桌面108项通过（/tmp/plico-log-root-desktop.log）；发布断言配置导航10项通过
+（/tmp/plico-log-root-navigation.log）。未提交、推送或发布，第6项仍进行中。
+
+### 第6项：主窗口选择键切换为仓库与hash（2026-10-26）
+
+继续使用前节子模块Log、右键菜单及详情/Diff原生截图作为入口依据；本轮复读
+4aec352的platform/vcs-log/api/src/com/intellij/vcs/log/CommitId.java，equals/hashCode
+同时包含root与hash。主窗口Review.log_selection改用IdentitySelection<CommitId>；
+commit_ids保留逐行root，单仓库共享一个Arc路径，显式来源缺失或与行hash不匹配时
+返回空选择候选，不回退父仓库。行高亮、多选、右键保持选择、刷新reconcile和异步
+相邻导航的选择复验使用完整身份；复制hash及现有Git接口仅在参数边界取hash。
+
+原有真实Git桌面路由回归改为两行同hash、分别归属父子仓库，使用project_log实际图
+布局。通过select_commit(1)验证选择与详情仍落在第二行子仓库，而非第一个同hash行；
+同时验证toggle、context保持多选、reconcile剔除父root及来源缺失拒绝选择。
+本轮未新增可见入口，混合查询仍未启用。聚合详情、导航查询root/refs及写操作执行的
+完整仓库路由仍待实现，不能把身份改造视为多仓库Log已交付。验证结果随后记录。
+
+### 第6项范围修正：项目仓库模型先于多仓库界面接线（2026-10-26）
+
+用户指出顶部分支面板也随项目仓库集合变化，要求从架构健康度考虑非子模块的多Git
+项目聚合。本节修正后续顺序，不取消原第6项、7项、8项的完成条件。
+使用codebase-design技能审查后，停止沿每个视图单独补子模块发现/路由的方向。
+已有CommitId、project_log合并与过滤图可保留，但不把它们视为完整项目模型。
+
+新增实读源码（参考4aec352，安装版差异沿用上述记录）：
+- platform/dvcs-impl/src/com/intellij/dvcs/repo/VcsRepositoryManager.kt：项目级
+  repositories/externalRepositories，监听VCS映射变更，按文件所属VCS root查询仓库，
+  映射刷新与仓库生命周期由此集中管理；本次读到getVirtualFileForRoot附近，后续方法
+  仍需深入，不能据此声称已核对全部发现/恢复规则。
+- plugins/git4idea/backend/src/repo/GitRepositoryManager.java：项目仓库集合、仓库
+  更新通知、子模块依赖排序；有子模块时不建议同步分支控制。不能把“显示聚合”当成
+  “对所有仓库执行同一写操作”。
+- 同目录../ui/branch/GitMultiRootBranchConfig.java：共同分支和共同tracking取交集。
+- plugins/git4idea/shared/src/com/intellij/vcs/git/branch/popup/
+  GitDefaultBranchesPopupStep.kt：依据repositories、selectedRepository、过滤状态、
+  shouldExecuteOperationsOnAllRoots选择Single/Multi/Selected/Filtering模型；选仓库
+  打开第二层单仓库弹窗，RefUnderRepository动作仅针对其所属仓库。
+- 同shared目录branch/tree/GitBranchesTreeMultiRepoModel.kt：仓库入口加共同
+  local/remote/tag列表；不是把所有分支平铺混合。
+- plugins/git4idea/backend/src/ui/branch/popup/GitBranchesTreePopupOnBackend.kt：
+  从项目GitRepositoriesHolder读取集合，并传入preferredSelection。
+
+本地已确认的架构问题：Review.repo同时承担项目入口与许多动作的默认目标；
+stash/project.rs和project_update/roots.rs各自发现子模块，发现结果与操作资格耦合。
+两者使用operation_key/common Git dir判重，适合锁域判断，却不能直接拿来实现通用
+项目仓库身份：两个worktree可能共享锁域，但HEAD/index/工作区必须独立。
+Review.commits与log_sources平行数组也是接线过渡，不应成为长期公共接口。
+
+调整实施顺序：
+1. 先补原生Rebased多root分支弹窗与普通独立仓库映射场景的操作、截图和源码；现有
+   子模块Log截图不能代替这些新增界面的验收。本轮只做源码与设计记录，未改分支UI。
+2. 设计一个项目仓库集合模块，统一已登记根、规范化工作树身份、子模块关系、发现
+   错误和集合代次。项目入口、工作树root、common-dir锁域分别建模。子模块发现是输入
+   来源之一；显式登记的普通独立仓库可走同一接口，不自动扫描整盘/父目录纳入仓库。
+3. 让Stash与Update消费统一集合；Update保留自己的资格检查、依赖执行及写前复验。
+   仓库暂时不可读/子模块声明消失与恢复任务持有root的生命周期需独立处理，不能因为
+   某次扫描缺失立即遗忘未恢复的工作。
+4. 将主窗口历史页改成携带root身份的行数据；Log、顶部弹窗、详情、Diff、冲突恢复与
+   写操作明确携带目标root或root集合。项目范围、Log根过滤、当前操作目标相互区分。
+5. 统一集合变更与逐仓库刷新失效规则，按root保持有界缓存/按需详情，并拒绝过期结果。
+   验证普通独立双仓库、父子模块、共享common-dir的worktree、相同hash/分支名、仓库
+   移除/不可读、切换选择时后台任务迟到；最后做原生同条件UI验收。
+
+这是当前架构方向及后续验收要求，不是上述能力已经实现；不引入IDE模块系统、通用
+事件总线或假想插件层。独立submodule init/sync仍按用户决定排除。
+
+### 项目仓库模型：多root分支面板原生证据与生命周期（2026-10-26）
+
+复用自有Rebased26788/3410258，版本1.1.20，submodule-reference-80s4zk56/project。
+本轮没有新开实例或执行Git写操作。点击顶部main后，实际搜索提示为
+“Search for branches, actions, repositories”；上部Commit/New Branch/Checkout，
+中部child→attached-test、project→main两个带颜色的仓库入口，底部
+“Local Branches in project”/“Remote Branches in project”。说明当前采用选中仓库
+模型，而非共同分支模型。键盘导航打开project的二级弹窗，仅显示该仓库New Branch、
+Checkout及local/remote，主窗口保持原项目和原Diff。
+截图artifacts/collaboration-workflows-20261024/multi-root-branch-popup.png和
+multi-root-project-branch-submenu.png。尝试随后导航child时截图仍为project二级弹窗，
+不把该次输入当作child入口已验证；普通独立仓库映射/搜索/全部root模式仍待实机验证。
+
+复读GitBranchesTreeSelectedRepoModel.kt：allProjectRepositories专供仓库入口，继承
+单仓库模型的repositories只决定refs列表；两个集合明确不同。本地不能仅给现有
+repository_groups增加root分组而继续把全部refs当成当前仓库refs。
+补读VcsRepositoryManager.kt剩余getRepositoryForRoot/checkAndUpdateRepositoryCollection/
+findNewRoots/findInvalidRoots：按项目登记的VCS roots创建/移除仓库，在后台锁内构建
+集合快照再发布，替换的旧仓库销毁；UI线程不允许同步更新。externalRepositories不在
+getRepositories返回集合中。因此“缓存中过去读过某仓库”不能自动使其加入项目聚合。
+恢复任务保留root可用于恢复，但不应自动恢复为分支/Log的已登记项目根。
+
+此前选择身份改造的完整桌面108项和发布配置导航10项通过；导航日志
+/tmp/plico-scoped-selection-navigation.log。随后行高亮优化为仅可见行生成/读取身份，
+避免每次渲染克隆整页hash，该最后调整仍待重跑桌面验证。未提交、推送或发布。
+
+### 项目仓库集合：首个共享实现（2026-10-26）
+
+依据上一节原生多root入口及VcsRepositoryManager工作树root身份规则，将Stash自有的
+Repositories发现实现移至src/project_repositories.rs，Stash实际调用改为共享模块。
+Repositories::from_registered接收明确登记的根，统一读取已初始化子模块、收集逐根
+错误及父子关系；discover保留单项目入口。普通目录不能借Git向上查找被冒认为已登记
+根，未登记嵌套仓库不扫描加入。集合只描述成员，不执行Update资格检查或Git写操作。
+根判重使用规范工作树路径，保留Git返回的路径供显示/执行；不再用common Git dir
+把不同worktree合并。操作队列的common-dir锁域保持原职责。
+
+新增真实Git回归project_inventory_preserves_independent_roots_and_shared_git_worktrees：
+两个独立仓库加共享common-dir的linked worktree保留三项；重复登记去重、不隐式纳入
+嵌套仓库、坏根保留其他结果、普通子目录拒绝及取消均覆盖。首次测试误用crate-private
+operation_key导致编译失败，已改用真实Git rev-parse --git-common-dir验证共享锁域。
+现有submodules集成回归33项通过（/tmp/plico-project-inventory.log）。
+
+当前只接入Stash消费；Update仍需将集合发现与资格/拓扑计划拆开，主窗口尚未接项目
+登记持久化、集合代次或多root分支弹窗。普通独立仓库聚合目前仅核心接口及测试可用，
+不宣称已有可见产品入口或完成原生验收。已有同hash选择/高亮最后调整随完整桌面重测。
+共享集合改造后完整核心回归exit0（/tmp/plico-project-inventory-core.log），桌面108项
+通过（/tmp/plico-project-inventory-desktop.log），发布断言配置导航10项通过
+（/tmp/plico-project-inventory-navigation.log）。包级fmt检查exit0及git diff --check通过。
+此轮未做新增Plico原生UI验收、CI或发布；共享集合后续接线仍在进行。
+
+### 项目仓库集合：Update接入共享发现（2026-10-26）
+
+沿用已记录的原生整组Merge/Rebase、子模块分流与Stash恢复证据，本轮无界面结构改动。
+复读4aec352 GitUpdateProcess.java的构造器、collectDetachedSubmodules与updater组装：
+仓库集合来自项目；附着分支走普通updater；detached子模块单独收集，父子均detached时
+由父级递归覆盖子级。共享成员发现不等于共享写操作资格。
+
+project_update/roots.rs删除自己的递归扫描，改为Repositories::discover后执行更新
+资格分类。project_repositories的关系元数据增加index状态与initialized，未初始化
+gitlink可报告跳过但不进入可读roots集合；冲突gitlink仍可供Stash读取本地仓库，但
+Update明确拒绝。共享集合发现错误对Stash是逐根展示，对Update仍为准备失败。
+附着分支upstream检查、未完成Git操作拒绝、detached递归去重及Group写前复验保持。
+新增关系断言覆盖未初始化不成为可读root与冲突身份保留；原有33项集成首次回归通过，
+增强断言后的完整核心/Clippy仍在执行，结果随后补记。
+
+此接线仍是父项目及子模块的现有Update入口，不表示独立多root项目Update、同窗口
+冲突恢复、保存文档时序和运行中拓扑变更已经完成。项目登记/生命周期与Log/分支面板
+接入继续按架构修正计划推进。未提交、推送或发布。
+Update共享发现接线后：完整核心回归exit0（/tmp/plico-shared-update-core.log，含增强的
+33项submodules测试）；桌面108项通过（/tmp/plico-shared-update-desktop.log）。Clippy
+全targets exit0（/tmp/plico-shared-update-clippy.log），新增两处测试cmp_owned告警改为
+Path借用后定向Clippy exit0（/tmp/plico-shared-update-target-clippy.log），修改模块无
+告警，其他既有告警保留。包级fmt检查及Git空白检查通过。未做新增原生UI验收或提交。
+
+### 普通独立仓库映射增删：原生验证（2026-10-26）
+
+Rebased1.1.20，自有26788/3410258，沿用submodule-reference-80s4zk56/project。
+备份自有fixture的.idea/vcs.xml到/tmp/plico-multi-root-vcs-backup.xml，加入
+$PROJECT_DIR$/../child-source的Git映射；该目录是独立普通仓库，不是project的子模块，
+也不位于project目录内。Escape关闭弹窗后Ctrl+Alt+Y同步，重新打开顶部分支面板。
+实际显示child/attached-test、child-source/main、project/main三项，底部仍是
+Local/Remote Branches in project。背景Log同时出现child-source的额外历史与同hash
+历史的独立行。截图artifacts/collaboration-workflows-20261024/
+independent-root-branch-popup.png。只修改项目映射，没有checkout、commit或fetch。
+
+随后恢复vcs.xml原始字节并再次同步，分支面板恢复为child与project两项，Log额外
+历史也消失；截图同目录independent-root-removed.png。已核对文件与备份逐字节一致，
+没有留下临时独立root登记，未新建额外Rebased实例。此次验证采用项目映射文件增删，
+没有验证设置页中“添加映射”的按钮与目录选择器布局，不能据此复刻其设置页UI。
+
+结合已读VcsRepositoryManager的VCS_CONFIGURATION_CHANGED、后台集合替换和
+VCS_REPOSITORY_MAPPING_UPDATED规则：登记集合变更须统一使分支和Log观察失效，
+不允许旧查询结果把已移除root重新加入；保留某个已打开Diff/恢复任务的Repository
+引用与保留项目成员资格应分别处理。Plico下一步接入主窗口持有的集合生命周期，
+当前共享核心尚未代替主窗口的单repo默认目标或UI持久化登记。前述计划范围不变。
+
+### 项目仓库集合：主窗口生命周期与Stash订阅（2026-10-26）
+
+依据前节普通独立root增删实机证据与VcsRepositoryManager后台映射替换规则，新增
+ui/project_roots.rs，由Review持有ProjectRoots实体，后台发现使用Cancel及单调请求
+代次；刷新先使旧集合失效并通知订阅者，只有当前请求可发布新集合。切换项目创建
+新实体，旧实体析构取消发现。发现不串联到Log首屏查询前，不阻塞历史首屏。
+
+StashView接收主窗口的同一实体，订阅集合变化；集合失效时调用已有begin取消旧
+stash查询、清空列表并等待，集合就绪后调用stash::project::load_in读取内容。
+load_in只读取传入集合，不重新扫描或把primary/recovery仓库补回集合。既有独立核心
+load入口仍可自行discover后委托load_in，供非窗口调用。刷新Stash内容不自动改变
+项目成员资格；主窗口常规刷新会刷新共享集合。当前登记输入仍是主项目一项及已发现
+子模块，普通多root登记持久化/设置入口、Log与分支面板订阅仍待接入。
+
+新增GPUI回归覆盖刷新使旧集合失效、旧Cancel触发与异步结果完成；新增真实Git回归
+stash_reads_registered_inventory_without_rediscovering_removed_roots验证两个独立
+仓库的Stash聚合以及移除primary后读取范围严格服从传入集合、原stash未删除。
+现有Tab复用与子仓库Apply/Drop回归一并运行。没有新增UI布局，本轮原生Plico
+集合刷新验收仍待完成，不能用GPUI通过替代Windows同条件验收。
+生命周期接线验证：桌面109项通过（/tmp/plico-project-lifecycle-desktop.log）；
+submodules集成34项通过（/tmp/plico-project-lifecycle-stash.log）；发布断言配置导航
+10项通过（/tmp/plico-project-lifecycle-navigation.log）。包级fmt检查exit0及
+Git空白检查通过。本轮未运行CI、未提交或发布，Log/分支及项目登记入口仍未接通。
+
+### 多root Log：Reword目标仓库贯穿准备、弹窗和执行（2026-10-26）
+
+沿用此前子仓库Log菜单/详情原生证据，补读4aec352 GitRewordAction.kt：merge-HEAD
+例外用commitEditingData.repository.isHead判断，弹窗后调用launchReword的也仍是该
+repository。VcsLogSingleCommitAction.java以选中CommitId.root解析仓库并传给动作。
+原生子仓库Reword实际写入及迟到弹窗场景尚未执行，后续验收不能用菜单可见替代。
+
+本地Prepared新增私有repository路径及repository()访问器，保留在异步资格检查和
+弹窗期间；show_reword与start_reword从Prepared取得仓库，未完成检查的入口则从Gate
+取得仓库，不回退Review.repo。refresh_reword_gate从完整选择身份建Gate；can_reword
+核对root/hash且按对应行metadata判断，禁止同hash其他仓库复用Gate。
+子仓库merge-HEAD资格等待该仓库Prepared返回，不读取主仓库HEAD；单仓库沿用已有
+HEAD快照与未知资格检查行为。这是当前子仓库元数据尚未共享加载时的暂时差异。
+成功后查找原选择使用root/hash，并同步更新log_sources的hash，防止平行身份失配。
+
+增强桌面同hash父子行测试：刷新Gate后Prepared仓库仍为child；切换到parent同hash行
+不允许复用child Gate。新增真实GitReword回归：两个仓库共享相同原始commit，执行
+Prepared携带的仓库仅改child消息与HEAD，parent消息/HEAD保持不变。
+整体混合Log尚未启用，其他写操作/聚合详情及项目集合订阅仍待接通，未宣称全部路由
+已完成或新增原生UI验收已通过。当前回归结果随后记录。
+Reword路由验证：完整桌面109项通过（/tmp/plico-reword-root-desktop.log）；真实Git
+Reword13项通过（/tmp/plico-reword-root-core.log，包含同hash两仓库隔离）；包级fmt
+检查exit0及Git空白检查通过。未提交、推送、发布；原生写入验收仍待完成。
+
+### 子仓库Reword：原生实际执行与恢复（2026-10-26）
+
+Rebased1.1.20，自有26788/3410258，项目fixture与前节一致。记录父/子HEAD、当前
+分支、tree、相对HEAD的binary diff摘要、porcelain状态及stash OID列表到
+/tmp/plico-child-reword-reference-before.json。混合Log选择第一行child的2eb6ab63，
+F2打开Edit Commit Message（自有弹窗4982308），说明文字为该hash和Test作者，
+原文local attached topic。改为Rootroutingreference后点击OK，child HEAD变为
+ a8b479c32fb0b2c806f2c3b8a64286fa18045a3d，父HEAD仍为f0ce679570170b005dbff706ebaf7a1368880134。
+
+执行后child branch/tree/diff/status/stash均与执行前一致，仅HEAD/message改变；父
+HEAD与stash不变。父工作区中的gitlink显示会随child HEAD改变，这是正常引用变化。
+截图artifacts/collaboration-workflows-20261024/child-reword-{dialog,ready,result}.png。
+输入法首次输入吞掉空格，已按最终弹窗文字记录，不把期望输入当成实际提交消息。
+
+用带预期新OID的update-ref将自有child分支恢复到2eb6ab63e6438e97308bd031785af29f58fc3bf6；
+恢复后父子HEAD/branch/tree/diff/status/stash逐项与执行前相等。测试没有删除工作文件
+或stash；不宣称reflog没有变化，未对index文件字节做独立前后采样。结果快照位于
+/tmp/plico-child-reword-reference-after.json。此项补齐上节Rebased子仓库实际写入证据，
+Plico混合Log原生同条件执行仍待入口接通后验收。
+
+新观察：Rebased成功通知含Undo/Edit again，当前原生Log详情显示No commits selected；
+Plico现有重写后主动定位新hash，存在选择行为差异，待进一步检查刷新选择源码后修正，
+不能仅凭这张截图归因。补读GitRewordService.launchReword主体及GitRewordOperation
+execute/rewordViaAmend相关片段，仓库参数全程保持，完成后repository.update；没有
+在已读片段确认显式清空选择逻辑。未宣称Undo/Edit again已在本地实现。
+
+### Reword完成后的Log选择：源码确认与修正（2026-10-26）
+
+针对上节真实Rebased子仓库重写后的No commits selected，再读4aec352
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogGraphTable.java的
+updateDataPack与SelectionSnapshot.kt全文：刷新前记录选中storage commit IDs，刷新后
+只为在新图中仍存在的相同ID恢复选择，不建立old→new hash替换映射。滚动恢复单独
+处理，不能用自动选中新HEAD代替视口保持。由此解释原生重写后旧commit消失时无选择。
+
+删除Plico Reword完成后原地改commits/log_sources hash并强选新hash的代码，让已有
+refresh_impl/reconcile按原root/hash恢复仍可见的选择。旧提交若仍被标签或其他分支
+引用应保留旧提交选择，不能一律清空；旧提交消失则不自动选择无关行。先前本地主动
+定位新hash的记录及上节同步修改平行数组的实现已被此规则取代。
+
+新增GPUI真实Git测试从Review.start_reword执行、异步刷新、再读取选择与实际HEAD：
+分别覆盖旧commit消失与tag保留旧commit两种场景，不只测试Selection集合算法。
+定向真实Git/GPUI测试1项、桌面测试110项、无debug断言导航测试10项通过。
+日志/tmp/plico-reword-selection{,-desktop,-navigation}.log；原生参考采用上节成功
+写入与恢复截图，本轮Plico原生仍待验证。
+
+
+### 项目事件与仓库集合所有权（2026-10-26）
+
+按用户要求使用codebase-design检查实际调用链，重新读取4aec352的
+platform/dvcs-impl/src/com/intellij/dvcs/repo/VcsRepositoryManager.kt全文。
+上游VCS_CONFIGURATION_CHANGED触发项目所有的后台mapping刷新，100ms合并请求，
+完成后发布VCS_REPOSITORY_MAPPING_UPDATED；外部临时仓库与项目registered roots分开，
+订阅和任务随项目释放。它不是一个由全局bus统一持有所有查询结果的设计。
+原生依据仍是本阶段independent-root-branch-popup.png / independent-root-removed.png，
+展示显式增加/移除普通独立Git根后，Log和分支入口同时更新；版本差异同本阶段记录。
+
+本地实际问题：Review.refresh_impl(!more)同时触发project_roots扫描、比较视图、
+计数/详情缓存失效、本地变更刷新；Log筛选与refs刷新经过同一入口。ProjectRoots已有
+GPUI强类型Changed订阅，Stash复用集合，但Log/分支尚未接通。因此当前不新增全局
+消息总线，也不把运行中的Git任务迁入总线：先利用已有Entity/EventEmitter/Subscription
+表达项目级生命周期，避免两套事件系统并存。后续按以下顺序落实：
+
+1. 仓库集合由项目唯一所有者持有；显式注册普通根与递归发现子模块共享同一接口。
+2. 区分集合失效、指定root的refs/worktree变化、查询筛选变化；筛选不能重扫集合。
+3. Log/分支/Stash各自订阅所需事件，操作完成按实际目标root失效；保留各查询自己的
+   cancel/generation，不用事件到达顺序替代过期结果检查。
+4. 完成混合Log所有动作的root路由后再启用入口，不能以父repo作为隐式fallback。
+
+本轮先收紧第一项接口：ProjectRoots::new直接接收注册仓库集合，移除内部默认只认识
+一个主仓库的假设；欢迎页空集合由窗口构造方明确传入。snapshot改为私有，只通过
+返回共享只读Arc的方法读取，外部不能绕过generation和事件发布替换结果。现有窗口
+仍传入一个显式根；此改动不宣称已有多根设置UI/持久化。添加GPUI真实Git测试：两个
+普通独立仓库与一个失效路径共存，成功根仍发布、错误关联原root，释放项目取消任务，
+读者已取得的不可变快照仍可使用。不是增加新的可见界面。
+
+尚未解决：refresh_impl的刷新范围仍过宽、重复发现可能被连续取消；需要在接通Log与
+分支的项目事件时拆开刷新原因，并按上游规则合并集合扫描。本轮未宣称这些问题已修复。
+
+本轮验证：项目集合定向GPUI测试2项通过；完整桌面测试111项通过；cargo fmt
+--package plico -- --check与git diff --check通过。日志/tmp/plico-project-catalog-
+{tests,desktop,fmt}.log。首次释放测试未进入GPUI update flush，实体尚未释放，断言失败；
+测试补充应用update后确认Drop取消，未用移除断言掩盖生命周期问题。未新增原生UI
+验收结论，多根窗口入口仍按上文待接通。
+
+
+### 区分Log筛选与仓库变化刷新（2026-10-26）
+
+继续上节架构收敛。参考4aec352的VcsLogClassicFilterUi.kt初始化各model的
+addSetFilterListener、VisiblePackRefresherImpl.java的onFiltersChange/onRefresh及
+computeState/refresh、VcsLogFiltererImpl.kt的filter主体：FilterRequest携带新条件，
+RefreshRequest表示已有新DataPack；筛选重置可见提交加载阶段，但不触发项目仓库
+映射更新。过滤在已有dataPack/providers集合内进行，必要时查询VCS；不能把筛选
+等同于工作区或项目配置改变。原生筛选操作已有本阶段HEAD/branch filter截图与记录，
+本轮不新增控件或改变过滤交互，不据此声称测得原生后台Git调用次数。
+
+本地src/ui/repository.rs将实际历史查询抽为reload_history；原refresh_impl保留
+仓库集合、比较Tab、本地变更、详情缓存的刷新，用于手动刷新和Git操作完成。
+新增refresh_log_filter仅使Log计数失效并启动替代历史查询。log_branches.rs的
+select_branch、filter_selected_tree_ref、apply_text_filter接入此入口，后者覆盖
+文本/正则/大小写/作者/日期/路径现有条件组合。previous_window同样只查询历史，
+保留固定tips和现有计数key。加载更多既有流程不变。
+
+保留现有查询取消/generation、首屏选择恢复、按过滤条件异步计数规则；没有因优化
+而移除Git状态读取、失败恢复记录检查或过滤能力。此处尚未把所有Git操作事件改成
+按root失效，也未解决初次启动两次集合请求及自动观察refs的全量刷新。
+
+真实Git/GPUI回归在已有“空结果过滤再清空条件”场景中验证查询结果与选择状态，
+并在查询启动和结束两侧断言ProjectRoots的Arc快照保持相同，证明该路径未重扫集合。
+完整桌面111项测试通过（/tmp/plico-filter-refresh-desktop.log）；Windows原生新构建
+回归仍待集中验收，不声明本轮完成视觉验收。
+
+
+### 多仓库Log多选变更模型（2026-10-26）
+
+实现前复用自有Rebased26788/3410258，点击Log首行后Ctrl+A选中全部10行，截图
+artifacts/collaboration-workflows-20261024/project-multi-selection-reference.png已查看。
+Rebased1.1.20 / IC-262.10968.SNAPSHOT：右侧按child（6文件）和project（2文件）
+分组，两仓库的变更同时保留；底部继续显示所选提交详情。仅执行只读选择，没有修改
+fixture Git状态。两实例限制不变，未启动额外Plico/Rebased。本轮未测试跨根多选
+后的任意文件Diff导航，不能据此声称导航行为已验证。
+
+源码4aec352：VcsLogAsyncChangesTreeModel.kt::createChangesState以details.getRoot
+收集仓库集合；多选调用VcsLogUtil.collectChanges，单提交parent身份也是root/hash。
+VcsLogUtil.java::collectChanges倒序收集选中提交的changes，再交给
+platform/vcs-impl/.../CommittedChangesTreeBrowser.java::zipChanges；后者按FilePath
+匹配旧/新端点并合成。这里不是把选中hash扩展成revision range，也不是忽略仓库
+后直接合并相同相对路径。本地相对路径模型必须显式携带根，才能保持这项隔离。
+
+新增src/project_log/selection.rs：以完整CommitId校验/分组、在各自Repository调用
+既有log_changes::load，返回带根的变更组和恢复原Log选择顺序的commit entries。
+相同hash出现在不同root允许，同root重复选择拒绝；同名相对路径仅在各自根内合成。
+有界提交/变更数量、支持取消；任何根读取失败都不发布看似完整的部分多选结果。
+UI排序由后续文件树负责，模型变更组当前按根首次出现在选择中的顺序返回。
+
+真实双仓库回归：两边共享base hash和shared.txt；第二仓库新增修改提交，交错选择
+第二仓库tip、第一仓库base、第二仓库base。验证显示顺序保持、两个同hash entry保留、
+两组同名文件分别指向各自最终revision，并验证重复身份、失效根和取消失败路径。
+定向测试通过，日志/tmp/plico-project-selection-core.log。
+
+此轮先补齐可复用多选模型，尚未接入Review.load_log_selection；其旧主仓库多选逻辑
+仍待替换。混合Log入口仍未启用，不能声明跨仓库多选功能交付。后续需同时迁移
+aggregate_chain、文件树root分组、ContainingBranches批查询及文件选择身份，避免
+只替换加载器后又在预览/导航阶段丢掉root。Windows Plico同条件验收待完成接线。
+
+本轮完整cargo test --locked --no-default-features通过（退出0，
+/tmp/plico-project-selection-full-core.log）；fmt检查与git diff --check通过。
+
+
+### 跨根多选Diff链逐文件身份（2026-10-26）
+
+实现前继续操作自有Rebased26788/3410258，沿用上节跨根10提交选择，双击child组
+branch-update.txt：Diff显示1/8 files、模块路径modules\child\branch-update.txt及
+child提交693ff992。连续点击文件导航向右7次，到8/8 files的父仓库.gitmodules，
+显示父提交c55b9649与对应文件内容。截图project-selection-diff-{child,parent}-reference.png
+已查看，存于artifacts/collaboration-workflows-20261024。证实跨根文件保留一个导航
+链，选中文件变化时revision/path跟随变化。没有执行写操作或启动新实例。
+
+源码4aec352：VcsLogChangesBrowser.kt::getDiffRequestProducer为每个Change创建
+producer；VcsLogAsyncChangesTreeModel.kt::createDiffRequestProducer将该Change交给
+ChangeDiffRequestProducer；ChangeDiffRequestChain.java持有ListSelection<Producer>，
+按文件index切换producer，不拿首文件仓库替代后续文件身份。本次已读对应方法及
+链构造/getRequests/GoToChange映射。与上一节root-aware changes模型共同构成实现依据。
+
+本地src/diff_target.rs增加Chain::combined_roots；每个combined端点携带共享Arc仓库，
+同一组文件复用根对象。既有单仓库combined入口委托此实现。select/step按文件根创建
+Target；fork_for同时匹配根与revision端点；subset/reordered同步移动完整端点身份，
+独立游标仍共享不可变数据。文件总数沿用MAX_INPUT_CHANGES限制，仍不预读文件内容。
+普通commit和工作区比较链保留原流程。
+
+新增纯模型回归：两个根具有完全相同hash/path/endpoints，跨根切换、独立fork、重排、
+子集均保留正确根，第三个根不能借用链。上一节真实双仓库回归扩展为通过该链读取
+shared.txt：第二仓库得到child change，下一文件第一仓库得到base，再返回原目标。
+此处链支持已经补齐，UI的多选加载/文件树/包含分支仍待接通，不将模型测试算作
+Plico原生跨根导航验收。
+
+本轮验证：diff_target单元测试5项、真实Git跨根内容读取测试1项、完整桌面111项
+均通过；fmt check及git diff --check通过。日志/tmp/plico-root-chain-{tests,git,
+desktop,fmt}.log。未新增Plico原生验收结论。
+
+
+### 多选详情加载与ContainingBranches按root路由（2026-10-26）
+
+沿用前两节原生跨根多选和Diff导航截图，接通已有界面的后台加载；没有新增可见
+入口。补读4aec352 ContainingBranchesGetter.kt的requestContainingBranches、
+getContainingBranchesFromCache、getContainingBranchesSynchronously、createTask：
+缓存键是CommitId(hash,root)，通过root取provider，GraphTask/ProviderTask同时保存
+root/hash。因此不同仓库同hash不能共用一次主仓库查询。
+
+Review.load_log_selection改用project_log::selection::load；详情前50条仍保持原选择
+顺序及OUTPUT_LIMIT，commit_metadata按entry.root读取。文件通过combined_roots构造
+聚合Diff链；ContainingBranches::Batch新增from_roots，每张卡片显式传入Repository、
+hash和弱实体。既有单仓库new入口委托同一串行worker，文件历史/分支比较调用方无须
+改变。生命周期、取消及总分支名称输出预算继续由Batch独占，不创建每卡并行任务。
+
+GPUI真实Git测试扩展为实际调用Review.load_log_selection，父子各一条真实提交：
+详情卡片2条、文件2个，逐文件从log_preview_target读取正确仓库与实际内容，窗口主仓库
+不变。另新增Batch专用真实Git测试：两仓库共享一个hash，各有first-only/second-only
+分支，两卡片各自包含正确分支且不串入另一边，释放Batch后Cancel已取消。
+
+仍未启用混合Log查询入口。文件树root分组、目录展开身份、跨选择恢复文件身份仍待
+迁移；当前same-path不同root的树展示/恢复不能当作已完成。混合Log其他写操作路由
+仍待检查。此轮只完成多选异步加载、卡片分支查询和Diff目标路由，不宣称整体多根
+功能已交付或Windows原生已验收。
+
+本轮完整桌面112项通过（/tmp/plico-root-selection-ui.log）；fmt check与
+git diff --check通过。
+
+
+### 文件树分组、目录状态与选择恢复的仓库身份（2026-10-26）
+
+原生前置依据为本阶段project-multi-selection-reference.png的child/project两组及
+project-selection-diff-{child,parent}-reference.png的跨根文件导航。补读4aec352
+platform/dvcs-impl/src/com/intellij/dvcs/ui/RepositoryChangesGroupingPolicy.kt全文：
+多项目root时按Repository分组，排除external repository；gitlink归父仓库。
+RepositoryChangesBrowserNode.kt全文：短仓库名作为展示与比较键，图标使用root颜色。
+此规则要求不能按相对路径把不同仓库的目录拼成同一个树；gitlink通过来源commit根
+归属，不能根据路径落在子模块目录内就改归子仓库。
+
+本地Review.file_root从聚合链或所选commit root取得归属；rebuild_files按根分开调用
+compact_rows，保留同名目录/文件各自索引。目录折叠键从(area,path)变成(root,area,path)，
+Folder行也携带root；prune、展开/折叠全部、Diff导航回选祖先同步使用完整键。
+平铺模式保留仓库组，组内不构建目录；组按短名再完整路径排序，多选Diff链按同一
+根排序，内部既有文件排序规则未在此轮替换。
+
+pending_preview_file改成(root,Change)，查询替换与异步返回全程携带root；恢复按
+root + before/after相对路径匹配，revision不参与UI选择匹配，保持既有Change.equals
+语义。同名文件若来自另一根不能当作原文件；找不到时仍按既有规则选择首文件。
+preview_selection::matches抽出既有路径判断，单仓库index行为不变。历史重载时在
+捕获首选身份后清空旧聚合链，防止本地变更结果借用之前多选链。
+
+另修正editor_tabs历史文件打开源文件入口的单提交Target，改用log_files_repository；
+聚合链仍使用逐文件Target，不能回退主仓库。
+
+新增GPUI同hash/同src/same.txt双仓库回归覆盖：两组、同名目录独立折叠、平铺保留
+文件选择、调换链顺序后按root恢复原文件、全收起与全展开。原单仓库目录测试迁移
+到显式root键，保持此前交互。首轮桌面113项通过，最终小修后的复跑记录见下。
+
+已知差异/未完成：仓库组图标暂时仍为文件夹，未接Rebased root色块；分组触发当前
+依据已加载Log来源和所选文件根，待完整项目订阅接通后使用项目注册集合，避免仅加载
+到一个根时少显示组。仓库重名短标签消歧、细节UI与Windows原生同条件验收仍待做。
+混合Log查询入口仍未启用；不得以本轮树模型测试宣称整个多仓库功能交付。
+
+最终验证：桌面113项与preview_selection核心回归通过，fmt check及git diff --check
+通过。日志/tmp/plico-root-file-tree-tests.log、/tmp/plico-root-file-selection-core.log、
+/tmp/plico-root-file-tree-fmt.log。Windows原生Plico多根入口尚未开放，本轮未作原生
+验收通过声明。
+
+
+### 文件树订阅项目仓库集合（2026-10-26）
+
+继续使用本阶段independent-root-{branch-popup,removed}.png和多选文件树原生证据，
+以及已读4aec352 VcsRepositoryManager的项目mapping事件与RepositoryChangesGroupingPolicy
+的hasMultiplePaths规则：分组取决于项目根集合，不取决于当前筛选/已加载提交数量。
+
+本地Review持有project_roots_subscription，在窗口构造/切项目时绑定当前ProjectRoots
+实体，旧订阅随替换释放，回调同时检查实体身份。Changed只让文件树重建并notify，
+没有反向触发根扫描或Log查询，避免形成刷新环。rebuild_files显式读取App上下文里的
+项目集合展示状态，不在Review另存一份可变仓库列表。
+
+ProjectRoots维护最后一次完成扫描的multiple_roots展示标志，供树分组使用；刷新时
+snapshot仍立刻None，任务消费者不能拿展示标志当有效查询集合。完整扫描结束更新
+该标志并发布既有Changed。这样刷新过程不会临时把多仓库树折成单仓库树，真正移除
+仓库后仍按新结果变化。Stash既有订阅继续使用snapshot失效/就绪，不改变取消边界。
+
+新增真实Git/GPUI回归：两个注册仓库、Log无行、右侧只有第一仓库一个文件且关闭
+Directory，扫描完成后自动出现仓库组；删除自有测试第二仓库.git并刷新，等待期间
+保留分组，完成后只剩一根并保留失效根错误，树自动恢复单仓库平铺。此测试经过真实
+Changed订阅触发，无手动代调用树重建冒充事件验收。
+
+本轮只接通文件树的项目集合订阅。Log查询、顶部多仓库分支面板、操作状态和缓存
+按root失效仍在本阶段待办；仓库色块和Windows原生Plico对照仍待集中验收。
+
+验证：完整桌面114项通过，fmt check与git diff --check通过；日志
+/tmp/plico-membership-subscription-{tests,fmt}.log。未增加新进程或Git用户仓库写操作。
+
+
+### Reset目标仓库贯穿准备、弹窗与执行（2026-10-26）
+
+原生前置：Rebased26788/3410258选child的local attached topic后打开右键Reset，
+弹窗3409594明确显示attached-test in child → 2eb6ab63，顶部主项目分支仍main。
+截图artifacts/collaboration-workflows-20261024/child-reset-dialog-reference.png已查看。
+默认Mixed，四个模式及说明保持原布局，Esc取消，未执行Reset。首次键盘导航误打开
+Compare with Local（只读），随后重新右键定位Reset；鼠标点击因popup属于另一窗口
+被现有命中保护拒绝，未绕过保护。只复用原实例，未关闭用户进程。
+
+读4aec352 GitResetAction.java、GitOneCommitPerRepoLogAction.java全文及
+GitResetOperation.java构造/execute/proposeSmartReset：Action保存repository→commit
+映射，确认后将同一映射交给operation；execute逐根执行并刷新对应root，保存文件
+发生在操作开始。新增发现：Reset基类是one-commit-per-repo，多根每根各选一条是
+目标范围，不能把多根一概禁用。其基类完整资格规则和多根弹窗/部分失败原生场景
+仍待进一步验证；本轮只修已有单选路由，不把单选当作全部Reset对齐完成。
+
+本地reset_operation::Prepared保存repository路径并暴露只读repository()，既有
+Git目录/HEAD/branch/operation/recovery检查保留。Log右键在构造菜单时按行取得
+Repository，prepare_reset显式接收它；start_reset从Prepared取得仓库，即使中间
+重新选择行也不重新解释目标。窗口项目路径仍用于丢弃切项目后的旧菜单回调。
+reset_dialog在项目多根或目标非主根时展示源分支和仓库短名（中英文分别格式化），
+普通单仓库展示保持不变。
+
+新增真实Git回归：主仓库和内部clone初始HEAD相同，准备clone的Mixed reset，执行
+捕获的repository后clone回到base，主仓库HEAD/index字节/工作文件不变。既有拒绝
+把Prepared拿到另一个同HEAD clone执行的测试继续保留。
+
+待办：多根每根一条的Reset选择资格与批操作/结果呈现；子仓库操作状态驱动菜单
+禁用；其他checkout/revert/cherry-pick/squash路由；Windows Plico原生Reset验收。
+混合Log入口仍未启用，因此本节不宣称所有多仓库写操作已就绪。
+
+本轮验证：Reset核心11项、完整桌面114项通过；fmt check及git diff --check通过。
+日志/tmp/plico-root-reset-{core,desktop,fmt}.log。Plico原生弹窗与写入仍待验收。
+
+
+### 项目级事件与仓库身份的架构约束（2026-10-26）
+
+针对多 Git 项目聚合，采用项目拥有的状态模块和 GPUI 类型化订阅，不另建全局消息总线。
+源码依据仍为 4aec352 的 VcsRepositoryManager.kt（项目映射通知、后台更新与生命周期）、
+RepositoryChangesGroupingPolicy，以及本阶段已记录的独立根加入/移除原生操作。
+该选择利用现有实体生命周期，不把 Rebased 的平台消息基础设施整体移植进 Rust。
+
+已经落地：project_repositories 统一发现显式注册根及已初始化子模块，区分工作树根身份
+与 common Git directory 写锁身份；ui/project_roots 独占扫描、取消、代次和只读快照发布。
+Stash 与文件树订阅该实体，不各自扫描，也不在通知回调里反向刷新发布者。
+筛选变化只重查 Log，不再触发整个项目的仓库发现。切项目替换实体和订阅；旧查询结果
+必须通过代次/实体检查，不能覆盖新项目。
+
+后续接线约束（尚未全部实现）：
+
+- 仓库集合、refs、工作区、Log 查询条件分开处理。集合改变才影响根注册；某根提交或
+  fetch 的完成通知应携带根身份，按受影响的内容失效缓存，不能一律全项目重新扫描。
+- 通知表达已发生的状态变化；Git 写操作通过显式调用及现有队列执行，不通过广播命令。
+  操作准备阶段捕获仓库与版本，确认后不能重新从当前选中行推导目标。
+- 所有跨根身份使用 root + hash / root + path。子模块、普通独立仓库和 linked worktree
+  共享同一项目集合接口；gitlink 关系另存，不把“子模块”硬编码成第二套 Log/分支模型。
+- 视图只读共享快照；每个查询拥有取消与结果代次。保留各根错误，不因一根失败隐藏其余根。
+  事件合并、重复扫描抑制和逐根失效必须有真实消费者及回归场景后实现，避免预建空框架。
+
+此次继续完整读取 platform/vcs-log/impl/src/com/intellij/vcs/log/ui/actions/
+CompareRevisionsFromLogAction.kt：双选时菜单可见，只有两条提交的 root 相同才启用；
+查询交给该 root，commits[1] 为 before，commits[0] 为 after。修正本文早期“仅同仓库时
+显示”的不准确表述。本地 ui/editor_tabs.rs::compare_versions 仍使用 self.repo，
+log_history.rs 仍只检查选中数量，列为混合 Log 开放前必须修复的仓库路由缺口；本次
+未宣称该行为已修复，也不提前开放混合查询入口。
+
+原生核对尝试：复用自有 Rebased 26788/3410258 截图时，PowerShell 执行策略拒绝运行
+capture-window.ps1，未修改策略，未发送点击/键盘操作。此次没有新的截图验收结果；
+Compare Versions 同根/跨根原生对照与 Plico 验收仍待完成。
+
+
+### Compare Versions 完整上下文核对（2026-10-26，实现前）
+
+复用自有 Rebased 1.1.20 进程26788，在既有独立子模块测试项目双选前两条child提交，
+右键 Compare Versions 启用；双选相邻child branch update与parent advance child for
+preservation后，菜单不显示此项。截图已查看并保存于
+artifacts/collaboration-workflows-20261024/compare-{same,cross}-root-menu.png。
+跨根时右侧分别显示child/project组，确认并非同根误选。
+
+重新读4aec352 CompareRevisionsFromLogAction.kt全文及
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogComponents.kt::collectLogKeys：
+后者只有selected roots恰好一个才提供LOG_DIFF_HANDLER，前者handler为null直接隐藏。
+因此实际主Log菜单是恰好两条同根才显示；不能仅翻译action后半段的isEnabled判断。
+本地应共用同一选择目标解析，菜单和执行入口均验证两条同根，比较用该根而非主仓库。
+
+截图脚本改用仅本次PowerShell进程的ExecutionPolicy参数后可运行，未改系统策略。
+同根菜单键盘定位一次误触Cherry-Pick，Rebased提示Nothing to cherry-pick；随后核对
+parent/child HEAD分别仍f0ce6795/2eb6ab63，child仅原有readme修改，parent仍原有gitlink
+脏状态与.idea，stash分别原有06698fde/空。本次没有比较结果成功截图，不以菜单截图
+代替结果验收。仅在自有测试仓库操作。
+
+
+### Compare Versions 仓库路由修复（2026-10-26）
+
+完成上述原生前置核对后修改 ui/editor_tabs.rs：selected_comparison 统一解析恰好两条
+同根完整提交身份，返回捕获的Repository、before、after；菜单使用同一入口决定是否
+显示，compare_versions 执行时再次解析，直接将目标仓库传给 CompareView。跨根、不足
+两条或并行来源数据失配时不替换已有比较窗口。未增加另一套项目扫描或全局消息机制。
+
+新增GPUI真实Git回归 comparison_reads_child_revisions_and_rejects_mixed_roots：主目录
+刻意没有Git对象，子仓库两次提交修改same.txt；从Review双选入口创建CompareView，
+等待异步查询后读实际Diff正文，确认before/after及仓库；跨根选择不创建/替换比较，
+来源列表长度失配也不回退到主仓库。完整桌面115项通过，日志
+/tmp/plico-comparison-roots-desktop.log。git diff --check通过。
+
+参考补读 VcsLogComponents.kt::getSelectedRoots：多根项目正常选择时从各选中行取root
+去重；因此跨根双选不提供handler，隐藏行为与原生截图一致，不是源码版本差异。
+Plico混合Log入口仍未开放，Windows同条件Plico比较结果验收仍待，不以GPUI通过替代。
+
+补充验证：发布配置Diff导航10项通过（含跨文件F7焦点与工具栏跳转），日志
+/tmp/plico-comparison-roots-navigation.log；cargo fmt --package plico -- --check通过，
+日志/tmp/plico-comparison-roots-fmt.log。未提交、推送或发布。
+
+
+### Update确认后的文档保存与状态复验（2026-10-26，实现前）
+
+Rebased1.1.20自有进程26788，在既有child的readme.txt工作区Diff右侧追加换行及260026。
+Ctrl+T打开Update Project，此时磁盘仍为原字节；Esc取消后再次读取，磁盘仍未变化。
+再次Ctrl+T并确认Rebase，磁盘包含追加内容，通知All files are up to date；父子HEAD
+分别仍f0ce6795/2eb6ab63，父Stash06698fde保持，子Stash为空。最后从同一编辑器删除
+本次追加并Ctrl+S，断言磁盘与/tmp/plico-update-readme-backup逐字节一致，保留原有
+readme修改。截图update-document-{options,reopen,result,restored}-reference.png在
+artifacts/collaboration-workflows-20261024，已查看选项及成功结果；未新增进程。
+
+重读4aec352 VcsUpdateTask.kt::execute：确认后先saveAllDocuments再后台更新；
+GitUpdateProcess.java::updateImpl在定义updaters后判断isSaveNeeded，再执行保存恢复。
+因此确认前的分支/gitlink身份仍应固定，但dirty状态不能当作确认后不可改变的身份。
+拟在整组锁内校验所有detached身份不变后更新其工作区快照，再计算待保存根；严格的
+独立execute_clean/execute_preserving快照约束不放宽。尚未验证取消场景的Plico原生UI。
+
+
+### Update Project 在整组锁内更新工作区快照（2026-10-26）
+
+完成上述实机与源码前置后，将submodule_update::Update::validate_reserved替换为
+refresh_worktree_reserved：重新读取后必须保持common-dir锁键集合、模块声明/gitlink、
+HEAD、分支与子树身份一致，且全部锁仍由当前整组guard持有，才接纳新的工作区状态。
+Group在fetch结束、整组锁取得之后、计算dirty roots及任何stash/本地整合之前调用。
+没有重捕获用户确认的分支目标，没有提前保存编辑器，也没有放宽独立clean/preserving
+执行器的严格快照校验。身份错误会在任何本地更新之前终止；fetch本身仍可已完成。
+
+新增真实Git回归：Prepared捕获clean子模块后模拟OK保存编辑器草稿，执行父更新推进
+gitlink及detached子更新，验证正文恢复且无遗留Stash；另分别改变child HEAD、attached
+分支、parent index gitlink，验证拒绝执行、父子HEAD/index/草稿与Stash保持。
+首轮36项中35项通过；成功用例因过窄断言report.saved.len()==1失败，实际保存层也检查
+父根，不能把多一条父根记录等同多一条Stash。改为检查子根优先、实际正文恢复、所有
+saved_oid清空及父子Stash均为空，没有放宽身份拒绝或内容断言。
+Plico Windows原生未保存文档确认/取消与detached更新组合仍待验收。
+
+本轮验证：完整核心cargo test --locked --no-default-features退出0，含submodules全部
+36项（两项新回归）及原有严格dirty/attached/取消拒绝测试；日志
+/tmp/plico-update-document-full-core.log。fmt check与git diff --check通过。
+本轮没有修改UI布局，未重新宣称Windows原生Plico验收通过；尚未提交或推送。
+
+### Update 诊断的生命周期（2026-10-26，原生复验）
+
+独立 Windows fixture update-document-plico-h2wc7uvy：父更新成功、detached child 更新失败，
+编辑器草稿260027保存在child Stash 5f344e84f9dda75bdb755b2d88d6793ecaaa0cdf，读取正文
+验证为stable original加草稿。只调整完成回调中refresh/赋值顺序仍不足：新构建重试后，
+自动刷新/选择重置再次清除Review.error，终态只剩泛化提示，没有可用详情入口。
+这说明同步回调断言不能覆盖真实生命周期，不将第一版测试通过当作原生验收通过。
+
+再次读取4aec352 GitUpdateProcess.java::updateImpl 179–191、258–274：更新失败通过
+VcsNotifier报告，根信息属于操作结果，而非Log查询展示状态。沿用此前Rebased失败
+通知原生证据；本次Plico截图update-diagnostic-{options,result,detail}.png保存到
+artifacts/collaboration-workflows-20261024。拟将Update诊断作为独立操作状态保留，复用
+现有Details/Dismiss界面；Log刷新/选择不能清除，下一次Update完成、用户Dismiss或
+切换项目才清除。暂不引入全局消息总线；状态所有权比增加事件转发层更直接。
+
+实现：Review.update_diagnostic独立保存更新结果，现有Details/Dismiss同时读取/关闭该结果；
+切项目明确清除。没有把Log查询状态或Git任务移动到事件总线。桌面回归扩展为完成后再次
+refresh_impl及reset_log_presentation仍保留诊断，后续成功结果清除；完整桌面116项通过。
+Windows新构建及fmt check通过；日志/tmp/plico-update-diagnostic-{desktop,windows-build,fmt-check}.log。
+
+Windows复验完成：新进程11964中重试失败后等待自动刷新，Details仍可打开，截图
+update-diagnostic-{retained,visible}.png。实际错误为child的fatal: transport 'file' not
+allowed及目标commit直接fetch失败。只对该独立fixture的child设置local
+protocol.file.allow=always后，再通过Plico确认Update；child推进到fa4743a07956，
+父97169c1e449f不变，父子工作区clean，UI“项目已更新”且旧错误消失，截图
+update-diagnostic-success.png。旧失败保留的Stash 5f344e84未被此次成功重试删除或自动
+恢复，正文仍为stable original换行260027；没有清理该恢复数据。产品没有放宽file
+协议策略。所有这些截图均在artifacts/collaboration-workflows-20261024。
+
+验收边界：本轮完成诊断保留/成功清除和detached child原生更新；未完成旧Stash在UI中
+恢复草稿及新的“未保存草稿→整组成功→自动恢复”原生组合场景，后者有核心回归覆盖。
+Plico编辑器独立2秒自动保存，故不能据此宣称取消Update也会阻止已有自动保存；Ctrl+T
+尚未绑定，实测通过顶部更新入口。多根Log/分支接线与恢复入口仍属第6项待办。
+
+### 子仓库失败草稿的原生恢复（2026-10-26）
+
+Plico自有进程11964：提交侧栏→Stash，显示child分组及Plico: before project update。
+选中该记录，详情stable.txt；点击应用，终态“已恢复保存的更改”。实际读取child
+stable.txt为b"stable original\n260027"，child状态仅M stable.txt；父状态仅子模块dirty，
+父Stash为空，child原Stash 5f344e84仍保留，符合Apply不Drop。截图
+update-recovery-{stash,apply,result}.png位于artifacts/collaboration-workflows-20261024。
+至此完成前述失败→成功更新→通过同窗多根Stash恢复旧草稿的原生组合验收；未清理草稿。
+
+### Squash 多根选择资格（2026-10-26，实现前）
+
+Rebased1.1.20自有26788，Log同时选child branch update及父仓库advance child for
+preservation，右键Squash Commits仍可见但禁用；未触发任何写操作。截图
+squash-cross-root-reference.png。完整阅读4aec352 GitCommitEditingActionBase.kt及
+GitSquashLogAction.kt：多选必须来自唯一root，repository从该root取得；跨根Prohibited
+带description故禁用而非隐藏。HEAD、保护分支、线性历史均按该repository检查，异步执行
+与结果聚焦也保留该root。本地菜单当前只判断选择数>=2，会错误启用跨根Squash。
+先修复菜单和执行入口的同根资格，保持未开放的混合Log入口；同根子仓库Squash的
+prepare/execute/Undo/聚焦完整路由仍待接线，不以禁用跨根替代它。
+
+实现位置ui/history_operations.rs::squash_selection_is_single_root，菜单与prepare_squash
+共用该资格；使用已校验的root+hash，不把跨根哈希直接传给主仓库。GPUI回归覆盖单选、
+同根双选、跨根双选、来源长度失配，直接调用prepare_squash验证跨根不会开始任务或
+设置Preparing状态。完整桌面117项通过，日志/tmp/plico-squash-root-desktop.log；fmt与
+git diff --check通过。Plico混合Log尚未开放，未声称完成其Windows菜单原生验收。
+后续路由需要Prepared持有仓库、Undo捕获仓库并按root+hash聚焦，不能只替换prepare
+中的self.repo而留下execute/Undo仍读取窗口仓库。
+
+### 子仓库 Squash 与 Undo 的仓库快照（2026-10-26，实现前）
+
+Rebased26788 / 1.1.20，在独立submodule-reference-80s4zk56的child attached-test上新增
+两个仅含测试文件的提交4203a23、0b76079（新增前确认index为空，保留readme工作区改动）。
+刷新Log、选择两条、Squash菜单启用；点击打开Squashed Commit Message，正文按选择顺序
+合并两条消息。确认后child HEAD变970d6ab，父HEAD f0ce679不变，readme原改动保留，
+通知Commits Squashed带Undo。截图squash-child-reference-{menu,dialog,result}.png。
+参考4aec352 GitSquashLogAction.kt及GitCommitEditingOperationResult.kt完整实现：
+操作结果持有repository，Undo复验该仓库HEAD和保护分支后reset --keep，并刷新该仓库。
+本地Prepared与Undo目前仅持有gitdir用来拒绝错误目标，调用方仍能丢失原工作区路径；
+先让两者提供捕获的repository，供后续UI全过程路由使用，不放宽写前身份复验。
+
+随后点击Rebased成功通知的Undo，child HEAD恢复0b76079，原两条提交顺序恢复；截图
+squash-child-reference-undo.png。原readme修改保留，父HEAD未改。原生操作没有额外确认框。
+
+本地squash_check::Prepared与squash_undo::Undo保存root并提供repository()，执行/Undo
+用捕获的目标；prepare_squash从完整选择身份取root，在后台读取该root的HEAD，窗口
+项目路径仅用于确认弹窗生命周期；消息弹窗复验也使用Prepared仓库。既有gitdir、HEAD、
+分支、保护分支与写锁复验不放宽。仍待：Squash/Undo成功后的导航及中途冲突恢复要接入
+多根Log，不将当前prepare/执行路由视为完整第6项交付。
+
+验证：完整核心809项通过（/tmp/plico-squash-owner-core.log），既有Squash八种Undo场景
+改为从Undo.repository取得执行目标，并检查Prepared/Undo归属；保留错误worktree拒绝。
+新增GPUI用例squash_prepares_selected_child_without_primary_head：主目录无Git，child
+真实三条提交，选择最新两条，在主窗口snapshot为空时仍开始并完成准备且无诊断错误。
+首轮夹具未设置rows导致渲染越界，补齐真实graph::layout后完整桌面118项通过
+（/tmp/plico-squash-owner-desktop-final.log）。fmt与git diff --check通过。
+本轮Windows原生仅验收Rebased子仓库Squash/Undo；Plico混合Log入口及结果导航尚未开放，
+本地全过程原生验收仍待，不以测试通过宣称多根Squash交付。未提交或推送。
+
+### 已加载提交定位的完整身份（2026-10-26，实现前）
+
+Rebased26788的多根Log选中child squash root 2后按Right，选中同根squash root 1
+4203a23，右侧文件仍属child。截图log-parent-root-reference.png；该场景没有制造跨根
+相同hash，重复hash由下述核心身份源码及本地回归验证，不冒称原生已覆盖。
+读取4aec352 GoToParentOrChildAction.kt完整逻辑、VcsLogNavigationUtil.kt::showCommitSync/
+jumpToCommitInternal/getCommitRow及GitCommitEditingUiUtils.kt::focusCommitWhenReady：
+显式目标以CommitId(hash, root)定位，Graph邻接以已编号的行定位，操作结果等待相应
+repository.root进入Log后聚焦。用户自由输入hash的搜索入口才允许跨根查找候选。
+本地navigate_commit_impl已知主仓库目标，却在已加载路径只比较hash；当另一根同hash
+排在前面会误选。先统一已加载行查找为完整CommitId，异步多根定位及操作结果接线仍待。
+
+实现与验证：ui/log_branches.rs::visible_log_commit以commit_ids()的完整身份查找，
+navigate_commit_impl已加载快路径显式传入主仓库root+hash。新增GPUI真实Git回归
+known_repository_navigation_does_not_select_another_roots_identical_hash：父仓库及其
+clone共享同一提交，child行排在parent前，已知parent目标仍选中parent行；来源长度
+失配时拒绝匹配。完整桌面119项通过（/tmp/plico-navigation-root-desktop.log），
+fmt及git diff --check通过。没有修改异步定位的单根查询，也没有开放混合Log；
+Plico多根导航原生验收待后续接线完成，不以本项测试替代。
+
+架构取舍延续：采用项目拥有的ProjectRoots及有类型的GPUI事件订阅，集中仓库发现、
+不可变快照、失效和取消生命周期；当前不增加全局消息总线。后续refs、工作区和项目
+成员变化需区分影响范围，事件用于通知状态失效，不能承载隐式Git写命令。Git写操作
+继续由显式队列执行，准备、执行、Undo与结果定位全程保留repository身份；不能通过
+广播后让当前选中仓库猜测目标。多个独立仓库与子模块共用仓库集合模型，子模块关系
+单独表达；linked worktree的工作区身份与共享Git目录的写锁身份继续区分。
+
+### 多根刷新锚点身份（2026-10-26，实现前）
+
+继续读取4aec352 platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/SelectionSnapshot.kt
+全文：锚点使用storage commit index而非hash，映射到新visible graph后恢复topGap。
+结合本节已验证的CommitId(hash, root)存储规则，跨根重复hash不能替代原锚点。
+沿用2026-10-20 Log顶部刷新原生记录及本轮log-parent-root-reference.png的多根身份
+操作记录；不追加滚动自动化，滚动手感仍按用户约定手测。此次不改位置策略或UI，
+只将log_viewport::restore输入改为身份序列，主Log提供完整root+hash，固定单根的
+分支比较使用自身仓库内的hash。需要覆盖重复hash跨根换序与原root消失的回归。
+
+实现：log_viewport::restore现在只接受可比较的身份序列，不再从Commit元数据猜测身份。
+主Log刷新使用commit_ids()校验后的root+hash与待发布页的主仓库身份，分支比较固定单根
+使用hash序列。新增回归覆盖相同hash的两根互换（哈希序列本身没有变化）、锚点所在根
+移除但另一根仍有相同hash；保留顶部跟随、后续页、行内偏移和引用刷新全部用例。
+完整桌面121项通过（/tmp/plico-root-viewport-desktop.log）；没有新增Git查询、常驻
+元数据或全局事件。身份数组仅在发布时临时分配，root路径通过Arc共享。
+未完成部分：混合Log原生刷新与父子异步导航待多根查询快照接线；本轮没有启动新实例，
+没有做自动滚动验收。整体第6项仍进行中，未提交／推送。
+
+### 多仓库父子导航的查询归属（2026-10-26，实现前）
+
+沿用log-parent-root-reference.png的Rebased1.1.20子仓库Right导航实机记录。
+重读4aec352 GoToParentOrChildAction.kt::getRowsToJump与VcsLogNavigationUtil的
+CommitId/root定位：候选来自当前visible graph，过滤后的祖先连接不能换成裸Git父提交，
+也不能把另一仓库的同hash视为候选。Plico有界图的既有history::adjacent提供固定tips与
+过滤后的连接查询；本次将其接到project_log::LoadedRoot，输入输出完整CommitId，
+拒绝目标root不一致。Read从自身加载快照选择对应root，而不是调用方用当前HEAD猜测。
+保留既有只读拓扑预算及取消；根的局部读取失败不能被另一根同hash替代。混合Log
+发布及异步导航UI接线未完成，不宣称本次核心入口等同原生流程全部完成。
+
+实现位置project_log::LoadedRoot::adjacent及Read::adjacent：从已加载root快照解析目标，
+固定tips/filter，返回带root的身份列表，取消和缺根均返回错误，不读取替代仓库。
+ui/log_branches.rs现有单根异步父子查询也使用该入口，保留selection/generation/token
+迟到门禁；菜单与跳转仍属于当前单根Log，未开放子仓库异步结果发布。
+真实Git用例project_navigation_keeps_each_roots_filters_and_frozen_tips通过：两个仓库
+共享三条历史但各自使用不同过滤，父/子候选分别正确，隐藏提交无候选，跨root拒绝；
+新增提交后旧快照没有吸收新tip，取消拒绝，HEAD/status保持只读结果。相关project_log
+四项集成通过，完整桌面121项通过，日志分别为/tmp/plico-project-navigation-core.log、
+/tmp/plico-project-log-core.log、/tmp/plico-project-navigation-desktop.log。fmt及diff检查
+通过。本轮没有新Windows二进制或混合Log原生验收，整体第6项保持进行中。
+
+### 多仓库Log有界连续页（2026-10-26，实现前）
+
+沿用submodule-log-reference.png及既有加载更多/计数原生记录；本次仅核心分页，暂无
+新增UI。重读4aec352 VcsLogMultiRepoJoiner.java及VcsLogMultiRepoJoinerTest.java全文：
+合并始终只从每根下一条选取，不能打乱根内顺序。Plico保留有界窗口，连续页需要分别
+记录每根已消费条数，并固定每根tips/filter；全局offset不能直接传给每个仓库。读取
+下一页的根失败时不能跳过后直接发布乱序页，应保持旧页并报告失败。初始部分根错误
+仍按已有Read.errors保留，不能当成精确总数。实现将新增Read::next_page；graph跨页
+frontier及主窗口按钮仍需后续接线，本次不声称界面分页已完成。
+
+实现：Read::next_page固定LoadedRoot的tips/filter，按每根实际入选条数推进私有offsets，
+每次最多合并两个有界前缀；每根预读但未被全局选中的记录不计入offset。offset在页
+构造完成时记录，UI转移/释放page.entries后仍可继续，不需要保留旧页元数据。现有根
+在后续读取失败时整页返回错误，旧Read不变可重试；初次读取已有errors继续保留。
+计数仍使用整个固定查询，不把剩余页数量当总数。
+
+Page::layout_window新增可传递Layout，仅保存root编号和graph frontier，沿用已有
+append_projected_bounded与几何预算；layout仍是从空frontier开始的兼容入口。
+对应前述CommitId及MultiRepoJoiner规则，保留跨页相同root的lane key，不能每页按
+出现顺序重编号。单位回归将第一页释放后继续布局，与整页的node/color/width/segments
+逐行比较。这里补齐核心frontier，不表示主窗口已采用此分页状态。
+
+验证：project_log_pages_consume_per_root_prefixes_and_keep_the_original_query在两个
+共享历史仓库上覆盖有/无text过滤、每根消费量不等、1→2条窗口、首屏后新增提交、
+第二根暂时不可读/恢复重试、释放页entries、末页空结果、固定总数和取消。完整核心
+811项通过（/tmp/plico-project-pagination-all-core.log），该轮开始后新增的跨页图形
+用例另跑project_log模块5项全部通过（/tmp/plico-project-pagination-graph.log），
+不将未在全量轮次编译的新增用例混计入811。最新完整桌面121项通过
+（/tmp/plico-project-pagination-desktop.log）。fmt/diff检查通过。没有Windows新构建
+或新增原生分页验收，混合Log发布、Roots过滤UI及导航结果接线仍待。未提交/推送。
+
+### Log发布后的共享查询范围（2026-10-26，实现前）
+
+继续采用前述已读VcsLogNavigationUtil/GoToParentOrChildAction、GitLogProvider及
+多仓库Log/Roots原生证据。分离project_log::Scope：只保留各根query/tips及读取错误，
+由Read、计数和导航共享，不为异步计数保留整页提交/图形。主窗口目前将主仓库Snapshot
+同时当显示页和查询归属；先让已发布查询保留Scope，计数以Scope为依据、导航从Scope
+解析选中root，主仓库分支Snapshot独立保留。混合Log可见入口仍需完整接线及原生验收。
+
+实现：project_log::Scope集中roots/errors、count及adjacent，Read与连续页通过Arc共享
+Scope，释放Page不影响查询；没有保留两套可独立变化的root列表。Review新增log_scope，
+单根发布后计数捕获scope，单根替换/换项目清空；current_log_scope对显式多根来源但无
+scope的状态拒绝猜测主仓库。log_count的缓存键包括全部根tips/filter和局部错误，
+只允许完整单根页用行数直接证明总数，多根scope必须异步计数；主仓库Snapshot不被
+替换。navigate_adjacent读取同一scope，查询目标保留root。子根导航结果的异步页面
+替换仍待，不把查询层接入当作整个跳转已完成。
+
+桌面真实Git用例project_count_uses_shared_scope_without_overwriting_primary_snapshot
+通过：父2条/子3条，父Snapshot.more=false仍异步得到总数5；Read及元数据页释放后仍
+能计数；父HEAD保持；追加一根读取错误后总数变未知而不是5；单根替换清空scope。
+完整桌面122项通过（/tmp/plico-log-scope-desktop.log），project_过滤的11项真实Git
+集成通过（/tmp/plico-log-scope-core.log，含已有过滤graph及Update测试），fmt/diff
+检查通过。未发布混合列表入口、未做新的Windows原生验收，未提交或推送。
+
+### 未加载的多根目标定位（2026-10-26，实现前）
+
+沿用log-parent-root-reference.png的子仓库父导航及多根Log实机记录，重读4aec352
+VcsLogNavigationUtil.kt::jumpToCommitInternal/getCommitRow和GoToParentOrChildAction
+的相邻行定位：完整目标包含root，未加载时等待/请求更多图数据，过滤不匹配与不存在
+分开处理。Plico保留有界窗口，不存全量提交元数据；定位沿固定Scope逐页查找，保留
+graph frontier，找到root+hash后返回所在全局窗口。不能找到同hash的另一根就结束。
+过滤隐藏先在目标根判断，不擅自清空条件；无匹配目标不能替换当前显示页。全局读取
+保留取消和错误返回，期间refs变化不改固定tips。本地模块project_log/navigation.rs。
+
+实现：project_log/navigation.rs先判断目标根的过滤结果，再沿固定Scope逐页查找完整
+CommitId，返回全局offset/selected及起止graph frontier；隐藏与根范围外分别返回，
+取消/读取失败不发布半页。深历史定位仍可能重复读取每根过滤拓扑，这是明确的有界
+元数据/按需查询取舍，不宣称相比上游全量索引无额外耗时。
+
+UI新增navigate_log_commit，既有明确主仓库入口继续由navigate_commit_impl构造完整
+身份；父子快捷键/候选菜单与过滤提示的再次定位保持root。project_navigation.rs把
+找到页的metadata转入Log，保留轻量project_window用于后续翻页接线，主仓库Snapshot
+不被覆盖；Scope负责计数，详情按完整选择身份读取。查询generation继续拒绝迟到结果。
+fresh/clear重读仍保留既有失败根不确定性，不用只成功根的结果伪装为全项目完整。
+
+结合前述子仓库Squash/Undo实机及GitCommitEditingUiUtils::focusCommitWhenReady来源，
+history_operations的Squash完成、Undo完成和重写恢复完成均从Undo.repository与focus
+hash构造CommitId，交给同一入口；不再在完成时推断主仓库为目标。
+
+边界：项目发现→首屏混合查询、更多/前后窗口/自动刷新的project_window路由以及
+完整写操作/冲突恢复仍待；混合Log尚未默认开放，不将新定位测试当整个第6项交付。
+本轮Plico Windows原生未重建验收，沿用Rebased既有多根导航/子根Squash参考证据。
+
+验证：真实Git project_navigation_keeps_each_roots_filters_and_frozen_tips新增逐页定位
+断言通过（/tmp/plico-project-location-core.log），分别查找两根共享hash及后续页目标，
+校验全局offset/完整身份，并验证过滤隐藏不误定位。GPUI
+unloaded_child_target_keeps_identity_and_primary_repository_state先只加载父行，定位
+同hash子行（limit=1）后全局offset=1、selected=0、root为child、文件详情file.txt，
+父repo及HEAD保持。首轮测试PathBuf与str断言不编译，改Path比较后完整桌面123项通过；
+Squash结果归属接线后再次完整123项通过（/tmp/plico-project-location-owner-desktop.log）。
+fmt检查与git diff --check通过。未提交/推送。
+
+### 多仓库窗口按钮接线（2026-10-26，实现前）
+
+沿用既有Log加载更多/计数与多根Log原生记录，及已读VisiblePackRefresher、
+SelectionSnapshot、VcsLogMultiRepoJoiner的查询范围和身份恢复规则。本次保持现有
+按钮布局/加载规模，仅让project_window存在时的more/previous/filter刷新使用同一
+多根Scope，不能退回主仓库snapshot的more/tips。失败保留旧窗口和选择；加载更多及
+前后窗口固定tips，新查询/刷新才重读引用；恢复选择和视口使用root+hash。
+
+实现：navigation::window_at按每根独立cursor重建指定全局窗口，跳过元数据后只保留
+frontier，越过末尾返回真实已消费offset与空页。Review.reload_history对已有
+project_window转入reload_project_history；更多扩展当前窗口、上限后进入旧窗口，
+previous保留固定Scope，普通刷新/过滤新建查询。history_has_more取当前项目页的more，
+不再使用主仓库more决定按钮及启动报告。install_project_window集中发布身份、元数据、
+graph及Scope，失败不替换旧页；选择与位置继续按CommitId恢复。
+
+显式刷新同时独立读取主仓库refs/HEAD，移除该快照的提交正文后用于分支展示，不把
+child的HEAD写进去。项目成员变动/首屏聚合、各根观察与操作状态/恢复仍待，不能将此
+已加载窗口路由视为完整多根自动刷新。当前window_at会从固定范围起点重建前缀，
+旧窗口继续向后时尚需利用保存cursor/frontier避免重复重建；这是待优化项，未宣称
+大仓库分页性能验收完成。
+
+验证：增强核心导航回归对每个全局offset及越界末页逐一比较完整合并序列切片、more、
+实际offset，通过/tmp/plico-project-window-core.log。完整桌面123项通过
+（/tmp/plico-project-window-desktop.log）；既有子根定位用例追加失败保留/恢复重试、
+固定tips排除新增提交、显式刷新纳入新提交并更新主HEAD。随后追加1条→Load more→
+3条的生产refresh(true)入口断言，定向通过/tmp/plico-project-window-more.log，确认
+仍含child身份且结束more=false。fmt与diff检查通过，无新增原生截图、未提交/推送。
+
+### 项目旧窗口续读复用游标（2026-10-26，实现前）
+
+延续上一节固定Scope/分页身份及Rebased MultiRepoJoiner规则，复用已保存的每根消费
+位置和graph frontier。只改变已达窗口上限后的Older window后台读取，不改控件或
+加载规模。捕获续读状态时不复制旧页metadata/rows；失败旧窗口仍保留可重试。Git自身
+按skip遍历历史不承诺消失，此项去除的是Plico额外重读/布局全部前缀。
+
+实现：Window::continuation捕获私有len、全局offset、每根消费cursor与end frontier，
+Read::cursor不复制任何Page entries；Continuation::load按固定源直接读取下一页并
+继续布局。UI只有明确进入Older window时使用该状态；任意前翻/刷新仍走window_at
+重建，避免错误复用过期frontier。私有len在构造时捕获，UI取走rows/entries不影响
+下一页offset；cursor创建不改变原窗口，失败后仍可重试。
+
+验证：真实Git导航回归针对每个offset及末页，清空已发布entries/rows后续读，与
+window_at重建的完整身份、全局位置、node/color/width/segments逐项一致，并验证
+Scope仍是同一Arc。定向通过/tmp/plico-project-continuation-core.log；完整桌面123项
+通过/tmp/plico-project-continuation-desktop.log，fmt/diff检查通过。没有测速或内存
+采样，不宣称具体加速倍数；没有新增原生UI验收。首屏聚合与成员生命周期仍待。
+
+### 已加载项目Log的成员生命周期（2026-10-26，实现前）
+
+复用前述independent-root-branch-popup.png/independent-root-removed.png的原生映射
+增删证据及已读VcsRepositoryManager的后台替换、VCS_REPOSITORY_MAPPING_UPDATED
+规则。项目集合失效时取消旧Log/计数查询，集合完成后再以最新roots构造刷新请求，
+移除根不能被迟到的分页结果重新加回来。此次先接已有project_window；首屏聚合仍须
+在所有可写菜单的目标根安全接线后开放，不用临时禁用菜单冒充最终Rebased行为。
+
+实现：ProjectRoots的Changed订阅对已有项目Log失效旧Query/Count，以pending请求
+保留“首屏/当前位置”意图，等待集合完成后再刷新；不新建全局消息总线或第二次独立
+仓库扫描。reload_project_history从共享membership构造新查询和错误列表，已恢复的
+根不继续携带旧错误；未完成发现时不读取旧Scope冒充新集合，成员变更也取消旧分页。
+单根替换/换项目清空pending；更多/前后窗口在集合稳定时继续使用固定Scope。
+
+验证：桌面fixture改为使用真实ProjectRoots实体与两个已登记Git根，移除child/.git
+同时启动旧分页，完成后Log仅父root且记录一条发现错误；恢复后两根及三条提交回来，
+错误清除。完整桌面123项通过（/tmp/plico-project-membership-log.log）。随后补验先
+定位后页、发现期间设置shared过滤，pending保留回首屏意图，完成后offset=0且首条为
+shared；定向通过/tmp/plico-project-membership-filter.log。fmt/diff检查通过。
+
+边界：本次只接已有project_window生命周期，默认首屏仍未开启混合Log；菜单中
+Checkout/New Branch/New Tag/Revert/Cherry-Pick仍有主仓库假设，下一步必须消除，不能
+为了先显示列表而允许操作落到错误仓库。原生Windows新版本未验收，未提交/推送。
+
+### 多仓库 Log 新建标签：实现前核对（2026-10-26）
+
+Windows Rebased 1.1.20（IC-262.10968.SNAPSHOT），独立 submodule-reference-80s4zk56
+fixture，主窗口 PID26788。从 child 的 squash root1（4203a23b）右键 New Tag，
+弹窗只有名称输入、OK/Cancel，空名称禁用 OK；输入后可确认。截图：
+artifacts/collaboration-workflows-20261024/rebased-root-ref-create-menu.png、
+rebased-root-tag-dialog.png、rebased-root-tag-submitted.png（后者为确认前名称已填状态）。
+通过 OK 创建 plico-root-tag-check；宿主机 Git 验证标签只存在 child 且指向
+4203a23b18cd9d6cd92a97a5e7e5819d4d058967，父仓库无该 ref。父 HEAD f0ce679、
+child HEAD 0b760797 未变；child readme.txt 原修改保留。首次 SendKeys Enter
+未提交，故使用弹窗 OK 按钮确认，未将键盘尝试当作成功。失败/取消状态本次未验证。
+
+已读参考 4aec352 的 plugins/git4idea/backend/src/actions/GitLogSingleCommitAction.java
+与 GitCreateTagAction.java：由 commit root 查 GitRepository，createNewTag 只传
+singletonList(repository)。本地 src/ui/log_history.rs 捕获选中行 Repository；
+src/ui/tag.rs 的弹窗和执行保留该 Repository，项目路径只校验窗口生命周期。
+核心 tag_create::Prepared 已校验 gitdir、目标 commit、同名标签变化，继续复用。
+不把 Git 写入转交事件广播；成功后的视图刷新仍走现有项目刷新入口。
+Plico Windows 原生复验待实现后进行；弹窗 hash 缩写与问号图标等视觉差异仍保留。
+
+本次实现后验证：新增 GPUI 真 Git 回归 creating_tag_in_child_preserves_project_and_other_repository，
+父/子独立仓库都包含相同目标 OID，实际经过 Review::create_tag 后仅子仓库出现标签；
+两边 HEAD、子仓库磁盘草稿、Review 主仓库身份不变，操作正常结束。
+桌面测试全量 124/124 通过（/tmp/plico-child-tag-all-desktop.log），fmt check 与 diff check 通过。
+补读 platform/dvcs-impl/src/com/intellij/dvcs/ui/VcsLogSingleCommitAction.java：
+动作通过 CommitId.root 取仓库，仅单选启用，仓库缺失隐藏；Plico 当前菜单在仓库身份缺失时禁用，
+保留既有菜单结构，未声称像素级一致。Plico 原生多仓库 Log 入口尚未启用，本项原生验收仍待完成。
+
+### 多仓库新建分支：Root 选择与准备对象身份（2026-10-26）
+
+实现前在 Rebased 1.1.20 的同一 submodule-reference-80s4zk56 fixture，从 child
+4203a23b 右键 New Branch：标题 Create Branch from 4203a23b，Branch Name 空，
+Root 默认 child，Checkout branch 勾选，Overwrite existing branch 禁用。展开 Root
+显示 All、project、child。截图 artifacts/collaboration-workflows-20261024/
+rebased-root-branch-menu.png、rebased-root-branch-dialog.png、rebased-root-branch-choices.png。
+本轮尚未提交此分支弹窗，不把此前标签写入验证作为分支检出验证。
+
+源码参考仍为4aec352：已读 plugins/git4idea/backend/src/log/action/
+GitCreateNewBranchFromCommitAction.kt（单选；按 commit.root 取初始仓库；唯一分支名建议），
+ui/branch/GitBranchActionsUtil.kt 的 createOrCheckoutNewBranch（结果使用 options.repositories），
+branch/GitNewBranchDialog.kt 的 Root 绑定/默认值/验证（项目多个仓库显示下拉；All 展开为
+allRepositories；冲突按所选仓库检查）。同时读 GitCreateBranchOperation.kt 与
+GitCheckoutNewBranchOperation.java 的逐仓库执行/刷新与成功仓库回滚逻辑。
+
+本地后续目标不能缩减为只支持初始 child：须接入仓库选择、按选择准备和聚合结果，
+保留其他仓库及 All 选项，重用项目仓库集合。先修 src/branch_create.rs::Prepared
+的身份约束：准备时保留目标仓库及 worktree gitdir，执行前拒绝不同仓库，即使同 HEAD/
+symbolic ref/起点；用于避免多仓库接线误差无声写错。只使用 common gitdir 不够，
+linked worktree 的 HEAD/工作区是独立的。UI Root 选择及批量执行仍待接入与验收。
+
+本次底层修复完成：Prepared 保留 Repository 与 worktree gitdir；execute_choice 在操作保留后、
+任何分支命令前复验 gitdir。新增真实 Git 场景：两个独立仓库具有相同 HEAD/分支名，
+创建及创建并检出均拒绝跨仓库执行；共享 common dir 的两个 detached worktree 也不能互用准备对象；
+拒绝后原目标仍可正常执行，另一 worktree 保持 detached。
+branch_create 集成测试 27/27 通过（/tmp/plico-branch-root-identity.log）。
+本轮原生 Rebased Root 下拉已收起并取消弹窗，没有执行分支写入。UI 接线/Root选择/批量结果仍未完成。
+
+### All 分支创建的部分失败与回滚：纠正批量执行设计（2026-10-26）
+
+Rebased 1.1.20、PID26788、submodule-reference-80s4zk56：从 child 4203a23b
+再次 New Branch，名称 plico-all-missing-start，Root 选 All，取消 Checkout branch。
+输入法 Enter 仅提交预编辑；确认截图后通过 Create 执行。子仓库先创建成功，父仓库
+缺少该提交，失败弹窗显示 not a valid branch point，列出唯一已成功仓库 child，
+提供 Rollback 和 Don't Rollback。此时宿主机 Git 验证 child 分支存在且指向4203a23b，
+父仓库不存在。点击 Rollback 后通知 Rollback successful / Deleted plico-all-missing-start，
+再次验证两边均无该 ref；父 HEAD f0ce679570170b005dbff706ebaf7a1368880134、
+子 HEAD 0b7607972b0dbb69be8c550f668379d73c79a6c4 不变，readme.txt 原修改保留。
+截图 artifacts/collaboration-workflows-20261024/rebased-root-branch-all-no-checkout.png、
+rebased-root-branch-partial-rollback.png、rebased-root-branch-rollback-result.png。
+Don't Rollback 分支、勾选 Checkout 的批量回滚尚未实测。
+
+补读参考4aec352 plugins/git4idea/backend/src/ui/branch/GitBranchCheckoutOperation.kt全文：
+选项作用于 options.repositories；existing 与 non-existing 分组，冲突选项跨仓库聚合，
+不是给所有仓库无条件发送同一个 -b 命令。branch/GitBranchOperation.java 的构造、
+markSuccessful/hasMoreRepositories/fatalError/showFatalErrorDialogWithRollback：
+保存初始 HEAD、成功/跳过/剩余仓库；有成功才提议回滚，且由用户明确选择。
+GitCreateBranchOperation 遇到 fatal error 停止，不继续处理剩余仓库；回滚删除成功根的分支。
+repo/GitRepositoryManager.java 全文：DEPENDENCY_COMPARATOR 为反向层级路径排序，
+子仓库先于父仓库；这与实测次序一致。
+
+本轮证据改变下一步方案：不能采用“任一仓库缺目标时整体预检失败”的替代流程。
+批量执行应保留逐根准备结果、每根初始身份和依赖顺序，逐根执行，报告已成功/失败/
+未执行集合，并在部分失败时让用户选择回滚成功根。准备与确认仍需复验，不把已捕获
+结果当作永久写授权。先接通上述核心和回滚结果，再接 Root 下拉及确认界面；
+暂不启用一个缺少失败恢复的 All 按钮。本轮只完成此关键场景的原生/源码验证与设计修正，
+尚未实现批量执行和回滚。
+
+### 批量分支操作组核心实现（2026-10-26）
+
+新增 src/branch_create/batch.rs：Batch 捕获各根 Prepared 或准备错误，执行时消费批次，
+结果保留原准备对象、仓库、Executed/PreparationFailed/NotRun 和取消标志。每根执行
+继续复用 branch_create 的操作保留及身份复验；错误/未验证成功停止本操作组，不能覆盖
+之前的成功根。以实际 worktree gitdir 去重，不按 common dir 合并 linked worktree。
+补读参考 platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/
+VirtualFileHierarchicalComparator.java 全文：比较目录路径长度，GitRepositoryManager
+取反；本地采用稳定的 UTF-16 路径长度降序，不用误猜的逆字典序。
+
+这是 GitBranchOperation 对应的执行组，不是整个 GitBranchCheckoutOperation 的替代：
+existing/new、reset/rebase 等分组与跨组确认仍需后续编排，不能将相同 Choice 无条件
+发给 All 所有仓库。Root 下拉与回滚尚未接线，本轮不启用 All UI。下一步完成成功根回滚，
+然后收敛高层分组和确认。
+
+真实 Git 测试新增三项：child 成功/parent 缺起点失败/第三根未执行；准备后 HEAD 改变拒绝，
+取消不启动仓库，重复根只执行一次；两个根各自 HEAD 的创建及创建并检出成功且不串根。
+branch_create 集成 30/30 通过（/tmp/plico-branch-batch.log），diff check 通过。
+新模块尚未接入 Windows 原生 Plico，不能据核心测试宣称 UI 已完成。
+
+### 创建分支、不检出：成功根回滚核心（2026-10-26）
+
+延用上一轮原生 All 部分失败→Rollback 的截图与 Git 验证，重新阅读4aec352
+GitCreateBranchOperation.kt::rollback：仅遍历 successfulRepositories，调用
+branchDelete(force=false)，聚合错误并继续其他成功根，完成后通知。未将其误译成强制删分支。
+本地 batch::ResultSet::rollback_creation 仅从本次成功 RootResult 提取原 Prepared，
+复验 gitdir/原 HEAD/符号分支/创建 tip，复用 branch_delete::Prepared/execute 的
+worktree 占用、正在执行操作、未合并提交、执行前复验和删除后查询。
+对失败及 NotRun 根完全不发命令；每个成功根返回独立 RollbackResult，单根失败仍处理其他根。
+原执行结果与回滚结果分别保留，不能把原创建成功改写成整次失败或抹掉已完成动作。
+
+保留差异：Rebased 此回滚没有本地新增的旧 HEAD/tip 检查；Plico 弹窗等待期间允许其他
+外部 Git 工具活动，拒绝删除已变化的对象，避免回滚覆盖新工作。沿用现有 branch_delete
+进程内操作保留，不声称能锁住所有外部 Git 进程的最后检查与命令之间的竞争。
+本接口只对应新建且未检出分支；检出/覆盖/重写分支显式返回需专用回滚的错误，
+属于尚未完成的后续模式，不能据此启用完整 All UI 或宣称多仓库新建分支已交付。
+
+回归覆盖 partial-success 原场景的真正回滚，失败/未执行根后建的同名分支保留；
+staged/unstaged 草稿不变；分支 tip 被外部移动、其他 worktree 检出、取消、检出模式均拒绝
+此删除式回滚；两根中一根拒绝仍回滚另一根。Windows Plico 接线/验收仍待完成。
+验证结果：branch_create 集成 32/32 通过（/tmp/plico-branch-batch-rollback.log），
+cargo fmt check 与 git diff check 通过；未运行本轮 Windows Plico 原生验收。
+
+### 创建并检出回滚：实机发现草稿丢失（2026-10-26）
+
+Rebased1.1.20、PID26788，同独立 submodule-reference fixture，child 4203a23b New Branch，
+Root All，Checkout 勾选，名称 plico-all-checkout-rollback。child 成功检出后父仓库缺 tree
+失败。截图 rebased-root-checkout-all.png、rebased-root-checkout-failure.png 保存在既有
+artifacts/collaboration-workflows-20261024。失败弹窗说明 rollback checkout back to attached-test。
+宿主 Git 确认 child HEAD4203a23b、分支为临时分支，原 readme 草稿尚在。点击 Rollback，
+child 恢复 attached-test/0b760797，临时分支删除；status 变干净，readme 从
+child two\n\n# Plico multi-root recovery reference\n 变成 child two\n。原草稿被丢弃。
+已用操作前保存的字节恢复这份自建 fixture 草稿，未动用户仓库。
+
+源码4aec352：GitBranchWorker::checkoutNewBranchStartingFrom 调用 GitCheckoutOperation；
+后者 rollback 对成功根 checkout(previousHead,force=true)，成功后 force-delete newBranch。
+因此不能把先前只读到的 GitCheckoutNewBranchOperation 当成本入口实际执行路径。
+Plico 保留恢复原分支/删除本次分支的结果，但采用现有 checkout Smart 保存与恢复草稿
+能力，而不复制静默丢稿行为。回滚前复验创建分支、当前 HEAD、原分支 tip 和 gitdir，
+恢复冲突保留 stash 并报告；不得因已切回分支便把整次恢复报为成功。新增逻辑将映射
+src/branch_create/rollback.rs 与 batch 的逐根回滚入口；覆盖已有分支的回滚仍待单独核对。
+
+实现新增 branch_create/rollback.rs，RootResult::rollback_checkout 只接受本次成功根；
+恢复原 refs/heads 或 detached HEAD，调用既有 checkout::smart_execute_local/smart_execute，
+保留 save、checkout、restore、saved_oid 与状态。只有恢复已完成、没有保留 stash/冲突时，
+才复验临时分支 tip 和当前 HEAD 后调用 branch_delete(force=true)，对齐从不同分支起点
+创建后回滚也可删除的上游语义。删除阶段失败可保留报告，原分支已恢复时允许后续重试删除。
+不同于前一个仅创建分支的回滚，此处 force-delete 是上游明确行为；切回分支仍不使用会丢草稿的
+force-checkout。覆盖已有分支/重写的撤销尚未实现，明确拒绝而非误删原分支。
+
+真实 Git 回归：附着及 detached 原状态、不同树起点、staged/unstaged 草稿及无冲突未跟踪文件保留；
+恢复草稿冲突时保留 stash 和临时分支，不报成功；原分支被移动、创建分支被移动、HEAD 被切换、
+执行前取消均在保存之前拒绝且保留草稿/refs。复用现有 Smart Checkout 不意味着所有未跟踪或 ignored
+文件碰撞均已覆盖，本轮未测这些碰撞场景，后续纳入完整 UI 验收。
+验证：branch_create 集成 35/35 通过（/tmp/plico-branch-checkout-rollback.log），fmt check、
+diff check 通过。新回滚核心尚未接入原生 Plico UI，不作为完成整项的证据。
+
+### 覆盖已有非当前分支：Rebased 回滚实际删除原分支（2026-10-26）
+
+自建 fixture 两根新建同名 plico-overwrite-existing，分别指向父 main f0ce679、
+child main 8d4dc065。未改 main 本身。旧 Rebased PID26788 未识别外部新建分支，
+CtrlAltY 与 Log Refresh 后 Overwrite 仍禁用；取消弹窗、退出该自建测试进程并确认终止，
+重开同 fixture 为 PID31052 后选项可用。另一个 Rebased PID44688 未关闭。
+新主窗口 HWND5900570；枚举工具 plico-ref-enum-31052.ps1。
+
+child4203a23b New Branch，Root All、不勾选 Checkout、勾选 Overwrite。Create 后
+显示 Drop Local Commits/Cancel（父库无法解析该起点；与 GitBranchCheckoutOperation
+checkLocalHasMoreCommits 捕获异常返回 true 一致）。确认后 child ref 改为4203a23b，
+父 ref 仍 f0ce679，随后父失败。Rollback 提示明确 delete plico-overwrite-existing。
+点击后宿主 Git 验证 child 原有测试分支已删除，父分支保留。用保存的旧 tip 恢复 child
+测试分支8d4dc065；原 main/HEAD 与 readme 草稿未动。截图位于既有 artifact 目录：
+rebased-root-overwrite-retry-ready.png、rebased-root-overwrite-confirm.png、
+rebased-root-overwrite-failure.png。覆盖当前分支/勾选 Checkout 本轮未验证。
+
+重新核对4aec352 GitCreateBranchOperation::execute/rollback：force 用于创建命令，
+rollback 不区分原分支是否存在，统一 branchDelete(force=false)，与实测一致。
+本地保留明确差异：已有分支回滚恢复 Prepared.previous_tip，不能删原分支。
+先实现未检出且非原当前分支的引用恢复：复验 gitdir/HEAD/分支 tip/占用状态，
+update-ref 使用 old-value 条件更新，保持分支配置、index、工作区。其余覆盖模式继续核对。
+
+实现：RootResult::rollback_overwritten_ref → rollback::overwritten_ref，仅接受成功且
+原分支存在、显式 overwrite、未检出、原 HEAD 不在该分支的结果。共用仓库操作保留后，
+复验 gitdir、HEAD/符号分支、冲突状态、worktree 占用和当前 tip；执行
+update-ref -m 'Plico: rollback overwritten branch' ref previous_tip expected_target，
+以 Git 的条件更新防止检查后发生引用移动。取消后使用新令牌读取实际 ref，命令状态与
+已恢复状态分别保留。不使用 branch -D，不改 tracking/description、index 或磁盘草稿。
+覆盖当前分支及覆盖并检出继续待核对，不能通过此接口绕过工作区恢复。
+
+验证：branch_create 集成37/37通过（/tmp/plico-branch-overwrite-rollback.log），
+新增恢复旧 tip/保留配置和暂存未暂存草稿，以及外部移动/worktree占用/取消拒绝场景。
+diff check通过；本轮未构建或原生验收 Plico 新界面。
+
+### 项目级事件与子仓库新建分支的状态归属（2026-10-26）
+
+架构决策：复用 GPUI 的 typed event/subscription，不新增全局字符串消息总线。
+重新读取参考 4aec352 的 plugins/git4idea/backend/src/repo/GitRepositoryManager.java：
+管理器为项目级服务，仓库更新顺序发布项目仓库变化与应用级 worktree 通知，订阅绑定
+coroutineScope，发布前检查 repository disposed。应用级消息是跨项目 worktree 更新的具体
+用途，不能据此把所有本地界面刷新都改为全局广播。安装版本与参考 checkout 的区别同前述记录。
+
+本地 ProjectRoots 持有仓库集合、扫描任务、取消令牌和 generation；Changed 仅表示快照失效或
+重新发布，消费者读取不可变快照。刷新立即失效查询，旧任务不能回写新 generation，实体销毁取消
+扫描，Review 的订阅跟随实体生命周期。此接口覆盖显式注册的独立仓库及初始化子模块；linked
+worktree 依实际 gitdir 保持独立身份。Log/文件树共享发现结果，不分别扫描仓库集合。
+跨窗口 worktree 通知及分支面板全部根接入仍待完成，不把目前 Changed 当作完整通用事件中心。
+后续扩展事件必须明确项目、仓库、失效范围与所有者，Git 写操作仍走显式命令和结果，不经广播发起。
+
+本轮实现 src/ui/branch_management.rs 的 BranchStart：仅保留弹窗所需 HEAD、起点、已有分支名和
+仓库，不复制完整提交列表。Log New Branch 捕获选中提交所属仓库，异步读取该仓库的分支快照；
+Prepared 持有仓库身份，执行与结果核验沿用这一身份。项目路径只用于窗口生命周期校验，不能拿它
+替代操作目标。子仓库执行结果不覆盖主仓库 operation_state 或 Snapshot。
+入口来源沿用此前已实际验证的 GitCreateNewBranchFromCommitAction、GitBranchActionsUtil 与
+GitNewBranchDialog，child 默认 Root 的截图见 rebased-root-branch-dialog.png。
+Root 下拉框及 All 多根交互尚未接入，属于已知保留差异，不能声称完整对齐。
+
+验证：真实 Git GPUI 测试覆盖父仓库存在同名分支而子仓库不存在、异步打开子仓库弹窗、子仓库
+创建并检出，以及父仓库 detached HEAD/原有分支/界面操作状态保持不变。完整 desktop-tests
+125/125 通过（/tmp/plico-child-branch-all-desktop.log）。原生 Windows Plico 本轮未验收。
+
+### Checkout 执行与恢复保留目标仓库（2026-10-26，菜单接入前置）
+
+再次读取 4aec352 的 plugins/git4idea/backend/src/actions/GitCheckoutActionGroup.kt
+（GitCheckoutRevisionAction 也定义在该文件，不存在同名独立 kt）：菜单只取所选根的本地分支，
+排除该根当前分支；分支操作与 revision 操作均传 listOf(repository) 给 GitBrancher。
+沿用此前原生子模块 Log 菜单截图 submodule-log-child-menu.png，以及已有普通/Smart Checkout
+验证。此次没有新增 UI 布局；子仓库新执行路径尚未做 Windows 原生验收。
+
+发现 UI start_checkout/start_local_checkout 和恢复操作均重取 self.repo，导致单改 Log 点击
+无法解决根归属。src/ui/checkout.rs 增加显式仓库执行入口，原单仓库入口调用同一实现；
+Recovery::Checkout 保存 repository，Smart/Force 恢复和保存文档后的 continuation 沿用该仓库。
+异步完成检查项目路径，子仓库结果不清除主仓库操作状态。没有新增全局消息或第二套 checkout
+核心。Log 上层菜单仍待按各根引用与 HEAD 接入，不能认为多根 Checkout 已完整可用。
+
+真实 Git 桌面测试 child_checkout_and_smart_recovery_keep_repository_identity：两仓库共享
+base OID，子仓库另有提交；对子仓库执行本地分支 checkout 后制造草稿，revision checkout
+被阻挡并显示原恢复弹窗，再执行 Smart Checkout，确认冲突和保存 stash 留在子仓库；父库
+HEAD/附着分支/工作区/stash 和 Review 的主仓库状态均保持不变。定向测试1/1通过。
+完整 desktop-tests 126/126 通过（/tmp/plico-checkout-root-all-desktop.log），包级 fmt check
+及 git diff --check 通过。未提交、推送或构建新 Windows 包；多根菜单与原生验收继续待办。
+
+### Log Checkout 菜单接通所选根（2026-10-26）
+
+依据同一 4aec352 GitCheckoutActionGroup.kt，并再次读取 GitRefManager.kt::GitLabelComparator：
+只取本地分支，按标签顺序（主分支优先、自然排序）展示，排除所选根当前分支。有候选则使用
+Checkout 子菜单，始终保留 Checkout Revision；无候选直接显示 revision 动作。原生入口证据
+沿用 submodule-log-child-menu.png 与既有 Checkout 菜单验收，新构建 Windows 验收待执行。
+
+project_log::LoadedRoot 从已读取 Window.snapshot 保存 current_branch，不额外发 Git 请求，
+不持有完整 Snapshot。ui/checkout::log_checkout_branches 使用提交本身的 root-local ref labels
+和对应根 current_branch，复用 ref_labels 排序。修正旧实现把 tags/remote refs 混入分支菜单，
+及按主仓库当前分支过滤其他仓库分支的问题。
+
+ui/log_history.rs 捕获目标仓库，分支和 revision 点击统一进入 start_log_checkout，后台读取
+该仓库 HEAD，再进入上轮显式仓库执行/恢复链路。菜单不再依赖主仓库 HEAD 是否存在。
+后台准备与文档保存后的执行仍检查操作状态，实际执行复验目标 branch tip/HEAD。
+普通顶部 checkout 输入入口不变。多根 Log 首次启用仍受其余写操作归属待办约束。
+
+测试扩展原真实 Git 桌面场景：父当前 main，子当前 child-active，子提交同时具有 main、
+feature2、feature10、tag 与 remote decorations，菜单候选只返回三个本地分支并自然排序；
+实际执行改走 start_log_checkout，覆盖异步准备→local checkout→revision blocked→Smart
+恢复冲突。完整 desktop-tests126/126通过（排序补充前 /tmp/plico-log-checkout-all.log）；
+排序补充后上述定向场景1/1通过（/tmp/plico-log-checkout-sorting.log）。
+project_log 筛选核心回归通过（/tmp/plico-log-checkout-core.log，测试命令 exit 0）；
+fmt check、git diff --check 通过。Windows 新构建与原生菜单操作仍未验收，不声明像素对齐完成。
+
+### 多根 Revert / Cherry-Pick：分组规则与原生多选（2026-10-26，执行接入进行中）
+
+原生 Rebased 1.1.20，自建测试 PID31052/HWND5900570，从 child 的 squash root 1 向下多选
+至 project 的 advance child for preservation（共六行），右侧同时出现 child/project 文件组。
+右键弹出窗 HWND26087974 中 Cherry-Pick、Revert Commits 可用，单提交操作禁用。
+截图 artifacts/collaboration-workflows-20261024/rebased-sequence-mixed-selection.png 与
+rebased-sequence-mixed-popup.png。此轮只确认多选菜单，未点击写操作，不能据此声明多根执行已验收。
+
+实读参考4aec352：
+- plugins/git4idea/backend/src/revert/GitRevertAction.kt：每个 root 必须有 repository，merge
+  commit 禁用；请求完整详情后再次检查，跨 Git 根不禁用。
+- revert/GitRevertProcess.kt：输入为 Log 顺序（新到旧），逐提交 auto-commit。
+- cherrypick/GitCherryPicker.java、cherrypick/CherryPickProcess.kt：支持所有已登记 Git 根，
+  Git sequencer 模式按每根整组执行；非 sequencer 则逐个；任一组失败停止后续根。
+- platform/dvcs-impl/src/com/intellij/dvcs/cherrypick/VcsCherryPickManager.java：先反转 Log
+  选择，再按 VCS picker 调度，进行中的身份是 CommitId(hash,root)。
+- 同目录 DvcsUtil.java::groupCommitsByRoots 与 GitApplyChangesProcess.kt::execute：按根
+  分组并保持组内输入顺序，外层 HashMap 没有规定根顺序；不是 GitRepositoryManager 的子模块
+  依赖排序。保存修改重试涉及本次所有根，只有全部成功后恢复，不能每根成功立即恢复后继续。
+- tests/git4idea/revert/GitRevertTest.kt：核对 simple/local-changes/empty/two-commits/
+  partial-success 测试，已成功提交不会因为后续失败自动撤销，通知需保留部分成功信息。
+
+当前实现缺口：ui/sequencer.rs 仍从 self.repo 取执行仓库，revert_recovery 与冲突/空提交/
+保存重试入口仍是单一上下文。不能只把 Vec<String> 换成多根 IDs 就开放混合 Log。
+接下来按仓库绑定执行上下文、剩余组和恢复状态，继续使用现有单根 Revert/Cherry-Pick 核心；
+失败停止后续组，恢复不能落到主仓库。原有 gitdir/HEAD/branch 复验继续保留。
+
+先抽取 project_log::selection::group 作为展示与后续操作共用的身份分组入口，现有 selection::load
+已改为调用它。按 root+hash 检查重复、拒绝空路径/无效 OID/超限，保留同 hash 不同根及组内顺序。
+本地根顺序固定为首次出现；相对上游未规定的 HashMap 顺序，这是为可预测性保留的明确差异。
+不在此层反转提交：Cherry-Pick 由现有 Prepared 统一反转一次，Revert 保持原顺序。
+新增分组测试与现有真实 Git 多根 preview/分页回归共12项通过
+（/tmp/plico-sequence-group-tests.log）；未声称新的多根写操作已经接入。
+
+### 多根 Revert / Cherry-Pick 普通执行核心（2026-10-26）
+
+继续按前节已读 GitApplyChangesProcess、GitRevertProcess、CherryPickProcess 和原生混合根
+菜单证据实现；本次不新增界面。新增 src/project_sequence.rs：Plan 接受完整 CommitId 选择，
+复用 selection::group 与既有单根 Prepared/Batch，预先校验每根提交、HEAD、符号分支和 gitdir。
+输入保持 Log 顺序，CherryPick::Prepared 每根只反转一次；每根 protected refs 独立读取。
+准备失败整体返回带根路径的错误，不因后续根包含无法读取/merge 提交而先写前面的根。
+相比上游在后台执行中逐根发现部分状态错误，本地把已有 Prepared 的状态校验提前执行，
+用于绑定用户选定操作的状态；实际写入前仍复验，不能静默重准备变动后的 HEAD。
+
+Plan::execute 顺序调用现有执行器；Root.result=None 明确表示未执行，不能计为成功。
+Report 原样保留 CherryPick 的冲突/empty/retry，Revert 的成功/跳过/剩余队列、retry/recovery
+及最后命令诊断。取消、错误、冲突、空 cherry-pick 等需要交互的状态停止后续根；已成功根
+不自动回滚。Revert 自动跳过空结果后可继续，沿用单根现有行为。整个 Results 的 complete
+要求非空且所有根均完成、没有取消。
+
+本轮仅普通执行路径；保存修改后重试、跨根恢复上下文、编辑器授权根与 UI 对接尚待完成，
+不得在 UI 把失败组的原始选择重新执行，否则会重复应用已成功前缀。继续/中止必须使用报告
+绑定的 repository 和单根 recovery，再决定后续根，不能复用主仓库的 revert_recovery。
+验证：tests/project_sequence.rs 七项真实 Git 集成通过（/tmp/plico-project-sequence-validated.log），
+覆盖跨根 Cherry-Pick 成功及组内顺序、dirty Revert 部分成功、同根内部分成功、Cherry-Pick
+冲突/空提交阻断后续根、取消、准备后 HEAD 改变，以及后续根无效提交在写入前拒绝。
+fmt check 与 git diff --check 通过。此轮未跑完整桌面回归或 Windows 原生新执行链路。
+
+### 多根恢复前置：冲突身份与同窗口处理（2026-10-26）
+
+重新实读4aec352 plugins/git4idea/backend/src/merge/GitMergeProvider.java：loadRevisions、
+conflictResolvedForFile 都根据 VirtualFile 解析实际 root；MyMergeSession 按 repository 分组
+读取 index，每个 Conflict 保存 myRoot。反转左右也按根计算，不使用主窗口默认仓库。
+沿用既有冲突列表/三方合并原生验收的控件结构，本轮只改变仓库路由；子仓库同窗口原生验收待做。
+
+发现 conflicts::Snapshot 原来只绑定 HEAD/操作/index版本，在两个根具有相同 HEAD 和相同
+冲突 stage 时可错误通过 revalidate。现在捕获私有 Repository 和实际 gitdir，读取前后校验
+身份；所有 resolve/native merge 准备与写回通过 revalidate 拒绝不同 gitdir。linked worktree
+虽然共享对象库，gitdir 不同，同样拒绝。快照提供 repository()，供 UI 保留原操作归属。
+
+UI：open_conflicts_in 显式接受仓库并检查主窗口项目生命周期；ConflictList 保存的路径仍只
+用于窗口生命周期，而读内容/接受一侧/三方合并准备与写回/完成后重开列表均从快照取实际仓库。
+open_project_file_in 增加明确根，Tab复用按 root+relative path，避免子库同名文件打开父库 Tab。
+参考同commit platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/FileEditorManagerImpl.kt
+openFile/findWindowInAllSplitters 使用 VirtualFile 身份查找既有 composite，而非仅相对文件名。
+
+Revert 内存恢复缓存改为按仓库路径保存；继续查本仓库项，完成/清队列只移除本仓库项，切换
+整个项目才清空。多根执行结果到恢复缓存及 Continue/Abort 入口的选择仍待接入；此处不能
+代表多根 sequencer 已对用户开放，也未覆盖跨根操作重启后的整组队列恢复。
+
+验证：conflicts集成12/12通过（/tmp/plico-conflict-root-identity.log），新增真实克隆仓库及
+linked worktree 的相同 HEAD/同 stages 冲突拒绝测试，确认错误根文件/index不变且各自原快照
+仍可用。桌面全量126/126通过（/tmp/plico-root-conflicts-ui.log）；随后新增子仓库接受Theirs→
+重新打开冲突列表→父子同名文件分别建Tab的真实Git GPUI测试1/1通过
+（/tmp/plico-child-conflicts-ui-test.log）。本轮无新Windows构建/截图，不声明原生验收完成。
+
+### Sequencer 目标仓库贯穿执行和恢复（2026-10-26）
+
+实读4aec352 actions/GitOperationActionBase.kt：从项目中按 repositoryState 找 affected roots，
+一根直接操作，多根 GitSelectRootDialog 选择；GitCherryPickContinueAction 在有未解决冲突时
+不展示继续入口，而由 ResolveConflicts 处理。此次还未改顶部控件，根选择 UI 与原生验收待接入。
+同目录 GitRevertResolvedAction.kt 实际是撤回已解决冲突文件，不是继续 Revert 的入口，不作为
+Revert Continue 的证据。普通操作与空提交/保存重试仍沿用先前已核对的 applyChanges 流程。
+
+ui/sequencer.rs 的 run_sequence/run_sequence_with_editor 现在必须显式传 Repository。
+单根现有公开入口传主仓库；新增 start_sequence_in/confirm_abort_sequence_in 接受选定仓库。
+文档保存 continuation、后台写操作、Git编辑器授权目录、异步完成与弹窗回调沿用这一对象；
+异步回写另检主窗口项目路径。Revert恢复缓存按操作仓库路径插入/查询/移除，不再从 self.repo
+推断本次操作归属。冲突列表使用 open_conflicts_in，Empty/Save and Retry 同样捕获目标仓库。
+
+保留差异：子仓库 Cherry-Pick 重试中的 Show Files 目前异步列出该根本地文件并重新打开重试
+弹窗，避免误开主仓库 Commit 面板；主仓库仍保持原 Show Files→Commit 行为。此临时子根列表
+借用已有 Revert Show Files 控件组织，不宣称与 Rebased 原生本地变更视图对齐，最终多根 Commit
+面板接入后需统一。没有把该差异视为已完成项。
+
+验证新增真实Git GPUI流程：主仓库保持detached base，另一个根Cherry-Pick成功；随后该根
+制造后续修改，Revert原提交发生冲突，恢复缓存只包含该根且冲突列表在同窗口打开；通过
+start_sequence_in执行Abort后恢复该根先前文件、移除该根恢复缓存，主库HEAD/文件不变，
+操作与文档屏障均释放。两项sequencer桌面场景通过（/tmp/plico-child-sequencer-recovery.log）。
+多根 Plan/Results 到 Log菜单与顶部受影响仓库选择仍待连接；此轮未做新Windows原生验收。
+完整desktop-tests128/128通过（/tmp/plico-root-sequencer-all.log），fmt check与git diff --check通过。
+
+### Log 多根 sequencer 菜单与结果呈现接入（2026-10-26）
+
+沿用前节已读4aec352 GitRevertAction/GitApplyChangesProcess/CherryPickProcess、
+GitOperationActionBase 与 rebased-sequence-mixed-{selection,popup}.png 的跨根菜单证据。
+没有添加新菜单控件。ui/log_history 选择保持 CommitId(root,hash) 到执行，不再先丢掉 root。
+菜单按完整身份检查每个选中项，拒绝 merge 或缺失身份；不再以主仓库操作状态判断子仓库。
+can_sequence_selection 一次构建身份列表和选择集合，不对每条选中提交反复复制整个 Log。
+
+新增 ui/sequencer/project.rs，读取全部参与根的允许 Git 编辑目录和 project_sequence::Plan，
+后台执行时统一接收编辑请求，Document::open_in_roots 仍只允许本次捕获目录。原单根结果
+处理抽成 present_sequence_result，与多根最后执行根复用：冲突列表、空提交选择和保存重试
+均指向该根；已成功根清理自己的 Revert缓存。操作完成前不释放写操作/文档屏障。
+
+新增 sequence_diagnostic，复用现有底部 Operation failed / Details / Dismiss 组织，不增加
+独立临时页面。失败或取消记录所有根路径、原选中提交，以及 completed/attention/not-run
+状态；提供 Not run 中文“未执行”。完成刷新不清除此记录，切换项目/用户Dismiss/新的Log
+序列操作才清理。剩余根不会被当成成功，也不会因单根 Continue/Abort 自动重放原始选择。
+
+尚未对齐的执行细节：当前是普通执行完成/停止后的恢复，未实现 Rebased 在整组操作中保存
+所有根、全部成功后恢复的 Save and Retry；当前单根重试只处理失败根，后续根明确保持未执行。
+同样，冲突解决后在原组任务内继续其他根的生命周期仍需接入；结果详情保留未执行身份，不能
+把它称为可恢复的持久化整组任务。顶部 affected roots 选择与混合 Log 默认入口仍待完成。
+
+验证：新增三根真实Git GPUI场景，第一根成功删除文件，第二根dirty文件保持原字节并打开
+重试弹窗，第三根HEAD不变；所有提交hash留在sequence_diagnostic，后续refresh仍保留。
+编辑器泵使用既有25ms轮询，测试通过推进GPUI虚拟时钟等待回调，不使用墙钟sleep。
+sequencer三项桌面场景通过（/tmp/plico-project-sequence-ui-tests3.log）。本轮未原生Windows验收。
+
+### 多仓库事件与状态所有权复核（2026-10-26）
+
+本轮重新实读参考 4aec352 的
+`plugins/git4idea/backend/src/repo/GitRepositoryManager.java`：项目级 manager
+拥有仓库集合和 ongoing rebase；更新通过顺序 executor 发布项目内 GIT_REPO_CHANGE /
+GIT_REPO_STATE_CHANGE，另向应用级 GitRepositoryUpdateListener 发布 root，用于 worktree
+跨项目更新；订阅绑定 coroutineScope，通知前检查 repository 是否 disposed。
+这支持区分项目内状态与跨项目失效通知，不支持把所有操作塞入一个无类型全局总线。
+源码版本与已安装 Rebased 1.1.20 / IC-262.10968.SNAPSHOT 不等同。本轮为架构复核，
+未调整可见交互，也未新增原生截图。
+
+本地已经存在 `ui/project_roots.rs::ProjectRoots`：唯一仓库发现任务、Arc 不可变快照、
+代次校验、取消令牌、Drop 取消，以及 GPUI EventEmitter<Changed>。Log 和文件分组订阅
+同一实体，切换项目替换实体并检查事件来源。保留此具体模块，不另加通用消息总线依赖。
+`operation_events.rs` 是 Git 输出检测证据，不是 UI 消息通道，不能混用。
+
+后续实现约束与尚缺项：
+
+- 项目拥有仓库集合，仓库拥有 refs/HEAD/index/工作区状态；子模块是发现来源和关系，
+  不能成为所有多仓库能力的特殊分支。独立 roots 与 linked worktrees 继续共用模型；
+  worktree 的 gitdir 与 common-dir 含义不同，不能因共享 common-dir 合并工作区身份。
+- 刷新区分成员变化、单根状态变化和 Log 过滤变化。当前 `Review::refresh_impl` 仍把
+  普通刷新连到完整成员发现和多个视图刷新，后续应由项目层合并重复失效请求，按 root
+  通知实际消费者。过滤条件归 Log 查询所有，不能借过滤变化广播仓库已改变。
+- 补读同版本 `GitRepositoryChangeListener.java`：GIT_REPO_CHANGE 包含 tag refs 变化，
+  但明确不包含 .git/index；因此本地不能把一个通用 Changed 当作所有 Git 状态通知。
+  后续按成员、refs/HEAD、index/工作区区分失效范围；tag 更新也不能仅依赖 HEAD 差异。
+- 事件只表达状态已失效/更新；执行 checkout、revert 等仍走显式命令与结果接口，
+  不允许订阅者因收到通知自动发起 Git 写操作。事件携带根身份和代次，接收方在自己的
+  取消与生命周期规则下读取快照；通知本身不复制完整历史或 Diff。
+- `project_sequence::Plan/Results` 已集中分组、顺序执行和部分失败，但 UI 当前仍在
+  呈现失败根后释放整组结果。整组未执行队列、保存的修改和恢复决定应由具体的操作
+  会话模块持有，视图只展示和提交 Continue/Abort/Retry 意图。消息总线不能代替恢复
+  状态机，也不能把诊断文本当作可恢复任务。
+- 跨窗口 worktree 通知留到共享 refs 刷新接线时实现：只传失效身份，实际查询与订阅
+  生命周期留在各项目。先补项目内真实消费者，再引入必要的应用级通道。
+
+验收边界：独立 roots、子模块、共享 common-dir 的 worktrees；一个根变化不重读其他根
+全部历史；并发失效合并；旧代次结果不能覆盖新状态；关闭项目释放订阅和任务；部分失败
+继续时不重复执行已成功根。现有桌面全量 129/129 通过
+（`/tmp/plico-project-sequence-ui-all.log`），不代表上述尚缺项或 Windows 原生验收已完成。
+
+### 多根序列的重试计划（2026-10-26）
+
+重新实读 4aec352 `applyChanges/GitApplyChangesProcess.kt` 的 execute /
+handleLocalChangesDetected：重试从原 commits 中排除 successfulCommits 和 alreadyPicked；
+先保存全部剩余参与根，整组成功后才 load；冲突 resolver 同步完成并成功提交才继续后续根。
+`cherrypick/CherryPickProcess.kt` 的 sequencer registry 分支按根一次传入多个 commits。
+沿用已有跨根选择、菜单原生证据；本轮只改核心模块，无新增 UI 行为或原生验收声明。
+
+`project_sequence::Results::retry_plan` 封装失败根和未执行根的计划构造，排除已完成根。
+Revert 直接使用 BatchReport.retry 中已经排除成功/跳过前缀且绑定新 HEAD 的准备对象；
+CherryPick 使用其现有 retry 准备对象，转换回 Log 顺序保存 targets。后续根保留原有
+HEAD/branch/gitdir 校验，不重新读取 HEAD 来接受外部变更。取消、冲突、通用错误和没有
+明确 retry 的结果拒绝此入口。此接口不自动保存修改；调用方仍需显式确认与会话管理。
+
+真实 Git 测试发现：同根多提交 Cherry-pick 的本地修改阻塞可能留下 .git/sequencer/todo，
+现有 CherryPick 报告此时没有 retry。新增用例保留这一事实，要求 retry_plan 不重建/覆盖
+Git 队列、HEAD 或草稿。该场景仍需通过 Git Continue 的整组恢复路径处理，不能因单提交
+retry 测试通过而宣称全部 Cherry-pick 恢复完成。
+
+新增测试覆盖完整成功根不重复、Revert 失败根的成功前缀不重复、后续根 HEAD 外部变化被拒绝、
+单提交 Cherry-pick 重试成功以及 Git 拥有队列时拒绝重放。整组 Save/Restore、会话留存、
+Continue 后续跑和 UI 接线仍未完成；本轮接口为这些步骤提供核心规则，不代替最终闭环。
+
+验证：project_sequence 真实 Git 集成 11/11 通过（`/tmp/plico-project-sequence-retry.log`），
+`cargo fmt --package plico -- --check` 与 `git diff --check` 通过。未新增 Windows 构建。
+
+### 多根序列的整组修改保存与恢复（2026-10-26）
+
+重新实读 4aec352 `applyChanges/GitApplyChangesProcess.kt::execute`、
+`stash/GitChangesSaver.java::trySaveLocalChanges`、
+`stash/GitStashChangesSaver.java::save/load`：全部参与根先保存；保存失败不执行提交操作；
+操作中任一根失败即停止，保留保存结果；全部操作成功才恢复。stash saver 逐根保存并记录
+对应 stash OID；启用 staging area 时恢复使用 --index。本地保持暂存/未暂存区分，继续使用
+现有 Git stash 实现，未增加独立保存策略 UI。
+
+`project_sequence/saved.rs::Plan::save_and_execute` 复用
+`project_update/preservation::SavedChanges`，整组一次取得 common-dir 锁，保存前对所有
+准备对象复验 HEAD/branch/gitdir/操作状态。CherryPick 和 Revert 新增仅 crate 内可见的
+execute_under_guard，要求锁实际拥有该仓库，避免重复取得单根锁造成死锁。保存后的错误
+以 SavedResults 返回，始终附各根保存/恢复结果和 retained stash OID；完整成功还要求恢复
+成功，不能仅凭 Git 命令成功就报告整组结束。
+
+真实 linked worktree 测试暴露既有 preservation 的恢复顺序问题：worktrees 共用 refs/stash，
+按保存顺序恢复会触发“不是栈顶”保护。现改为逆保存顺序恢复，报告仍按原根顺序展示；
+失败保留 stash，后续根仍校验精确 OID，不会误 pop 别人的修改。此顺序是本地为共享 stash
+和既有身份保护所作的适配，上游 HashMap 的遍历不提供本地所需的确定栈顺序保证。
+
+验证：project_sequence 16/16 通过（/tmp/plico-project-sequence-saved.log），涵盖普通失败→
+retry_plan→整组保存重试成功、两根 staged/unstaged 恢复、第二根保存失败不执行任何 Revert、
+中间根冲突后所有 stash 保留（含已执行/未执行根）、恢复冲突不算整组成功、linked worktrees
+共享锁与各自草稿恢复。cherry_pick 7/7、revert_operation 19/19 通过
+（/tmp/plico-project-sequence-saved-regression.log）；共享保存机制的 submodules 36/36 通过
+（/tmp/plico-sequence-preservation-submodules.log）。
+
+尚缺：UI 仍使用原单根保存重试回调，需持有整组 Results 并连接新的 SavedResults；失败后
+整组会话恢复、Git 自身 sequencer 的接续、其余根续跑及跨重启行为仍待实现。此轮没有新增
+Windows 构建和原生验收，不能称为用户可见的整组恢复已完成。
+
+### 多根保存重试接入既有界面（2026-10-26）
+
+沿用 2026-10-24 已有原生 cherry-local/cherry-local2/cherry-retry-result 与本地
+cherry-final-dialog/cherry-show-files 的阻挡、保存重试证据，以及本轮跨根选择截图。
+重新实读 4aec352 GitApplyChangesLocalChangesDetectedNotification.kt：Show Files 指向
+失败根的本地变更；保存重试回调属于整组 GitApplyChangesProcess，动作过期后不能重复触发。
+原生当时使用 Shelf，本地继续现有 Stash/保留 index 策略。上游是通知入口，本地既有确认
+弹窗组织仍保留，不能声称这部分像素对齐。
+
+Review 新增 sequence_retry，存储操作类型、阻塞根及核心重试 Plan；从完整 Results 构造，
+在拆解最后根的报告供 UI 呈现之前捕获，切换项目和开始新的 Log 序列时清理。现有 Revert /
+Cherry-pick Save and Retry 回调先匹配整组计划，单根旧流程作为无整组上下文时的既有路径。
+确认内容列出剩余根路径和提交，不把失败根一项伪装成本次全部操作范围。Show Files 仍只
+展示阻塞根本地文件，与上游这一动作的作用域一致（子根现有弹窗呈现差异仍保留）。
+
+ui/sequencer/project.rs 复用文档保存屏障、写操作门禁、Git 编辑器允许目录集合和异步泵，
+执行 Plan::save_and_execute；保留每根结果及 stash OID 到诊断，恢复失败不显示整组完成。
+若恢复本地修改产生冲突，后台读取对应根状态并打开该根冲突列表。保存重试失败后不退化为
+只重试最后根的旧回调；整组会话再恢复仍需后续接入。
+
+GPUI 真实三根用例扩展：第一根成功、第二根本地修改阻塞、第三根未执行；确认计划恰含
+后两根，调用保存重试入口后第三根也执行，第一根 HEAD 不变；第二根恢复出现 modify/delete
+冲突，stash 保留原草稿，状态显示需处理，操作门禁/文档屏障释放。定向 sequencer 3/3
+通过（/tmp/plico-project-sequence-ui-saved.log），全量 desktop-tests 129/129 通过
+（/tmp/plico-project-sequence-ui-saved-all.log），fmt check 与 git diff --check 通过。
+
+尚缺：保存失败或执行冲突后的整组会话续跑、Git 已留 sequencer 时的 Continue 路径、恢复
+持久化；当前已成功根的详情在新重试诊断中不再重复列出。混合 Log 默认加载和根选择仍未
+开放。此轮 Windows release 构建已启动（/tmp/plico-project-sequence-windows.log），原生
+交互尚未验收；GPUI 通过不代替原生验证。
+
+Windows release 全部 bins 构建完成（同日志，1m01s）；有 Request::Revert / CherryPick
+仅测试构造的 dead_code 警告。未启动新原生实例，尚无此次交互截图，不等同原生验收。
+
+### 新协调流程的 Windows 原生保存重试验收（2026-10-26）
+
+使用上一节已完成的 Windows release bins，独立 fixture
+`C:/Users/echoyn/AppData/Local/GitReview-validation/sequence-native-2b9yw0ym/project`，
+Plico PID15012。先核实并关闭自己此前的旧实例11964；未关闭其他 Rebased 窗口。
+本轮未修改参考规则，沿用前述已读 4aec352 applyChanges / GitStashChangesSaver 和既有
+Rebased 本地修改阻挡原生证据。新协调流程的多根默认 Log 入口尚未开放，因此本轮原生
+测试明确只覆盖单根通过 project_sequence 路径，不扩大为多根验收。
+
+步骤与结果：
+
+1. base 含 a.txt/draft.txt；提交6e206998修改 a.txt。draft.txt 保持 index=`staged draft`、
+   worktree=`unstaged draft`。Log 右键撤销提交，出现中文本地修改阻止撤销弹窗，列表含
+   完整仓库路径及原提交；查看文件/保存并重试/取消按钮有分离间距，长路径和 hash 换行，
+   未观察到溢出。截图 plico-sequence-native-menu.png、plico-sequence-native-retry-ready.png。
+2. 实际点击保存并重试，生成 cfcc847f Revert 提交。Git核对 a.txt回到base、draft.txt暂存与
+   工作区版本分别恢复，stash list为空；Log自动显示3/3条且新HEAD位于顶端，选择保留原行。
+   截图 plico-sequence-native-saved-done.png。
+3. 在此状态把 a.txt改为 `native local conflicting draft`，再次撤销顶端Revert。保存重试
+   成功生成1df3d0e Reapply，随后stash恢复产生a.txt冲突。程序自动打开冲突列表，顶部出现
+   解决冲突入口，Log显示4/4条；关闭列表后状态提示“操作需要处理”。截图
+   plico-sequence-native-conflict-retry-ready.png、plico-sequence-native-restore-conflicts.png、
+   plico-sequence-native-attention.png。
+4. Git核对 `UU a.txt`；stash acb9f562366b7e4df73f11abc383689c99948fea 保留a.txt草稿，
+   stash:draft.txt仍是unstaged版本，stash^2:draft.txt仍是staged版本。保留fixture及冲突状态
+   用于后续恢复验收，没有用reset清掉失败现场。原始命令结果在plico-sequence-native-state.json。
+
+所有截图/状态位于 artifacts/collaboration-workflows-20261024/。验收后已请求关闭自己
+启动的15012，未启动额外Rebased实例。本轮不是像素级验收：确认弹窗仍不同于上游通知入口，
+多根列表、跨根恢复/重启及中英文逐状态比较仍待后续验证。
+
+进程复查：15012已退出；原11964进程号已被其他应用复用，未对复用后的进程做任何操作。
+
+### 原冲突交互内的 Revert 整组续跑（2026-10-26）
+
+重新实读 4aec352 GitApplyChangesProcess.kt::executeForCommitChunk：调用 conflictResolver.merge
+等待结果，只有 mergeCompleted 且 doUserCommit 成功，才返回 true 继续原循环；取消解决
+冲突则通知并结束。GitApplyChangesConflictNotification.kt 中后续 Resolve 动作只调用
+mergeNoProceedInBackground，没有重新调用原 execute。因此不能把独立 Continue 或重新
+打开冲突窗口无条件解释为恢复原跨根任务。这一限制修正了之前笼统的“Continue后续跑”表述。
+
+本地 `project_sequence/continuation.rs::Results::resume_revert` 为原流程仍有效时提供核心
+续跑入口：查找首个未完成根，只接受有 Recovery 且无错误的 Revert 报告，委托 Recovery
+核对 gitdir/branch/HEAD/REVERT_HEAD/队列记录；合并先前成功/跳过的前缀，只有当前根完整
+成功才执行未运行根。后续根仍使用原准备对象，不重读 HEAD 接受外部变化。取消状态保留，
+完成后重复调用拒绝；不从 Git 仓库猜测/重建已经取消的原项目任务。
+
+新增三项真实 Git 测试：第一根成功、第二根先成功一条再冲突、第三根未执行，解决第二根
+后续跑且保留成功前缀/第一根HEAD；未解决和外部Abort后拒绝推进；后续根外部提交后仍拒绝
+旧计划。此前组保存、重试及 worktree 用例继续覆盖。
+
+范围与未完成项：接口仅用于仍有效的原冲突处理会话；UI目前尚未持有这个 Results 和明确的
+原会话完成/取消回调，因此未接入顶部 Continue，避免改变上游语义。保存组的续跑后统一恢复、
+Cherry-pick Git队列续跑、原生多根冲突交互仍待实现。本轮无新 UI 或 Windows 构建。
+
+验证：project_sequence 19/19、revert_operation 19/19通过
+（/tmp/plico-project-sequence-continuation.log）；fmt check和git diff --check通过。
+
+### 普通 Revert 原冲突会话接入 UI（2026-10-26）
+
+进一步实读 4aec352 `GitApplyChangesConflictResolver.kt` 和
+`GitApplyChangesCommitStrategy.kt`：原流程等待冲突处理及用户提交；默认 changelist /
+simplified 策略显示提交界面并等待成功，staging-area 策略只打开暂存面板并返回 false。
+本地继续既有 Git editor helper 对 --continue 提交消息进行用户交互，不复制 JetBrains 的
+changelist 临时提交界面；这一结构差异仍保留。沿用前述普通冲突/保存冲突原生依据，本轮
+跨根原会话继续与取消仍待 Windows 原生逐项验收。
+
+`ui/sequencer/project.rs` 用私有 Work 枚举区分新选择、已准备执行、保存重试和原会话续跑，
+复用同一编辑器泵及结果呈现。普通 Revert 冲突且具有有效 Recovery 时，Review 持有完整
+Results、阻塞仓库、交互身份和原 helper 命令；不拆掉最后根的报告导致丢失后续根。重新读取
+冲突列表为空时，仅匹配当前原交互的仓库才调用 resume_revert。完成后继续沿用既有刷新。
+
+`ui/conflicts.rs` 的 Close/X/Esc 取消回调按 Arc 身份结束原交互，不能误清除之后的新交互。
+程序为处理单文件而关闭/重开列表不会触发用户取消回调。选择 Edit File 离开模态流程、
+读取冲突失败/取消、切换项目、开始另一次 Log 序列或独立 Continue/Abort 同样清除原会话。
+取消以后再次打开空冲突列表不会推进其他根。三方合并内部取消返回父列表，父列表取消
+才结束原跨根交互；该嵌套交互尚需原生验证。
+
+桌面新增两条真实 Git 流程：原会话中通过 resolve_conflict 接受 Theirs 后，回到列表的
+读取路径自动接续 Revert 并执行第二根；实际模拟 Escape 后原交互已清除，手工解决并再
+打开列表仍保持 REVERT_HEAD、第二根 HEAD/文件不变。此前保存重试场景继续保留。
+
+尚缺：此接线仅用于未经过整组保存的普通 Revert。SavedResults 及 stash 统一恢复生命周期、
+Cherry-pick 原会话与 Git 队列、跨重启恢复仍待实现；混合 Log 默认入口未开放。旧 Windows
+构建不包含本轮修改，不以此前单根保存重试截图充当此次原会话续跑验收。
+
+验证补记：桌面全量 131/131 通过；随后将原冲突成功用例加强为实际调用
+resolve_conflict 接受 Theirs，相关桌面用例再次 3/3 通过
+（/tmp/plico-original-conflict-ui-all.log、/tmp/plico-original-conflict-ui.log）。
+这属于自动化验证，不替代上述待完成的 Windows 原生验收。
+
+### 整组保存后的原 Revert 会话续跑核心（2026-10-26）
+
+参考仍为 4aec352。再次读取 backend/src/applyChanges/GitApplyChangesProcess.kt：
+execute 的跨根循环全部成功之后才调用 changesSaver.load；原 merge 交互等待并继续，
+取消后另开的 Resolve 不复活原任务。backend/src/stash/GitStashChangesSaver.java
+持有 root → stash hash，load 统一执行 unstash，暂存区模式附加 --index。
+沿用上述保存重试与冲突窗口原生记录；本轮只修改核心生命周期，不新增界面。
+
+本地 project_sequence/saved.rs::SavedResults::resume_revert 保留所有根的保存报告，
+委托 Results 的精确 Recovery 继续执行；再次发生冲突仍不恢复任何根草稿，整组成功后
+才重新取得组预约并逆序恢复。捕获每根 editor_directory（worktree gitdir）并核对路径，
+避免把共享 common-dir 当作工作区身份。update_session::Session 内部重接保留的 stash，
+继续复用原恢复实现：只恢复精确栈顶、检查未完成 Git 操作、保留 index、记录恢复冲突。
+已经尝试恢复或保存阶段失败的结果不能重新调用整组续跑；没有从诊断文本重建任务。
+进程内预约不能阻止外部 Git 并发，这与既有实现一致；不是跨进程原子恢复保证。
+
+测试覆盖三根中的中间冲突、已完成根不重做、尚未执行根继续、第二次根冲突仍统一延迟
+恢复、staged/unstaged 草稿分别恢复，以及其他应用新增 stash 时拒绝误 pop 并保留原 stash。
+目前 UI 仍拆出 SavedResults.results，尚未把保存会话保留到原冲突交互；因此本轮核心
+能力尚不能宣称已完成 UI 接入或 Windows 原生验收，下一步需替换该拆分接线。
+
+本轮验证：project_sequence 21/21、revert_operation 19/19、submodules 36/36，
+以及相关桌面用例 3/3 通过；fmt check 和 git diff --check 通过。日志为
+/tmp/plico-saved-continuation-regression.log、/tmp/plico-saved-continuation-desktop.log。
+
+### 保存会话接入原冲突交互（2026-10-26）
+
+再次核对同一参考 GitApplyChangesProcess.kt::execute：先保存所有参与 roots，任一
+executeForRepository 返回 false 则保留 saver 并结束，只有全部成功才 load。沿用前述
+原生保存重试及冲突入口证据，不把取消后独立 Continue 解释成恢复已结束的原循环。
+
+ui/sequencer/project.rs::Session 区分 Ordinary(Results) 和 Saved(SavedResults)，
+Work::Resume 携带完整会话。保存状态的诊断改为只读收集，不再消费 saved.saved 并只
+传出 results；原冲突列表可以持有 stash 与未执行 roots，继续时分派到对应核心接口。
+保存草稿的提示不再阻挡有效原冲突会话；保存失败、恢复已经尝试、worker 返回错误、
+用户取消均不能自动继续。恢复草稿产生的冲突沿用既有展示，不误当作 Revert 原队列。
+Session 是该工作流的私有状态，不是新消息总线；现有按交互身份清理的回调原样复用。
+
+新增桌面测试通过真实 Git 仓库、resolve_conflict 接受 Theirs、实际 Escape 输入，
+分别验证完整恢复两个根的 staged/unstaged 草稿及取消后两根 stash 留存、第二根不执行。
+此前普通会话和恢复 stash 冲突测试继续保留。桌面全量 133/133 通过
+（/tmp/plico-saved-session-ui-all.log）。本轮尚未完成 Windows 原生逐状态验收，
+尤其多根默认 Log 尚未开放，不把自动化测试计作多根原生 UI 验收。
+
+Windows release xwin --bins 构建完成（/tmp/plico-saved-session-windows.log）；
+保留既有 Request::Revert/CherryPick 非测试构建 dead_code 警告。
+fmt check、git diff --check 通过。此次构建尚未计作原生交互验收。
+
+### 保存 Revert 原会话 Windows 原生验收（2026-10-26）
+
+使用上轮 xwin release 构建，新的 Windows Git fixture 位于
+C:/Users/echoyn/AppData/Local/GitReview-validation/saved-revert-ui-stgc_6vc。
+本轮只启动自己的 Plico 39600、39992，顺序使用，未操作用户 Rebased/IDEA。
+沿用本节前述 Rebased 原会话/保存重试源码与实机依据；本次是 Plico 对应状态验收。
+
+project 仓库：目标 aa4b1d8c 添加 a.txt，后续提交修改同文件；工作区还有 a.txt
+草稿及 draft.txt 的 staged/unstaged 两个版本。Log 右键目标→撤销提交→本地修改阻挡→
+保存并重试→冲突列表显示“你的版本已修改 / 对方版本已删除”。接受对方版本后原会话
+自动完成 Revert，HEAD 为 836c71e418bee3565cddef8d5d9c0d632540d6f3，Log 3/3→4/4。
+本场景未显示提交消息编辑窗口，不能将编辑器泵存在误记为此路径实际弹窗。
+恢复 stash 又触发修改/删除冲突，自动显示恢复冲突列表；REVERT_HEAD 已不存在，
+status 为 DU a.txt、M draft.txt。stash:a.txt 保留 local a draft，stash:draft.txt
+保留 unstaged draft，stash^2:draft.txt 保留 staged draft。冲突时 index 的 draft.txt
+已是 unstaged draft，原暂存版本在 stash 内保留，不能称整个工作区已成功恢复。
+
+cancel-project 仓库：同样保存并重试进入原冲突窗口，按 Escape 关闭，再由顶部“解决
+冲突”重新打开，接受对方删除。界面显示“所有冲突已解决”，顶部 Continue 可用；
+HEAD 仍 e0f0a9a9db94dab3335012e85679eeb8eaa93e65，没有自动产生 Revert 提交。
+REVERT_HEAD 仍指向 aa4b1d8c，stash 45b748c1d1730f727a960ae36b260aadbf01b553
+仍保留两个 draft 版本，status 为 D a.txt。验证了取消后的独立 Resolve 不复活原会话。
+
+截图在 artifacts/collaboration-workflows-20261024/plico-saved-revert-*.png，分别包含
+menu、blocked、conflict、accepted（此处为恢复冲突）、cancel-escape、cancel-reopened、
+cancel-resolved。原始 Git 检查为 plico-saved-revert-native-state.json 和
+plico-saved-revert-cancel-state.json。两个测试现场均保留，不 reset、不删除 stash。
+只验证单根经项目协调路径的原会话行为；多根原生默认入口、三方合并嵌套返回、
+中英文及像素级差异仍待后续验收。本轮未修改产品代码。
+
+### Cherry-pick 原会话队列身份与跨根继续核心（2026-10-26）
+
+实读同一参考 4aec352 的 backend/src/cherrypick/CherryPickProcess.kt：registry 开启
+Git sequencer 时同一根整组选中提交交给 Git，停止目标优先 CHERRY_PICK_HEAD；原流程
+通过 GitApplyChangesProcess 的冲突处理继续，空提交有单独策略。再次读取
+GitCherryPickContinueProcess.kt：Continue 结果分成功、冲突、空提交、本地覆盖、无操作
+及未知错误；冲突 resolver.merge 成功后再次 launchCherryPick，取消则通知而非继续。
+沿用已有 Cherry-pick 原生入口/保存重试及混合根菜单证据；此轮只改核心，不新增 UI。
+
+src/cherry_pick/recovery.rs::Recovery 捕获 worktree gitdir、HEAD、symbolic branch，
+以及 CHERRY_PICK_HEAD、sequencer/head、todo、opts、abort-safety 原始内容；每个文件
+有界 1MiB，连续两次读取需一致。执行 --continue 前在该仓库写预约下重新核对全部身份。
+恢复报告复用原执行的状态分类；成功前缀仍归 Git 队列管理，不能重建 targets 重放。
+捕获失败时保留正常 Git 报告而不授予原会话自动继续能力，独立 Continue 入口不受影响。
+这是进程内预约和继续前校验，不保证外部 Git 并发的跨进程原子性。
+
+project_sequence/continuation.rs 将普通 Revert 与 Cherry-pick 的共同推进流程集中，
+按操作类型分派首个未完成根的恢复；只有完整成功才执行后续原 Prepared。错误类型、
+外部 HEAD 变化、取消及再次冲突仍停止。Revert 的成功/跳过前缀合并行为保持不变。
+
+新增真实 Git 覆盖：已应用前缀只出现一次、原队列剩余提交继续；未解决冲突拒绝；todo
+被改、分支被重命名、外部 Abort 后拒绝；解决为空时明确返回 Empty 并保留队列，不
+静默 skip；跨根继续成功及后续根外部提交时拒绝重准备。UI 尚未接入 Cherry-pick 的
+原冲突会话，SavedResults 和空提交选择的会话归属也需后续完成；不能宣称该功能交付。
+
+验证：Cherry-pick 10/10、项目序列 22/22、Revert 19/19、sequencer 4/4，
+共55项真实Git测试通过（/tmp/plico-cherry-project-recovery.log）。此前新增 Recovery 后
+相关桌面5项通过（/tmp/plico-cherry-recovery-ui.log），后续共同推进重构由上述核心
+回归覆盖。fmt check、git diff --check 通过。本轮未构建新的 Windows 程序。
+
+### Cherry-pick 保存会话与原冲突窗口接线（2026-10-26）
+
+沿用上一节实读的 CherryPickProcess / GitCherryPickContinueProcess 与已有原生入口
+依据。SavedResults 新增 resume_cherry_pick，与 Revert 共用校验、整组成功判断和逆序
+恢复过程，不引入第二份 stash 生命周期。UI Session 从首个未完成根的实际 Report
+取得操作类型，按类型分派核心续跑；冲突列表重新读到为空后调用通用项目序列入口，
+不再写死 Revert。只有 Conflicts 且有有效 Recovery 的 Cherry-pick 才保留原交互会话；
+取消仍清除会话，恢复 stash 冲突不进入原序列。没有新增界面或修改控件组织。
+
+桌面新增三个真实 Git 场景：普通 Cherry-pick 冲突继续到另一根；保存流程冲突解决后
+恢复两根 staged/unstaged 草稿；保存流程 Escape 取消后再解决不推进第二根、stash 留存。
+同时复用此前 Revert 原会话和取消场景。
+
+再次读取同版本 EmptyCherryPickResolutionStrategy.kt：SKIP 为 cherry-pick --skip；
+CREATE_EMPTY 校验无暂存修改后 commit --allow-empty，使用 MERGE_MSG，缺失才使用
+fallback。当前本地仍是既有明确选择弹窗（不是上游全局策略设置）。空提交进入按钮后
+仍走独立 run_sequence，原多根会话尚未贯穿此交互，后续必须补齐；不能将本轮冲突
+接线标成 Cherry-pick 所有恢复路径已闭环。Windows 构建及原生逐项验收待后续。
+
+本轮桌面全量136/136通过（/tmp/plico-cherry-session-ui.log），包括新增三个真实Git
+Cherry-pick场景和原Revert场景。fmt check、git diff --check通过。
+
+### 空 Cherry-pick 选择贯穿原项目会话（2026-10-26）
+
+沿用上一节实读 4aec352 EmptyCherryPickResolutionStrategy.kt 的 --skip /
+commit --allow-empty 与 MERGE_MSG 规则；原生依据为既有空提交选择窗口、Cherry-pick
+及原会话取消记录。本轮不新增控件，修改原选择按钮的工作流归属。
+
+cherry_pick::Recovery::resolve_empty 在同一仓库预约下校验原队列身份及 EmptyCommit，
+再复用 sequencer_operation 的 Empty 动作。Keep 成功但 Git sequencer 仍为 CherryPick、
+无冲突且没有新的 EmptyCommit 时，继续该原队列后再返回；否则保留真实错误/空提交/
+冲突状态。不把成功创建一个空提交当作整个根队列已经完成。Skip 直接使用 Git 的
+队列推进。Results 与 SavedResults 共用原续跑路径，完成当前根才执行后续原准备对象，
+整组成功后统一恢复草稿。
+
+ui/sequencer/project.rs 的 Work::Empty 持有完整 Session、EmptyCommit 与用户选择；
+首个未完成根报告 Empty 且有 Recovery 时保留会话，显示既有 choose_empty_commit。
+按钮优先匹配原会话处理，普通独立操作仍保留既有路径。取消回调以 Arc 交互身份清除
+原会话，不能清掉之后的新任务。会话结束不会删除 Git stash 或抹掉 pending Git 队列。
+仍保留本地显式选择弹窗与上游全局策略设置的差异，未宣称已经像素级对齐。
+
+真实 Git 用例扩展覆盖：空提交 Skip 后执行同根剩余队列；Keep 后保留一个空提交并
+继续剩余队列。桌面新增保存流程解决冲突为空后 Skip/Keep 分别继续另一根并恢复两根
+staged/unstaged 草稿，以及空提交弹窗 Escape 后 stash 留存、另一根未执行。
+Windows 新版原生按键点击和该状态的截图仍待后续验收。
+
+验证：核心36项通过（cherry_pick 10、project_sequence 22、sequencer_operation 4；
+/tmp/plico-empty-session-core.log）；桌面全量139/139通过
+（/tmp/plico-empty-session-ui-all.log）。fmt check、git diff --check通过。桌面 Skip/Keep
+用例调用与按钮相同的项目会话处理入口，Escape 用实际按键模拟；不把它们记作原生鼠标验收。
+
+Windows release --bins 构建通过（/tmp/plico-empty-session-windows.log），仍只有既有
+Request 两个非测试未使用变体警告。该版本包含 Cherry-pick 与空提交会话的新接线，
+原生交互尚待验收。
+
+### 多仓库架构与通知机制约束（2026-10-26）
+
+根据本轮用户要求，将架构健康度纳入多仓库实现。再次通过 git show 实读参考
+4aec352 的 plugins/git4idea/backend/src/repo/GitRepositoryManager.java 与
+GitRepositoryChangeListener.java。上游使用项目级仓库管理器，串行发送项目仓库变化
+通知；另有应用级 GitRepositoryUpdateListener 供 worktree 跨项目同步。
+仓库变化通知包含 tag refs，但明确不包含 index 变化，不能用一种事件替代全部刷新。
+
+本地已有 src/project_repositories.rs 管理显式根及子模块关系，
+src/ui/project_roots.rs 的 GPUI Entity 持有发现结果、取消与 generation，
+通过类型化 Changed 事件通知订阅者；这已具备项目级发布订阅基础，无需先引入
+通用消息总线依赖。后续将根集合变化与单根 refs、index、工作区及操作状态失效
+分开，按受影响根合并刷新，防止每次普通文件变化都重新发现整个项目。
+跨窗口共享 worktree 存储的失效通知独立考虑，不把不同工作树的 index/工作区状态混为一体。
+
+操作会话仍负责 Git 写入、队列推进、冲突与草稿恢复，事件只用于发布事实及查询失效，
+不由视图订阅回调隐式触发写操作。保留项目切换后的过期结果拒收、订阅释放与取消语义。
+多根 Log、分支菜单和文件树消费同一项目根模型，实体身份同时携带仓库根与对象标识，
+避免子模块特判散落于各视图。
+
+以上是后续实现约束：精细化单根事件、刷新合并及跨窗口同步尚未全部接线，
+不能把现有 Changed 事件记作这些能力已完成。本轮仅补充源码核对与架构记录，
+没有新增 UI 或执行 Git 写操作。
+
+### Cherry-pick 空提交按钮 Windows 原生验收（2026-10-26）
+
+使用上一节 Windows release 构建，在独立 cherry-empty-ui-dy6y4646/project
+与 skip-project 仓库实际鼠标操作：Log 右键拣选 feature 提交 → 本地草稿阻止 →
+保存并重试 → 冲突列表接受你的版本 → 空拣选提交窗口 → 分别保留、跳过。
+沿用上文 4aec352 源码及 Rebased 原生依据；本轮只验收已有按钮接线，没有修改布局。
+
+保留后 HEAD=0ad3d6889d7ef68ba7371330ce125e634d46eb60，树与父提交完全相同，
+Log 从 3/3 更新到 4/4，操作状态入口消失；跳过后 HEAD 仍为
+2aac4481545709f510b7f6641534032514cf39ed，Log 保持 3/3。两次均无
+CHERRY_PICK_HEAD，stash 列表为空，a.txt 的 local a draft 恢复；draft.txt
+暂存版本 staged draft、工作区版本 unstaged draft 分别保留，状态 MM。
+
+证据位于 artifacts/collaboration-workflows-20261024/：
+plico-cherry-empty-before-keep.png、after-keep.png、skip-initial.png、skip-menu.png、
+skip-blocked.png、skip-conflict.png、skip-empty.png、after-skip.png
+（每个文件均带 plico-cherry-empty- 前缀）；keep-state.json、skip-state.json
+同前缀记录原生 Git 输出。截图已逐张核对。
+本轮证明单根原生按钮流程与草稿恢复；跨根剩余队列仍以既有真实 Git/桌面测试为依据，
+不将本次截图扩大为多根原生验收。
+
+### 项目根刷新合并（2026-10-26）
+
+继续实读 4aec352 的 platform/dvcs-impl/src/com/intellij/dvcs/repo/
+VcsRepositoryManager.kt：scheduleUpdate 使用 updateScheduled.compareAndSet 合并
+重复请求并经 Alarm 调度；checkAndUpdateRepositoryCollection 在 MODIFY_LOCK 下
+更新集合，生命周期受项目 disposal 约束。补读 GitRepositoryUpdater.kt 的
+filesChanged：refs/config/操作状态、tags、index/dirty scope、worktrees 分开处理。
+本轮沿用此前多根项目原生展示与刷新依据，不新增入口或改变布局。
+
+本地 ui/project_roots.rs 原先每个 refresh 都取消并重新启动完整发现。现改成一份
+在途发现和 pending 标志：期间的重复请求合并为一次后续发现，不并发启动多份
+Git 查询；旧扫描若已收到新失效，不向消费者发布它的结果。查询快照继续保持
+无效直到补查完成，展示用多根分组状态保持，Drop 继续取消当前任务。
+项目切换仍替换实体，由原有来源身份检查隔离。
+
+保留差异：本地没有复制 IntelliJ VFS/Alarm 层，不新增100ms延迟；当前是
+运行期间合并请求。细分单根刷新、跨窗口 worktree 失效及多根监听尚未接线，
+本轮不能宣称普通 refs 变化已完全不触发根发现。
+
+回归通过实际 ProjectRoots 入口发出100次失效，验证只有当前与补查两次扫描，
+当前 token 不被反复取消，订阅只收到补查完成的快照；已有独立根、缺失根、
+文件分组更新及释放取消用例保留。
+
+验证：桌面全量139/139通过（/tmp/plico-project-refresh-ui-all.log），包含最终
+订阅断言；fmt check、git diff --check通过。Windows release --bins构建通过
+（/tmp/plico-project-refresh-windows.log，57.27s），仅有既有Request变体未使用警告。
+本轮刷新调度修改尚未进行新版Windows原生连续刷新验收，不以构建或桌面测试代替。
+
+下一步接线前已核对的现状：worktree_events::Batch 当前只有 paths/all/index，
+.git/HEAD、packed-refs、refs 统一落在 index 标志；ui/worktree_sync.rs 只刷新
+当前根的本地变更、项目树和已开文档，没有触发项目根集合更新；auto_refresh.rs
+仍仅轮询主根 References。因此单改 refresh_impl 跳过根发现会漏掉子模块变化，
+必须先补成员变化来源和多根观察，不能以减少查询为由直接删除现有完整刷新。
+
+### 项目成员失效接入文件系统通知（2026-10-26）
+
+参考 4aec352，实读 platform/vcs-impl/src/com/intellij/openapi/vcs/roots/
+VcsRootScanner.kt 的初始化、目录遍历与 testShouldScheduleScan：项目级监听 VFS，
+检测潜在 VCS 目录后合并扫描请求，限制遍历范围、不跟随符号链接；另沿用前节
+GitRepositoryUpdater.kt 的 index / refs / tags 分离规则。原生项目根、子模块展示
+依据沿用第6项既有记录；本轮不新增入口或改变 UI 布局。
+
+worktree_events::Batch 增加 membership 失效范围：.git 指针、.gitmodules 和
+.git 下 index 变化单独标记，目录增删保守触发；普通源码编辑和 refs 变化
+不设置此标志。all 继续代表事件丢失/超限/轮询兜底，不能忽略其中的成员变化。
+索引变化需要重新读取 gitlink，不能只依据 .gitmodules 判定成员。
+
+ui/project_roots.rs::affected_by_worktree 同时检查路径是否覆盖已注册仓库、已发现
+仓库或已声明子模块的根，处理目录重命名只有父路径事件的情况。已知根内普通
+文件重命名不触发发现；发现进行中无法判断路径时请求一次合并补查。
+ui/worktree_sync.rs 将这些失效送到项目实体，沿用上一节在途请求合并和结果发布，
+文件列表/文档仍由原有通道刷新；通知不执行 Git 写入。
+
+保留差异与范围：不复制 IntelliJ VFS，也不自动注册任意嵌套 Git 仓库，发现范围
+仍限显式根和声明的子模块。当前接的是既有主根递归监听及其兜底事件；独立项目根、
+外置 gitdir 和 worktree common-dir 的专门监听仍待接入，不能宣称全多根监听完成。
+目录事件采取保守重扫，后续可在保留删除/重命名正确性的前提下精简。
+
+测试覆盖分类（含嵌套 .git、.gitmodules、modules/index、refs、锁文件和普通源码）、
+已注册/缺失根的祖先路径失效，以及经实际 sync_worktree 入口删除独立测试仓库的
+.git 后重建文件分组。窗口与项目模型仍由同一个实体订阅传播结果。
+
+补充后续跨窗口依据：完整读取4aec352的
+plugins/git4idea/backend/src/repo/GitWorktreeUpdateListener.kt。它忽略同项目通知，
+检查已有workingTrees（多于一个）中是否包含被更新root，匹配后只调用
+workingTreeHolder.scheduleReload()。因此不能将此类本身描述为跨窗口Log/refs
+刷新实现；后续共享引用同步还须核对实际refs监听路径，不能直接泛化其作用。
+
+验证：桌面全量139/139通过（/tmp/plico-membership-events-ui-all.log），事件核心
+3/3通过（/tmp/plico-membership-events-core-final.log）；fmt check、git diff --check
+通过。Windows release --bins构建通过（/tmp/plico-membership-events-windows.log），
+既有Request变体警告保留。新事件路径的Windows真实文件监视验收尚待后续，
+测试中手动投递Batch不等同于Windows通知后端已验证。
+
+### Windows 成员监听验收与目录移动路径修复（2026-10-26）
+
+独立 fixture membership-watch-iy0i7jp1/project，Windows原生最新release。
+父HEAD保持67882f5c，先从外部创建child仓库、写.gitmodules、暂存160000 gitlink，
+不创建父提交、不手动刷新。右侧由review.txt平铺自动变为project根分组，证明成员
+通知可以独立于HEAD/refs变化更新视图。
+
+实机发现并修复：将child改名child-moved后旧分组不消失；额外触碰.gitmodules
+则立即正常，排除发现逻辑不能移除成员。Project::resolve_missing返回规范化的
+Windows子路径带\\?\前缀，而监听根不带；原strip_prefix无法匹配。
+新增worktree_events::Batch::affects_root，复用recent_projects::identity仅作UI
+失效路径比较，统一verbatim/UNC、分隔符及大小写；绝不使用此有损显示身份打开
+仓库或执行Git写入。目录组件比较保留，project-other/child-other不误匹配。
+ProjectRoots统一委托该判断。沿用前节Rebased目录变化与根身份规则；这是本地
+Windows路径适配修复，没有新增上游未提供的界面。
+
+新版同fixture再次将child移走，右侧自动恢复平铺；移回后自动出现project分组。
+全程未点击刷新，也未修改父HEAD。截图逐张核对并保存到
+artifacts/collaboration-workflows-20261024/plico-membership-watch- 前缀文件：
+before.png、added-stable.png、removed-stable.png（修复前失败）、
+declaration-stable.png、fixed-initial.png、fixed-moved.png、fixed-restored-stable.png。
+state.json记录最终HEAD、status与gitlink；native-tests.txt记录Windows测试输出。
+
+验证：Windows真实执行worktree_events四项测试全通过，包含verbatim盘符、UNC及
+相似目录排除；桌面project_roots三项通过。日志为
+/tmp/plico-membership-path-native-tests.log、/tmp/plico-membership-path-ui.log。
+Windows release --bins构建及最终增量核对通过。这里只证明主根范围内真实监听
+及分组更新，不代表多根Log默认入口、独立根或外置gitdir监听已完成。
+
+### 外置 gitdir 与 linked worktree 的实际监听目录（2026-10-26）
+
+实读4aec352 plugins/git4idea/backend/src/repo/GitRepositoryFiles.java构造、
+createInstance/getMainGitDirForWorktree、getWorktreeGitDir/getCommonGitDir及
+getPathsToWatch；GitRepositoryUpdater.kt初始化/监听安装/释放：共享refs、
+packed-refs、reftable来自mainDir，HEAD/index/合并与sequencer来自worktreeDir，
+实际rootDirs递归监听，随仓库生命周期释放。沿用已记录worktree原生入口及行为依据，
+没有新增控件。
+
+新增worktree_events/git_paths.rs解析实际Git路径，使用Git查询而非手工假设.git
+目录。Events::for_repository在后台安装工作区和实际管理目录监听，复用同一有界
+Pending与防抖；UI worktree_sync改用该入口。布局解析/安装失败仍走既有轮询兜底，
+UNC/指针.git工作区的轮询也保留。没有修改写操作或引入全局总线。
+
+管理目录事件转换为仅供分类的合成.git路径：当前worktree的index/HEAD来自自己的
+gitdir；common-dir只转发共享refs、packed-refs及reftable，忽略主工作树/其他
+worktree的index、HEAD和操作状态。合成路径绝不用于文件读写或Git命令。
+普通仓库对象子目录创建不再设置membership，避免Git写对象引发完整成员发现。
+
+验证：Linux核心worktree_events四项、真实文件监听集成四项通过；桌面全量
+139/139通过。Windows交叉构建集成测试后，在宿主机真实执行四项监听测试，
+全部通过（/tmp/plico-git-watch-native-tests.log）：外置gitdir暂存事件，linked
+worktree自身暂存事件与共享分支事件，其他worktree暂存隔离，以及既有原子保存/
+重命名/删除及只读不循环刷新。该验证经过操作系统监听后端，不是手动投递Batch。
+
+范围限制：本轮仍是当前主根的监听对象，尚未为项目内每个独立根建立生命周期；
+Git管理目录重定位后监听重建仍待接线，现有轮询保留兜底。共享refs沿既有批次
+通知本地视图，Log仍使用既有refs轮询，并未宣称已经按root精细刷新全部视图。
+本轮没有新版窗口交互截图，不把监听集成测试描述为整个多仓库UI已验收。
+
+补充：GitRepositoryFiles.getRootDirs()返回mainDir/worktreeDir去重集合。
+Windows release --bins通过（/tmp/plico-git-watch-windows.log，1m13s），
+fmt check、git diff --check通过。最终核心日志/tmp/plico-git-watch-core-final.log，
+Linux集成/tmp/plico-git-watch-integration.log，桌面/tmp/plico-git-watch-ui-all.log。
+Windows真实监听测试输出另保存为
+artifacts/collaboration-workflows-20261024/plico-external-gitdir-native-tests.txt。
+此次只运行测试程序，没有新开Plico/Rebased窗口。
+
+### 项目监听生命周期与跨根文档身份（2026-10-26）
+
+继续使用参考 commit `4aec35256d765c217aa0d662b82ac4e860c396fd`；安装版本仍为
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT，不能视为同一构建。
+实读 `platform/dvcs-impl/src/com/intellij/dvcs/repo/VcsRepositoryManager.kt`
+的仓库集合更新、旧实例释放及映射变化发布，以及
+`plugins/git4idea/backend/src/repo/GitRepositoryImpl.kt` 的创建、监听安装和 dispose。
+规则是项目拥有仓库集合、仓库拥有监听生命周期，更新集合不重建所有既有仓库。
+
+本地 `worktree_events/project.rs` 将监听集合封装为 reconcile/take：保留未变化根，
+释放移除根；安装在后台，失败使用已有轮询。Notice 明确携带 root、批次和文档轮询标志。
+`ui/project_roots.rs` 保留稳定的观察根快照，发现进行中不清空监听；
+`ui/worktree_sync.rs` 按根投递给文档及 Diff，同一批次的次级根 Log 刷新合并一次。
+当前采用具体项目事件，不引入全局通用消息总线。不同需求分别是成员生命周期变化和
+单根文件/refs 失效；二者由已有所有者处理，避免字符串 topic 或 UI 互相订阅。
+
+回归暴露原 Documents 仅以相对路径作为键，会把两个仓库的 a.txt 绑定为同一个编辑器。
+进一步实读 `platform/core-impl/src/com/intellij/openapi/fileEditor/impl/FileDocumentManagerBase.java`
+的 myDocumentCache、getDocumentWithoutReadAccessAssert、cacheDocument：缓存绑定 VirtualFile，
+加载后再次确认身份，不能用文件名代替完整文件身份。
+本地 `editing.rs` 缓存与草稿保留统一改为原生 PathBuf 的 (root, relative path)，
+retain_pending 从文档自身取得身份，不再让调用方提供另一个路径；Source/Diff 查找也传入 root。
+保留差异：不复制 IntelliJ VFS；键不做有损字符串转换，也不在 UI 上执行 canonicalize。
+同根路径别名统一尚需结合根注册层处理，不宣称覆盖所有别名共享场景。
+
+验证：Windows 原生真实文件监听五项通过，涵盖项目根增减、保留未变监听、移除根丢弃事件，
+以及独立 gitdir、linked worktree 共享 refs/私有 index 隔离和文件变动。
+日志 `/tmp/plico-project-watch-native-tests.log`。本轮未新增窗口，也未声称多根 UI 原生验收完成。
+管理目录重定位重建、失败监听重试、重叠根监听资源合并仍待后续完善。
+
+最终回归：完整桌面 140/140，发布配置导航 10/10，Windows release --bins 构建通过
+（保留既有 Request dead_code 警告）。新增测试同时验证不同根同名草稿强引用保留与同根重开复用，
+原跨根轮询失败用例已通过。日志 `/tmp/plico-root-documents-tests.log`、
+`/tmp/plico-root-documents-navigation.log`、`/tmp/plico-root-documents-windows.log`。
+
+### 分支入口规则复核与 refs/index 通知分离（2026-10-26）
+
+参考仍为 4aec352，安装版本差异同前。复读 shared/src/com/intellij/vcs/git 下
+branch/popup/GitDefaultBranchesPopupStep.kt 的 createTreeModel/onChosen，
+branch/tree/GitBranchesTreeMultiRepoModel.kt、GitBranchesTreeSelectedRepoModel.kt，
+以及 ref/GitRefUtil.kt。无过滤且有选中仓库、未启用全根操作时显示选中根 refs，加所有
+项目仓库入口；全根模型取共同 local/remote/tag 交集；搜索使用独立多根过滤模型。
+仓库二级入口绑定该根，RefUnderRepository 也只操作其所属根。沿用先前
+multi-root-branch-popup.png / multi-root-project-branch-submenu.png 的原生证据。
+本轮未新增分支 UI，不将源码复核记作已接通多根分支入口。
+
+接线前发现事件语义仍将 HEAD/refs 与 index 合并。实读
+plugins/git4idea/backend/src/repo/GitRepositoryUpdater.kt 的 filesChanged 分类与后续处理：
+indexChanged 与 headChanged/branchFileChanged/packedRefsChanged/reftableChanged 分离，
+前者更新 dirty scope/冲突缓存等，refs 更新仓库状态及 tags，不应统一当作暂存事件。
+
+本地 worktree_events::Batch 新增 refs，history_changed() 表示 all 或 refs，
+baseline_changed() 还包括 index。ui/worktree_sync 的次级根直接 Log 重载仅使用
+history_changed；diff_tab 使用 baseline_changed，确保 HEAD 变化仍更新本地比较基线。
+all 兜底覆盖通知丢失/溢出，混合批次保留 index 与 refs 两者，未改写 Git 操作。
+
+限制：index 仍触发项目成员检查以捕捉 gitlink 变化，ProjectRoots 的检查开始/结束通知
+仍可能间接重载项目 Log，因此本轮只完成语义分离，不宣称普通暂存已完全避免 Log 重载。
+下一步须区分成员复验和实际集合变化，同时保证迟到查询拒收，不能直接删除 gitlink 检查。
+配置、操作状态与跨窗口 worktree 通知也尚未全部细分。
+
+Linux 事件核心 5 项、真实文件监听 5 项、完整桌面 140 项、发布配置导航 10 项通过。
+对应日志 /tmp/plico-typed-events-{core,integration,desktop,navigation}.log。
+本轮无新窗口和新增视觉状态，不将监听测试计作多根分支 UI 验收。
+
+Windows 首轮真实监听 4/5，linked worktree 暂存用例失败，不能沿用 Linux 成功结论。
+临时事件诊断捕捉到 Windows Notify 的 Modify(Any) 指向实际 worktree gitdir 本身；
+index.lock 替换造成目录时间戳变化，经合成 .git 路径被误当作 refs/index 全变动。
+诊断日志 /tmp/plico-typed-events-native-trace.log；临时诊断代码已移除。
+GitPaths 现在只过滤实际管理目录的 Modify(Any/Metadata) 通知，保留删除/重命名以及
+HEAD、refs、index 和 .git 指针文件事件，避免忽略管理目录位置变化。
+对应核心回归验证具体文件不会误滤、管理目录删除不被过滤。
+修复后 Linux 核心 6/6、真实监听 5/5、桌面 140/140；Windows 原生真实监听重跑 5/5。
+原生输出 artifacts/collaboration-workflows-20261024/plico-typed-events-native-tests.txt。
+最终日志使用 /tmp/plico-typed-events-*-final.log，不以首轮失败结果作为成功验收。
+最终发布配置导航 10/10，Windows release --bins 构建通过（1m09s，保留既有 Request
+未使用字段警告），fmt check 与 git diff --check 通过。未提交、推送或发布新包。
+
+### 成员复验与历史失效分离（2026-10-26）
+
+复读参考 4aec352 的 VcsRepositoryManager.kt::checkAndUpdateRepositoryCollection
+（快照、findInvalidRoots/findNewRoots、替换旧仓库与 mappingChanged 发布）。上游集合
+更新在后台完成、原仓库仍保留，随后发布映射通知；其 mappingChanged 本身不证明集合
+一定变化。本地没有复制 VFS/全局总线，而是在具体项目通知中表达 Checking/Ready。
+沿用既有多根原生展示及成员删除/恢复证据，本轮无新增控件或布局。
+
+ui/project_roots.rs 在复验期间仍使 snapshot() 不可用，保留上一份完成结果供比较。
+连续失效仍合并一次补查且不发布已知过期结果。Ready 的 history_changed 比较可读仓库
+根和错误集合，不将 gitlink 指向新提交等关系元数据变化误认为 Log 查询根已变化。
+所有完成事件仍允许文件分组刷新、保留最新子模块关系；观察根保持既有生命周期规则。
+
+Log 订阅在 Checking 时取消运行中的历史/详情/导航查询并记下补查；完成列表及独立
+固定 tips 计数保留。Ready 只在查询根/错误变化或存在待执行请求时重新加载历史。
+显式筛选请求仍保留它自己的 preserve=false，不能被成员通知覆盖。发生实际成员变化时
+使总数失效；普通 index 检查不再无条件清空已完成总数。
+保留差异：本地发布具体阶段并在消费者判断查询范围，而非复刻 IntelliJ 消息总线。
+
+扩展 project_navigation 的真实双仓库桌面回归，验证成员未变时行 Arc、scope Arc 和
+总数保持；检查前启动的导航 token 被取消、迟到结果拒收、补查完成；原用例继续验证
+移除 child 管理目录后的行剔除/错误提示、恢复后的重新纳入，以及检查中修改过滤条件。
+原 ProjectRoots 连续 100 次失效合并和过期结果不发布测试保留。
+本轮 Windows 原生窗口验收仍待，不把桌面状态测试或交叉构建作为原生多根 UI 证明。
+
+验证结果：完整桌面 140/140、发布配置导航 10/10、Windows release --bins 构建通过，
+包级格式检查及 git diff --check 通过。日志 /tmp/plico-membership-recheck-desktop-final.log、
+/tmp/plico-membership-recheck-navigation-final.log、/tmp/plico-membership-recheck-windows.log。
+没有启动新的 Plico/Rebased 实例，未提交、推送或发布。
+
+### 多根分支入口前置：远端/标签 checkout 的仓库绑定（2026-10-26）
+
+复读 4aec352 backend/src/actions/ref/GitCheckoutAction.kt：动作接收 repositories，
+远端传入 GitRemoteBranchesUtil.checkoutRemoteBranch，其他引用传给 GitBrancher.checkout，
+不会执行时重新猜主仓库。对照 backend/src/remote/hosting/GitRemoteBranchesUtil.kt
+的 repository/branch 传递与既有 GitCheckoutOperation 源码记录；原生入口依据沿用
+多根二级菜单、既有 Checkout Problem/Smart Checkout 及远端 checkout 记录。
+本轮不新增可见菜单，继续修复接线前发现的目标身份缺口。
+
+本地原 ui/reference_checkout.rs 在准备、确认及恢复时重复使用 self.repo，Prepared
+只保存 refs/head，可能把子根确认路由回主根。reference_checkout::Prepared 现保存
+工作树路径和实际 gitdir；repository() 返回原目标，validate 在执行/恢复锁内拒绝不同
+gitdir（共享 common-dir 的 linked worktree 仍不同）。既有 HEAD、符号 HEAD、ref object、
+upstream 复验均保留。比仅比较 hash 更严格，避免两个根 refs 相同掩盖错误路由。
+
+UI 新入口 prepare_reference_checkout_in 明确接收 Repository。命名冲突重试、
+Checkout/Rebase/Drop 确认、保存文档后继续以及 Smart/Force 恢复从 Prepared 取得原根；
+项目切换后丢弃旧完成回调。子根报告不再覆盖主根 operation_state。
+Recovery::Reference 已携带 Prepared，无需再维护一份可能不一致的平行 root 字段。
+
+Linux 引用 checkout 集成 16/16，通过新增同 HEAD、同 tag、共享存储的双 detached
+worktree 测试：向另一个 worktree execute/Smart/Force 均拒绝，原根仍能执行。
+扩展现有双仓库桌面回归：子根 tag/remote checkout、覆盖冲突弹窗及 reference Smart
+恢复只影响 child，父根 HEAD/main/status/stash 不变；冲突草稿仍保留在 child stash。
+完整桌面 140/140 通过。日志 /tmp/plico-scoped-reference-core.log、
+/tmp/plico-scoped-reference-desktop.log。多根分支面板完整入口尚未接通，不宣称已交付。
+
+最终验证：发布配置导航 10/10，Windows release --bins 构建通过（1m17s，既有
+Request dead_code 警告）；Windows 宿主实际执行 reference_checkout 集成 16/16，通过
+相同 refs 的 worktree 身份隔离及既有远端/标签恢复测试。原生测试日志
+artifacts/collaboration-workflows-20261024/plico-scoped-reference-native-tests.txt。
+此为原生 Git 后端执行，不是多根分支菜单 Windows 点击验收；后者仍待入口接通。
+fmt check、git diff --check 通过，未提交或推送，无新增 Plico/Rebased 窗口。
+
+### 多根分支弹窗范围模型及无历史元数据读取（2026-10-26）
+
+复读 4aec352 GitDefaultBranchesPopupStep、GitBranchesTreeSelectedRepoModel、
+GitBranchesTreeMultiRepoModel、GitBranchesTreeMultiRepoFilteringModel、GitRefUtil，
+并读取 shared/src/git4idea/GitReference.kt / GitTag.kt / GitStandardLocalBranch.kt。
+共同引用按类型和名称求交集，不比较 OID；搜索模型仍保留 RepositoryNode /
+RefUnderRepository，不能把搜索结果当作无根的全项目分支。原生依据仍为已记录
+multi-root-branch-popup.png 和 multi-root-project-branch-submenu.png，本轮没有新建 UI。
+
+新增 branch_popup/project.rs：项目根读取保留逐根错误；模型选择区分单根、选中根、
+共同引用和搜索。targets 必须接收明确根或共同引用范围，返回各根自己的 commit，
+不能以第一个根的 OID 执行其他根。缺失引用/不可读根令共同目标解析失败，禁止静默
+缩小全根操作范围。此模型只准备目标，不执行批量写入；已有批操作仍负责资格和写前复验。
+
+新增 Repository::reference_snapshot，通过已有 snapshot_query 的显式空 commit 选择
+复用引用解析、annotated/nested tag peeling、HEAD/未出生分支及浅仓库读取，不发历史
+log 或 contained-in-HEAD 遍历。子根 New Branch 准备已采用该入口，替代不必要的
+snapshot(None,1)；没有复制第二套 refs 解析器。
+
+差异/待办：引用名当前保留精确大小写；上游 GitReference 使用 CaseSensitivityInfoHolder
+选择比较策略。本地不能直接按 Windows 平台折叠 WSL 根的大小写，根级策略尚需核对。
+排序/收藏/搜索高亮继续由现有分支模型负责，本模块的 BTreeSet 不是最终 UI 排序。
+项目读取接口在后台运行，完整菜单接线仍需处理按需加载、生命周期、逐根 refs 失效和
+键盘导航，尚未在顶栏显示仓库节点，也未宣称完成多根分支功能。
+
+新增 tests/project_branches.rs 两项真实 Git 回归：不同根同名分支/tag 对应不同 OID，
+local/tag 命名空间独立、单根/共同/搜索模式、坏根不缩小目标、取消和重复输入；另以
+移除父 commit 对象的临时仓库证明正常 Log 读取失败而 references 读取成功，并覆盖
+未出生 HEAD。Linux 2/2 通过，日志 /tmp/plico-project-branches-core.log。
+
+最终完整桌面 140/140、发布配置导航 10/10，Windows release --bins 构建通过。
+Windows 宿主实际执行上述两项 Git 集成测试 2/2，输出保存到
+artifacts/collaboration-workflows-20261024/plico-project-branches-native-tests.txt。
+格式检查与 git diff --check 通过。没有新增应用窗口；原生测试程序不等同于菜单 UI 验收。
+
+
+### 多根分支入口接线与原生点击验收（2026-10-26）
+
+沿用上述 4aec352 的 GitDefaultBranchesPopupStep / SelectedRepoModel / MultiRepoModel
+源码及 multi-root-project-branch-submenu.png 原生依据，本轮复读 onChosen 的仓库节点
+分派：二级菜单绑定选择的 repository，动作通过该菜单上下文取得目标根，不替换项目。
+本地 ui/repository_project.rs 增加仓库节点及基本二级菜单，checkout 输入和引用操作
+显式传 Repository；Project 元数据采用 Arc<Snapshot>，关闭父菜单取消加载并拒收迟到结果。
+ProjectRoots 成员复验及 refs 变化使已打开的菜单失效并重新读取。
+
+Windows fixture membership-watch-iy0i7jp1，独立 parent/child 各一个 main；使用本轮
+Windows release --bins 构建，Plico 自建进程 36172。原生截图保存在
+artifacts/collaboration-workflows-20261024/：
+- plico-project-popup-roots-stable.png：两个仓库行及各自 main 显示正确。
+- plico-project-popup-child.png：child 展开二级菜单，父 Log 仍显示 parent base。
+- plico-project-popup-child-revision-held.png：点击子菜单“检出标签或版本”后菜单消失，
+  未显示预期输入弹窗。PostMessage 与实际按住鼠标 100ms 点击均复现；未执行 Git 写入。
+  这是尚待修复的入口/焦点问题，不能以已有后端测试称该入口已通过。
+
+已有桌面日志复核为 140/140，发布配置导航 10/10；本轮核心 project_branches 2/2，
+branch_navigation 单元 3/3 通过。初次误用 --test branch_navigation 被 Cargo 拒绝，
+修正为 --lib branch_navigation 后执行成功。Windows 构建通过，保留既有 Request 警告。
+
+仍有差异：仓库图标未使用上游颜色方块，二级引用分组尚未折叠，收藏及 upstream 展示、
+全根/选中根范围、跨根搜索及完整引用操作尚未完成。优先修复原生点击入口，并补充
+实际菜单点击测试；本轮不宣称多仓库分支功能或像素级还原完成。
+
+
+### 子仓库菜单点击诊断：桌面点击与 Windows 键盘路径（2026-10-26）
+
+扩展 child_checkout_and_smart_recovery_keep_repository_identity：等待菜单真实绘制，
+通过生产 contains_position 命中接口定位二级菜单后模拟鼠标移动/点击第二项，断言
+has_active_dialog，再关闭并继续原有仓库隔离/恢复测试。该路径通过，没有修改产品
+事件代码；初次用 debug_bounds 查询失败是测试定位方法不适用，不能记作产品复现。
+诊断日志 /tmp/plico-child-menu-click.log。此证据说明当前 Linux GPUI 测试平台未复现
+Windows 原生点击现象，尚不能认定具体根因或宣布修复。
+
+Windows 同一构建与同一 fixture 重新启动自建 PID 41640，点击 child 展开菜单后发送
+Down、Down、Enter，成功打开“检出标签或版本”并聚焦输入。截图
+artifacts/collaboration-workflows-20261024/plico-popup-diagnose-keyboard.png。
+全程未确认 Git 写操作；下一步核对 Windows 鼠标命中坐标与菜单关闭顺序。
+
+
+### 子菜单鼠标路径：干净 Windows 构建复验（2026-10-26）
+
+临时 [DEBUG-popup-click] 探针仅记录父弹窗 outside 命中及 revision 回调，不记录
+Git URL 或凭据。诊断构建点击记录为 child=true、in_child=true，并执行 revision action；
+截图 plico-probe-click.png 显示输入弹窗。探针已全部移除，未据此修改产品事件逻辑。
+
+重新构建 release --bins（/tmp/plico-popup-clean-build.log，成功），复制新 exe 后启动
+独立 PID 27768。逐步截图确认 child 二级菜单已经展开，再点击检出项，干净构建也打开
+预期弹窗：plico-clean-child.png、plico-clean-revision-second.png，均在本节 artifacts 目录。
+一次快速连续点击脚本未打开弹窗，但未逐步确认中间菜单加载完成，不能作为精确根因
+证据；此前失败保留，不宣称已修复一个确定的产品 bug。后续完整多仓库菜单验收仍应
+覆盖加载期间、重复打开、三级引用动作及关闭/失效顺序。
+
+完整桌面测试 140/140 通过（/tmp/plico-popup-complete-desktop.log），fmt check、
+git diff --check 通过；临时探针搜索无残留。自建 PID 36480 已关闭，最终 PID 27768
+验收完成后按 exe 路径核验关闭。没有进行 Git 写操作、提交或推送。
+
+### 子仓库分支重命名的目标身份（2026-10-26）
+
+复读 4aec352 的 backend/src/actions/branch/GitRenameBranchAction.kt 与
+backend/src/branch/GitRenameBranchOperation.java：动作从上下文取得 repositories，
+仅本地分支；上游存在时显示 unset 选项，默认不勾选，先 branch -m，再可选 unset；
+完成通知 BranchRenameListener 带 repository.root。原生设计依据沿用本文件第3项的
+rename-reference-{menu,actions-popup,dialog,duplicate,tracking-refreshed,unset-result}.png，
+仓库二级菜单依据沿用 multi-root-project-branch-submenu.png；未新增不同形态的弹窗。
+
+本地 ui/branch_rename.rs 新增 prepare_rename_branch_in，明确传入仓库和展示 tip；
+准备、名称校验、执行全过程保留目标仓库，已有 Prepared 的 gitdir/HEAD/配置复验不变。
+分支重复名称集合从目标根 reference_snapshot 获取，不再读主窗口 snapshot。
+完成回调拒收其他项目结果，只有主仓库重命名才迁移主仓库 branch_filter/selected_tree_ref；
+子根同名分支不会错误迁移主根过滤。ui/repository_project.rs 为本地引用接入 Rename。
+
+新增真实双仓库桌面回归 child_rename_preserves_parent_reference_and_filter：子根独有
+分支能打开准备弹窗；父子 main 对应不同 OID，重命名子根 main 后父根 main、HEAD、
+过滤条件和树选择不变。定向 1/1、完整桌面 141/141 通过。现有 rename 核心集成 5/5
+通过，涵盖 dirty index/upstream、stale、lock/cancel、linked worktree、include 配置。
+日志 /tmp/plico-scoped-rename-{desktop,full,core}.log。首次新增测试缺少标准 test 宏导入
+导致编译递归，已按现有桌面测试写法修正，不调整 recursion_limit。
+
+范围限制：此为明确单根操作，尚未提供全根批量 rename；子根冲突/进行中状态在准备阶段
+由目标根校验拒绝，二级菜单还没有按根缓存这些禁用信息，不能使用主根状态冒充。
+删除仍需单独处理确认和恢复时的仓库身份。本次新增菜单 Windows 原生验收记录随后补充。
+
+### 多仓库菜单：命中链与待对齐视觉（2026-10-26）
+
+三级引用动作菜单位于二级仓库菜单边界之外。原父弹窗 outside 检查只检查二级菜单
+自身 bounds，可能先关闭整个菜单链。vendor/gpui-component/src/menu/popup_menu.rs
+新增 contains_menu_position，递归检查当前展开的子菜单链；
+ui/repository_popup.rs 使用此检查，未展开的其他菜单不参与命中。
+完整桌面回归 141/141 通过（/tmp/plico-scoped-rename-hit-full.log），Windows release
+构建通过（/tmp/plico-scoped-rename-hit-windows.log）。尝试直接运行 vendored crate
+单测被 Cargo 的非 workspace member 限制拒绝，未将其计为通过。Windows 原生三级
+菜单复验因前台焦点保护拒绝发送按键而未完成；不能据此宣称原生交互验收通过。
+
+继续核对 4aec352 的实际来源：
+- plugins/git4idea/shared/src/com/intellij/vcs/git/branch/tree/GitBranchesTreeRenderer.kt
+- platform/dvcs-impl/shared/src/com/intellij/dvcs/ui/VcsRepositoryIconsProvider.kt
+- platform/dvcs-impl/src/com/intellij/dvcs/repo/VcsRepositoryColorsApiImpl.kt
+- platform/platform-api/src/com/intellij/util/ui/CheckboxIcon.kt
+- platform/vcs-log/impl/src/com/intellij/vcs/log/ui/VcsLogColorManagerFactory.kt
+- platform/vcs-impl/shared/src/com/intellij/platform/vcs/impl/shared/ui/RepositoryColorsApi.kt
+
+规则：仓库颜色由项目级根集合统一生成，Log 与分支入口复用同一身份；根按名称排序。
+Islands 仓库图标是 14px、arcSize 4 的实心圆角色块，无边框；默认配色和 Log 展开状态
+的配色是不同 color space，不能混用。NEW_UI_REPOSITORY_COLORS 含 14 组明暗色，超出
+调色板后按根数量混色并调整亮度，并非简单循环取模。项目映射及主题变化会重新发布颜色。
+
+当前 ui/repository_project.rs 仍用普通 vcs 图标；二级菜单宽度、引用图标、upstream
+附注及可折叠分组也仍与原生参考 multi-root-project-branch-submenu.png 有差异。
+下一步应从项目根展示模型提供统一颜色，不能在菜单内单独按搜索结果编号，以免过滤后
+颜色漂移；未完成上述实现与原生复验前，不标记为像素级对齐。安装版仍为 Rebased
+1.1.20 / IC-262.10968.SNAPSHOT，参考源码版本差异沿用前述记录。
+
+### 项目级仓库配色落地（2026-10-26）
+
+沿用上节原生 multi-root-project-branch-submenu.png（本次重新查看）与已读取源码，
+补读同 commit 的 platform/util/ui/src/com/intellij/ui/{ColorUtil,MixedColorProducer}.java。
+新增 ui/project_colors.rs，保留 JetBrains Apache-2.0 来源标注，翻译当前深色主题的
+默认 14 色和超出调色板后的混色／亮度规则；不混用 opened color space。
+ProjectRoots 持有映射，仅观测根集合变化时重建，Checking 阶段保留上次映射。
+ui/repository_project.rs 从该项目所有者取得颜色，渲染 14px、2px 圆角无边框色块；
+未知根回退文件夹图标，与上游 provider 的回退语义一致。
+
+保留差异：相同 basename 以完整路径稳定打破平局，避免发现顺序影响颜色；当前产品
+使用固定深色主题，仅引入对应深色调色板。Log 尚未接入根颜色列，不声称全界面一致
+已经验收；后续使用同一 ProjectRoots.color，不按行、过滤结果或面板独立分配。
+测试覆盖乱序、重复根、未知根及超过 14 根；项目所有者现有真实仓库测试增加刷新
+前／Checking／完成后的颜色稳定性断言。原生视觉结果另行记录。
+
+本轮验证：project_colors 定向 2/2，通过 /tmp/plico-project-colors.log；完整桌面
+143/143，通过 /tmp/plico-project-colors-full.log；fmt check 与 diff --check 通过。
+额外读取 GitBranchesPopupBase.kt（同 commit）确认 New UI 的 minimumSize 为
+375 × (300 + NEW_UI_MIN_HEIGHT_DELTA)，嵌套 popup 同样使用该下限；这一点尚待调整，
+不能用当前窄通用动作菜单充当最终仓库引用树。
+
+Windows release --bins 成功（/tmp/plico-project-colors-windows.log）。新建测试 PID43956
+原生菜单打开后与重新打开后均未显示根分组，截图
+artifacts/collaboration-workflows-20261026/plico-project-colors-missing-roots.png；因此
+色块视觉验收未通过，不能把仅构建成功算成 UI 完成。宿主 Git 只读确认 fixture 的
+child 仍为 stage0 gitlink，child/.git 存在，rev-parse --show-toplevel 返回正确子根。
+后续应检查 ProjectRoots 的发现结果及 popup 异步接纳路径，不能仅凭文件存在假设发现
+成功。此前自建 PID21516 已关闭，本次 PID43956 也按 exe 路径核验清理。
+
+### 仓库菜单刷新期间的分组闪烁（2026-10-26）
+
+上一节“缺根”截图不能证明永久发现失败。使用同一 Windows fixture 的临时只读
+project_root_probe 直接调用 Repositories::from_registered 与 Project::read，得到
+roots=2/errors=0/relations=1，两根 refs_ok=true。临时 [DEBUG-root-load] 仅记录任务
+代次、根数量、取消/打开状态；原生结果 gen1 被成功接纳，后续轮询触发 Checking，
+重新加载 gen5 后同样接纳两根。稳定截图
+artifacts/collaboration-workflows-20261026/plico-project-colors-visible.png 显示 child
+粉色、project 绿色圆角色块，与前述 Rebased 根颜色/顺序一致；没有证明全部菜单布局
+已经对齐。临时诊断首次编译因插入在模块文档前失败，已调整位置后成功构建。
+
+源码依据：复读 4aec352 的 shared/.../branch/popup/GitBranchesPopupBase.kt
+subscribeOnUpdates/runPreservingTreeState：更新时保存 TreeState，执行 refresh 后恢复。
+GitDefaultBranchesPopupStep.kt 的模型由 roots 与过滤/所选根模式决定。Plico 问题是
+ui/project_roots.rs 在 Checking 时立即清空 repository_project，因而树在后台更新时
+闪回单根外观。现保留上次展示结果，ui/repository_project.rs 统一判定正在校验或
+加载引用，鼠标入口禁用；ui/repository_popup.rs 同样阻止键盘开启旧根菜单。Ready
+完成引用读取后才替换，消失根不会一直留着。异步禁用是本地执行模型的保留差异，不把
+上次展示数据当成 Git 写操作依据。
+
+先扩展真实双仓库桌面测试 file_groups_follow_project_membership_even_with_no_log_rows，
+确认红灯：Checking 后期望2行实际0行（/tmp/plico-root-preserve-red.log）。修复后同一
+用例额外覆盖校验期键盘禁止打开旧根，删除子根后的结果替换。临时例程及源码中的
+[DEBUG-root-load]/PLICO_ROOT_TRACE 均移除，诊断 PID34860 按测试 exe 路径核验关闭。
+
+修复后完整桌面 143/143 通过（/tmp/plico-root-preserve-full.log），fmt 与 diff check
+通过；干净 Windows release --bins 构建通过（/tmp/plico-root-preserve-windows.log）。
+原生 PID41920：打开菜单等待加载，重写自建 fixture 的 .gitmodules 原有字节触发
+成员刷新；plico-root-clean-refresh.png 捕获到两根保留且入口灰色，稍后点击 child
+正常打开二级菜单（plico-root-clean-ready.png）。同目录 stable.png 为加载完成基线，
+均存于 artifacts/collaboration-workflows-20261026。没有确认 Git 写操作。
+另试图从二级 main 点击进入三级动作时菜单关闭（actions.png），该嵌套菜单原生路径
+仍待定位，不能据当前外围命中修复宣称已通过。测试 PID41920 按 exe 路径核验关闭。
+
+### 引用子菜单的显式点击与焦点（2026-10-26）
+
+复读 4aec352 GitBranchesPopupBase.kt 的 SelectOnClickListener/handleSelect/handleNextStep：
+引用行支持左键直接进入下一步；已有同一子路径不重复处理，只有最终动作才关闭父链。
+原生依据沿用 multi-root-project-branch-submenu.png；本次 Plico Windows 下从 child 的
+main 进入动作仍出现关闭，普通 PostMessage 与受窗口命中保护的实际鼠标路径都尝试过。
+单靠这一症状尚不能证明关闭原因。
+
+将实际引用行点击加入 child_checkout_and_smart_recovery_keep_repository_identity，
+通过绘制坐标和 contains_menu_position 确认子菜单在父菜单之外展开。最初仅断言可见与
+父菜单未关闭，旧实现也通过（/tmp/plico-submenu-click-{red,bounds}.log），这些不算红灯。
+补上点击后父菜单不再持有直接键盘焦点的断言，撤去补丁后定向测试失败：
+clicking a submenu must transfer keyboard focus to its actions
+（/tmp/plico-submenu-focus-red.log）。
+
+vendor/gpui-component/src/menu/popup_menu.rs 为 Submenu 接入显式 on_click：消费点击，
+设置选中行，复用 _select_submenu 将焦点交给动作菜单。MenuItemElement 的既有点击
+路径同时消费 mouse-down，避免外层 trigger 收到按下事件。这是明确的点击/焦点行为
+补全；不在 Windows 原生复验前宣称解释了所有意外关闭情况。无 Git 写操作。
+
+补丁后的完整桌面 143/143 通过（/tmp/plico-submenu-focus-full.log），fmt check 与
+Windows release --bins 通过（/tmp/plico-submenu-focus-{fmt,windows}.log）。
+原生 PID44024 相同步骤仍在点击 main 后关闭菜单，截图
+artifacts/collaboration-workflows-20261026/plico-submenu-fix-{child,actions}.png。
+结论仅为已修复有红灯证明的点击后焦点缺口，尚未修复 Windows 菜单关闭；下一轮应对
+原生 outside/dismiss 路径做定向命中和生命周期跟踪，不能继续凭绿色桌面测试推断。
+自建 PID8004、44024 已按测试 exe 路径核验关闭，没有提交或推送。
+
+### Windows 本地 canonical 根误启用网络轮询（2026-10-26）
+
+临时 [DEBUG-menu] 跟踪父弹窗 outside、子菜单 dismiss 与边界。失败场景的事件顺序是
+先主动 dismiss child，再收到点击；此时 child=false/contains=false，外层才关闭。
+将相同步骤缩短在一次脚本内完成（逐步保存截图并等待根加载），得到
+child=true/contains=true，三级动作正常展开（plico-menu-trace-actions3.png）。
+这推翻“所有三级点击必然因边界错误关闭”的解释；原生快速路径可以工作。
+
+发现 src/worktree_events/project.rs 将任何以双反斜杠开头的根当成网络路径，真实探针
+返回的子根是本地 canonical `\\?\C:\...`，于是即使 watcher 安装成功，也每30秒发出
+all/index 兜底通知，继而触发菜单主动失效。新增内部 is_network_path，区分本地 verbatim
+磁盘/volume 路径与普通 UNC、verbatim UNC（含 Git 的正斜杠表示）。监听安装失败及
+.git 文件工作树的既有 fallback 不变；真正 UNC/WSL 保留轮询。网络轮询时菜单状态的
+进一步保留仍是未完成项，不能通过取消真实网络刷新来规避。
+
+测试先用旧 starts_with 规则运行，local_verbatim_paths_are_not_network_shares 红灯
+（/tmp/plico-path-poll-red.log），修复后 worktree_events 核心7/7通过
+（/tmp/plico-path-poll-tests.log），真实监听集成测试见 /tmp/plico-path-poll-integration.log。
+源码临时跟踪已移除，诊断 PID45856 已核验路径关闭。截图保存于
+artifacts/collaboration-workflows-20261026/plico-menu-trace-{child2,actions2,actions3}.png。
+
+### 本地多仓库菜单轮询修复的原生复验（2026-10-26）
+
+干净 Windows release --bins 构建通过（/tmp/plico-local-path-windows.log），格式检查
+完成且无格式差异（/tmp/plico-local-path-fmt.log）。使用相同独立 parent/child 仓库，
+测试实例 PID31924，依次打开顶部分支、child、main 的动作菜单。随后停留至少31秒，
+跨越原来的30秒兜底周期，三级菜单仍保持展开，选中项与焦点外观未重置。
+点击重命名后出现读取进度，完成后正常显示 main 重命名弹窗，旧名称选中、相同名称
+提交按钮禁用。本次未确认重命名，不产生 Git 写操作；仓库归属由既有真实双仓库
+child_rename_preserves_parent_reference_and_filter 测试覆盖，截图本身不证明执行归属。
+
+截图：artifacts/collaboration-workflows-20261026/plico-local-path-
+{parent,child,actions,after-poll,rename,rename-ready}.png。
+此次确认了本地 canonical 路径修复与三级动作入口；真实 UNC/WSL 的必要轮询期间
+菜单保留仍待处理。二级菜单宽度、可折叠分组、当前引用图标及上游标注仍未完成
+Rebased 结构对齐，不以这次交互通过代替整体视觉验收。
+
+### 仓库分支子菜单宽度及当前引用标识（2026-10-26）
+
+实现前重新查看 artifacts/collaboration-workflows-20261024/
+multi-root-project-branch-submenu.png：project 二级分支树与主弹窗同级宽度，main
+带黄色当前引用标签，远端名称位于右侧。复读参考 commit
+4aec35256d765c217aa0d662b82ac4e860c396fd 的
+plugins/git4idea/shared/src/com/intellij/vcs/git/branch/popup/GitBranchesPopupBase.kt
+（New UI minimumSize 375×312）、branch/tree/GitBranchesTreeRenderer.kt
+和 ui/GitBranchesTreeIconProvider.kt（current/favorite/tag/branch 图标选择）。
+安装版仍为 Rebased 1.1.20 / IC-262.10968.SNAPSHOT。
+
+本次 ui/repository_project.rs 将仓库二级菜单最小宽度改为375逻辑像素，复用既有
+JetBrains 资源显示当前分支黄色标签、普通分支及 tag 图标。图标从该仓库 Snapshot
+计算，不使用主仓库的当前分支。三级操作菜单保持普通动作菜单宽度。
+仍待完成：312最小高度、可折叠分组、upstream 右侧信息与收藏状态；这轮不是完整
+像素还原。测试与 Windows 原生结果随后补记。
+
+定向桌面 child_checkout_and_smart_recovery_keep_repository_identity 通过（1/1，
+/tmp/plico-root-menu-icons-tests.log）；首轮 Windows 构建通过（同前缀 windows.log）。
+原生 PID38296 截图 plico-root-menu-icons-{parent,child}.png 已保存到20261026目录：
+二级宽度生效，但 PopupMenu::render_icon 强制 xsmall，并且初版当前引用颜色仍为灰色。
+后续已显式设置当前引用黄色（与主弹窗既有收藏强调色一致），尚待新的原生截图验证。
+尺寸仍待改为分支树一致大小；没有通过原生验证就声称黄色图标完成。测试实例38296
+已按 exe 路径核验关闭，未触发 Git 写操作。后续颜色补丁构建日志为
+/tmp/plico-root-menu-icons-color-windows.log。
+
+### 仓库引用树的最小高度与图标大小（2026-10-26）
+
+继续沿用上述已查看的原生多根截图与 GitBranchesPopupBase/GitBranchesTreeIconProvider
+源码。仓库分支子菜单设置375×312逻辑像素最小区域与16px引用图标；PopupMenu 增加
+可选 min_h/icon_size 参数，默认未设置，其他动作菜单保持此前布局。最小高度受当前
+菜单的视口高度上限约束，避免小窗口被强制撑出可用区域。底部空白仍位于菜单命中区域，
+不会把参考图中导航面板的留白误判成菜单外点击。
+
+复用 child_checkout_and_smart_recovery_keep_repository_identity 的真实绘制坐标，
+增加最小树区域的命中断言，并保留引用点击、焦点转移及仓库归属验证。
+上游信息另读同 commit 的 GitDefaultBranchesTreeRenderer.kt：secondaryLabel 位于
+右侧、左留10px；本地分支仅在 affectedRepositories 的 tracking 名称一致时展示。
+当前 Snapshot 仅将 tracking 消费到 ref_titles，后续应保留独立映射，不解析合并标签
+来猜测 upstream。本轮未实现这部分及分组折叠。测试/原生结果另行补记。
+
+验证：定向1/1、完整桌面143/143通过（/tmp/plico-root-menu-layout-{tests,full}.log），
+fmt check通过（同前缀fmt.log），Windows release --bins通过（同前缀windows.log）。
+原生 PID24772 打开 child 子菜单，截图 plico-root-menu-layout-{parent,child}.png
+保存于 artifacts/collaboration-workflows-20261026；确认最小高度、宽度及黄色16px
+引用图标生效，行仍顶部排列。图标为当前引用轮廓资源；主弹窗的实心收藏组合与之不同，
+收藏状态未接入子仓库菜单，不能据此宣称图标状态完全对齐。原生未执行写操作。
+
+### 仓库分支 tracking 标签（2026-10-26）
+
+依据已核对的原生 multi-root-project-branch-submenu.png（project/main 右侧 origin/main）
+及 4aec352 的 GitDefaultBranchesTreeRenderer.getSecondaryText/getCommonTrackedBranch：
+单仓库显示该分支 tracking 名称；共同分支要求全部 affectedRepositories 的名称一致，
+任一缺失就隐藏，不将同一个 OID 上其他分支的 tracking 混入。
+
+src/git.rs 的 Snapshot 新增共享 tracked_branches 映射（完整本地 ref→远端显示名称），
+复用现有 for-each-ref 解析，无新增 Git 命令及历史加载。branch_popup/project.rs 提供
+按 Scope 判断一致性的 tracked_branch；仓库子菜单直接使用对应 Snapshot 的映射。
+vendor PopupMenu 子菜单增加可选右侧 secondary 文本，旧 submenu/submenu_with_icon
+接口默认无 secondary。ui/repository_project.rs 接入，标签与箭头分离，长名称可裁切。
+标签不参与命令目标身份；引用动作仍捕获完整 ref、目标 OID 和 Repository。
+
+真实双仓库集成测试涵盖同名同 upstream、不同 upstream、缺失 tracking、同 OID 的
+另一未跟踪分支、成员读取失败，且验证 reference_snapshot 没有加载历史提交。
+project_branches 3/3 通过（/tmp/plico-tracking-core.log）。尚待桌面构建及原生截图。
+
+本轮桌面143/143通过（/tmp/plico-tracking-desktop.log）、fmt与diff check通过，
+Windows release --bins通过（/tmp/plico-tracking-windows.log）。原生独立 fixture 的
+child 使用本地 origin 路径及 update-ref 配置 tracking，没有访问外网。PID43772
+截图 plico-tracking-{parent,child,selected}.png 已存20261026目录，确认 main 行右侧
+显示 origin/main、远端行不重复显示 secondary，选中后文字前景变化且三级动作仍正常
+打开。未确认任何菜单写操作。分组仍为静态标题，收藏状态与目录树分组尚待对齐。
+
+### 仓库分支组的展开状态与键盘导航（2026-10-26）
+
+沿用已实际查看的 multi-root-project-branch-submenu.png：当前分支所在本地组展开，
+远端组折叠。复读4aec352 GitBranchesPopupBase 的 traverseNodesAndExpand、
+toggleClickCount=1、expandedPaths 与 calculateTopLevelVisibleRows；分组无动作，
+单击仅展开/收起，展开状态独立于最终引用操作。
+
+ui/repository_project.rs 给二级菜单持有一份分组展开集合，当前本地分支存在时默认
+展开 Local，其他组收起。分组激活通过 window.defer 重建同一个 PopupMenu 的内容，
+保留实体、焦点与父链，选中行恢复到刚切换的分组。引用动作继续捕获原仓库。
+PopupMenu 的普通 Item 新增可选 disclosure 状态；此类项回车/单击后不关闭，右键方向
+展开或进入第一个子行，左键方向在展开时收起。未标记 disclosure 的普通动作不变。
+目录前缀组、收藏切换与跨关闭后的展开状态保存仍未完成。
+
+验证：分组点击及 right/left/right 后继续引用操作的桌面定向测试通过，完整桌面
+143/143通过（/tmp/plico-group-{navigation,full}.log）；fmt与diff check通过，Windows
+构建通过（/tmp/plico-group-windows.log）。原生 PID44812：默认 Local 展开、Remote
+收起；单击 Local 后 main 消失、分组选中且菜单保持；再按右方向键，main 与 upstream
+恢复，焦点/选中仍在 Local。截图 plico-group-{parent,child,collapsed,key-expanded}.png
+保存20261026目录。本轮未触发 Git 写操作。子行缩进仍需结合目录前缀分组完善，
+不把现有平面引用行当作最终树形视觉验收。
+
+### 子仓库菜单的目录树模型复用（2026-10-26）
+
+实现前重新操作已运行的 Rebased PID31052，独立 project/child fixture。未启动或关闭
+Rebased 进程，未执行 Git 写操作。顶部分支→child→Remote Branches in child，实机
+显示 origin 文件夹及 main 叶子；只有一个子目录时随组展开自动展开。截图
+rebased-prefix-{before,menu-real,child-scaled,remote}.png 保存于20261026目录。
+安装版仍为1.1.20 / IC-262.10968.SNAPSHOT。参考4aec352的 GitBranchesTreeModel.kt、
+GitBranchesTreeModelUtil.kt 与 platform/util/ui/src/com/intellij/ui/SmartExpander.java：
+前缀节点按引用类型及完整目录路径标识，唯一子节点展开递推，收起递归清除后代展开。
+
+ui/repository_project.rs 改用现有 branch_popup::visible_rows/Expansion，不再按每组
+循环展示完整引用字符串；分组和前缀目录复用同一折叠处理，每层16px缩进。显示叶名，
+写操作仍捕获完整 ref。PopupMenu 以额外行内边距呈现层级，保留整行命中；重建后按
+同一行位置恢复选中，不再依赖可能重名的目录文字。当前构造的固定前导项为两个动作
+加分隔线，故可见树行索引偏移3。
+
+branch_popup::Expansion::toggle_tree 实现 SmartExpander 的自动唯一目录链展开及
+收起后代，使用迭代而非递归。新增测试证明 Remote/origin/team 的叶子深度、后代清除
+及同名 Local/origin 展开状态不会被误删；branch_popup 核心7/7通过。
+仍待对齐：目录独立文件夹图标、叶行向左返回父目录、收藏/近期项及跨关闭展开持久化。
+本轮不把树模型复用视为上述所有交互已完成。
+
+验证：核心branch_popup 7/7、完整桌面143/143、fmt/diff check及Windows release --bins
+均通过（/tmp/plico-prefix-{core,desktop,fmt,windows}.log）。原生 PID11272 展开 Remote，
+自动显示已展开 origin 目录及缩进 main 叶行，本地 main/upstream 保持原样；截图
+plico-prefix-{parent,child,remote}.png 保存于20261026目录。未触发写操作。目录图标
+缺口仍按上文保留，不宣称与 Rebased 实机图完全一致。
+
+### 子仓库菜单目录图标与 Left 语义纠正（2026-10-26）
+
+参考仍为 4aec35256d765c217aa0d662b82ac4e860c396fd；安装版为
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT。重新读取
+plugins/git4idea/shared/src/com/intellij/vcs/git/branch/popup/GitBranchesPopupBase.kt
+的 overrideTreeActions：nested popup 的 Left 直接 cancel，优先于默认树折叠；
+回车对分组仍走树的 toggle。GitBranchesTreeRenderer.kt 的 getIcon 为
+BranchesPrefixGroup 使用 GitBranchesTreeIconProvider.forGroup()。
+
+实机已在独立 project/child 仓库验证：点击 origin 后直接按 Left，整个 child
+子菜单关闭、父菜单保留。证据 rebased-nested-left-direct.png 保存于
+artifacts/collaboration-workflows-20261026。截图工具激活主窗口会夺取重量级
+子菜单焦点，因此按键前不插入截图；按键工具检查前台进程确为 Rebased。
+此结论纠正上文“叶行向左返回父目录”待办和 right/left/right 的测试假设。
+
+本地 vendor/gpui-component/src/menu/popup_menu.rs 让 close_on_left 优先于
+分组折叠；只影响显式设置该策略的菜单。新增独立 content_icon 槽，
+src/ui/repository_project.rs 为目录前缀行同时绘制展开箭头和文件夹，分组标题
+保持仅箭头。src/ui/checkout.rs 回归测试改为 right/enter/right，并断言 Left
+关闭子菜单而保留父菜单，重新打开后仍能按原仓库身份执行引用操作。
+定向桌面测试 1/1 通过（/tmp/plico-nested-left-tests.log）；diff check 通过。
+收藏、近期项与跨关闭展开状态仍为已知差异，不宣称完全像素级还原。
+
+Windows release 构建及 fmt 检查通过（/tmp/plico-nested-left-{windows,fmt}.log）。
+原生 PID6960 展开 Remote 后显示 origin 的展开箭头、文件夹和 main 叶行；选中
+已展开 Remote 按 Left 后子菜单关闭，父菜单保留 child 选中，搜索框恢复焦点。
+截图 plico-nested-left-{parent,child,folder,closed}.png 已保存同目录。此次启动的
+Plico PID6960 已关闭，未关闭已有 Rebased。原生结构及行为已核对；字体、精确
+间距及图标主题差异仍随整体视觉轮次继续核对。
+
+### 多仓库分支比较的范围与 Tab 身份（2026-10-26）
+
+实现前在已运行 Rebased PID31052 的独立 project/child fixture 中，依次打开顶部
+分支菜单、child、Remote/origin/main、Compare with attached-test。结果是上下两个
+比较列表，均显示 Paths: child；上方为空、下方显示子仓库领先的三个提交。截图
+rebased-compare-root-{before,child,actions-open,open}.png 保存于
+artifacts/collaboration-workflows-20261026。未执行 Git 写操作；尚未实机复现两个
+根同名比较 Tab 并存，身份隔离规则由下列源码确认。参考安装版本仍为
+1.1.20 / IC-262.10968.SNAPSHOT，源码 commit 4aec35256d765c217aa0d662b82ac4e860c396fd。
+
+读取 plugins/git4idea/backend/src/actions/branch/GitCompareWithBranchAction.kt：
+仅非当前分支可用，保存文档后把选定 repositories 传给 compare；
+backend/src/branch/GitCompareBranchesFilesManager.kt：以 ranges 和 roots 构造
+ComplexPath 并查找复用文件；GitCompareBranchesFile.kt 的 equals/hashCode 使用
+pathId。因此不能仅凭两个 ref 名称跨根复用 Tab。
+
+本地 src/ui/branch_compare.rs 新增显式 Repository 的比较入口，异步解析、保存
+文档后恢复、创建视图及 Tab 复用均携带同一个 Repository。原主仓库入口复用此
+实现。src/ui/repository_project.rs 子仓库引用菜单接入相同 Compare 动作；名称与
+可用性读取该根快照。src/ui/editor_tabs.rs 回归覆盖同根复用、不同根同名引用
+分别打开、返回原根复用及关闭邻居。定向测试已通过。
+
+仍保留的差异：本次为单个选定根比较，尚不等同 Rebased 的多根范围比较；现有
+比较界面尚未呈现可切换的根范围筛选，子菜单的其他缺失动作继续保留在后续工作。
+本轮不会把一个比较入口接线视为多仓库功能完成。
+
+验证结果：Tab 身份回归 1/1、比较模块回归 5/5、fmt/diff check、Windows release
+构建通过（/tmp/plico-root-compare-{tests,suite,fmt,windows}.log）。原生独立 fixture
+中主仓库没有 remote refs，只有 child 存在 refs/remotes/origin/main；从 child
+远端分支菜单点击“与 main 比较”成功打开上下两组空范围，符合 child 两端相同
+提交的状态，未尝试到主仓库解析。截图 plico-root-compare-{parent,child,folder,
+actions,open}.png 保存同目录。自有 PID45732 已关闭。界面可用，但仍缺 Rebased
+Paths: child 的明确范围展示；菜单其余动作及比较界面的既有视觉差异未在此轮
+消除，不宣称完整对齐。
+
+### 子仓库工作树比较及标签引用（2026-10-26）
+
+实现前在 Rebased PID31052 的独立 project/child fixture 中，打开 child 下远端
+origin/main 的 Show Diff with Working Tree。实机左侧出现独立 Changes Between
+工具窗，根行为 child、当前分支 attached-test，列出该子仓库四个差异文件。
+截图 rebased-root-working-{entry,open,keyboard}.png 保存于20261026目录，其中
+keyboard 为最终打开结果，open 为操作菜单状态。未对该仓库执行 Git 写操作。
+安装版与参考版本沿用上节，未原生验证标签入口。
+
+读取4aec352的 plugins/git4idea/backend/src/actions/ref/GitShowDiffWithRefAction.kt：
+接受 GitReference，单根不受多根分支分歧限制；GitBrancherImpl.showDiffWithLocal
+传递 repositories；GitShowDiffWithBranchPanel 保存所有文档、后台按所选仓库取差异，
+关闭后不再更新，复用 CompareBranchesDiffPanel 与 ChangesBrowserToolWindow；
+GitBranchWorker.loadTotalDiff 明确工作区在左。标签支持由源码确认。
+
+src/ui/branch_compare.rs 将原主仓库工作树入口和子仓库入口统一到显式 Repository
+的保存后回调，避免回调执行时重新采用 s.repo。src/ui/repository_project.rs 接入
+Show Diff with Working Tree，排列在分支比较动作之后，标签也可进入。底层
+src/branch_compare.rs::resolve_reference 新增 refs/tags 支持，仍以 check-ref-format
+及 ^{commit} 验证，拒绝非提交对象、缺失标签和 revision 表达式。
+
+回归曾发现底层仅接受分支导致标签比较失败，现已修复。src/ui/editor_tabs.rs 的
+真实临时仓库测试：主目录无 Git 对象，子仓库标签基线 after、工作区 working child；
+经保存回调创建比较后验证 repository 身份及左右实际内容，1/1通过。标签剥离及
+无效对象测试见 tests/branch_compare.rs。
+
+范围差异仍保留：当前比较面板一次仅一个根，不等同上游多根聚合；精确工具窗
+样式及根颜色/分支注释尚未完全还原，分支比较 Paths 范围展示仍待接线。
+
+验证：核心 branch_compare 集成10/10通过（包含轻量标签、附注标签、blob标签拒绝、
+缺失引用及表达式拒绝）；子仓库真实文件桌面回归1/1、fmt/diff check及Windows
+release构建通过（/tmp/plico-root-working-{core,tests,fmt,windows}.log）。原生
+PID38016 从 child/origin/main 打开工作树比较，左工具窗列出 child.txt；Ctrl+D
+打开该子仓库真实工作区差异，显示临时新增的验证行。截图
+plico-root-working-{parent,child,folder,actions,open,diff}.png 保存同目录。仅对独立
+fixture临时修改child.txt，验收后校验字节再恢复；自有Plico进程已关闭。原生
+验证是远端分支入口，标签入口原生状态仍待核对，标签端到端由上述测试覆盖。
+
+### 比较工具窗的仓库根节点（2026-10-26）
+
+实现前重新截取 Rebased PID31052 的工作树比较面板，child 根行依次为展开箭头、
+项目根颜色、仓库名、文件数及当前分支注释；截图 rebased-comparison-root-node.png
+保存于20261026目录。沿用前一轮实际执行 Show Diff with Working Tree 的场景。
+源码4aec352：platform/dvcs-impl/src/com/intellij/dvcs/ui/RepositoryChangesGroupingPolicy.kt
+以项目 colorManager.hasMultiplePaths 决定根分组；单次比较仅一个根仍不能隐藏根。
+RepositoryChangesBrowserNode.kt 使用统一根颜色与短仓库名；
+platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/RepositoryChangesBrowserNodeBase.kt
+追加文件数，并仅在 showingLocalChanges 时追加分支注释。
+
+src/compare_view.rs 由项目注入可选根颜色，不扫描仓库、不重建颜色管理器；多根时
+固定保留独立根行，即使文件共享一个目录前缀或关闭目录分组。根行显示仓库短名和
+文件数及色块，普通目录继续使用文件夹。目录勾选状态与是否存在仓库分组分开，
+展开/收起对平铺模式的根行仍有效。src/ui/editor_tabs.rs 在显示比较时注入上下文；
+src/ui/project_roots.rs 通过既有 Changed 事件同步已打开比较的根显示，沿用Checking
+阶段保留上次有效成员的规则。没有增加 Git 查询或通用消息总线。
+
+保留差异：此轮尚未显示根行的当前分支注释，避免用已过期的打开时分支冒充实时
+状态；分支比较 Paths 筛选中的根范围展示仍需完整筛选状态支持。当前工具窗单根
+比较范围未扩展为多根聚合。上述差异仍为后续工作，不视为像素级完成。
+
+验证：比较面板桌面测试3/3、fmt/diff check与Windows release构建通过
+（/tmp/plico-compare-root-node-{tests,suite,fmt,windows}.log）。原生 PID44776 的
+child 比较根行显示与分支菜单相同色块、child名称及1个文件；Ctrl+Alt+P关闭目录
+分组后保留根行，点根箭头可收起且不影响右侧主仓库Log。截图
+plico-root-node-{parent,child,folder,actions,open,flat,collapsed}.png 保存同目录。
+自有Plico进程已关闭，独立fixture的临时child.txt修改经字节校验后恢复。
+
+### 子仓库分支比较的引用刷新（2026-10-26）
+
+Rebased 1.1.20 原生独立 submodule-reference-80s4zk56 场景：打开 child 的
+origin/main 与 attached-test 比较，只移动 child 的远端跟踪引用到同树新提交；
+随后比较列表显示 child comparison refresh validation，未点击刷新。截图
+artifacts/collaboration-workflows-20261026/rebased-child-comparison-refresh-ready.png。
+验收后已确认引用恢复原值 c5c1cc68e0a69d9496fe244355d6131a0f546eb6。
+
+源码 4aec352：plugins/git4idea/backend/src/branch/GitCompareBranchesUi.kt 使用
+VcsLogData 与范围/根过滤；platform/vcs-log/impl/src/com/intellij/vcs/log/impl/
+PostponableLogRefresher.kt 按根刷新，向注册的 refresher 传播 DataPack，并处理
+不可见窗口的延后刷新。GitShowDiffWithBranchPanel.kt 和
+platform/dvcs-impl/src/com/intellij/dvcs/ui/CompareBranchesDiffPanel.java 则在
+创建及面板操作时加载工作树比较，没有同样的文件系统监听，不能混为一种刷新。
+
+本地 src/ui/worktree_sync.rs 将已有带根身份的 Batch 引用事件转发给子仓库
+分支比较；src/ui/branch_compare.rs 验证仓库身份及 history_changed，复用原有
+取消与结果接纳流程。主仓库继续走既有 auto-refresh，不新增通用消息总线。
+工作树比较不在本轮扩展自动刷新；主仓库 refresh_impl 仍会检查所有比较 Tab，
+本轮不宣称已实现所有刷新入口的最小失效范围。
+
+验证：reference_refresh_keeps_applied_filters_and_recovers_deleted_reference
+通过，包含其他仓库/仅 index 与文件变化不刷新、同仓库引用刷新、连续请求取消、
+过滤保留及引用删除恢复。Windows release 构建、fmt 与 diff check通过，日志
+/tmp/plico-child-compare-refresh-{tests,windows,fmt}.log。Plico 原生验收待完成：
+本轮捕获菜单时未稳定取得焦点，未完成子根比较入口和引用变化的同条件验证；
+不能视作原生行为通过。测试自有 PID45764、41040 已关闭，保留既有 Rebased。
+
+
+后续原生复验（同日）：此前父菜单截图是在异步分支快照返回前取得，保留窗口后
+child/project 根入口正常出现，并非根识别失败。Plico PID34940 从 child 的
+origin/main 进入比较，初始双向均0条；只将独立 fixture 的 child 远端跟踪引用
+移到同树新提交 child-only reference refresh，未点击刷新，上半比较自动变为
+1条，下半仍0条。主仓库无 origin/main，HEAD 未改，聚合Log未启用。用期望旧值
+校验恢复 child 引用后，上半自动回到0条，工作区未改。此项原生行为验收通过，
+替代上一段的待验收状态；不表示其他尚缺的多根操作或视觉差异已完成。
+截图 plico-child-refresh-{ready,child,folder,actions,open,updated,restored}.png
+已保存于同一 artifacts 目录。测试窗口验收后关闭，既有 Rebased 保留。
+
+### 工作树比较的实时根分支标签（2026-10-26）
+
+实现前在 Rebased 1.1.20 PID31052 原生工作树比较验证：根行在仓库名/文件数后
+显示灰色分支标签。独立 fixture 的 child HEAD 临时指向同提交的验证分支，根行
+更新为 plico-branch-label-validation，而面板说明仍是原 attached-test。未改动
+工作文件；随后校验 HEAD 并恢复原符号引用、删除自建验证引用。截图
+rebased-working-root-branch{,-updated}.png 保存20261026目录。
+
+源码4aec352：RepositoryChangesBrowserNodeBase.kt 仅 showingLocalChanges 时
+追加当前分支；RepositoryChangesBrowserNode.kt 通过 CurrentBranchComponent
+查询 BranchStateProvider。plugins/git4idea/backend/src/branch/GitBranchStateProvider.kt
+返回当前分支及 tracked branch；platform/vcs-impl/src/com/intellij/vcs/branch/
+BranchPresentation.kt 对 detached 显示 !，跟踪提示为 branch → upstream，无跟踪时
+显示本地化消息。shared/.../changes/ui/BranchPresentation.kt 使用背景混色标签。
+
+本地 src/branch_context.rs 提供不加载历史的当前符号引用/上游查询，并接管已有
+symbolic_head 查询实现，squash_check 保留兼容导出，避免复制 HEAD 状态解析。
+src/compare_view.rs 单独拥有标签任务、取消令牌与代次；工作树比较读取实时标签，
+固定版本比较不读取，不修改 Source::WorkingTree.current 或文件差异链。
+src/ui/worktree_sync.rs 用已有根事件只更新对应面板的标签。标签在根名/文件数后，
+包含分离头 ! 和中英文跟踪提示；错误时隐藏未知标签，不冒充 detached。
+使用现有项目根颜色条件，单根无根行时的顶部 CurrentBranchComponent 不在本轮。
+
+验证：branch_context 核心真实仓库测试1/1通过（unborn、跟踪、detached、取消与
+缺失仓库）；比较面板桌面回归3/3通过，新增检查同根引用变化更新标签，其他根
+不触发查询，Source原分支及差异链保留。fmt/diff check、Windows release构建通过，
+日志 /tmp/plico-branch-label-{core,tests,fmt-check,windows}.log。额外lib squash筛选
+3/3为计划模型测试，不把它宣称为Squash写操作验收；symbolic_head本次仅搬移原实现。
+原生 PID33624 在child工作树比较显示 main 标签；仅切换child HEAD到同提交
+label-check后标签自动更新，说明仍main；detached后标签显示 !，主仓库仍main。
+截图 plico-branch-label-{parent,child,folder,actions,open,updated,detached}.png。
+标签与根名/文件数的相对位置已核对；tooltip原生悬浮和精确颜色间距尚未逐像素
+验证。独立fixture的HEAD/自建引用及临时工作文件已校验恢复，自有测试实例已关闭。
+
+### 子仓库本地分支删除与恢复（2026-10-26）
+
+实现前在 Rebased 1.1.20 的独立 child 仓库创建同HEAD临时分支
+plico-delete-check：顶部仓库菜单→child→Local→该分支，动作菜单底部有Delete，
+位于Rename之后。执行后仅child分支删除，右下通知提供Restore；用Git确认引用
+不存在。截图 rebased-child-delete-{parent,child,local,actions,result}.png 保存
+20261026目录；未对用户仓库写入，未改fixture工作文件。
+
+源码4aec352 plugins/git4idea/backend/src/actions/ref/GitDeleteRefAction.kt：
+当前分支不可删，使用所选repositories调用GitBrancher；GitDeleteBranchOperation.java
+按仓库保存删除tip、上游，逐仓库刷新；恢复在原成功仓库创建引用并恢复上游。
+本轮读取完整 execute/notifySuccess/restore与rollback相关实现。
+
+本地 src/branch_delete.rs::Prepared 固定仓库身份，execute/restore进入操作锁前
+拒绝跨仓库调用；同名、同tip不能替代仓库身份。src/ui/branch_management.rs
+新增prepare_delete_branch_in并复用原删除流程，实际删除/恢复由Prepared取得仓库，
+恢复提示仍属于当前项目窗口。src/ui/repository_project.rs 子根本地分支提供删除，
+当前分支禁用。既有工作树占用、HEAD/分支移动复验、上游配置恢复和取消检查保留。
+保留既有差异：本地仍先显式确认再删除；上游当前版本已合并分支直接删除，未合并
+结果可在通知中检查/恢复，本轮不改变已发布的确认策略。子根确认补充目标仓库路径，
+避免同名分支误认。远端/标签删除以及共同分支多根批量删除仍非本轮完成项。
+
+验证：branch_create核心集成38/38通过，包含新增跨仓库删除/恢复拒绝。桌面
+branch_creation_uses_child_start_and_preserves_primary_state通过，扩展为子根准备
+弹窗、删除、恢复，主仓库同名分支和主视图状态不变。fmt/diff check、Windows
+release（最终菜单顺序构建）通过，日志 /tmp/plico-child-delete-*.log。
+原生PID37108：从child/delete-check菜单删除，确认框包含child路径；Git断言父根
+同名引用未改、子根引用消失；点击底部恢复，Git确认两根仍为各自原tip。截图
+plico-child-delete-{parent,child,actions,confirm-ready,result-ready,restored}.png。
+测试自建两根引用已按期望tip删除，自有Plico已关闭。待修视觉：确认路径展示应
+清理Windows扩展路径前缀；恢复入口仍为本地底栏，未改为上游通知气泡。未宣称
+像素级全部完成；子仓库未合并提示/占用错误的原生矩阵待验收，核心测试继续覆盖。
+
+### 子仓库合并的仓库身份（2026-10-26，接入中）
+
+实现前 Rebased 1.1.20 PID31052：独立 fixture child 当前 attached-test，选择
+Local/main，动作位于比较之后、Update之前，文案为 Merge main into attached-test；
+执行祖先 main 合并，状态先显示 Merging main，随后 Already up to date，未切换
+项目主仓库。截图20261026目录 rebased-child-merge-{initial,menu,actions,result}.png。
+本轮实机仅验证已是最新场景；冲突、Smart Merge和取消仍待本轮原生验证。
+
+源码4aec352 GitBranchPopupActions.java::MergeAction 使用所选repositories构造
+描述和操作；GitMergeOperation.java 完整execute、mergeRepository、Smart Merge、
+冲突及restoreLocalChanges路径均已阅读：冲突集合、保存与恢复均按仓库归属；
+仅本地非保护分支建议删除，删除继续使用原仓库集合。
+本地先让 branch_merge::Prepared 持有仓库身份，拒绝跨仓库执行、恢复匹配及
+删除建议，提供repository供界面接入。原editor_directory复验继续保留。
+子仓库菜单、继续/中止及原生Plico验收尚未完成，不开放只有启动能用的菜单。
+
+本轮落地：Prepared显式携带root，execute在Session锁前复验身份；原Git目录、
+HEAD、分支目标及操作状态检查保留。Smart Merge重试从Prepared取得仓库；
+合并后删除建议也从Prepared取得仓库，不回退主仓库。界面结构尚未改变，
+子根合并菜单暂未开放，继续/中止入口的仓库路由为下一步。
+验证：branch_merge核心集成16/16通过，新增相同refs/提交的独立仓库拒绝、
+linked worktree拒绝、正确仓库成功合并及删除建议测试；desktop-tests配置
+cargo check通过（已有sequencer::Request::CherryPick dead_code警告）。
+日志 /tmp/plico-child-merge-{core,check,fmt}.log。尚未做本次Windows构建及
+Plico原生验收，不将核心测试通过视为子仓库合并UI完成。
+
+后续接入记录：ui/branch_merge 增加显式repository入口，保存文档后的回调、
+执行、Smart Merge重试、冲突列表与worktree通知均传递原仓库；主入口继续
+包装主仓库，不切换Review.repo。远端/保护分支冲突同样保留Prepared，是否可
+建议删除不再决定冲突归属是否保留。ui/history_operations提供同根完成/中止
+入口，只有匹配仓库的pending合并参与删除建议及清理。增加项目切换回调复验。
+本轮另读 GitMergeCommittingConflictResolver.java::proceedAfterAllMerged，
+其完成合并使用原mergingRoots。子根冲突自动完成和重入入口仍待原生行为核对
+与UI接入，尚未开放子根合并菜单。
+
+桌面回归扩展真实子仓库冲突解决→完成→验证双父提交与删除建议归属→再次冲突
+→中止，整个过程检查主仓库HEAD及工作区不变。直接合并的临时测试遇到测试
+目录缺少plico-editor，在命令执行前被正确阻止；移除该未满足运行环境的临时
+测试，不声明直接入口已通过，留完整Windows构建原生验收。
+
+上述桌面定向回归最终1/1通过（含同根完成、双父提交、删除建议、中止及
+主仓库不变断言），fmt和diff check通过。日志
+/tmp/plico-child-merge-routing-tests.log、/tmp/plico-child-merge-routing-fmt.log。
+Windows release全bins构建通过，日志 /tmp/plico-child-merge-routing-windows.log；
+仍有既有sequencer::Request dead_code警告。本轮未启动Plico原生实例，
+不将构建通过当作菜单及原生交互验收。
+
+### 子仓库冲突会话与恢复入口实机核对（2026-10-26）
+
+Rebased 1.1.20 PID31052，同一独立child fixture，在原attached-test之上
+用独立临时index构造base/ours/theirs，只修改新增plico-merge-validation.txt；
+原readme未提交修改保留。通过child分支菜单将plico-merge-theirs合并到
+plico-merge-ours，得到文本冲突。初次截图黑屏，随后重新激活成功截图；
+黑屏不作为界面证据。截图在artifacts/collaboration-workflows-20261026：
+rebased-child-conflict-{retry,menu,actions,selected,open,closed,reopened,accepted,finished,continue}.png。
+
+实测：
+- 初次Conflicts包含源/目标分支说明、Unresolved分组、Yours/Theirs列与行内
+  Accept，底部Close / Accept and Finish（禁用）/ Resolve Manually。
+- Close不放弃Git合并，顶部出现绿色继续与红色中止图标，通知提供Resolve。
+- 点击通知Resolve重开，Accept Yours后文件进入Resolved分组，保留行及状态；
+  Accept and Finish可用。点击它关闭窗口后，Git MERGE_HEAD仍存在。
+- 再点击顶部绿色继续，生成合并提交；Git验证HEAD双父分别为ours/theirs，
+  MERGE_HEAD消失。说明重新进入通知的完成按钮不等于提交合并。
+- 测试后checkout原attached-test，按期望tip删除自建两分支；HEAD、status、
+  readme字节全部与原记录一致。未关闭或修改用户项目。
+
+源码4aec352新增实读：
+plugins/git4idea/backend/src/merge/GitConflictResolver.java::merge(boolean)、
+showMergeDialog、notifyWarning：通知调用mergeNoProceedInBackground，跳过
+proceedAfterAllMerged；首次合并是否完成由dialog结果shouldFinishMerge决定。
+GitMergeCommittingConflictResolver.java按原mergingRoots提交。
+platform/vcs-impl/src/com/intellij/openapi/vcs/merge/MultipleFileMergeDialog.kt
+已读markFilesProcessed、doCancelAction、acceptAndFinish、finishResolution：
+区分处理文件集合和原文件；Close保存已明确解决的结果，只有Accept and Finish
+设置shouldFinishMergeAfterClosing，不能把关闭视为放弃全部结果或自动完成。
+GitMergeCommitAction.kt：项目存在冲突时不提供提交动作；继续使用目标root
+调用GitMerger.mergeCommit。GitOperationActionBase.kt：枚举项目中处于对应
+状态的所有仓库，一个直接选中，多个弹根选择；不是只看最后一次本进程发起
+的Prepared。GitAbortOperationAction.kt：按所选root确认并执行--abort。
+
+本地接入要求（仍未完成）：
+1. ProjectRoots关联每个根的操作状态，覆盖外部启动/重开程序后的合并，不能
+   只靠pending_branch_merge显示恢复按钮。多根同时进行操作须选择目标根。
+2. 冲突会话记录入口（初次合并/通知或独立重开）和明确完成意图；保存已解决
+   项目及仓库身份，刷新不能把整份会话替换成只有未解决文件的Snapshot。
+3. 重排Conflicts为行内采纳及未解决/已解决分组，底部按钮按实测组合；已解决
+   列表仍可查看。不能直接在当前空列表上加自动提交。
+4. 完成/中止执行复用上一轮start_merge_operation_in；Prepared仅负责原合并
+   复验及删除建议，不作为项目当前操作状态的唯一来源。
+5. 完成这些恢复入口后开放子根Merge菜单，重跑原生冲突关闭/重开/完成/中止，
+   并验证父根不变。源码与实机一致的行为为依据，精确间距仍独立验收。
+
+### 项目级操作状态观察（2026-10-26）
+
+延续上节已实机验证的子仓库合并关闭/重开/继续场景与4aec352
+GitOperationActionBase.kt：恢复入口来自所有项目根实际状态，不能依赖最后
+一次本进程操作。新增src/project_operations.rs::Observer复用既有
+operation_state::observe，缓存根身份、操作标记和不可变结果；只有标记改变
+才重读状态/冲突index，不读取历史。失败作为unknown/error保留，取消不接纳
+部分项目，删除根裁剪缓存。
+ui/project_roots.rs拥有状态快照，独立Operations事件不重载Log/文件树；
+按observation_roots的Arc身份复验结果，拒绝跨成员变更的迟到结果。
+ui/worktree_sync.rs复用原后台循环：初始/成员变更、index/refs/all事件触发，
+5秒轮询补漏；写操作或文档锁期间不发布，未送达结果重读重送。
+ui/auto_refresh.rs移除旧主仓库专用操作状态查询，主界面通过相同项目快照
+更新状态与reword gate，避免两份轮询重复查询主仓库。
+
+本轮未新增恢复按钮，根选择、冲突会话和列表布局仍待接入；不将后台状态
+可用视为整个子仓库合并功能完成。未测量多根Windows实际耗时/内存，
+不把不加载历史等实现属性当作性能测量结论。
+
+验证：project_operations真实仓库测试2/2，覆盖外部子仓库merge、index解决
+冲突但HEAD不动、新Observer重开、abort、根读取错误/恢复、成员移除及取消。
+项目根桌面测试3/3，新增状态发布到主界面、未知根错误保留、成员身份不匹配
+拒收检查；已有成员刷新合并和文件分组回归保留。fmt/diff check、Windows
+release全bins通过；日志/tmp/plico-project-operations-{core,desktop,fmt,windows}.log。
+Windows仍有既有sequencer::Request dead_code警告。本轮未启动原生Plico；
+恢复按钮和新冲突布局尚无原生验收，不宣称UI交付完成。
+
+### 多根合并恢复选择（2026-10-26）
+
+实现前实机：Rebased 1.1.20，父根和子根各有独立 MERGE_HEAD。顶部 Abort
+打开选择窗口：说明、Git Root 标签、完整路径下拉框、Abort Merge / Cancel；
+默认父根，可键盘选择子根；确认后另弹 Abort merge in child?。截图
+artifacts/collaboration-workflows-20261026/rebased-multi-merge-*.png。
+源码 4aec352：GitOperationActionBase.kt 枚举所有对应操作状态根；单根直接
+处理，多根 GitSelectRootDialog.kt 使用默认根或首根，完整 presentable URL，
+聚焦组合框。GitAbortOperationAction.kt 对选中根二次确认并执行 --abort。
+本地拟接入项目状态快照，选择后复验成员和状态，不把当前主根替换成操作根；
+继续复用 start_merge_operation_in，避免重复写操作实现。原生 Plico 待验收。
+
+实现：ui/project_merge.rs 从 ProjectRoots 的各根状态提供继续/中止入口；
+一个根直接处理，多个根用独立 RootChoice 视图选择，默认主根或首根。
+选择后复验项目身份与当前状态；中止二次确认也保留所选根，后台沿用
+start_merge_operation_in 和核心 merge_operation 的加锁/实际状态复验。
+选择框确认先关闭自身再打开确认框，避免旧弹窗延迟关闭误关新弹窗。
+只要项目内仍有已知冲突，隐藏 Complete Merge，与 GitMergeCommitAction 对齐。
+
+Windows 原生 Plico 验证：独立 project-merge-tzgcu8ib 父/子仓库同时合并，
+选择 child 后确认、中止，Git 核对仅 child MERGE_HEAD 消失，父根保留；
+两个 HEAD 均未变。随后再次中止入口直接显示父根确认，无多根选择。
+重启后重复子根中止通过。截图同目录 plico-project-merge-{centered,
+dropdown-final,selected-final,confirm-final,aborted-final,single}.png。
+修正首次截图的顶部定位、缺少下拉箭头和下拉菜单文本溢出；确认框显示
+目标短名称与完整路径，避免仅截断前缀导致无法识别目标。
+保留差异：顶部仍是既有文字按钮而非 Rebased 绿色/红色图标，确认框保留
+完整路径所以更宽；组合框采用现有菜单按钮，焦点描边和尺寸尚未像素级对齐。
+多根冲突 Resolve 入口/现代冲突分组仍待下一轮；本轮没有开放子根 Merge。
+
+验证：项目状态桌面回归3/3，子根合并完成/中止路由回归1/1，cargo check、
+Windows release全bins、fmt及diff check通过。日志 /tmp/plico-project-merge-
+{tests,routing,check,windows,fmt}.log；既有 sequencer::Request dead_code 警告保留。
+原生“继续合并”的多根选择尚未独立验证，不以中止验收替代；核心完成路径
+有桌面回归。测试进程44804/23764均关闭，Rebased实例保留；参考父/子根
+恢复原分支、HEAD与status，测试自建分支已按预期tip删除。
+
+### 冲突会话的写入时机与身份校验（2026-10-26）
+
+沿用前述 Rebased 1.1.20 子仓库冲突实机截图（Accept Yours 后进入 Resolved，
+关闭/完成与继续合并分离）。本轮深入读取 4aec352 的
+MultipleFileMergeDialog.kt::acceptForResolution、acceptRevision、
+acceptRevisionForIterativeResolution、acceptRevisionForFileIterativeResolution、
+markFilesProcessed、finishResolution；确认不能把现代界面理解为仅保留已暂存行。
+
+关键规则：
+- 文本且支持迭代模型：采纳修改模型并 saveDocument，因此工作区立即保存；
+  finishResolution 才统一 conflictResolvedForFile（Git 暂存/标记解决）。
+- 二进制及不支持迭代的请求走 acceptRevision，立即应用并标记解决。
+- 已有部分处理结果时再次整侧采纳先确认覆盖；Resolved 行可审阅/撤销选择。
+- Close 与 Accept and Finish 都保存明确解决结果，但只有后者设置完成意图；
+  只有初次合并流程根据该意图继续提交，独立重开仍不能自动完成合并。
+
+新实读 IterativeMergeFlowDelegate.kt 的 createCenterPanel/createSouthPanel、
+onTreeChanged/updateButtonsState/buildTreeModel、installButtonRenderer 和
+InlineButtonRenderer：按迭代模型分 Unresolved/Resolved；所有迭代文件解决后
+启用 Accept and Finish，全部审阅后隐藏 Review Changes 并切换默认按钮；
+行内 Accept 在悬停行或无悬停时的单选行显示，已解决行不显示。
+布局参考：默认850×400（超过6文件为500高）、最小550×240、28行高、
+两侧状态列最小160，底部Close/Accept and Finish/Resolve Manually。
+已读对应 IterativeMergeFlowDelegateTest.kt 的 selectionDependentResolveAction、
+acceptAndFinishButtonLogsDialogAcceptEvent 等测试；这些测试不能证明 Git 写入
+时机。仍需原生测量采纳前后工作区及 ls-files -u，再实现本地迭代会话。
+
+先修复会话保留所依赖的实际问题：src/conflicts.rs::Snapshot 过去只校验
+HEAD、操作类型、文件stage。先合并A、abort、再合并B可能产生完全相同的
+三stage，但它已是另一场合并。新增MERGE_HEAD内容及修改时间身份；读取前后
+复验，使用同一文件句柄并限制1MiB，不加载历史，不新增Git进程。该校验
+同时覆盖直接采纳和原生合并草稿apply。它是本地异步窗口的额外保护，不声称
+直接翻译了Rebased的Git锁实现，也不宣称能识别被外部刻意保留时间及内容的
+同一标记替换。非Merge操作仍沿用已有状态/版本校验。
+
+GitMergeProvider.java::conflictResolvedForFiles/acceptFilesRevisions 按root分组。
+据此修正 ui/conflicts.rs 和 ui/merge_result.rs 的完成刷新：使用实际操作root
+调用 sync_repository_worktree，不再把子根写入通知发送给主根。
+
+验证：tests/conflicts.rs 13/13；新增真实仓库用例证明两个合并HEAD、三stage
+相同仍拒绝旧采纳和旧原生草稿，工作区及当前MERGE_HEAD不变。桌面
+child_conflict_resolution_and_file_tabs_keep_their_repository 通过，扩展为先
+打开子根文件再解决冲突，断言共享文档立即更新到topic内容。
+Windows release全bins、fmt、diff check通过；日志/tmp/plico-conflict-identity-
+{tests,desktop,windows,fmt}.log。既有sequencer::Request dead_code警告保留。
+本轮未启动原生实例，刷新修正仅完成桌面回归，Windows原生仍待验收；尚未
+实现迭代会话/新冲突分组，不将上述保护修复视为冲突UI对齐完成。
+
+### 迭代采纳的 index 时序实测（2026-10-26）
+
+实现前在 Rebased 1.1.20 的独立 child 仓库再次验证：Commit / Merge Conflicts /
+Resolve 入口，采纳 Yours，等待 Resolving Conflicts 结束。Resolved 1 file、1/1
+徽标、Accept and Finish 可用；磁盘为 ours\n，但 ls-files -u 仍是3个stage。
+随后点 Close，ls-files -u 变空，MERGE_HEAD仍为原theirs，未创建合并提交。
+截图同目录 rebased-iterative-{commit,open,accepted-steady}.png，采纳后的Git
+数据 rebased-iterative-accepted-state.json。操作与上一节已读源码一致。
+因此本地需要将 Prepared.apply（仅工作区）与最终stage分开，并且stage前
+复验实际磁盘仍是本会话最后保存的内容，防止会话停留期间把外部编辑悄悄暂存。
+
+本地实现：src/merge_result.rs::Prepared::stage 复用保存后的独立磁盘基线；
+不重复写工作区，先检查结果确已apply、仓库身份、冲突快照及磁盘字节，
+再只暂存该路径。src/conflicts.rs::resolve_checked 将附加基线检查放在同一个
+仓库操作锁内，与版本复验和Git暂存共用生命周期；锁顺序始终仓库→草稿，
+避免apply/stage交错或死锁。采用既有流式字节比较，不整份加载大文件。
+这仍无法锁住任意外部进程在检查后写文件，不宣称跨进程原子暂存。
+ui/merge_result.rs 现有立即Apply路径已复用stage；这次没有改变现有按钮的
+触发时机，新的迭代冲突窗口将在后续调用两个独立步骤。
+
+真实仓库测试新增saved_merge_results_stage_only_on_finish_and_reject_intervening_edits：
+未apply拒绝stage；apply后工作区变化但三个stage仍在；取消、外部编辑拒绝
+暂存且保留内容；恢复准确的审阅字节后stage成功；无关已暂存文件及MERGE_HEAD
+保留。既有index.lock失败重试测试已改走实际Prepared.stage调用路径。
+Linux核心14/14、子仓库桌面回归1/1、Windows release全bins及fmt/diff检查通过；
+日志/tmp/plico-iterative-stage-{tests,desktop,windows,fmt}.log。
+Rebased测试后原branch、HEAD、status与readme字节均恢复，按预期tip删除自建
+分支；没有新启动Plico窗口。冲突分组、会话保留及行内按钮尚待实现，不能以
+本轮保存/暂存基础能力替代整个UI交付。
+
+补充Windows原生核心验收：cargo xwin test --no-default-features --test conflicts
+--no-run 后，将测试exe复制到独立验证目录，以Windows PowerShell执行
+--test-threads=1。13/13通过（120.78秒，Unix专用用例按cfg不编入），包括
+延迟stage、外部编辑拒绝、index.lock重试、旧MERGE_HEAD身份拒绝、sparse及
+linked worktree。日志/tmp/plico-iterative-stage-windows-tests.log；这是实际
+Windows Git/文件系统运行，不是仅交叉编译。新UI仍未实现/未验收。
+
+### 迭代冲突列表接入与关闭失败重试（2026-10-26）
+
+沿用上一节已实操的 Rebased 1.1.20（IC-262.10968.SNAPSHOT），源码
+4aec35256d765c217aa0d662b82ac4e860c396fd：
+`platform/vcs-impl/src/com/intellij/openapi/vcs/merge/MultipleFileMergeDialog.kt`
+的 acceptRevisionForFileIterativeResolution / finishResolution，以及同目录
+`flow/IterativeMergeFlowDelegate.kt` 的 createCenterPanel / createSouthPanel。
+本次再次核对：整侧采纳保存工作区；Resolved 分组保留文件；Close 与
+Accept and Finish 都执行最终暂存，但前者不请求继续合并；手动解决位于
+底部，双方采纳位于文件行内。上节的原生截图及 Git 三阶段记录为实现前依据。
+
+本地 `ui/conflicts.rs` 现在显示 File/Yours/Theirs 三列及未解决／已解决分组，
+行内采纳文本后保留 Prepared 的写入基线；Edit File / Mark Resolved 移入
+行右键菜单，底部为 Close / Accept and Finish / Resolve Manually。
+`ui/conflicts/session.rs` 负责会话、异步生命周期与关闭重试；继续调用核心
+Prepared.apply/stage，不引入消息总线。`Snapshot::same_operation` 排除兄弟
+文件的 index 变化，但要求同仓库、HEAD、operation、reverse 和 merge 身份；
+刷新列表时仅保留阶段版本仍匹配的草稿。通过项目路径和 Entity 身份拒绝旧回调。
+行内采纳延后至点击事件完成，避免 ConflictList 更新中的实体重入。
+
+暂存失败保留窗口及剩余草稿，成功的路径从待暂存集合移除，重试不重复处理。
+外部修改拒绝暂存；错误状态另提供“关闭，不暂存”，保留磁盘内容与恢复副本，
+避免无法解决错误时困在弹窗。这个恢复出口是本地有意保留的差异，上游原生
+index.lock 场景报 IDE error（见先前记录），不复制其异常提示机制。
+从已采纳会话进入 Edit File 时先执行关闭／暂存，失败保留窗口，不默默丢弃草稿。
+子仓库的保存与暂存仍只刷新实际操作 root。
+
+定向桌面测试 child_conflict_resolution_and_file_tabs_keep_their_repository
+扩展覆盖采纳不暂存、index.lock 失败、外部编辑拒绝、恢复准确内容后重试、
+关闭不创建 merge commit、子仓库文档刷新、父仓库不变、以及错误后显式退出
+保持工作文件和三阶段条目。日志 /tmp/plico-conflict-session-tests.log。
+Windows release 全 bins 构建通过；仍有原有 sequencer::Request dead-code 警告。
+
+尚未完成的差异：手动三方合并 Apply 仍沿用原先立即暂存路径；已采纳行的
+Review Changes、部分解决模型、进度徽标、撤销决策、自动解决工具栏待接入。
+已采纳行暂不允许用全新 base 模型再次打开手动合并，避免覆盖已选择结果；
+需随复查模型一起解除。行内按钮的 hover/选中显隐、状态颜色和源／目标分支
+说明尚未像素对齐；初次 merge 与独立打开冲突窗口的显式完成模式仍需贯通。
+因此本次只完成整侧采纳会话，不宣称整个冲突界面或多 root 增量完成。
+
+本轮 Windows 原生 Plico 验收使用独立 iterative-conflict-z4mfu8q2/project，
+自建 main/topic 单文件冲突。实际点击行内 Yours，工作文件成为 ours，
+三阶段仍在，列表移入已解决。测试自建 index.lock 阻止 Close；窗口保留
+错误和草稿。只移除自建锁后再次 Close，三阶段清空、MERGE_HEAD仍在、
+HEAD不变。最终构建另测采纳后外部写入文件：Close拒绝暂存，点击
+“关闭，不暂存”后窗口关闭，外部字节、三阶段与原HEAD均保留。
+截图同目录 plico-iterative-{open,accepted-steady,close-error,close-retry}.png，
+以及 plico-iterative-v2-{external-steady,left}.png；磁盘结果
+plico-iterative-left-state.json。open截图处于初始布局帧，稳定居中布局见
+accepted-steady；不以初始帧宣称定位完成。close-error截图是首轮构建，
+最终构建已去掉原始调试 None 行并限制错误区域高度。
+自建Plico PID48868/47380已关闭；未关闭现有Rebased/IDEA。
+Linux核心14/14、扩展桌面回归1/1、Windows release及fmt/diff检查通过。
+自定义错误文本的中文映射仍待完善，Git原始诊断保持原文。
+
+### 已解决文件复查的前置实机核对（2026-10-26）
+
+继续相同 Rebased 1.1.20、源码4aec352。独立child仓库整侧采纳Yours后，
+双击Resolved文件，实际重新打开三方合并窗口：中央为已保存的ours，
+右上All conflicts resolved，原修改块是处理后的细线，未还原base或未解决状态。
+底部是Apply Changes、Save and Close；截图rebased-review-{double,steady}.png。
+Enter并非行打开快捷键：本次第一次按Enter触发默认Accept and Finish关闭列表，
+随后在独立fixture重新构造冲突，用双击验证；不把该次Enter当作复查证据。
+源码MultipleFileMergeDialog.kt::showMergeDialogForFile在请求构建时复用
+iterativeDataHolder模型，callback保存contentModified、markReviewed并保留
+CANCEL的chosenSide；getFilesToOpen先选中、后未解决、最后已解决未复查。
+因此本地不能通过Prepared::read重新创建base模型代替复查，应复用已保存
+Prepared与块状态，按需读取保存结果，并在外部磁盘修改时拒绝覆盖。
+
+后续实操：在Rebased复查窗口把结果改为reviewed，Save and Close返回已解决
+分组；此时磁盘为reviewed，ls-files -u仍有三阶段。再关闭外层列表才暂存，
+未创建合并提交。截图rebased-review-return.png、最终Git状态
+rebased-review-saved-state.json。测试后仅还原自建plico-merge-validation.txt，
+abort测试merge、切回attached-test并按预期tip删除自建分支；原HEAD、status、
+readme字节均复验一致。保留现有Rebased进程。
+
+本地本轮接入：`ui/conflicts.rs::SavedResolution` 把Prepared和块级State作为
+同一条会话记录；整侧采纳生成对应已解决决策。`ui/text_merge.rs::open_text_merge`
+复查时复用Prepared，按需读取上次成功保存的文本，恢复块状态，显示处理后细线；
+移除上轮暂时禁止复查的限制，按钮变为“复查更改”。`ui/merge_result.rs`
+在活跃会话内Apply仅保存并记录决策，外层Close再stage；不在会话内的原有
+调用路径仍按立即完成处理。`text_merge::Merge::mark_all_resolved` 对应新读的
+`platform/diff-impl/src/com/intellij/diff/merge/MergeConflictModel.kt`
+markAllChangesResolved/markChangeResolved；用户显式确认Apply后标记块为解决，
+不替换用户手动文本。另读同目录TextMergeViewer.kt：复用IterativeResolveSupport
+模型而非新建独立结果。
+
+`merge_result::Prepared::saved_text` 读取不可变的已写入快照，不读可继续编辑的
+output；同一仓库锁下检查snapshot、工作区精确字节，限FILE_LIMIT读取并使用
+现有Document解码。会话不额外常驻结果全文；状态保存在内存，文本按需加载。
+核心回归增加“output已被下一份未应用草稿修改时，复查仍读已保存结果”，
+并检查未保存及外部磁盘变化拒绝复查。桌面回归通过真实Apply适配器验证不
+提前暂存、复查恢复决策/文本、随后关闭失败重试和子仓库隔离。
+
+Windows原生Plico：整侧采纳后点击复查，中央ours、0处未解决、细线高亮；
+编辑为reviewed并应用，磁盘更新但三阶段仍在；再次复查保留reviewed和已解决
+状态，取消未编辑的复查后关闭外层，才清空三阶段，HEAD不变且MERGE_HEAD保留。
+截图plico-review-{ready,steady,edited,second-steady,return,closed}.png，
+最终结果plico-review-closed-state.json。自建PID25292已关闭。
+验证：核心conflicts14/14、完整desktop-tests143/143、发布配置导航10/10、
+Windows release全bins及fmt/diff检查通过；日志/tmp/plico-review-{core,
+desktop-all,navigation,windows,fmt-check}.log。Windows仍有原有sequencer Request
+unused variants警告。
+
+仍待完成：Save and Close保存部分模型（目前Cancel仍是既有丢弃确认）、
+部分解决分组/进度及外层关闭确认、已复查标记控制按钮显隐、撤销决策和
+自动解决工具栏。当前复查按钮在已解决行保持可见，上游全部已解决并复查后
+会隐藏，但仍支持双击；这是暂时差异。窗口尺寸、分支说明及控件像素细节
+仍未宣称完全对齐。上述整侧/手动Apply复查基础不能替代完整迭代会话交付。
+
+### 部分解决保存与关闭：实现前核对（2026-10-26）
+
+Rebased1.1.20，参考4aec352。独立child文件构造两处间隔8行的冲突，只采纳
+第一处Yours并忽略该处Theirs，Save and Close：未解决分组显示1/2徽标，
+Accept and Finish禁用，磁盘第一处ours、第二处base，index仍有三阶段。
+外层Close出现Discard Changes?/Continue Merge确认；选择Discard Changes后
+窗口关闭，磁盘上述内容仍保留，三阶段未清除。即丢弃的是迭代模型进度，
+不能据按钮文案推断执行git restore。截图rebased-partial-{editor-steady,list,
+confirm}.png，磁盘结果rebased-partial-closed-state.json。
+
+新读MergeConflictIterativeDataHolder.kt（platform/vcs-impl/src/com/intellij/
+openapi/vcs/merge/）：isFileResolved/getResolvedFilesAndModels只看未解决块，
+dispose只释放模型；removeFiles才resetAllChanges。IterativeMergeFlowDelegate
+createSouthPanel对同时含已解决及未解决块的文件关闭前确认。
+MultipleFileMergeDialog::finishResolution只暂存getResolvedFilesAndModels。
+VcsBundle.properties位于platform/vcs-api/vcs-api-core/resources/messages，
+确认原文是Discard Changes/Continue Merge。本地应保留部分文本、块决策、
+1/2进度，关闭时仅处理完全解决文件，不能按“有保存结果”划入已解决分组。
+
+本地实现：`text_merge::State::progress` 保存块级进度；
+`ui/conflicts::SavedResolution` 区分草稿与完全解决，列表按决策分组并显示done/total。
+`ui/text_merge::MergeEditor` 在迭代会话中将Cancel替换为Save and Close，保存文本及
+当前决策而不强制全部解决；无文本/决策变化时只关闭编辑器。
+`ui/conflicts/session` 关闭时筛选完全解决的草稿暂存，部分解决先确认；Continue
+Merge保留会话，并清除被取消的Edit File后续意图。整侧重选复用原Prepared，
+不因重新读取而绕过先前保存后的外部修改检查。确认文案明确保留磁盘文本，
+比上游的“discard your changes”具体，行为一致。
+
+新增桌面回归构造两份各两处冲突的文件，经真实apply_merge_result保存1/2及2/2，
+检查重建模型恢复部分决策、Finish不能绕过未解决块、Close确认前不stage、
+继续合并保留两份草稿、确认关闭仅stage完成文件，部分文本/index及HEAD保留。
+参考测试仓库已恢复原HEAD/status/readme并删除自建分支，Rebased进程保留。
+
+Windows原生验收：独立partial-conflict-b5laev70仓库；第一处采纳Yours并忽略
+Theirs后显示1处未解决，保存关闭返回1/2徽标且Finish禁用。再次手动解决恢复
+第一处细线、ours文本、第二处base及未解决背景；无改动保存关闭返回列表。
+Close确认的Continue Merge保留进度；再次Close/Discard关闭会话，磁盘保留
+第一处ours/第二处base，index三阶段、HEAD及MERGE_HEAD保留。
+截图 `artifacts/collaboration-workflows-20261026/plico-partial-{one-resolved,
+list,reopened,confirm,continue,closed}.png`；机器结果
+`plico-partial-closed-state.json`。自建PID24368已关闭。
+
+原生验收发现保存草稿后状态栏误报“冲突已解决”，已将迭代会话成功文案改为
+“合并结果已保存 / Merge result saved”；该最后文案修改通过Windows重新构建
+及冲突桌面定向回归2/2，未再次启动原生截取文案。其余交互使用上述实机截图。
+完整desktop-tests144/144、发布导航10/10、核心conflicts14/14，Windows release
+全bins、fmt和diff检查通过。首轮桌面测试出现一次既有reword测试rewrite失败，
+随后的两次完整测试均通过；保留日志/tmp/plico-partial-desktop.log，不宣称其
+偶发问题已根治。最终日志/tmp/plico-partial-{desktop-verified,navigation,core,
+windows-final,windows-status,final-targeted,fmt-final}.log。
+
+剩余差异：复查标记及按钮显隐、整侧采纳覆盖部分进度前的确认、撤销决策工具栏，
+以及窗口尺寸/分支说明/像素样式仍待后续对齐。本轮只完成部分保存与外层关闭
+流程，不代表多根仓库阶段或完整迭代合并整体完成。
+
+### 覆盖迭代处理进度：实现前验证（2026-10-26）
+
+Rebased 1.1.20，源码4aec352，独立child两块冲突。处理第一处并保存为1/2，
+点击Theirs整侧Accept：居中Overwrite Changes确认，正文说明接受Theirs会覆盖
+已合并更改，主按钮Discard and Accept，次按钮Cancel。Cancel保留1/2及原文本；
+再次确认后两块均为theirs，进入Resolved，index仍保留三阶段。
+截图artifacts/collaboration-workflows-20261026/rebased-overwrite-{confirm,
+cancel,accepted}.png。本次已有实机及源码依据后再修改本地行为。
+
+源码MultipleFileMergeDialog.kt::acceptRevisionForIterativeResolution检查
+getResolvedChanges().isNotEmpty，而非仅partial；确认后acceptRevisionForSide并
+saveDocument。字符串见vcs-api-core/resources/messages/VcsBundle.properties的
+multiple.file.iterative.merge.accept.confirmation.*。本地应在操作入口统一询问，
+取消不启动写入；确认仍复验仓库/会话，保留Prepared对外部更改的写入保护。
+
+本地映射：`ui/conflicts/session::accept_conflict_in_session` 按resolved块数>0
+显示覆盖确认；确认后进入accept_conflict_in_session_confirmed，重新校验所属
+会话及目标file/stages，再复用原Prepared执行。首次采纳没有进度时不增加确认。
+中文正文明确“你的版本/对方版本”；尚未接入分支名称说明，因此不像上游
+显示Yours/Theirs后的branch标签，保留为已记录视觉信息差异。
+桌面回归扩展partial_merge_progress_survives_review_and_close_only_stages_complete_files：
+对1/2和2/2均验证确认前文本/决策/index不变，取消保留；外部修改后确认拒绝
+覆盖；确认重选整侧覆盖全部块且不提前stage。定向2/2通过。
+
+Windows原生Plico验证：部分进度1/2时点击对方采纳，显示中文覆盖确认；Cancel
+保留文本和三阶段；Discard and Accept变为2/2已解决，磁盘两块均为theirs，
+index仍三阶段。截图plico-overwrite-{confirm,cancel,accepted}.png及
+plico-overwrite-accepted-state.json。plico-overwrite-current.png同时验证上轮
+修正的“合并结果已保存”状态文案。当前提示未带上游的问号图标及分支标签，
+作为视觉细化差异记录，不宣称像素完全一致。最后关闭外层、关闭自建PID9380。
+参考仓库原HEAD/status/readme已恢复，Rebased保留。Windows release构建、
+定向桌面2/2、fmt/diff检查通过；日志/tmp/plico-overwrite-{tests,windows,fmt}.log。
+
+### 复查完成状态（2026-10-26）
+
+先在Rebased1.1.20独立child两块冲突整侧采纳Yours：显示All conflicts have
+been resolved、Review Changes按钮隐藏，仅Close/Accept and Finish；双击文件
+仍能打开三方复查。截图rebased-review-state.png、rebased-review-double-open.png。
+纠正此前“整侧采纳后总需要额外复查”的推断：4aec352 MergeConflictModel.kt
+acceptRevisionForSide在完成整侧替换时直接markReviewed；自动解决成功反而会清空
+wasReviewed。MultipleFileMergeDialog.kt::showMergeDialogForFile的callback标记
+复查；IterativeMergeFlowDelegate::updateButtonsState在所有文件resolved且reviewed
+时隐藏reviewOrResolveButton并显示成功说明。本地新增reviewed状态，由整侧采纳
+和手动编辑保存标记，预留自动解决不标记的区别；不取消双击复查入口。
+
+本地映射：SavedResolution新增reviewed；整侧采纳和keep_conflict_resolution
+手动保存设为true；未修改的编辑器Save and Close通过mark_conflict_reviewed
+更新既有草稿，无额外Git写入。ConflictList::all_reviewed要求非空、全部resolved
+且reviewed，用于完成说明和隐藏复查按钮。双击入口不变。
+桌面回归覆盖整侧即复查、resolved但未reviewed不完成、复查标记改变状态、
+已复查的部分文件仍不完成。完整desktop144/144及发布导航10/10通过；Windows
+release构建、fmt/diff检查通过，日志/tmp/plico-reviewed-{desktop,navigation,
+windows,fmt}.log。
+原生Plico整侧Yours后显示完成说明，仅关闭/采纳并完成；双击仍打开两块细线
+高亮及ours结果，index保留三阶段；无修改保存关闭返回完成列表。
+截图plico-reviewed-{state,double-steady,return}.png。成功图标目前复用已有勾选
+图标，未还原上游绿色圆形图标；默认Enter行为和完整像素间距仍需后续核对。
+本轮未实现撤销决策，已读源码指出removeFiles/resetAllChanges会恢复request的
+原始output，不应简单猜测为base文本；下一轮先实机验证其磁盘、文档和索引结果。
+
+### 撤销冲突解决：实现前验证（2026-10-26）
+
+Rebased1.1.20、4aec352。独立child两块冲突，整侧Yours后右键菜单含Revert
+Conflict Resolution，双方Accept禁用。点击出现Confirm Revert：All changes
+will be reverted. The file will return to its original conflicted state.
+Cancel保留ours/2处已解决；Revert立即返回Unresolved且无进度徽标，Finish禁用。
+立即读取磁盘仍为ours；再次打开三方并Save and Close后磁盘为共同基线base，
+不是最初带冲突标记的工作文件，index三阶段不变。截图rebased-revert-{menu,
+confirm,result,after-save}.png及rebased-revert-state.json；reopened截图捕获到了
+Loading Revisions，不将其作为编辑器渲染成功证据。
+源码IterativeMergeFlowDelegate右键动作仅在每个选中文件有resolved块时启用，
+确认后MergeConflictIterativeDataHolder.removeFiles，model.resetAllChanges最终
+调用TextMergeRequest.resetOutputContent，从ThreeSide.BASE输入恢复output document。
+重置后的文档由IDE保存机制写盘。当前Plico合并会话没有独立常驻未保存文档，
+采用已授权的撤销时立即受保护保存base，再清除块决策及复查状态；最终文本与
+索引行为一致，保存时机提前是本地生命周期差异，不执行git restore或git add。
+
+本地实现位于ui/conflicts/revert.rs：右键撤销仅有resolved块时启用，确认后经过
+文档保存屏障；同一会话/操作门禁中读取base、按原编码写隔离output，复用Prepared
+磁盘快照校验后保存。只在写入成功后删除草稿，清除决策及复查；失败保留草稿
+和可恢复输出，显示错误，刷新实际所属仓库。没有git restore/add或全项目重置。
+回归对部分/完全解决逐一撤销，校验base和三阶段、随后可再次保存及关闭；
+取消保留，外部修改拒绝覆盖。加入文档保存屏障后的定向回归2/2通过；Windows
+release构建、fmt检查通过。日志/tmp/plico-revert-decision-{tests-final,windows-final,fmt}.log。
+
+原生Plico验收：右键撤销出现中文确认框；取消保留ours，确认后恢复base，
+返回未解决分组且清除进度徽标、禁用完成，index仍有三阶段。重新打开三方
+显示两处未解决、base中间文本及左右采纳/丢弃入口；未修改保存关闭可正常返回。
+截图plico-revert-{menu,confirm,result,reopened}.png、plico-revert-state.json
+保存在artifacts/collaboration-workflows-20261026。菜单仍保留本地Edit File/
+Mark Resolved组织，尚未声称完整菜单或像素级一致。
+本轮自启Plico进程12732已按可执行路径校验关闭；参考临时冲突仓库已恢复，保留用户Rebased进程。
+
+### 自动解决冲突：实现前验证（2026-10-26）
+
+参考4aec352，安装版Rebased1.1.20。本轮先实机验证，再确定实现范围。
+独立child仓库两块冲突：双方同位置不同文本时，点击Resolve All Simple Conflicts，
+执行中按钮spinner、表格禁用并出现可取消逐文件进度；结束显示No conflicts were
+resolved automatically，文件显示0/2，按钮禁用，磁盘原冲突标记逐字节未变，index
+三阶段仍在。截图rebased-auto-dialog/noeffect/noeffect-steady.png（noeffect是执行中）。
+第二场景：base首行alpha beta gamma，左右分别ALPHA beta gamma与alpha beta GAMMA；
+末行仍为ours two/theirs two冲突。点击后显示1 conflict resolved、1 conflict in 1 file
+still requires attention，1/2徽标，完成禁用；磁盘首行ALPHA beta GAMMA，末行base two，
+index三阶段保留。截图rebased-auto-partial-dialog/partial-steady/close.png，状态JSON同目录。
+第二场景复用路径时触发IDE File Cache Conflict，选择Load File System Changes后重新打开；
+partial-result.png记录的是该缓存提示，不是自动解决结果。截图均位于
+artifacts/collaboration-workflows-20261026。
+
+已读platform/vcs-impl/src/com/intellij/openapi/vcs/merge/MultipleFileMergeDialog.kt
+resolveAutomatically：按表格顺序遍历未解决文件，可取消，仅模型实际修改时saveDocument；
+不支持迭代模型的文件跳过。flow/IterativeMergeFlowDelegate.kt统计本次新增resolved与
+剩余块/文件数，自动处理结果需复查。platform/diff-impl/src/com/intellij/diff/merge/MergeConflictModel.kt（本地参考导出
+/tmp/plico-merge-model.kt）：排除modify-delete、已解决任一侧及手工修改块；成功清除wasReviewed。
+已读platform/util/diff/src/com/intellij/diff/comparison/{ComparisonMergeUtil,MergeResolveUtil}.kt：
+支持词级三方解决，默认与忽略空白策略；greedy路径合并删除区间，遇不同插入内容拒绝猜测顺序。
+CharComparisonMergeUtilTest.kt本轮仅阅读开头简单比较场景，尚未完成自动解决测试全集对照。
+
+本地src/text_merge.rs::automatic_choice目前只处理相同/单侧块，无法通过第二场景。
+下一步需补词级算法与边界测试，再接会话批处理/进度/复查状态；不能把现有方法简单包装
+成按钮并声称对齐。无变更时不得写base；批处理中取消需保留已完成项与剩余未解决项。
+本轮未修改产品逻辑，取消及全部成功场景的原生行为仍待验证。
+
+本轮参考fixture已还原原HEAD、原status及readme字节，用户Rebased进程保持运行。
+
+### 词级自动解决核心（2026-10-26）
+
+在上节实机证据基础上继续实现。补读4aec352：
+- platform/util/diff/src/com/intellij/util/diff/DiffConfig.kt：
+  USE_GREEDY_MERGE_MAGIC_RESOLVE=false。上节记录的greedy删除区间合并仅为备用路径，
+  本地按默认simple路径实现，不启用greedy。
+- platform/util/diff/src/com/intellij/diff/comparison/ByWordRt.kt、ChunkOptimizer.kt、
+  TrimUtil.kt：单词/换行锚点，连续文字脚本、匹配块合并与空白边界调整；默认精确比较，
+  失败后忽略空白重试，保留边界外实际格式。空白按空格、tab、LF处理，不把NBSP视为可忽略。
+- 同目录MergeResolveUtil.kt::SimpleHelper：真正的双侧冲突保持失败；自动结果不等同复查。
+- platform/diff-impl/tests/testSrc/com/intellij/diff/comparison/MergeResolveUtilTest.kt
+  已完整读取；本地移植默认simple路径全部示例（含版本号、换行、缩进长文本），greedy-only
+  示例不作为默认结果要求。空白回退沿用左侧优先，不错误要求所有格式结果交换左右后相同。
+
+本地src/text_merge/automatic.rs负责有界词级三方结果计算；src/text_merge.rs新增
+Merge::resolve_automatically，拒绝已解决、任一侧已采纳/忽略、手工修改、跨块歧义，失败不改变
+文本或决策；成功通过原有replace调整后续块范围。没有Git写入或自动暂存。
+现有编辑器Apply Non-Conflicting Changes仍保留原语义；本轮新核心尚未接冲突列表批量按钮。
+
+保留差异：使用Rust UTF-8边界及最大1 MiB的有界LCS表，不搬入JetBrains完整比较运行时；
+按256 KiB单块、32768 token、524288表格单元和50ms计算期限限制，超限不返回近似结果。
+这是自动解决的资源边界，手动三方编辑仍可继续。单词锚点按轻量Unicode分类及脚本区间实现，
+没有声称覆盖上游所有Unicode版本、标点重排与重复词歧义组合；语义/import resolver未实现。
+函数及移植用例保留JetBrains来源与Apache-2.0版权说明。
+
+验证：包含上节原生alpha/beta/gamma场景的1/2决策恢复、后续人工解决、手工/半侧保护，
+Unicode/NBSP/韩文标识符、尺寸及过期计算拒绝、重复锚点组合；完整核心单元测试313/313通过，
+无忽略。日志/tmp/plico-word-core-tests.log；格式及diff检查通过。没有新增可见交互，本轮没有
+将核心测试记为Windows原生按钮验收；批量界面的执行中/取消/全部解决/复查仍待接入与验收。
+
+### 批量自动解决入口：实现前补充（2026-10-26）
+
+同版本Rebased独立child两块词级可合并冲突：点击Resolve All Simple Conflicts后
+显示All conflicts were resolved automatically、Resolved 1 file、2/2；按钮禁用，
+底部Close/Accept and Finish/Review Changes，复查按钮保持主按钮。磁盘两块合并文本，
+index仍3阶段。截图rebased-auto-all-{before,result}.png、状态JSON在同日artifacts目录。
+已读MultipleFileMergeDialog::resolveAutomatically按未解决文件顺序逐个准备/保存；
+IterativeMergeFlowDelegate更新本次结果、取消异常复原再次执行资格，clear状态及revert
+恢复资格；默认完成和复查行为依赖resolved与reviewed分别计算。
+本地将使用同一个操作生命周期逐文件后台执行，每项成功立即接纳轻量决策，再处理下一项。
+没有效果的文件只保留计数，不保存base、不创建已保存草稿；这样不会用冲突标记文本恢复
+base坐标决策。初版进度在工具栏展示并提供取消，尚不复制独立模态进度覆盖层；原生取消
+按钮执行结果仍待验收，不把此前执行中截图当作取消验收。
+
+本地实现：merge_result/automatic.rs封装单文件输入/草稿恢复、自动决策及受保护写盘；
+ui/conflicts/automatic.rs只负责顺序、操作所有权、取消及轻量计数/进度。已完成项逐文件
+接纳，未变化项不构造SavedResolution（避免把磁盘冲突标记误当base文档恢复）；自动生成
+草稿reviewed=false。revert/手动保存/整侧采纳清除旧自动处理提示和禁用状态。跳过binary、
+symlink、gitlink、modify-delete，保留原人工入口。初次可运行，完成后禁用；取消/失败可重试。
+工具栏采用Rebased上游magicResolve_dark.svg，原样导入，来源记录assets/icons/SOURCE.txt。
+中英文静态/计数文案位于i18n.rs。取消沿用既有Operation lifecycle，无新全局消息总线。
+
+定向桌面3/3与Git冲突集成15/15通过；测试含三文件完全/部分/无效果组合、取消后重试、
+0/N计数但不写盘、自动草稿未复查、撤销恢复运行资格、索引三阶段与外部编辑保护。
+日志/tmp/plico-auto-batch-{tests,core}.log。Windows构建与原生UI验收进行中。
+
+批量入口 Windows 原生验收补充：release 构建通过（既有 sequencer Request 未使用警告）。
+独立 auto-conflict-kaguibz6 三文件场景：a 两块自动合并，b 一块合并一块待处理，
+c 无效果；列表分别为 2/2、1/2、0/2，汇总本次解决 3 处、剩余 2 文件 3 处。
+无效果 c 字节完全不变，index 仍 9 条三阶段记录，未自动暂存。点击 a 的复查更改进入
+三方编辑器，显示 0 处未解决、两处合并文本及已处理细线，保存并关闭正常返回列表。
+截图 artifacts/collaboration-workflows-20261026/plico-auto-{before-steady,running,result,review-ready,reviewed}.png；
+磁盘/index 结果见同目录 plico-auto-native-result.json。执行中截图显示 spinner、1/3 和取消，
+整侧采纳与完成按钮禁用。原生点击取消时任务已完成，不算取消结果验收；取消后重试
+仍仅由桌面测试覆盖，部分完成时取消的原生结果待验收。
+保留差异：进度内联而非独立模态覆盖层；标题分支说明、主按钮层级与完成图标仍有视觉债务，
+英文动态计数单复数尚需细化。本轮不宣称像素级一致，也不将部分完成场景误记为全局任务完成。
+
+批量取消回归补充：automatic_tests 在真实 ConflictList 通知观察器中检测 a 的已保存
+草稿后发出取消，验证仅 a 写盘、仍未复查，b/c 字节不变、index 保留 9 条三阶段；
+重试跳过已解决 a 并继续处理 b/c。此测试覆盖成功写入后的异步取消，不再只覆盖
+任务开始前取消；定向测试通过，日志 /tmp/plico-auto-mid-cancel.log。原生取消证据仍待补齐。
+英文动态结果提示已按 conflict/file 的单复数选择 requires/require；未改变布局或中文文案。
+
+### 项目级冲突列表：同名文件身份（2026-10-26）
+
+实现前实机 Rebased 1.1.20：独立父/child 两根各自 merge 同名
+plico-multi-merge-validation.txt；顶部 Resolve Conflicts 直接显示一个列表，
+Unresolved 2 files，不弹选根框。子根行文件名后紧跟 modules\\child，父根行跟 project。
+同一已解决/未解决分组跨仓库，侧列显示各自状态，底部仍 Close/Accept and Finish/Resolve Manually。
+截图同日 artifacts/rebased-project-conflicts-{entry,list}.png。
+源码4aec352 plugins/git4idea/backend/src/actions/GitResolveConflictsAction.java 已完整读：
+从整个项目 ChangeListManager.getAllChanges 取Git冲突，按完整presentable URL去重排序，
+把全部文件传入同一个merge dialog；toolbar在有rebase时隐藏此入口。
+MultipleFileMergeDialog.kt 的 resolveAutomatically 逐文件获取模型，不把一个仓库的
+操作身份套给所有文件。本地现有 ConflictList 单snapshot及相对path草稿键不能直接扩展，
+必须先建立 root+relative path 身份，并让每项保留自己的Snapshot/操作方向/复验。
+先增加只读集合层，不新增临时选根界面；UI多根接入随后继续，尚未宣称交付。
+
+本地新增 conflicts/project.rs：只读收集所有参与根的 Snapshot，按完整路径排序；
+重复根去重，Entry 保存独立 snapshot 和文件索引，Key 为规范化根身份+相对路径，
+不提前读取文件版本。根失败或取消不返回部分集合，错误携带根路径。规模沿用项目4096根限制。
+真实双仓库同名文件集成回归验证两个键不同、各自复验成功、跨根复验拒绝；中止child后
+仅剩parent，重复输入根不重复行，缺失根/取消不返回成功。project_operations 3/3通过，
+日志 /tmp/plico-project-conflicts-core.log；fmt/diff check通过。尚未接ConflictList，
+此处仅为后续聚合会话的数据层，不把核心用例当作Plico多根UI验收。
+参考父子仓库均恢复原分支、HEAD和status，测试临时引用按预期tip删除；用户Rebased保留。
+
+聚合会话接入前的状态迁移：ui/conflicts 的草稿、自动解决计数及撤销目标由相对PathBuf
+改为 conflicts::project::Key（根身份+相对路径）。保存/复查从Prepared自身snapshot构造键，
+暂存成功回调用StageResult携带的键删除，不再用完成文件的相对路径猜测草稿身份。
+现有单根列表暂用自身snapshot生成行键；下一步将逐行携带Entry，而非在一个虚拟Snapshot
+内混入不同仓库的文件。没有引入全局事件总线。
+
+merge_result/staging.rs抽出stage_resolved与结果检查，逐草稿使用自身仓库；成功记录
+Key/仓库/路径和各根最新snapshot，失败即停并保留完成项，touched包含失败根以刷新可能
+已发生的Git变更。ui/conflicts/session.rs已有关闭流程改为使用此核心结果；错误静态文案
+仍在界面翻译。对照同版MultipleFileMergeDialog::markFilesProcessed按真实文件通知
+merge provider并标脏；本地保留逐文件暂存及首次失败停止，未声称Git跨仓库事务原子性。
+三个仓库同名文件集成测试：第一个成功、第二个外部修改拒绝、第三个保持未处理；随后
+单独继续第三个成功，取消前不触及索引。project_operations 4/4与冲突桌面3/3通过，日志
+/tmp/plico-root-staging-{core,desktop}.log。键迁移后冲突桌面3/3通过，日志
+/tmp/plico-conflict-keys.log；完整桌面回归进行中。界面聚合仍未开放，不宣称新增UI已验收。
+
+键迁移完整验证：desktop-tests 145/145、发布配置 editable_navigation_tests 10/10通过，
+Windows release构建通过；日志/tmp/plico-root-session-{full,navigation,windows}.log。
+仅保留既有sequencer::Request dead_code警告；格式/diff检查通过。本轮不新增可见控件，
+未将编译结果当作聚合冲突列表的原生验收；该界面仍待接入每行Entry及多根刷新/关闭生命周期。
+
+### 项目级冲突列表接入与原生验证（2026-10-26）
+
+沿用上节已实机验证的Rebased双根同名文件列表和4aec352 GitResolveConflictsAction规则。
+ui/chrome.rs Resolve可见性改用项目各根冲突状态；open_conflicts读取ProjectRoots成员，
+读取结果按成员Arc身份和项目路径拒收迟到结果。显式操作入口open_conflicts_in仍可限制
+操作范围。conflicts/project::read_snapshots保留各根真实操作快照，取消/失败不返回部分列表。
+ConflictList用Entry逐行携带快照，删除了假定所有行属于单个snapshot的状态；文件名后
+紧跟项目内父路径（根目录显示项目名）。同名文件的草稿、计数、复查和撤销继续使用Key。
+自动解决逐行取实际根，结束后刷新实际改动根；整侧采纳/三方编辑也使用该行快照。
+暂存后只替换对应根的行，其他根和草稿保留；立即解决类型重新打开原会话范围。
+显式continuation与项目聚合浏览分离：手动聚合入口完成不能启动任何隐式merge提交。
+重新加载清空旧自动计数，并仅保留同操作、同stage文件的草稿；丢弃草稿保留恢复输出。
+
+桌面新增project_list_keeps_same_name_drafts_and_stages_each_root：从项目入口打开两根
+同名文件，自动解决后两份草稿均未复查，单独覆盖一项不影响另一项，完成分别暂存，
+两个HEAD不动且MERGE_HEAD保留。完整桌面146/146、发布导航10/10通过；Windows release
+通过。日志/tmp/plico-project-conflicts-{full,navigation,windows}.log。
+
+Windows独立project-conflicts-zo7ce0ig父根/嵌套child实测：顶部直接打开同一列表，
+Unresolved 2，自动解决后Resolved 2、各1/1；完成后两根ls-files -u为空、HEAD未变、
+MERGE_HEAD均保留。磁盘文本均为ALPHA beta GAMMA。首次截图发现Windows verbatim
+路径前缀导致child误显示绝对路径，展示层去除前缀后重新构建复验，显示same.txt后
+modules\\child及project；仅展示处理，不改操作路径。截图同日artifacts目录
+plico-project-conflicts-{entry,list,auto-running,auto-result,finished,fixed-list}.png，
+磁盘/index证据plico-project-conflicts-result.json。路径修复构建日志
+/tmp/plico-project-conflicts-windows-fix.log；保留既有sequencer::Request警告。
+原生操作结果验证发生于路径展示修复前；修复后重新启动验证列表路径，没有伪称重跑全部写操作。
+测试实例8380、12344、39008均已关闭，未关闭用户Rebased。
+
+剩余差异：分支说明/侧列分支名、分组折叠/文件图标、默认主按钮和悬停采纳显示仍未完整
+像素对齐。上游rebase时隐藏顶部Resolve；本地暂保留显式Resolve以免多根rebase恢复入口
+尚未完全接入时失去冲突入口，此差异须随后续根范围恢复收口。聚合原生失败/取消、混合
+merge/rebase方向及外部删除根场景尚未完整验收，不以双根成功场景代替。第6阶段仍进行中。
+
+### 多根 Rebase 恢复前置验证（2026-10-26）
+
+参考版本仍为 4aec35256d765c217aa0d662b82ac4e860c396fd；Windows Rebased
+1.1.20 / IC-262.10968.SNAPSHOT，现有实例 31052。独立 submodule-reference
+fixture 的父根和 modules/child 分别通过临时分支触发外部 rebase 冲突，子根原有
+readme.txt 修改通过 Git autostash 保留。本轮只操作这些自有测试分支。
+
+实机证据位于 artifacts/collaboration-workflows-20261026/：
+- rebased-multi-rebase-ready.png：两根均冲突，顶部 Continue 和 Abort 均可用。
+- rebased-multi-rebase-continue-choice.png：Continue Rebase 首先显示 Git Root 下拉框，
+  当前子根比较页上下文使默认项为 child；不是固定选择项目父根。
+- rebased-multi-rebase-current.png：点击 Continue 后仅打开 child 的冲突列表，显示
+  rebase 两侧分支及当前提交，Unresolved 1。关闭列表保留暂停状态，并通知冲突未解决。
+- rebased-multi-rebase-abort-choice.png：Abort 同样先选根。
+- rebased-multi-rebase-abort-confirm.png：随后二次确认明确写出 child。
+- rebased-multi-rebase-abort-result.json：原生确认 Abort 后 child 回到其操作前临时
+  分支提交，readme.txt 原有修改恢复；父根仍处于 rebase，未被隐式中止。
+
+实读 plugins/git4idea/backend/src/actions/GitAbstractRebaseAction.java、
+GitOperationActionBase.kt，以及 rebase/GitAbortRebaseProcess.java：
+1. 存在 repository manager 记录的 ongoing project rebase 时走项目恢复，不先选根；
+   没有该记录的独立 rebase 才按受影响根数量决定直接执行或 GitSelectRootDialog。
+2. 根默认选择来自 GitBranchUtil.guessRepositoryForOperation 的上下文。入口只检查
+   是否有 REBASING 根，不因冲突而禁用 Continue。
+3. 单根 Abort 确认包含仓库名称；项目恢复已有成功根时可选择 Abort and Rollback、
+   Abort Only 或 Cancel。先中止当前根，再按选择 reset --keep 成功根并恢复原分支；
+   失败停止，保存修改仅在适用的成功路径恢复。整组回滚尚未实机触发，不能称已验收。
+
+本地核查：ui/history_operations.rs::start_rebase_operation 仍绑定 self.repo，
+ui/chrome.rs 可见性及冲突禁用仍主要看父根。ui/remote.rs::start_project_update
+已有整组执行入口，但完成回调只保留诊断及 saved_changes_available，未保留用于后续
+整组 Continue/Abort 的完整恢复会话；project_update/group.rs::Report 中虽有逐根结果
+和保存的 stash ID，尚不能据此声称具备上游项目恢复语义。
+
+后续实现必须把独立根恢复与应用内整组恢复分开；冲突列表需要显式恢复意图，不能借用
+现有只用于 Cherry-pick/Revert 的 resume_project_sequence，也不能让手动聚合冲突入口
+隐式继续 Rebase。实际根必须贯穿保存文档屏障、编辑器请求、执行、结果刷新及迟到拒收。
+本节为前置证据，尚未修改上述产品行为、尚未做 Plico 对应原生验收。
+
+验证后已按子根再父根顺序清理临时 rebase，恢复 attached-test/main，使用预期 tip
+删除临时分支，并逐根核对 HEAD 和 porcelain status 与创建 fixture 前完全一致。
+未关闭用户 Rebased 实例。
+
+### Rebase 恢复的仓库身份传递（2026-10-26，执行层）
+
+沿用上节原生前置证据及 GitAbstractRebaseAction / GitOperationActionBase 的单根执行
+规则。本地 ui/history_operations.rs 新增 start_rebase_operation_in 和
+confirm_abort_rebase_in；既有父根入口委托它们。确认框显示目标根，确认回调以项目
+路径拒收切换后的请求；保存文档回调携带目标 Repository 并再次核对项目。后台 Git
+执行和 editor_directory 都使用目标根，结果以 operation identity 和项目路径拒收
+迟到数据，工作区/index 同步发送给实际改动根，不再只刷新父根。
+
+新增桌面 rebase_abort_targets_child_and_preserves_parent：创建两个独立真实 Git
+冲突 rebase，从父项目视图执行子根 Abort，验证子根回到原分支 tip、冲突索引清空、
+rebase marker 消失；父根 HEAD、冲突索引和 rebase marker 均保持原状。
+定向历史操作测试 3/3 通过，日志 /tmp/plico-rebase-root-tests.log。
+本节仅是恢复执行层接入；顶部仍由原单根入口调用，根选择、冲突 Continue 的显式
+恢复意图、整组恢复会话尚未接完，Plico 新交互原生验收待进行，不宣称完成第6项。
+
+执行层最终回归：完整桌面 147/147、发布配置导航 10/10 通过，日志
+/tmp/plico-rebase-root-full.log；cargo fmt --package plico 与 git diff --check 通过。
+未将 Linux 桌面测试等同于 Windows 原生界面验收，未运行 CI 或提交发布。
+
+### 独立 Rebase 的根选择与显式冲突恢复意图（2026-10-26）
+
+以前述 Continue/Abort 原生实机和 GitOperationActionBase 为依据，ui/project_merge.rs
+复用同一个 RootChoice 布局处理 Merge/Rebase：筛选各根操作状态；一根直接操作，
+多根显示标题、说明、Git Root 下拉框及确认/取消。所选 Log 提交的根优先作为默认值，
+其次父根，最后首项；尚未包含 Rebased 的全部编辑器/比较页上下文猜测，保留差异。
+确认后再次核对该根仍处于对应状态；中止进入已有带实际根路径的二次确认。
+ui/chrome.rs 的 Rebase 按钮可见性改用各根状态，不再因存在冲突禁用 Continue。
+中文说明加入 i18n.rs；没有新增独立 init/sync 入口。
+
+ui/conflicts.rs 的 continuation 从 Option<Repository> 改为明确区分 Sequence/Rebase
+的私有枚举，手动聚合入口仍为 None。Continue Rebase 先异步读取选定根冲突；空列表
+直接进入该根 Continue；有冲突时仅 Accept and Finish 恢复 Rebase，Close 保持暂停。
+立即解决类型重开会话仍保留原恢复意图；已有 Cherry-pick/Revert 的序列恢复不变。
+删除不再使用的隐式父根 Rebase 包装入口，执行层保留显式 Repository 参数。
+
+新增真实 Git 桌面用例 closing_rebase_conflicts_keeps_rebase_paused，通过实际
+choose_rebase_root(false) 入口打开冲突：核对 Rebase 意图和1个冲突，关闭后 HEAD、
+冲突索引与 rebase marker 保持；再次从手动入口打开，恢复意图为 None。
+该定向测试通过（/tmp/plico-rebase-intent-test.log）；已有4个冲突测试通过
+（/tmp/plico-rebase-continuation.log）。完整测试另行记录。
+
+仍待完成：应用内整组 Update/Rebase 的会话、跨根 Continue/Abort 与保存修改恢复；
+整组已成功根的回滚选择；多根选择/实际继续成功的新增测试；Windows 原生 Plico 的
+本次选择及冲突回调验收。因此本节不是完整恢复功能或像素验收完成声明。
+
+本轮完整桌面 148/148、发布配置导航 10/10 通过，日志
+/tmp/plico-rebase-choice-full.log；git diff --check 通过。Windows 构建已启动，
+日志 /tmp/plico-rebase-choice-windows.log，原生交互仍待验收。
+Windows release 构建随后通过，仅保留既有 sequencer::Request 未构造变体警告；
+构建通过不代替尚未执行的原生选择和 Continue 成功路径验收。
+
+### 独立 Rebase 恢复 Windows 原生验收（2026-10-26）
+
+本次使用最新 Windows release，自有 Plico 11332，独立 rebase-recovery-l8u6zyzm
+父根 project / 子根 modules/child。两根均有 main/topic 的同名 same.txt 冲突。
+首次点击因截图缩放坐标命中了普通 Resolve，显示两根；随后关闭，实际点击 Continue
+触发 Git Root 选择。未把首次聚合列表误记为单根 Continue 的结果。
+
+artifacts/collaboration-workflows-20261026/plico-rebase-*.png：
+entry 为入口，root-selector/root-options 为选择框及两根选项，child-ready 为选择
+child 后仅一个冲突，resolved 为采纳 Yours 后完成状态，editor 为 Accept and Finish
+触发的子根 Git 提交说明编辑器。确认编辑器后，子根 Rebase 完成，topic 分支存在、
+冲突索引为空、内容 topic；父根仍为 a5309c9f，保留三个冲突 stage 及 rebase marker。
+磁盘证据 plico-rebase-native-result.json。
+
+随后仅父根处于 Rebase，点击 Abort 直接显示确认（abort-confirm），确认后父根回到
+原 topic tip 171c84b0，索引冲突清空；子根完成后的 a2b9f2c5 保持不动。证据
+plico-rebase-abort-result.json、parent-aborted 截图。此处实测的是单剩余根 Abort，
+多根 Abort 的选择界面仍未单独复验；不能用源码共用推导为原生已测。
+
+结构符合已验证的 Rebased 先选根再处理流程，但仍有差异：顶部文字按钮而非参考的
+状态名称及图标；冲突列表缺少 rebase 分支/当前提交说明；Abort 确认长路径截断后
+末尾根名不可见，需改为明确展示仓库短名称（参考 Abort rebase in child?），保留路径
+作为补充信息。根选择焦点仍为套件环形样式，不宣称像素完成。关闭冲突列表保持暂停
+已由桌面真实 Git 测试覆盖，本轮原生 Continue 列表未单独重复关闭路径。
+
+本轮未修改产品代码；验收后以 PID 和独立 build 路径共同核对并关闭自有 11332，
+未关闭用户 Rebased。整组恢复会话仍待实现，第6项继续进行。
+
+### 恢复流程边界纠正（2026-10-26）
+
+继续实读同一参考版本的 update/GitRebaseUpdater.java::doUpdate、
+update/GitUpdateProcess.java::updateImpl，以及 rebase/GitRebaser.java 的 rebase、
+handleRebaseFailure 和 RebaserConflictResolver，发现上文将 Update Project 的后续
+恢复与 GitRebaseSpec 项目会话混为一谈，现明确纠正：
+
+- Update Project 为每根建立 GitRebaseUpdater，调用 GitRebaser.rebase；冲突时在
+  该 updater 内打开 resolver，全部解决后 Continue 当前根，关闭则返回 INCOMPLETE。
+  GitUpdateProcess 继续迭代其他 updater，汇总结果；只有没有 INCOMPLETE 且聚合结果
+  成功才让 GitPreservingProcess 恢复保存修改。此路径不创建 GitRebaseSpec。
+- GitRebaseUtils.rebase(Collection) 才通过 GitRebaseSpec.forNewRebase 和
+  GitRebaseProcess 建立用于整组继续/中止/回滚的会话。不能仅因 Update Project 操作
+  多个仓库就新增“回滚所有成功仓库”的恢复行为。
+- 本地 branch_rebase.rs / ui/branch_rebase.rs 当前仍为单根操作，整组分支 Rebase
+  会话属于后续多根分支操作接入；当前 project_update/group.rs 需补的是执行中单根
+  冲突交互与汇总保存恢复边界，而非套用分支 Rebase 的整组回滚。
+
+因此后续第6项按实际调用链分开推进；该纠正没有取消多根操作要求，也不将现有实现
+宣称闭环。多根分支操作仍需参考其自身入口实机验证。原生执行中 Update 冲突交互
+尚须专项复现，不以外部独立 Rebase 的截图代替。
+
+### 中止确认仓库名修正（2026-10-26）
+
+按已实机读取的 Rebased “Abort rebase in child?” 修正 history_operations.rs 确认
+正文，i18n::abort_rebase_question 将短仓库名作为值插入中英文句子，不作翻译键。
+长路径仍为第二行补充信息，正文可换行，不依赖被截断的路径末尾辨认目标。
+Windows release 通过（/tmp/plico-rebase-name-windows.log）；原生自有18732复验
+长路径 fixture，正文明确显示 project，截图同日 artifacts/plico-rebase-abort-name.png。
+本轮仅文本与展示调整，无新增测试；未宣称英文原生截图已验收。精确路径+PID核对后
+关闭自有实例，测试父根 rebase 已中止并核对原 tip；未操作用户 Rebased。
+
+### Update Project 执行中冲突的原生前置验证（2026-10-26）
+
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT，进程31052中新开自有测试项目窗口，保留
+原窗口。独立 update-conflict-reference-x0tpw86u，两个本地 bare remote，父根及
+modules/child 均跟踪 origin/main，均有 local/remote 分叉同一文件及 draft.txt 未提交
+修改。首次测试 remote URL 为 WSL /mnt/c 路径，宿主 Git fetch 失败且未开始写操作；
+改为对应 C:/ 路径后重试。该失败是 fixture 路径错误，不记作产品或上游行为差异。
+信任仅限自建项目，并取消 Defender 排除项，未修改安全设置。
+
+截图和磁盘快照在 artifacts/collaboration-workflows-20261026：
+rebased-update-project/options 展示双根 Log 和 Update Project 的 Merge/Rebase 单选；
+选择 Rebase 后 conflict-a 为 child 的单文件冲突，此时 first-state.json 显示父根
+HEAD 未动、无 rebase，child 已在 rebase。两根 draft.txt 均恢复为 clean。
+点击 Close 后，parent-conflict 显示父根单文件冲突；second-state.json 显示两根都
+处于 rebase。即关闭一个根的 resolver 不会终止其他 updater，也不等于中止 Git rebase。
+再 Close 后 incomplete 显示两条 Cannot continue rebase 和 Local changes were not
+restored，提供 View saved changes；final-state.json 证明两根冲突和未恢复状态。
+本机保存策略为 Shelf，已实读并复制 rebased-update-saved-drafts.patch，里面包含
+两根 draft.txt 的完整原修改；Git stash 列表为空不能解读为保存失败。
+
+对应已读源码 GitUpdateProcess::updateImpl 依次 updater.update，INCOMPLETE 记入
+整组结果但继续后续根；GitRebaseUpdater::doUpdate -> GitRebaser.rebase，
+RebaserConflictResolver::proceedAfterAllMerged / proceedIfNothingToMerge 继续该根。
+GitPreservingProcess 的 autoLoadDecision 以整组成功且无 INCOMPLETE 决定恢复。
+本轮实机覆盖关闭/未完成路径；全部解决后自动恢复和取消写操作路径仍待专项验收。
+
+本地实现落点应为 project_update/group.rs 的每根更新结果处理及 ui/remote.rs 的
+交互通道。不能先释放整组保存边界，再通过普通独立恢复入口假装仍是 Update 会话。
+需要在 worker 暂停当前 updater 时允许对应根冲突处理，防止嵌套 acquire 同一仓库
+操作队列造成死锁；待实现，尚未改动产品代码或宣称完成第6项。
+验收后仅关闭本次新开的测试项目窗口；核对31052仍存活，MainWindowTitle回到原
+project – Compare: origin/main and attached-test。未终止用户进程。隔离fixture保留
+冲突与Shelf证据，供后续实现同条件复验；没有遗留正在等待用户输入的更新任务。
+
+### Update Project 执行中冲突：保留会话的核心入口（2026-10-26）
+
+沿用上一节原生双根 Update/Rebase 冲突前置验证；再次实读参考 commit
+4aec35256d765c217aa0d662b82ac4e860c396fd 的
+plugins/git4idea/backend/src/update/GitUpdateProcess.java::updateImpl、
+GitRebaseUpdater.java::doUpdate，以及 GitMergeUpdater.java::MyConflictResolver。
+规则：resolver 位于每个 updater 内；关闭返回 INCOMPLETE 并继续其他根；
+Rebase 全部解决后继续当前根，后续提交再次冲突需重新交互；Merge 全部解决后执行
+GitMerger.mergeCommit。只有整组成功（包括 SUCCESS_WITH_RESOLVED_CONFLICTS）
+才恢复保存修改。安装版仍为 Rebased 1.1.20 / IC-262.10968.SNAPSHOT。
+
+本地实现：
+- project_update/group.rs 新增 execute_with_conflicts，保留原 execute 的无交互入口。
+  冲突回调在整组 Guard 和 SavedChanges 仍存活时执行，Close 不退出整个更新，
+  Continue 通过 Session 再查真实索引后继续；新的冲突重新调用 resolver。
+- project_update/conflicts.rs::Interaction 是借用当前根/Guard 的有生命周期接口，
+  提供读取、接纳一侧、准备/保存/暂存编辑结果；UI 不得到跳锁布尔值、可复制 Guard
+  或携带免锁权限的 Repository。后续 UI 命令由原 worker 在此接口上执行。
+- conflicts::resolve_reserved、merge_result 的 apply_reserved/stage_reserved
+  复用现有真实索引/操作身份/磁盘内容校验，并检查实际锁覆盖；普通独立冲突操作
+  仍自行获取锁。不释放整组锁后重入，不绕过另一仓库的校验。
+- update_session::continue_merge 与独立 merge_operation 共用 commit_command，
+  仅外层保存会话负责恢复，不误用独立恢复记录。整组 complete 和恢复判断纳入
+  ResolvedConflicts，避免已解决却被当作失败而不恢复草稿。
+
+测试：tests/submodules.rs 新增6个真实 Git 集成用例，使用独立临时父仓库、子模块及
+本地远端，覆盖双根解决/恢复草稿、Close 后继续下一根且保留备份、三方编辑结果
+保存和暂存/跨根拒绝、取消后拒绝迟到 Continue 并释放锁、未解决索引拒绝 Continue、
+连续两个提交冲突重新进入 resolver。前5项随完整 submodules 41/41 通过
+（/tmp/plico-update-interaction-all-submodules.log），第6项单独通过
+（/tmp/plico-update-repeat-conflict.log）。现有 conflicts 15/15、branch_merge 和
+branch_updates 回归通过；cargo fmt --package plico 和 git diff --check 通过。
+
+状态与保留差异：本节完成核心执行接缝，尚未将 ui/remote.rs 的执行入口和现有
+ConflictList/三方编辑器接入此回调；不能宣称界面已具备执行中交互。未新增原生
+Plico 验收截图，Windows 同条件验收须等 UI 接入后进行；Merge 执行中 resolver 的
+原生场景也仍需专项核对。现有独立冲突恢复 UI 保持原入口，本轮未提交。
+
+### Update Project 冲突交互的线程与请求生命周期（2026-10-26）
+
+继续沿用上述 Rebased 原生前置记录与同一源码 commit：上游每根 updater 等待
+resolver 完成再继续，关闭返回 INCOMPLETE。轻量实现不向 GPUI 线程传递 Guard，
+也不释放整组保存会话后借独立恢复入口执行写操作。
+
+project_update/conflicts/channel.rs 将这一等待拆为 Worker/Ui/Client：Worker 在原
+更新线程执行有界命令队列，Client 仅能请求当前 Interaction 的读冲突、准备编辑、
+接纳一侧、保存/复查/暂存、自动解决及批量暂存。每次新的冲突都有独立通道和结束
+令牌，旧窗口不能继续下一个提交/仓库；取消前后均检查任务令牌。最后一个窗口句柄
+释放按 Close 处理，UI 通道消失也不永久挂起更新。Finish 在 UI 侧非阻塞，命令排队
+失败不能被当成已关闭。等待线程最多每25ms检查取消，不在 UI 同步等待 Git。
+
+merge_result 的 saved_text、automatic、staging 分别复用同一个内部校验/算法，
+新增受 Guard 约束的执行路径。批量暂存保留已完成项和首个失败，不用失败覆盖前面
+已写入事实；跨仓库结果在执行前拒绝。
+
+新增3个真实 Git 线程通道集成测试：通过通道保存编辑结果/读回/自动尝试/批量暂存
+并继续两个根、旧根Client和错误根Prepared失效、取消时迟到操作不写磁盘、释放
+窗口句柄继续下一根并保留两根备份。测试中的超时取消用于使加锁回归显式失败，
+不是产品超时或自动跳过。完整 submodules 45/45、conflicts 15/15 通过，日志
+/tmp/plico-update-channel-all-tests.log；补充通道命令覆盖后定向用例再次通过，日志
+/tmp/plico-update-channel-all-commands.log。
+
+目前通道已由真实 Group::execute_with_conflicts 测试驱动，但 GPUI 尚未接入。
+下一步需要在现有 ConflictList 中区分独立恢复与进行中的 Update 会话，同时保留
+operation_task（更新/认证/编辑器轮询）与冲突子任务各自生命周期；不得让子任务覆盖
+主更新 Task。接纳一侧、三方编辑、自动解决、关闭暂存需要一起接入，不能仅接通
+一个按钮后宣称完成。此轮无可见布局改动，尚无新增 Windows 原生验收或提交。
+
+### Update Project 冲突 UI 接入与原生验收（2026-10-27）
+
+沿用上文先行实机验证及参考 commit 4aec35256d765c217aa0d662b82ac4e860c396fd，
+GitUpdateProcess::updateImpl、GitRebaseUpdater/GitRebaser resolver、
+GitMergeUpdater::MyConflictResolver 的规则；安装版为1.1.20 / IC-262.10968.SNAPSHOT。
+本节更新前两节“GPUI尚未接入”的阶段状态，不代表第6项整体完成。
+
+实现映射：ui/remote.rs 的 Update 主任务轮询冲突通道；ui/conflicts/access.rs 在
+独立恢复与进行中的 Update 会话之间路由。后者保留外层保存屏障和仓库锁；
+ui.rs 的 conflict_task 与 operation_task 分离，接纳一侧、自动解决、保存/暂存、
+三方编辑和关闭不会销毁主更新、认证或提交信息编辑器轮询。Continuation::Update
+以每次冲突独有 Client 身份拒绝过期回调，Finish 排队失败时不假装已关闭。
+ConflictList 和三方编辑器动作使用 window.defer，避免实体持有期间再次读取同一
+ConflictList 引发 GPUI double lease。异步 open_update_conflicts 显式通知并刷新窗口。
+
+桌面回归 ui/conflicts/update_tests.rs 使用真实 bare remote 和工作仓库，通过界面
+入口接纳、撤回、自动尝试、三方编辑和继续，验证主任务未被销毁、更新完成及草稿
+恢复。完整 desktop-tests 149/149、release 模式导航10/10通过；核心 submodules
+45/45、conflicts15/15通过。Windows release构建通过。刷新补丁后定向桌面回归及
+Windows构建再次通过。日志分别为 /tmp/plico-update-ui-final-full.log、
+plico-update-ui-final-navigation.log、plico-update-channel-all-tests.log、
+plico-update-ui-redraw-test.log、plico-update-ui-redraw-windows.log。
+
+Windows Plico 原生正向验收：自有fixture plico-update-ui-s1k_8c2b，两个本地bare，
+父根和附着main子模块都有本地/远端同文件冲突及未提交draft.txt。
+父根接纳一侧并继续，子模块打开三方编辑器、应用并确认剩余更改，分别确认提交说明。
+最终两个HEAD均前进，索引无未合并项，rebase-merge均不存在，两个draft.txt均恢复
+原文本，自动Stash均已清理。截图与磁盘快照保存于
+artifacts/collaboration-workflows-20261027/plico-update-ui-{parent-ready,child-conflict,
+child-editor,child-editor-resolved,child-finish-ready,child-commit-editor,complete}.png
+及 plico-update-ui-final-state.json。测试进程23856已关闭。
+
+首次旧构建遇到弹窗直到额外鼠标事件才绘制；刷新补丁的新构建用独立fixture
+plico-update-redraw-68xwpuex复验：启动Update之后没有额外输入，仅无激活截图，
+冲突窗口自动出现（plico-update-redraw-first.png）；首次过早截图仍处于执行准备，
+不能将其当作卡死。关闭父根窗口后子模块窗口自动出现（-child.png），再关闭后
+显示更新未完成及查看已保存更改（-incomplete.png）。两个仓库均保留rebase冲突，
+各自Stash包含原草稿，未错误恢复到冲突工作区；见plico-update-close-state.json。
+这一关闭语义与上游实机记录一致，保存介质仍为本地Stash而非参考实例的Shelf。
+
+验收边界：本节覆盖进行中Rebase的双根成功和关闭路径；进行中Merge的Windows
+专项验收仍待补充，不以核心测试替代。冲突列表沿用既有入口与布局，未宣称像素级
+还原；仓库拓扑变化、跨启动恢复和分支菜单多根Rebase仍需继续收尾。没有新增独立
+init/sync页面，未提交或发布此轮累计改动。
+
+### Update Project Merge：双根冲突原生对照（2026-10-27）
+
+再次实读4aec35256d765c217aa0d662b82ac4e860c396fd的
+plugins/git4idea/backend/src/update/GitMergeUpdater.java::doUpdate/isSaveNeeded/
+MyConflictResolver。全部解决调用GitMerger.mergeCommit并返回
+SUCCESS_WITH_RESOLVED_CONFLICTS；未完成返回INCOMPLETE。isSaveNeeded在有暂存修改
+或远端变更涉及本地修改路径时保存，不要求每次Merge都先保存不相交的未暂存修改。
+
+Rebased1.1.20 / IC-262.10968.SNAPSHOT：独立update-merge-reference-c8eel12z，
+父根和附着main子模块各有同文件分叉冲突，另有不相交draft.txt未暂存修改。
+新窗口信任仅针对本测试项目，取消Defender排除选项。Ctrl+T选Merge，先出现子根
+冲突；接纳Yours→Accept and Finish后自动创建合并提交，无提交说明编辑器，再显示
+父根冲突。父根同样处理后显示All files are up to date，两根HEAD都是双亲提交，
+无MERGE_HEAD、无未解决索引，两份draft原文保留。此场景未触发保存草稿路径。
+原生截图保存在artifacts/collaboration-workflows-20261027/rebased-merge-*.png，
+磁盘证据rebased-merge-state.json。仅关闭本次新开的项目窗口，未终止参考进程。
+
+Plico同条件fixture plico-update-merge-1onwu4wr，原生进程9616：依次父根、子根
+接纳Yours→采纳并完成，每根自动提交，无额外提交说明弹窗；两根最终均为双亲提交，
+无MERGE_HEAD和未解决索引，草稿原文保留且无自动Stash，右下角显示项目已更新。
+对应plico-merge-{options-ready,parent-ready,parent-resolved,child-ready,
+child-resolved,complete}.png及plico-merge-state.json。实现映射为group.rs的
+merge_update_save_needed、Interaction/Session::continue_merge和共享
+merge_operation::commit_command。已覆盖原生Merge成功流程，不将其当作取消/
+关闭/保存失败的专项验收。关闭路径仍以Rebase原生及共享核心回归作为有限证据。
+
+保留差异：Plico父根优先，当前参考实例子根优先；本场景无相互依赖的更新，不能用
+本次成功证明拓扑改变场景正确。Git生成的提交说明使用全限定refs/remotes/origin/main，
+参考为origin/main，本地沿用精确引用防歧义，未重写Git生成说明。列表缺少参考的
+Merge情境描述、分支名列标题，状态图标、徽标/路径顺序和间距仍有视觉差异，记录为
+后续对齐项；不宣称像素级完成。第6项其余拓扑及恢复持久化工作仍进行中。
+
+
+### 项目映射与子模块声明分离：实现前对照（2026-10-27）
+
+参考源码 `4aec35256d765c217aa0d662b82ac4e860c396fd`；原生 Rebased 1.1.20 /
+IC-262.10968.SNAPSHOT。独立 `plico-update-redraw-68xwpuex/project` 的父、子仓库
+均停在 Rebase 冲突，保留各自自动保存的 stash。只在临时父仓库执行
+`git rm --cached -- modules/child` 并清空 `.gitmodules`，没有删除子仓库目录。
+Plico 从两个冲突变为只显示父仓库冲突；Rebased 使用已保存的两个 VCS 映射打开
+同一状态，仍显示两个冲突。此验证不证明 Rebased 如何自动注册未配置的子仓库。
+
+截图目录 `artifacts/collaboration-workflows-20261027/`：
+- `plico-recovery-conflicts-ready.png`：修改声明前两个根。
+- `plico-recovery-removed-ready.png`：修改声明后子根错误消失。
+- `rebased-recovery-conflicts.png`：同状态按 Unresolved 分组，两个文件、相对根路径、
+  Yours/Theirs 列及底部关闭/采纳/手动处理入口均保留。未执行采纳，不改变冲突。
+
+已读 `platform/dvcs-impl/src/com/intellij/dvcs/repo/VcsRepositoryManager.kt`：
+仓库集合依赖 VCS 映射；通过 findInvalidRoots/findNewRoots 重建并发布 mappingChanged，
+不以 gitlink 是否仍存在决定映射删除。
+已读 `platform/vcs-impl/src/com/intellij/openapi/vcs/impl/ProjectLevelVcsManagerImpl.kt`：
+registerNewDirectMappings 合并发现根；loadState/getState 持久保存目录映射；
+removeDirectoryMapping 为显式移除入口。源码版本与安装版不相同，以上原生验证确认保留行为。
+
+本地映射：`project_repositories` 管理已注册根与声明关系的区别；
+`ui/project_roots` 继续拥有异步扫描与结果接纳。先实现保留映射、失效根报告和取消不改变映射；
+随后接入持久化及跨启动恢复。沿用已验证的子模块发现，不新增任意目录扫描或通用消息总线。
+尚未接入持久化前不宣称跨启动恢复已修复；Rebased 映射设置页面也未在本轮新增。
+
+
+本轮实现：新增 `project_repositories::Mappings`，在成功扫描后合并已验证仓库根，
+不因 gitlink 删除而丢失成员；每次仍由 `Repositories::from_registered` 验证真实根。
+`.git` 消失时返回根错误，不能把该目录当成父仓库继续操作。扫描失败、取消或超限
+不替换已有映射。`ui/project_roots` 在后台克隆扫描，仅在 generation/pending 检查通过后
+接纳映射与快照，保持原有事件入口。当前映射仍只保存在进程内，持久化待接入。
+
+验证：`tests/submodules.rs` 全部 47 项通过（新增保留映射/根失效、取消不留部分映射
+两项）；3 项 project_roots 定向桌面回归及全量 149 项桌面回归通过。
+日志 `/tmp/plico-project-mappings-tests.log`、`/tmp/plico-project-mappings-desktop.log`。
+新代码 Windows 同场景复验待做，不以核心测试代替原生验收。
+已关闭本次额外打开的 Rebased 项目窗口；原有 PID 31052 的 Compare 窗口和 44688 保留。
+发布配置导航回归 10/10 通过，`cargo fmt --package plico -- --check` 与
+`git diff --check` 通过。当前尚未提交。
+
+
+### 项目映射持久化接入（2026-10-27，验收进行中）
+
+沿用上一节 Rebased 原生双根冲突和 VCS 映射源码依据。
+`project_repositories/store.rs` 在用户配置目录保存项目映射，按项目路径摘要隔离，
+记录内再次核对项目身份；最多 4096 根、2 MiB，拒绝相对路径和损坏数据。
+跨窗口以文件锁合并当前记录，再通过同目录临时文件原子替换；锁等待有取消与超时。
+扫描仍重验真实 Git 根，持久映射不是写操作授权。配置错误作为 inventory.errors
+展示，保留可读取仓库及旧记录。后台扫描读取已注册映射，合并已发现根后保存；
+磁盘记录仅追加已知根，不代表某次 UI 查询有效。UI 仍按 generation/pending 接纳结果，
+旧查询不能重建已过期的页面状态。当前未提供显式移除映射页面。
+
+`ui/project_roots::open` 接入启动与 `ui/repository` 切换，不在渲染线程读写文件。
+测试可传独立 Store 文件；不把测试映射写入用户配置。持久记录丢失时无法凭空找回
+已经取消声明的历史子仓库，不能把本修复描述为任意目录自动恢复。
+
+持久化核心回归 50/50、桌面回归 149/149、发布配置导航 10/10 通过；
+新增覆盖重开后声明已移除的子仓库、损坏记录不覆盖、项目身份不匹配、取消不写入，
+以及四个并发写入者保存不同根后重开集合完整。日志 `/tmp/plico-project-store-final.log`。
+格式检查通过；Windows 构建和原生恢复截图仍在进行中。
+
+
+Windows release 构建通过（现存 sequencer Request 两个未构造 variant 的警告保留）。
+原生验收使用 `plico-update-redraw-68xwpuex/project`：恢复临时仓库的子模块声明并启动
+新构建，确认两根映射已保存；随后仅在临时父仓库移除 gitlink 并清空 `.gitmodules`，
+关闭 PID 35644 后重启为 47240，点击解决冲突仍列出两个根。未执行采纳或继续。
+`artifacts/collaboration-workflows-20261027/plico-mappings-before-ready.png` 与
+`plico-mappings-reopened-ready.png` 分别记录声明存在时与删除声明后重开的列表，
+均显示“未解决 2”、子根和父根路径；与前节 Rebased 保留两个映射的结果一致。
+同目录 `plico-mappings-before.json`、`plico-mappings-after.json` 比对完全相等，
+包括两根 HEAD、unmerged 索引项、stash 列表、draft.txt 和 same.txt 内容摘要。
+本次只验证恢复入口保留，未重复执行已在前节验证的接受/继续流程。
+
+遗留：显式映射管理入口尚未提供；Update Project 的独立已注册根执行范围及多根分支
+操作继续按第 6 项收尾，不能把这一恢复修复当作第 6 项整体完成。没有新增 init/sync。
+
+
+### Update Project 的普通多根范围：实现前对照（2026-10-27）
+
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT，独立 `independent-update-reference-genwllll`
+fixture，两个普通 Git 仓库，无 gitlink/.gitmodules，通过 `.idea/vcs.xml` 注册两个根。
+每根各有本地 bare remote 和一个远端新增提交，保留未跟踪 draft.txt。
+实际打开顶栏 Update Project，Merge/Rebase 单选、Don't show again、OK/Cancel 与
+单根布局相同；Merge 后两个根均到达各自远端目标，两个草稿保留，通知显示
+“2 files updated in 2 commits”。截图 `artifacts/collaboration-workflows-20261027/`
+下 `rebased-independent-options-retry.png`、`rebased-independent-complete.png`，
+结果 `rebased-independent-update-state.json`。首次 fixture remote 误用 WSL 路径导致
+Fetch 失败，改为 Windows 本地 bare 路径后重新验证；失败不作为产品结论。
+
+源码 `4aec35256d765c217aa0d662b82ac4e860c396fd`：已读
+`plugins/git4idea/backend/src/update/GitUpdateEnvironment.java` 的 performUpdate，
+按传入项目路径映射所有 GitRepository；`GitUpdateProcess.java` 构造函数按依赖排序，
+collectDetachedSubmodules 只将真实子模块的 detached 根交给 submodule updater；
+checkTrackedBranchesConfiguration 对普通根统一读取当前分支/上游，SYNC 或全无可用根
+时停止，否则记录跳过；defineUpdaters 先普通分支，再 detached 子模块，避免递归重复。
+本地需由 `project_update::Prepared` 消费项目集合，不能再只从主仓库重扫子模块。
+保留共同保存边界、逐根身份复验和现有冲突交互通道。同步控制选项和普通 detached
+根的实际提示仍待核对，不把已知规则擅自改成全部默默跳过。
+
+同一独立 fixture 继续验证：移除主根 main 的 upstream，给 independent 远端再加一条
+提交，再次 Merge Update。independent 到达第二目标，主根 HEAD 不变，通知明确
+“project was skipped (no tracked branch)”。截图 `rebased-independent-no-upstream.png`。
+因此普通多根执行不能强制要求主根可更新；至少有一根具备上游时应更新该根并报告跳过。
+
+主根再切为 detached HEAD，independent 远端新增第三提交后 Update：仍更新 independent，
+通知“project was skipped (detached HEAD)”，截图 `rebased-independent-detached.png`。
+这里普通 detached 根与 detached 子模块必须区分；后者沿用先前已验证的 gitlink 更新。
+当前本地没有同步控制设置，本轮按已实测的非同步规则实现，后续同步设置接入需另验。
+
+
+实现：`Prepared::read_registered`/`Group::prepare_registered` 从已注册根重新验证 Git
+仓库，再统一生成普通分支及 detached 子模块计划；主根不再享有强制更新特例。
+普通 detached、无上游根进入带原因的 skipped 列表；全无可更新普通分支时报错，
+不对任意 detached 仓库执行 checkout。原有单根接口保持兼容，共用 from_roots 执行器。
+`ui/remote::open_project_update` 等待 ProjectRoots 的完整快照，检查发现错误后准备整组，
+保持原有取消、仓库切换、文档保存和确认入口。尚未接入多仓库同步设置，采用上述实测
+非同步规则；不是绕过未来 SYNC 模式的整组检查。
+
+52 项子模块/项目更新核心回归通过，新增实际执行两个普通根及跳过无上游/游离主根，
+全无可用分支拒绝，原有子模块、冲突交互和保存边界回归仍通过。
+149 项桌面回归通过；日志 `/tmp/plico-registered-update-tests.log`、
+`/tmp/plico-registered-update-desktop.log`。Windows 验收待完成。
+本次 Rebased 新项目窗口已关闭，保留原有 Compare 和 rebase-branch-reference 窗口。
+
+
+Windows 原生阶段：独立 `independent-update-plico-rcwy_snz` fixture，无子模块关系，
+测试准备阶段通过用户配置文件注册两个根（等价于 Rebased 的 vcs.xml 映射；尚无新映射 UI）。
+Plico 顶栏 Update/Merge 后，两根均到达各自 bare remote 目标，未跟踪草稿保留。
+随后取消主根 upstream、推进另一个远端，再次 Update 仅推进 independent，主根不变。
+截图 `plico-independent-options-ready.png`、`plico-independent-complete.png`、
+`plico-independent-no-upstream-complete.png`；状态 `plico-independent-update-state.json`。
+发现现有 diagnostic 通道将预期跳过显示为“操作失败”，已改为成功结果的黄色
+“已跳过部分仓库”及详情标题，失败结果仍保留错误。该呈现修正原生复验待完成。
+主根 detached 场景已在 Rebased 实测并有核心执行测试，Plico 新构建原生复验继续进行。
+
+
+Windows 最终复验（2026-10-27）：最终构建通过；桌面 149 项、导航 10 项通过，
+日志 `/tmp/plico-registered-update-warning.log`。独立 fixture 的主根保持 detached HEAD
+及原 HEAD，independent 从第二目标更新到第三目标，两根未跟踪 draft.txt 内容保持。
+底部黄色“已跳过部分仓库”与“项目已更新”同时显示，不再误报操作失败。
+截图 `artifacts/collaboration-workflows-20261027/plico-independent-detached-complete.png`，
+结果 `plico-independent-detached-state.json`。本次拥有的 Plico PID 26776 已请求正常关闭。
+
+后续发现：同一普通双根 fixture 的 Log 首屏仍只有主根。源码定位：
+`ui.rs` 初始 project_window 为 None；`ui/repository.rs::reload_history` 和
+`ui/project_roots.rs` 的历史刷新订阅均要求 project_window 已存在才走项目历史。
+项目根发现成功并未自动使普通首屏进入聚合历史。此处仍待结合 Rebased 默认范围、
+已有 project_navigation 生命周期和过滤恢复逻辑修正，不能把 Update 的多根成功
+视为 Log 默认聚合已完成。当前只记录诊断，未改该行为。像素级及 warning 详情中的
+通用复制文案仍有待核对，不宣称整项完成。
+
+
+### 多仓库 Log 首次加载：实现前核对（2026-10-27）
+重新用 Windows Rebased 1.1.20 打开 independent-update-reference-genwllll，选择新窗口。
+Log 无过滤首屏显示 independent 的四条与主根的两条，左侧不同根颜色条；右侧为空选择提示。
+截图 `artifacts/collaboration-workflows-20261027/rebased-independent-log-default.png`。
+未操作 Defender 通知。源码仍为 4aec35256d765c217aa0d662b82ac4e860c396fd：
+`platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VcsLogFiltererImpl.kt::filter`
+从 dataPack.logProviders.keys 计算 visibleRoots；
+`platform/vcs-log/impl/src/com/intellij/vcs/log/util/VcsLogUtil.java::getAllVisibleRoots`
+无根/结构过滤返回所有根，有过滤取根集合交集；
+`platform/vcs-log/impl/src/com/intellij/vcs/log/data/VcsLogMultiRepoJoiner.java::join`
+按时间合并各根有序历史。已读上述方法，不能用当前主仓库替代默认项目范围。
+本地修正目标：ProjectRoots 首次多根发现触发聚合，初始聚合不依赖已完成的单根快照；
+沿用现有取消/请求身份、有限窗口和根限定提交身份，过滤修改仍作用于每根查询。
+本次不新增映射编辑 UI，根/路径过滤更完整的跨根体验另行验证。
+
+
+实现：`ui/project_roots.rs` 多根 Ready 事件即使没有 project_window 也进入项目查询，
+`ui/repository.rs::reload_history` 在已有多根时使用项目路径；
+`ui/project_navigation.rs::reload_project_history` 首次 fresh 查询从成员集合构建 scope，
+不再等待单根 snapshot。保留 generation/cancel 门控、现有有限分页与每根过滤。
+新增桌面用例覆盖初始无 snapshot 自动加载两根以及随后过滤到子根。
+首轮完整桌面 150/150、导航 10/10 通过，日志 `/tmp/plico-default-project-log-final.log`。
+原文件树测试改为自动历史读取结束后注入明确属于主根的模拟文件；保留多根分组、根移除
+及菜单不可用断言，避免把无真实选择的模拟文件当作自动历史读取应保留的数据。
+
+后续补齐生命周期：聚合首屏复用 `read_primary_recovery`、`record_recent_project`，
+避免旧单根请求取消后漏掉最近项目与保存恢复入口。新增断言覆盖成功记录打开及恢复标志
+刷新。该最终补充回归/构建运行中，日志 `/tmp/plico-default-project-log-recovery.log`；
+Windows 原生同条件首屏与过滤验收尚未完成。本次新开的 Rebased fixture 窗口已关闭。
+
+
+最终首屏修正验收：`/tmp/plico-default-project-log-recovery.log` 桌面150、导航10通过，
+Windows release成功。原生Plico双根首屏6/6；third过滤1/1；点击详情为independent根及
+94c2c0e7；清除过滤回到6/6且子根选择保留。截图本日目录 plico-log-default-final、
+plico-log-filter-third-final、plico-log-child-details-ready、plico-log-cleared-final。
+Rebased同条件third过滤只剩子根一条，截图rebased-log-filter-third-final。
+
+新增发现的标签问题（实现前依据）：Plico子根行只有引用图标、无名称，Rebased仍有
+origin & main。已读同版本 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/
+VcsLogLabelPainter.kt`：customizePainter将本提交references交给其root对应referenceManager
+的groupForTable；不能从主根全局hash映射取标题。本地现有 `ref_labels::compact_title`
+已在每根snapshot生成，但project_log::LoadedRoot丢弃了该映射、log_history只读主根。
+拟保留每根共享标题映射，以(root,hash)查找，避免相同hash跨根引用名称相互污染。
+根色条、过滤Tab标题和文字匹配高亮尚有视觉差异，未宣称像素级完成。
+
+
+引用标题修正实现：project_log::LoadedRoot 保留该根 snapshot 的 Arc<ref_titles>，
+scope 构建和单根→项目 scope 转换均传递；ui/log_history 按行的 CommitId.root 选择标题表，
+仅无 project sources 的单根模式使用主根表，不对未知子根回退到主根哈希。
+复用每根既有compact_title规则，没有另造引用排序。桌面导航fixture在clone后重命名子根
+分支child-review，断言相同hash对应的两根标题不同，并保留后续分页/过滤/成员变化回归。
+测试/Windows构建日志 `/tmp/plico-project-log-labels.log`；标签修正原生验收待完成。
+本轮原生Plico PID46116已正常关闭，原Rebased测试项目窗口关闭，保留原有窗口。
+
+
+标签修正最终验收：日志 `/tmp/plico-project-log-labels.log` 完整桌面150、导航10、Windows
+release均通过。原生子根third remote行恢复origin & main，主根仍HEAD(detached)，
+截图 `artifacts/collaboration-workflows-20261027/plico-log-labels-final.png`。
+测试Plico PID45104已正常关闭。
+
+### Roots 过滤实现前对照（2026-10-27）
+同一Rebased双普通根fixture，Paths菜单在Select…、Select in Tree…之后出现Roots分组，
+按名称排序的带根颜色复选框，初始全选。键盘选择project后取消该根，仅剩independent四条；
+再取消independent得到Paths: No roots、空结果和Reset filters，不应把空集合当成全部。
+切换复选框后菜单保持打开（最终截图中空结果与菜单同时存在）。
+截图本日目录 rebased-root-filter-menu、rebased-root-filter-child-final、rebased-root-filter-none。
+源码4aec352已读 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/
+StructureFilterPopupComponent.java` 的createActionGroup、setVisible、setVisibleOnly、
+SelectVisibleRootAction：普通切换集合，Ctrl修饰或已有结构过滤时仅选该根；
+最多15根时Roots在Recent前，更多时在Recent后。FileFilterModel.kt将ROOT_FILTER和
+STRUCTURE_FILTER作为独占选择保存；getAllVisibleRoots无过滤全根，有过滤求交。
+结构过滤时根行呈取消选中但点击改成仅此根，而不是不可操作。
+本地计划在PathsMenu延伸根集合选择，保留None(全部)/Some(empty)(无根)语义，项目查询和
+异步计数共用同一根范围；成员变化不把用户明确取消的根偷偷加回，清除过滤恢复全部。
+当前尚未开始根过滤代码，先完成关键状态实机证据。普通路径编辑和多根路径映射需一起
+核对，避免把主根相对路径机械应用到每个仓库。
+
+
+Roots过滤初步实现（待最终回归/原生验收）：PathsMenu新增私有roots状态，区分None全部、
+Some(empty)空范围；ProjectRoots Ready把根和统一颜色发布到菜单。Roots在两项路径入口后、
+Recent之前（大于15根时置后），普通切换、Ctrl单选、键盘选择保持菜单打开；选择根清除
+结构路径，提交路径清除根范围。清除按钮恢复全部，成员发现不悄悄重置明确选集。
+project_navigation fresh查询先按该选集选根及对应错误，总数复用接受的scope，不另开
+不同范围的计数；空范围有No commits matching filters/Reset filters入口。
+导航始终保留项目查询身份，清除过滤时从完整项目成员重建而非仅从已过滤scope重建；
+已知项目内但被根过滤隐藏的目标允许清除过滤后跳转。
+桌面回归增加真实PathsMenu Changed事件：子根1条/总数1，全部取消0/0且无下一页，
+清除后2/2；总数按既有150ms异步计数推进测试时钟。根选择模型另测成员变化不自动重选。
+最终测试/构建正在执行，日志 `/tmp/plico-roots-filter-final.log`，尚未原生验收。
+保留待处理项：多根路径选择器/路径编辑映射、根过滤持久化、菜单精确视觉及全部快捷键
+实机核对；当前路径选择器仍以主根为范围，不据此宣称完整Roots/Paths对齐。
+
+
+Roots过滤最终回归与原生主流程验收（2026-10-27）：
+`/tmp/plico-roots-filter-final.log` 完整桌面151、发布配置导航10通过，Windows release成功。
+在独立双根fixture、Plico PID40032实际操作：子根独选4/4；取消最后一个根后0/0、
+菜单仍打开，出现无匹配提交及重置入口；Escape后点击重置，恢复全根6/6。
+截图本日目录 `plico-roots-current.png`、`plico-roots-none-final.png`、
+`plico-roots-reset-final.png`。以上只证明鼠标切换、空集和重置主流程；Ctrl单选等
+其余快捷键原生验收仍待完成，不把桌面测试等同于原生验收。
+新增待修正：空根过滤时右侧详情显示首次提交前的空仓库提示，实际仓库并非空仓库；
+`ui/preview.rs::empty_diff_message` 仅识别文本过滤，缺少项目根范围为空的区分。
+应在进一步核对右侧详情空选择的上游规则后修正，不能把过滤无结果解释为未创建提交。
+
+多根路径选择器前置观察：Rebased同fixture通过Paths → Select in Tree打开，
+两个顶层根各带复选框、名称及灰色绝对路径；未选择时OK禁用。
+截图 `rebased-path-tree-ready.png`。仅核对入口和初始布局，文件/目录选择与过滤查询
+尚待实机验证；不据此宣称多根路径映射规则已完成原生验收。
+
+
+多根结构过滤关键规则确认（2026-10-27，实现前）：Rebased1.1.20双根fixture，
+Paths → Select in Tree，Home/Down/Space仅选择independent目录。project根呈灰色包含标记；
+Enter展开树（不是确认），子文件tracked.txt呈继承选择状态；Tab/Enter确认后Log仅剩
+independent四条，Paths为independent\，Tab为Log: independent。截图本日目录
+rebased-path-child-selected、rebased-path-child-result（展开态）、rebased-path-child-applied。
+对应4aec352的VcsLogUtil.java::collectRoots：选中根本身只归该根，并包含所选目录下的根；
+普通路径归最深的包含根。getFilteredFilesForRoot只提取当前可见根下面的路径，必须先判断
+根可见性；选择祖先目录覆盖整个子根时无需路径限制。StructureFilterPopupComponent.java
+path2Text/text2Path以全根共同祖先转换相对文本，保留目录末尾分隔符。
+本地先将绝对路径选集→各根相对pathspec/不可见/全根的映射放入path_filter的独立模块，
+避免UI重复计算、同名文件跨仓库串查；后续路径编辑与选择器共用，当前尚未接入UI。
+
+
+结构路径按仓库解析第一步实现：新增 `src/path_filter/project.rs`，一次解析选中路径的
+目录状态，按最深包含根判断可见性，现存祖先目录包含其下所有项目根；不可见根不发起
+查询，整根使用空pathspec以保留空提交。对已可见根，依照上游提取其下面的所选路径。
+`ui/project_navigation.rs` fresh读取在工作线程生成各根filter，失败根也按同一范围过滤；
+分页、导航和总数继续复用生成的scope，没有单独重算不一致的范围。
+核心4项path_filter测试通过：父子根、同名路径、祖先目录、无匹配范围、路径预算/合法性。
+桌面新增实际聚合查询断言：选择主根“.”仅保留主根一条空提交，异步总数为1。
+日志 `/tmp/plico-project-path-desktop.log`，当前定向回归运行中。
+当前入口仍是主根相对路径；共同祖先文本编辑和多根选择树尚未接入，不能宣称完整路径
+筛选功能完成。Windows原生这一代码版本尚未构建/验收。
+
+路径映射回归结果：定向桌面查询测试1/1通过；随后完整桌面151/151、发布配置导航10/10通过，日志 `/tmp/plico-project-path-full.log`。本轮未启动Windows构建或新增测试窗口。共同祖先输入和多根树接入仍待实现。
+
+
+多根路径树/编辑接入：PathsMenu和recent选集改为绝对PathBuf，显示与输入转换使用
+path_filter::project的共同祖先；根集合变化不修改已选路径。单根消费者继续取得本根相对
+pathspec；聚合查询优先使用绝对选集，不把兄弟仓库路径丢失。PathChooser接受仓库列表，
+初始逐根折叠显示，顶层名称后附灰色路径；展开按最深根读取该根索引，每次只读一层，
+保留取消/代次与16,384节点预算，跨根同名文件仍是不同选择。选择结果通过同一菜单事件
+进入项目查询；核心增加共同祖先/已删除路径往返用例，桌面增加同名文件展开选择、折叠
+不丢选择、兄弟根绝对路径的菜单事件查询及总数检查。
+完整桌面152/152已通过；发布配置导航和Windows构建仍运行中，日志
+`/tmp/plico-multiroot-chooser-final.log`。首轮新增测试因gpui glob导入遮蔽test宏导致递归
+展开编译失败，已按仓库测试惯例显式导入core::prelude::v1::test修复，未提高递归限制。
+仍有差异待处理：目录显示末尾分隔符、树Enter展开/确认键盘行为、动态错误翻译、路径
+过滤持久化和过滤Tab名称；不宣称像素级/全部键盘一致。原生新版本验收待构建完成。
+
+后续空详情提示修正的源码依据已读取：4aec352的
+`platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogChangesBrowser.kt`初始化选择提交提示；
+`VcsLogChangesTreeComponents.kt::updateStatusText`在Changes状态roots为空时显示选择提交提示，
+而非推断仓库首次提交。此前rebased-root-filter-none的空结果实机截图为对应前置证据。
+本次仅补依据，尚未修改本地empty_diff_message。
+
+多根路径树首轮原生验收：Windows release成功后自有Plico PID47120，Paths → 在树中选择。
+显示主根project及independent两个顶层节点；Down/Space选independent，Right展开后tracked.txt
+继承选择，父根显示包含状态。点击确定后聚合Log从6/6变为子根4/4。
+截图 `plico-project-path-tree.png`、`plico-project-path-child-before-layout-fix.png`、
+`plico-project-path-applied-ready.png`。发现长绝对路径换行覆盖下一行，并挤压文件夹图标；
+修正为行不换行、溢出裁剪，图标不收缩，路径占剩余宽度。该纯布局修正Windows构建日志
+`/tmp/plico-project-path-layout.log`，待再次原生截图。PID47120已正常关闭。
+
+布局修正原生复验通过：新构建Plico PID24480，双根初始及子根展开截图
+`plico-project-path-tree-final.png`、`plico-project-path-child-final.png`。
+长路径保持单行裁剪，文件夹图标恢复正常宽度，tracked.txt不再被路径文本覆盖。
+与Rebased仍有差异：包含/继承复选框颜色偏蓝、尚无横向滚动条、确认取消顺序和窗口
+尺寸/位置未做精确像素对齐；本轮只确认结构布局及主流程，不宣称完整像素一致。
+最终纯样式修正Windows release成功（`/tmp/plico-project-path-layout.log`）；行为版本
+核心5项、完整桌面152项、发布导航10项均通过。已关闭本轮自有测试窗口。
+
+路径树Enter及空详情提示收尾：沿用已记录的Rebased树Enter实机展开证据和
+VcsLogChangesTreeComponents::updateStatusText规则。PathChooser新增限定树焦点的Enter动作，
+切换展开/折叠，不选择节点、不确认弹窗；Tab切换按钮后仍由按钮确认。
+Review::empty_diff_message在未选择提交时统一提示选择提交，移除由当前过滤结果推断
+首次提交/要求清除文本过滤的分支；实际选中的空提交及本地clean说明保留。
+回归覆盖真实Enter按键两次展开/折叠，以及空Roots过滤的右侧提示。
+
+过滤持久化前置确认：重新打开独立Rebased双根项目（新窗口），上次independent目录过滤
+自动恢复，Log: independent及四条提交保留。截图 `rebased-path-persist-restored.png`；
+未操作Defender通知，随后关闭本次测试窗口，保留原窗口。已读4aec352的FileFilterModel.kt：
+ROOT_FILTER与STRUCTURE_FILTER互斥；根以绝对路径保存，结构路径保存dir:/file:类型标记。
+恢复根过滤时校验存在及仍是项目根；没有有效根则返回null（恢复全部），不能混淆会话中
+手动全取消的空范围语义。结构过滤保留路径类型和不存在的历史路径。持久化实现尚未开始。
+
+Enter/空详情最终验收：完整桌面152、发布配置导航10、Windows release均通过，日志
+`/tmp/plico-path-keys-empty.log`。原生Plico39600中，路径树Down/Space选择子根，Enter展开，
+再次Enter折叠，确认按钮可用时也没有误提交弹窗；截图plico-path-enter-expanded、
+plico-path-enter-collapsed。取消后Roots全部取消得到0/0，右侧现在为选择提交提示，截图
+plico-empty-roots-details-fixed。已正常关闭本轮自有Plico窗口，未关闭原有Rebased窗口。
+
+过滤持久化实现映射：新增path_filter::store，仅存用户配置目录GitReview/log-filters的
+按项目身份哈希记录，不写仓库工作区或Git配置。State区分根选集与带directory类型的绝对
+结构路径，两者互斥；恢复根过滤只在完整成员发现后裁剪，空有效选集恢复全部。
+保存以临时文件+rename替换，文件大小/路径数量有界；同一Store以同步预留修订号和串行
+写入保证迟到的旧保存不覆盖新选择。所有load/save预期由UI后台任务调用，目录类型探测
+也在save中，路径计算及reserve无需磁盘IO。后续PathsMenu接入需覆盖用户先操作、仓库
+切换和恢复迟到结果；此时仅新增存储核心，尚未接入运行界面。
+
+持久化菜单接入：主Review启动启用PathsMenu后台恢复，分支对比的独立临时过滤菜单
+不共用该主Log记录。加载结果等完整仓库发现后再应用；读取代次随用户编辑/切项目递增，
+旧恢复不会覆盖当前意图。显式改根、改路径或清除时排队后台保存；关闭视图不主动取消
+已接受的偏好写入。目录类型在恢复后保留，保存遇到仍存在目录时补齐类型。
+恢复/保存失败保留内存选择，在Paths菜单显示中英文错误前缀，不阻断Git查询。
+新增桌面用例通过：发现前等待、根恢复、会话空选集保存/重开回全部、用户改路径胜过
+待恢复结果、清除落盘，以及切项目后旧恢复失效。存储核心8项、定向桌面1项通过。
+完整桌面/发布导航/Windows构建将在 `/tmp/plico-filter-persistence-final.log` 验证；原生
+关闭重开、项目隔离及异常记录行为尚未完成验收。
+
+过滤持久化最终回归与原生恢复验收：`/tmp/plico-filter-persistence-final.log` 中完整桌面
+153项、发布配置导航10项和Windows release构建均成功。独立双根Plico项目保存子根过滤
+后关闭重开（PID45916），Paths: independent及4/4自动恢复；点击过滤清除按钮后核对
+用户配置记录roots:null、paths:[]，关闭重开（PID37500），聚合Log及总数恢复6/6。
+截图保存在artifacts/collaboration-workflows-20261027/plico-filter-persist-reopened.png
+及plico-filter-clear-reopened.png。两次均正常关闭自有测试窗口，未关闭原有Rebased。
+本次证明根过滤恢复及清除持久化的原生主流程；结构路径恢复、损坏配置和项目隔离的
+证据仍为自动测试，不扩称全部原生验收通过。
+
+根过滤恢复的Windows路径身份修正：沿用上述原生关闭重开验收和4aec352
+FileFilterModel.kt::createFilter的LocalFileSystem解析后匹配当前VirtualFile规则。
+本地store::State::restore_roots此前直接比较PathBuf，大小写或verbatim前缀变化可能
+错误丢弃已保存根。现复用recent_projects::identity做平台身份匹配，并保存当前根目录
+表中的路径拼写，保证下游按PathBuf索引查询仍能命中；不canonicalize、不访问网络盘。
+新增平台分支测试，Linux保持大小写敏感。验证结果见后续记录。
+路径身份修正验证：cargo fmt完成，Linux path_filter 9/9通过；cargo xwin test --no-run
+构建核心Windows测试程序后在宿主PowerShell实际执行path_filter::，9/9通过，包含
+Windows大小写身份恢复并映射当前目录表路径的断言。未以交叉编译替代Windows运行。
+
+结构路径目录类型复核（未改变查询语义）：完整读取4aec352 VcsLogUtil.collectRoots后确认，
+纳入所选路径下层根的条件为virtualFile != null，再调用VfsUtilCore.isAncestor；保存的
+FilePath.isDirectory本身不会让已删除的目录扩大根范围。FileFilterModel保留dir:/file:
+用于恢复路径类型，但不能据此绕过存在性检查。保留本地map_absolute后台is_dir探测，
+撤回“仅凭持久化目录标记纳入下层根”的试改与对应测试，避免与上游行为偏离。
+上述撤回后的最终状态复验：`/tmp/plico-filter-final-state.log`，核心path_filter 9/9、
+PathsMenu持久化桌面用例1/1通过，格式化完成；不引用试改过程的测试结果作为交付证据。
+
+### 第7项源码预读：浅克隆完整历史（尚未开始实现）
+参考4aec352，已读plugins/git4idea/backend/src/actions/GitUnshallowRepositoryAction.kt：
+update仅在上下文推断的仓库isShallow时显示并启用；执行仅作用于该根，选择默认fetch
+remote，后台fetchUnshallow，失败通知，成功刷新注解并提示成功。源码未见remote选择
+确认弹窗，因此计划中的“确认remote”应先实机验证，不预设新增弹窗。
+已读backend/src/fetch/GitFetchSupportImpl.kt对应方法：单remote直接选；多remote优先
+当前分支跟踪remote，否则origin，无目标不猜测。fetchUnshallow复用GitFetchSpec和
+认证/取消/进度流程，成功repository.update。已读backend/src/repo/GitShallowRepositoryCheck.kt：
+单仓库项目首次打开时可提示unshallow，多仓库不走该启动提示；动作本身仍按上下文根。
+本地src/fetch.rs::Spec已有unshallow参数和default_remote规则，可复用已有认证执行器。
+原生Rebased入口、执行状态及成功/失败场景尚未验证，故此处仅源码依据，不实现新界面，
+不将第7项记为完成。下一步使用独立本地bare及file://浅克隆做原生前置验证。
+
+第7项原生前置正向验证：Rebased1.1.20，独立unshallow-reference-lp8l0ey_/project，
+本地bare含5提交，file://克隆depth=2，初始is-shallow-repository=true且rev-list计数2。
+选择新窗口，仅信任自有fixture，取消Defender排除勾选，未修改系统设置。
+打开后右下出现Shallow repository detected，附Unshallow repository链接；Ctrl+Shift+A
+搜索同名动作可执行。执行直接后台获取默认origin，无remote确认弹窗；Log自动新增
+history3/2/1到5条，左下成功提示converted to a complete one。底层复核shallow=false，
+HEAD历史计数5。截图本日目录rebased-unshallow-before/action/result.png。
+执行后动作搜索在Include disabled actions勾选时仍列出该项（disabled.png），没有凭
+颜色判断可执行性；禁用规则以已读update源码为依据，原生禁用交互待补验。
+本地传输太快，尚未取得有效进行中/取消截图，失败场景亦未验证。当前仅完成参考前置，
+Plico产品实现尚未开始；计划不新增上游没有的remote确认弹窗，沿默认remote策略。
+
+第7项初步实现：Repository::unshallow_spec在后台复验shallow，复用pull_targets和
+fetch::default_remote生成单一unshallow Spec；fetch_inner取得操作锁后再次复验shallow，
+拒绝迟到的旧请求。ui/remote::start_fetch_request复用现有认证弹窗、操作身份/取消、
+完成刷新；新增中英文进行中/成功提示。Git主菜单仅主根快照shallow时显示获取完整历史，
+点击再次检查可用性。当前入口上下文沿用该菜单既有主根行为；聚合Log所选子根入口、
+启动通知提示及失败详情优化尚未接入，不宣称第7项全部完成。
+真实Git测试tests/unshallow.rs覆盖depth2到5、HEAD/index/dirty内容保持、tracking remote
+优先、失效remote失败、无remote及预取消；补充过期Spec执行拒绝。测试/构建日志
+/tmp/plico-unshallow-tests.log及/tmp/plico-unshallow-windows.log，最终结果与原生验收后补。
+
+第7项主根入口原生验收：独立unshallow-plico-svp1fb5m/project，Windows release成功；
+真实Git集成2项及完整桌面153项通过（上述日志）。原生Plico11488初始2/2且浅克隆
+边界可见；主菜单Git显示获取完整历史，点击后底部spinner、正在获取完整历史及取消
+入口可见；完成自动5/5，底部成功消息，浅边界与浅仓库提示消失，再开Git菜单该动作
+已隐藏。底层shallow=false且rev-list计数5。截图本日目录plico-unshallow-before/menu/
+result（进行中）/complete/hidden.png。已正常关闭该自有Plico窗口。
+尚未完成：多根上下文路由、启动提醒及失败/取消原生专项验证；第7项仍为进行中，
+第6项未提交，第8项未开始，不能将主根正向验收等同于整轮目标完成。
+
+Unshallow失败原生前置：自有reference fixture恢复depth2，将origin改为不存在的
+../missing-remote.git，Rebased新窗口动作执行后保留2条提交，右下通知标题Failed to
+unshallow repository并展示Git具体错误（missing remote / could not read）；截图
+rebased-unshallow-failed.png。已读4aec352 GitFetchSupportImpl.kt中
+FetchResult.showNotificationIfFailed(title)/showFailureNotification/buildMessage：错误
+标题与各根/远端错误内容一并呈现。关闭本次项目窗口，原Compare窗口保留。
+本地修正：fetch::BatchResult::diagnostic汇总失败远端原因，复用display_text凭据脱敏
+及有界文本；remote完成处理保留到已有Details通道，避免随后刷新清掉；Unshallow采用
+专用中英文失败标题。取消不显示失败详情，成功清除上次错误。新增脱敏单测及真实Git
+失败详情断言，验证与Windows构建日志/tmp/plico-unshallow-errors.log。
+Unshallow取消回归补充：本地HTTP监听器接到真实fetch请求后保持连接，触发Cancel，
+断言结果Cancelled、仓库仍shallow，然后恢复原本地remote再次执行成功到5条提交。
+tests/unshallow.rs三项均通过。首轮桌面编译因跨crate调用private display_text失败，
+已改用现有public remote_management::display_error，不扩大底层API可见性；最终日志
+/tmp/plico-unshallow-errors-final.log继续验证桌面及Windows。
+
+Unshallow失败/重试最终原生验收：Windows release成功，Fetch单测3项、真实Git集成3项、
+定向桌面1项通过。Plico44116在missing-remote配置下显示获取完整历史失败:origin，
+Log保持2/2及浅边界；点击详情显示真实missing-remote/could not read诊断。保持程序
+打开修正origin为原本地bare，关闭详情再执行，同窗口自动5/5，旧错误与详情入口清除，
+成功消息保留。截图plico-unshallow-failed/error-details/retry-success.png。使用既有
+底部Details呈现，与Rebased通知气泡有视觉差异，未声称像素一致。取消核心已覆盖
+实际请求发起后取消及重试，取消按钮原生专项尚未进行。已关闭本轮自有Plico窗口。
+
+
+### Unshallow 多仓库上下文（2026-10-27）
+
+原生前置：Rebased 1.1.20 / IC-262.10968.SNAPSHOT，独立
+unshallow-reference-lp8l0ey_/project，主根完整5条，child普通映射根浅克隆2条，
+两者指向自有本地bare remote；Project树选中child后Find Action中
+Unshallow repository可用，无确认弹窗。执行后child变为完整5条，主根仍完整5条，
+聚合Log从7条更新到10条，底部成功通知。截图：
+artifacts/collaboration-workflows-20261027/rebased-unshallow-child-action.png、
+rebased-unshallow-child-result.png。只操作自有窗口66520540（进程31052），
+原有Compare窗口保留。此轮确认的是Project树上下文；Log焦点及最近编辑器回退
+尚未逐项原生验证，不能将以下源码规则宣称为全部实测。
+
+实读参考commit 4aec35256d765c217aa0d662b82ac4e860c396fd：
+- plugins/git4idea/backend/src/actions/GitUnshallowRepositoryAction.kt：
+  update和执行均使用guessRepositoryForOperation，目标是单根，仅浅仓库可见。
+- platform/dvcs-impl/src/com/intellij/dvcs/DvcsUtil.java：优先上下文
+  VIRTUAL_FILE，其次LAST_ACTIVE_FILE_EDITOR文件，最后项目基目录所属根／首映射根。
+- platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogComponents.kt
+  collectLogKeys：提供所选roots的VIRTUAL_FILE_ARRAY。
+- platform/lang-impl/src/com/intellij/ide/impl/dataRules/VirtualFileRule.java：
+  仅数组恰有一个元素时转换为VIRTUAL_FILE；不能任选跨根多选中的第一行。
+
+本地映射：project_repositories/context.rs集中处理已验证项目成员中的路径归属
+和回退，嵌套目录选择最深根，按路径分隔符判定避免同名前缀串仓，Windows使用
+既有identity规范化，返回原始catalog路径。此查询不访问磁盘，不隐式发现新仓库。
+新增tests/unshallow.rs多根真实Git场景，将目标选择与实际fetch连起来验证，
+并检查父仓库HEAD/index/草稿保持。UI尚未接入该选择器，当前主菜单仍只看主根；
+后续需接入焦点上下文及每根浅克隆状态，不能视为已完成多根入口。
+
+本次验证：Linux上下文单测1项、Unshallow真实Git集成4项通过；交叉编译后
+在Windows实际运行context单测2项通过（含大小写与\\?\路径前缀）。
+此轮未修改桌面接线，因此未重复完整桌面回归；不是多根UI验收通过。
+自有Rebased项目窗口已关闭，枚举确认原有Compare窗口5900570保留。
+
+多根入口接线：ProjectRoots后台发现完成后读取每根is_shallow并发布同代快照，
+发现期间入口不可用；失败读取不当作可操作的浅仓库。Review的主菜单打开时按
+Project树当前焦点／单根Log选择／活动文件或Diff／项目根选目标，菜单捕获目标
+Repository，执行前复验成员身份，Git worker再复验shallow及默认remote。
+主仓库继续拥有窗口操作生命周期及认证请求归属，实际fetch使用捕获的子仓库；
+完成后统一refresh_impl刷新聚合历史、计数和项目元数据。
+剩余差异：Log无选择但过滤为单根的上下文、关闭编辑页后的最近编辑器记忆
+仍需对照实机；不以当前活动编辑页近似规则宣称全部上下文已对齐。
+
+Windows多根菜单验收：第一版在dropdown builder才取上下文，实机发现Popover
+先转移焦点导致子根入口消失。核对gpui-base 0.7.3 PopoverState::transition_to
+及本地DropdownMenuPopover::render_popover，改为trigger的mouse-down/key-down
+在弹层打开前捕获目标，builder读取捕获值；执行保留已捕获根，不能重新猜。
+第二版原生PID24280，Project树选child→Git→获取完整历史，入口可见，
+执行显示正在获取完整历史及取消，child由shallow=true/2条变false/5条，
+聚合Log自动从7/7变10/10，边界标记消失并显示成功消息。截图
+artifacts/collaboration-workflows-20261027/plico-unshallow-child-{menu-fixed,result,complete}.png。
+原生实际点击覆盖焦点时序回归；自动化测试目前覆盖editor目标及membership失效，
+尚未新增该菜单的鼠标模拟用例。Windows release构建通过；此前桌面154、
+发布导航10、Git集成4通过；最终焦点调整后再跑完整桌面及发布导航。
+
+最终焦点调整后：完整desktop-tests 154/154、发布配置导航10/10、自有包fmt检查通过；自有Windows测试进程24280已正常关闭。本项仍非全量完成，继续保留前述上下文/启动提醒/原生取消验收待办。
+
+### Unshallow首次启动提醒：实现依据
+再次核对同commit GitShallowRepositoryCheck.kt及platform/ide-core/src/com/intellij/ide/util/RunOnceUtil.kt：
+仅singleOrNull仓库进入项目级run-once，标记在shallow/remote检查之前持久化。
+多根项目直接返回，不创建提醒。GitBundle.properties原文标题Shallow repository detected，
+正文This repository can be converted to a complete one，链接Unshallow repository。
+原生依据为本日rebased-unshallow-before.png（已重新查看）：右下信息图标、加粗标题、
+正文和下方蓝色链接，无确认框。计划复用现有GPUI Notification，BottomRight位置，
+链接触发捕获的单根；检查与run-once存储放后台，用户配置目录保存而不写项目.git。
+明确差异：保留本地通知控件的圆角/间距，精确视觉未验收；不新增系统通知。
+
+本地映射：src/unshallow_notice.rs::Store以用户配置目录中的原子create_new标记
+实现项目级run-once，不写仓库；两窗口并发只有一个通过检查。ui/unshallow_notice.rs
+订阅ProjectRoots的Ready事件，仅完整成功的单根发现启动后台检查，取消令牌及
+ProjectRoots实体身份拒绝跨项目迟到结果。右下Notification显示信息图标、标题、
+正文与蓝色动作链接；链接保留单根目标，不依赖点击后焦点；主菜单执行同样移除提醒。
+测试新增完整仓库、缺省远端不存在、取消不留标记、重新打开和并发窗口情形。
+首次完整桌面回归发现28项构造期失败：Root尚未创建时remove_notification访问
+未安装的window state。已修正为仅替换已有项目时清理，不在首次构造访问通知宿主；
+随后154项桌面回归通过。最终构建与原生展示/取消验收继续进行。
+
+首次启动/取消原生验收：独立notice-project深度2，默认origin指向自有Windows
+loopback TCP测试服务，服务实际接受Git连接后保持响应。Plico47840首次打开
+显示中文右下提醒，点击动作后提醒消失，底部显示正在获取完整历史及取消；服务
+accepted标记证实请求已开始。点击取消后显示已取消获取，Git复验仍shallow=true、
+2条历史。关闭后39980重开同项目不再弹提醒，恢复本地bare URL后从Git菜单
+重试成功到5/5、shallow=false。已正常关闭两程序并停止自有监听进程14272。
+截图本日plico-unshallow-startup/cancel-running/cancelled/startup-reopen/
+cancel-retry-complete.png。首版动作链接居中且白色，与参考不符；已调整为正文
+左对齐蓝色链接，单独复验视觉；只重置该fixture浅历史及其专属run-once标记。
+
+通知布局最终Windows复验：plico-unshallow-startup-aligned.png已确认标题/正文/蓝色链接左对齐。完整桌面154、发布导航10、真实Git集成5通过；纯布局微调后定向桌面1与Windows release通过，未无差别重跑完整套件。自有36384窗口已正常关闭；本轮无存活测试窗口或监听器。
+
+### Unshallow：Log 无选中行的过滤范围上下文
+参考仍为4aec352，安装版1.1.20。原生独立reference项目包含完整parent和depth2 child；
+Paths菜单以键盘取消project根后，Log仅两条child历史，右侧显示Select commit to view changes。
+Find Action中可找到Unshallow repository；截图rebased-unshallow-filter.png及
+rebased-unshallow-filter-action.png。动作搜索包含禁用项，当前执行未改变浅历史，
+因此不以搜索结果宣称执行验收通过；菜单焦点与表格焦点区别仍需继续核对。
+源码platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogComponents.kt
+getSelectedRoots明确无选中行或超过1000行时返回getAllVisibleRoots(filters)；
+VcsLogUtil.java取Root/Structure过滤交集。VirtualFileRule只将单元素数组转换为
+VIRTUAL_FILE，DvcsUtil再按当前文件、编辑器、项目根回退。
+本地remote.rs现有表格焦点分支漏掉无选中行范围，补用已显示查询scope（含失败根，
+避免把部分加载失败误当单仓库），不在渲染时访问磁盘。Plico对应原生验证待完成。
+
+本地已补上述分支，沿用当前已显示scope，不增加Git查询或后台任务。桌面场景
+unshallow_uses_editor_repository_and_invalidates_unknown_membership增加空列表单根
+及部分失败多根的实际Review断言；定向1、完整桌面154、发布配置导航10通过。
+Rebased搜索入口触发后child仍为shallow，尚未证明执行上下文正确；继续确认焦点，
+不把“搜索可见（包含禁用项）”记为功能通过。Plico原生验收及Windows新构建待做。
+
+Log过滤上下文Windows验证（续）：最新release构建通过。Plico22512打开完整parent+
+深度2 child的独立fixture，Paths取消parent，列表无选中项，点击列表空白取得焦点，
+主菜单Git显示获取完整历史；执行后child shallow=false、5条历史，UI保持child
+过滤且由2/2更新5/5，未自动选中提交。截图plico-unshallow-filter-menu/result.png。
+参考安装版反例已确认：Find Action关闭Include disabled actions后动作消失，
+不是已执行成功；Ctrl点击清除选中行后也仍为禁用，截图rebased-context-enabled/
+no-selection.png。因此前条搜索可见不能作为启用依据。当前保留差异：Plico直接
+采用所读VcsLogComponents.getSelectedRoots及DvcsUtil的查询范围规则，允许明确
+单根Log上下文；安装版Log作为编辑器打开时的有效DataContext与源码推导不一致，
+未证明具体覆盖来源，不宣称该场景逐项一致。此差异不涉及Git操作算法或猜选
+多根中的第一项。首次打开测试进程前意外晚于启动收浅fixture使旧页10/7，重开
+后恢复7/7；它来自测试主动改变shallow而未移动refs，需另记外部shallow变化刷新边界。
+
+### 外部浅历史变化的失效通知
+原生复现见前条10/7：测试外部fetch --depth=2只修改shallow边界、不移动refs，
+已加载行保留旧祖先，之后异步计数却读到了新边界。定位后先扩充现有
+worktree_events分类回归，运行失败于.git/shallow的refs=false（日志
+/tmp/plico-shallow-invalidation.log），确认不是Git计数解析错误。
+参考4aec352 GitRepositoryFiles.java定义getShallowFile，共享mainPath；
+GitRepositoryUpdater.kt的filesChanged未单独监听shallow。此处明确保留修复性
+差异，不复制上游对外部浅历史变化的遗漏：本地GitPaths.route允许共享shallow
+事件，Pending标记shallow及history失效，Review工作树通知批次调用已有refresh_impl
+同步刷新catalog/rows/count，不增加定时Git进程，不把shallow.lock当成已完成变化。
+新增回归覆盖创建、替换重命名、删除（unshallow）及linked worktree共享路径。
+Windows修复后同场景验证待做；不以源码测试代替原生验证。
+
+修复后Windows原生验收：17476运行最新release，保留child过滤且未选中提交。
+宿主机Git外部fetch --depth=2（断言HEAD前后不变）后，UI自动从5/5变2/2
+并出现浅克隆边界；外部fetch --unshallow后自动回到5/5并移除边界，无手动刷新
+或重启。截图plico-shallow-watch-before/depth2/complete.png。当前原生覆盖
+子根；单主根及linked worktree原生未单独验证，后者已覆盖共享路径单测。
+验证：worktree_events7、完整桌面154、发布导航10通过，Windowsrelease构建通过，
+保留既有Request dead_code警告。
+
+### 第8项开始：交互式Rebase原生设计核对
+第6/7项累计核心回归：cargo test --locked --no-default-features通过916项，
+日志/tmp/plico-project-core-final.log；桌面154/导航10及最新Windowsrelease证据见前节。
+此处不将视觉债务或未完成专项验收改写为已完成；尚未提交。
+
+Rebased1.1.20 / IC-262.10968.SNAPSHOT，独立interactive-rebase-reference-b4qzatic
+含topic线性5提交、无远端；信任仅限本项目，取消Defender排除项。选择step1执行
+Interactively Rebase from Here，弹窗列出step1..step4，旧到新排列，包含选中提交。
+左侧约半宽是带简易连线的提交列表，工具栏移动上下、Pick/Edit图标、Reword、
+Squash下拉及Drop；右侧上方文件树、下方详情；底部Start Rebasing/Cancel。
+选择step2，Squash下拉只有Fixup（Alt+F）；选择后step2缩进归入step1，Reword/
+Squash禁用，出现Reset链接。Cancel在计划修改后弹Discard changes and cancel rebase，
+Discard后HEAD保持原值且无rebase-merge。截图rebased-interactive-{log,dialog,actions,
+fixup,cancel}.png。尚未执行计划，也未验证拖动/多选/冲突/edit暂停。
+
+参考commit仍4aec352。已读GitInteractiveRebaseAction.kt、GitSingleCommitEditingAction.kt：
+单选，提交必须在HEAD中，受保护远端分支上的提交拒绝；其他门禁在其基类，尚需读取。
+已读GitInteractiveRebaseDialog.kt前半：列表与按需提交详情，编辑消息时禁用确认，
+修改后Reset；本轮原生证实布局。GitInteractiveRebaseUsingLog.kt说明优先Log生成
+计划，非edit且配置允许时先尝试内存重写，冲突回退Git；Git执行前逐条校验生成计划
+与真实todo对应，不能仅按数量信任。GitRebaseTodoModel.kt前160行显示UniteRoot/
+UniteChild分组，移动组根携带全组，子项移出会恢复Pick；余下转换规则及测试尚待读。
+实现尚未开始，不用现有Squash/Reword代替完整交互式Rebase。
+
+交互式Rebase模型第一步：完整读取GitRebaseTodoModel.kt、GitRebaseTodoModelConverter.kt、
+ChangeEntryStateActions.kt及GitRebaseCommitsTableModel.kt。补充确认：单选Fixup查找
+前方最近KeepCommit/UniteRoot，跳过Drop/UpdateRef；同组子项不能重复合并。
+Drop组根会Drop整组；对子项Pick/Edit先脱组并移到原组末尾；移动组首带上子项，
+移动update-ref避开合并组内部。Squash为修改组根消息+Fixup，消息沿用prettySquash，
+撤销/重做上游最多10状态，Reset重新转换初始todo。
+
+本地src/interactive_rebase/model.rs已翻译分组及动作状态规则，使用稳定RowId与连续
+组、不引入跨对象可变引用；UI将用稳定身份恢复选择。UpdateRef保留为不可改动作
+但可移动的行，非法索引/重复选择拒绝。源代码版权与Apache-2.0来源已补入
+docs/THIRD-PARTY.txt。5项核心测试通过，覆盖单选/非连续Fixup、组首移动/Drop、
+子项脱组、组间合并、消息保留和所有移动目的地×选择子集的组完整性及行身份。
+本步只完成模型，不执行Git；初始todo转换、Squash消息编辑、10状态撤销/重做、
+门禁、执行器和界面尚待接入，未宣称第8项功能完成。现有squash_plan::draft已经
+实现同源prettySquash，后续复用，避免重复消息格式规则。
+
+
+### 交互式 Rebase：草稿历史与 Git todo 边界（2026-10-27）
+
+沿用参考4aec352及前述原生对话框/Fixup/取消截图。补读
+backend/src/rebase/GitInteractiveRebaseFile.java、GitRebaseEntry.kt、
+interactive/GitRebaseTodoModelConverter.kt、GitInteractiveRebaseUsingLog.kt及
+log/GitInteractiveRebaseEntriesProvider.kt。Log生成计划遇到merge、autosquash消息、
+update-refs或过期HEAD时退回Git原生计划；不是截取当前可见Log行替代完整todo。
+执行前按原始顺序逐项核对action和commit（允许hash缩写），不比较subject；
+数量相同不足以证明计划有效。原生执行及这些回退状态尚待实机验证。
+
+本地draft.rs实现最多10份Undo/Redo状态，Reset恢复初始模型，新编辑截断Redo；
+提交内容和编辑消息通过Arc共享，避免历史快照反复复制完整消息。Squash复用
+squash_plan::draft，不重复拼接已有组子项；无效消息不得部分修改计划。
+9项模型/草稿测试通过。Undo/Redo和Squash本地界面尚未接入，不能视作UI验收。
+
+todo.rs独立解析Git序列编辑器内容：pick/edit/reword/drop/squash/fixup及缩写、
+fixup -c/-C、update-ref、noop、具体注释标记及CRLF；保留动作、目标与subject。
+matches_prepared按顺序核对动作/哈希，update-ref必须完整匹配。尚未接入执行器。
+相对上游：支持Git的update-ref缩写u；未知命令明确拒绝而非丢弃；增加已有
+OUTPUT_LIMIT/HISTORY_MAX边界、NUL/非法哈希/非法引用校验。上游Other也不能
+转换为可编辑模型，因此不将exec/label等静默转成pick。
+
+本轮最终定向验证：interactive_rebase共12项通过（含3项todo解析/匹配测试）；
+日志/tmp/plico-interactive-todo-final.log，cargo fmt与git diff --check通过。
+仅核心模块验证，未重新运行全量桌面或Windows原生验收，未提交/发布。
+
+### autosquash 计划转换：原生前置（2026-10-27）
+
+Rebased1.1.20，参考4aec352。独立interactive-rebase-reference-b4qzatic/project
+在5条顺序提交后创建fixup! step 1和squash! step 2（正文extra squash explanation），
+开启仓库级rebase.autoSquash。从step 1打开交互式Rebase，实际6行计划为step1、
+其缩进fixup、step2、其缩进squash、step3、step4。step2组首蓝色表示消息变化；
+打开Reword，内嵌编辑器为原始消息+空行+补充正文，底部Ctrl+Enter说明，
+Start Rebasing禁用；Reset在工具栏右端。取消弹Discard确认后HEAD保持4d2774a，
+没有残留rebase-merge。初次PostMessage点击未建立有效上下文，不算成功；
+使用前台校验后的真实鼠标点击重测成功。未触发Defender排除设置。
+截图rebased-interactive-autosquash-{log,dialog,message,cancel}.png归档到
+artifacts/collaboration-workflows-20261027。尚未执行该计划及验证update-ref实机状态。
+
+完整读取GitRebaseTodoModelConverter.kt及GitSquashedCommitsMessage.kt：初始reword
+转换为Pick；Drop延后到列表末尾；连续fixup/squash挂到前一组，不能越过update-ref；
+squash剥离autosquash subject后拼接正文，fixup -c/-C替换消息，普通fixup不改消息，
+空正文不覆盖旧消息。导出组子项使用fixup，消息通过组首reword单独交给消息编辑器。
+本地将映射到model/conversion.rs，不用prettySquash替代初始todo转换的消息规则。
+
+
+转换层已实现：model/conversion.rs线性构建连续组及稳定RowId，Drop移至末尾，
+普通fixup、消息替换fixup、squash分别处理，缺少元数据时保留原消息而不猜测正文。
+导出保留update-ref目标及提交身份，组子项统一fixup，组首消息通过Reword携带。
+定向测试共15项通过（/tmp/plico-interactive-conversion.log），覆盖原生autosquash
+场景、Drop/初始Reword、空正文、覆盖消息、无组首和update-ref分隔边界。
+未接执行器/本地UI；update-ref及fixup -c/-C只有源码/核心测试，原生专项仍待验收。
+已关闭本次自有Rebased项目窗口11341996，保留原有5900570及44688进程窗口。
+
+### 交互式 Rebase：只读准备门禁（2026-10-27）
+
+参考4aec352，完整读取GitInteractiveRebaseAction.kt、GitSingleCommitEditingAction.kt、
+log/GitCommitEditingActionBase.kt。单选、同一项目仓库、HEAD可达、非受保护远端已发布
+提交；选中merge禁用，初始提交额外警告后允许；NORMAL/DETACHED允许，
+REBASING/MERGING/GRAFTING/REVERTING禁止。不能复用Squash的线性且非根提交限制；
+选中提交上方存在merge属于计划生成回退条件，不是把整个入口禁用的理由。
+前述step1原生计划入口有效；root确认/受保护分支/merge禁用专项原生仍待验收。
+
+本地prepare.rs持有仓库路径/真实gitdir、HEAD、symbolic HEAD、target/base、引用及
+shallow快照；准备前后核对一致性，执行方必须在队列内validate后再启动Git。
+复用已有保护分支查询，不用UI当前活动仓库重解释目标。仅查询，不保存dirty文件，
+不写index；初始提交用base=None传给UI作确认并最终使用--root。额外拒绝shallow
+边界和待恢复index事务，防止缺失祖先误判为真实根提交。当前尚未接入执行入口。
+
+15项模型测试及5项真实Git集成测试通过：root/detached/dirty不改工作区及index；
+过期HEAD/引用/操作状态失效；非HEAD提交及protected远端拒绝；选中merge拒绝但
+其下方root允许；shallow/cancel拒绝且HEAD不变。日志
+/tmp/plico-interactive-prepare.log、/tmp/plico-interactive-prepare-final.log。
+这不是原生UI或实际rebase执行验收。
+
+另读GitInteractiveRebaseEditorHandler.java前180行发现需要补足此前记录：
+未知todo命令在转换器不支持，但上层handler会回退普通文本编辑器；noop会弹确认。
+因此todo.rs当前的unsupported返回仅能作为结构化编辑不可用的信号，最终执行器
+须接普通编辑器回退，不能把拒绝未知命令当作完整对齐。消息映射按原始正文匹配，
+找不到映射同样回退普通消息编辑器；冲突后继续需要跨进程保存这些映射。
+
+### 交互式 Rebase：编辑器回退与消息持久化（2026-10-27）
+
+参考仍4aec352，本轮完整读取interactive/GitRewordedCommitMessageProvider.kt：
+保存onto、顺序消息映射及currentCommit；只匹配当前映射的原始正文前缀，匹配后
+前进一项，不能跳过不匹配项去猜下一项。普通消息编辑器为匹配失败的回退。
+原生消息编辑/取消依据上一节；冲突后重启恢复专项原生尚待执行，不宣称已验收。
+
+本地todo::ParseError区分Unsupported（进入普通文本编辑器）与Invalid；render只
+输出动作和校验后的commit/ref，subject/正文不进入todo语法，防止换行成为命令。
+messages.rs把有界映射保存在当前rebase-merge目录，额外同时绑定orig-head与onto，
+由Git完成/abort时清理，普通编辑器继续通道rebase_editor::Router已接入apply。
+每项先create_new持久化reserved，再保存消息并标记applied；重启看到reserved不
+猜测是否已消费，保留普通编辑器回退。重复原始消息按顺序消费；不匹配不跳项。
+初次编译发现serde不是核心直接依赖，改为复用现有serde_json Value严格读取，
+没有为存储新增依赖。核心interactive_rebase20项通过，日志
+/tmp/plico-interactive-messages-fixed.log。安装映射的首次执行器仍待接入；当前
+只有continue路由和核心持久化能力，不能把它当成完整交互式rebase已可用。
+真实helper通道新增测试interactive_messages_route_multiple_real_editor_requests_and_fallback
+通过：每次重建server/document，未匹配消息手动编辑、同原文两条映射按序分别写入
+中文消息、耗尽后普通编辑器回退。既有rebase_continue_restores_matching_mapping_and_routes_other_messages_to_editor
+回归通过（实际Git continue旧Squash映射兼容）；日志/tmp/plico-interactive-messages-editor.log。
+未证明新交互式计划的完整Git执行/冲突恢复，后续仍需端到端接入验收。
+
+
+### 交互式 Rebase：首次 Git 编辑器贯通（2026-10-27）
+
+原生前置：Rebased1.1.20同一独立fixture，从step1打开6行autosquash计划，直接
+Start Rebasing。出现Rebase successful通知，7条总历史变为5条，step2消息含
+extra squash explanation，HEAD从4d2774a变为7eadeb4；两棵最终tree完全相同，
+无rebase-merge残留。Linux检查Windows检出的文件显示100644→100755，仅为挂载
+mode差异；git -c core.filemode=false status只有原有未跟踪.idea，不是内容修改。
+截图rebased-interactive-run-{before,after}.png位于collaboration-workflows-20261027。
+关闭本次自有窗口11604140，保留用户原有窗口。
+
+本地interactive_rebase/editor.rs提供真正的sequence-editor边界：从Document读取
+Git实际todo；Unsupported保留Text回退，noop单独返回等待确认；每批最多64个commit
+加载UTF-8完整消息，总量有界，避免每行一个Git进程和Windows命令行过长。
+转换模型后可交给UI，save核对原todo及行身份集合；只允许改顺序/动作/消息，不准
+增删/替换提交身份（Drop仍是明确一行）。先保存有序消息映射，再放行Git。
+该模块复用原生Document校验/响应，不另建IPC或全局缓存。执行器/弹窗仍待接入。
+
+新增真实Git集成interactive_plan_bridge_rewrites_real_git_history_including_root
+通过：非root和--root两种rebase，以真正plico-editor helper请求，加载/修改计划，
+组首中文Reword并Fixup第二项，消息自动匹配，4提交变3提交，HEAD树完全相同，
+结束清理rebase目录。日志/tmp/plico-interactive-bridge-git.log。核心20项亦通过
+/tmp/plico-interactive-bridge.log；fmt/diff检查通过。这里验证编辑器管道，不代替
+产品操作队列、dirty保存、取消、冲突、原生Plico弹窗及发布构建验收。
+
+### 交互式计划请求生命周期（2026-10-27）
+
+完整核对interactive/dialog/GitInteractiveRebaseDialog.kt：1000×550逻辑尺寸、左右
+1:1分栏，右侧文件/详情，顶部移动/Pick/Edit/Reword/Squash下拉/Drop/Reset；
+消息编辑期间禁用OK；修改后Cancel确认Discard/Continue。仍以前述原生截图为
+布局前置，不新增临时表单。现有editor_dialog持有Document；新结构化计划改为
+执行worker持有Document，UI只接模型快照并回复编辑结果，Git文件写入留在worker。
+
+interaction.rs为单次操作的具体Plan/Noop问答，最多一个未回复问题，不是通用事件
+总线。Pending弱引用owner避免循环；关闭对话框丢弃reply会释放worker且不取消
+整个Git操作token；owner close、stop及cancel使迟到答案失效；并发请求拒绝且不
+替换已有问题。editor::handle明确Saved/Cancelled/Text，避免结构化对话框取消后
+又误弹普通文本编辑器。rebase_editor::Router增加首次结构化入口，后续消息沿用
+持久映射及普通编辑器回退；现有continue入口行为保持。
+
+23项核心测试通过；真实Git ordinary/--root编辑器测试已改用worker/UI问答通道，
+仍验证Reword+Fixup结果及tree不变；既有Git continue回归通过。日志
+/tmp/plico-interactive-handoff-final.log、/tmp/plico-interactive-handoff-git.log、
+/tmp/plico-interactive-router.log。尚未接启动命令/可见弹窗，start_interactive因此
+仍有dead_code警告（未用allow隐藏）；不将接口存在当作产品入口完成。下一步需
+接操作session、本地修改所有权（尤其--root的onto直到Git启动后才确定）及UI。
+
+### 交互式 Rebase：启动命令及本地修改保护（2026-10-27）
+
+补读GitRebaseProcess.java的saveDirtyRootsInitially、rebaseSingleRoot及完成判断：
+先保存dirty root；计划列表取消是NOT_STARTED、消息取消是SUSPENDED；Edit暂停即使
+命令成功也不是全部成功；SUCCESS/NOT_STARTED加载保存修改，暂停保留恢复状态。
+沿用前节Rebased autosquash执行正向原生依据；本节dirty/root暂停专项只有真实Git
+集成验证，原生Rebased/Plico仍待补，不宣称这一组UI场景完成。
+
+本地operation.rs现已接实际启动命令：Session common-dir队列内复验Prepared，保存
+tracked staged/unstaged修改、保存恢复所有权、再次复验、启动--interactive与指定
+base/--root；独立计划Requests和普通auth/editor Requests送给Router。禁用Git隐式
+autostash，使用应用自己的已有保存/恢复流程。结果同时检查Git状态及暂停状态，
+取消/冲突不擅自reset；完成或计划取消且原HEAD不变时恢复index和worktree。
+未跟踪文件不stash或删除。初始提交需要调用方传明确确认，UI警告尚待接入。
+沿用现有UTF-8消息限制；其他commitEncoding尚不支持，记录为未解决兼容性差异。
+
+root重写的onto不能提前当作选中root：独立真实Git捕获sequence-editor等待中的
+rebase-merge，证实onto==squash-onto，orig-head/head-name存在，记录
+/tmp/plico-root-onto-2arc9hmj/captured。rebase_saved::Record.base改为Option，Some
+继续读写原v1字节格式；None写新root-v2，恢复时核对orig-head、head-name和
+squash-onto==onto。启动前即可保存stash身份，暂停后仍能确定本次root rebase。
+已有branch_create/branch_rebase/Squash只将固定base包装Some，不改变执行语义。
+
+真实Git新增五场景通过：普通及--root成功、root计划取消、root Edit后Abort、root
+Edit后Continue并自动应用后续Reword；每场景保留staged/unstaged两份内容、最终
+HEAD树、正确恢复stash及删除所有权记录。Edit期间saved_oid保留，不能误报成功。
+通过原生helper、后台Router、结构化问答、messages持久映射和既有rebase_operation
+Continue/Abort全链。日志/tmp/plico-interactive-execution-continue.log。23核心项和
+旧Squash本地修改测试亦通过；全量核心回归正在执行，未代替Windows原生验收。
+
+本轮全量cargo test --locked --no-default-features已结束，947项通过、56组结果、0失败，日志/tmp/plico-interactive-core-regression.log。
+新增启动器已调用start_interactive，上一节dead_code警告不再存在。尚未编译/验收
+Windows桌面新UI（UI未接入），未提交或发布。
+
+### 交互式 Rebase：计划表接线（2026-10-27）
+
+沿用本节前述 Windows Rebased 1.1.20 / IC-262.10968.SNAPSHOT 实机记录，重新查看
+artifacts/collaboration-workflows-20261027/rebased-interactive-autosquash-message.png：
+左半区工具栏、变高消息编辑行及 Ctrl+Enter 提示、Fixup 子行缩进；编辑期间 Start
+Rebasing 禁用。参考源码仍为 4aec35256d765c217aa0d662b82ac4e860c396fd，本轮读取
+interactive/dialog/GitInteractiveRebaseDialog.kt、ChangeEntryStateActions.kt、
+view/MoveTableItemRunnable.kt、view/CommitMessageCellEditor.kt，以及
+GitRebaseCommitsTableView.kt 的 removeEditor；均位于 plugins/git4idea/backend/src/rebase/。
+
+本地 src/rebase_plan_table.rs 接 Draft<Item>，视图不持有 Git Document/执行进程。
+选择以 RowId 保存，工具栏权限交给核心模型；上下移动按源实现方向排序，组移动后
+保留提交身份。Squash 打开组根行内消息编辑器，Fixup 保留原选择。列表使用 GPUI
+变高虚拟列表，编辑行注册 focus handle，避免离开可视区导致编辑器被虚拟化卸载。
+Ctrl+Enter 应用、F2、Alt 动作和撤销重做；向父弹窗发 Changed 事件，供 Start 禁用
+及右侧详情更新接线。未修改消息关闭编辑器不产生新草稿历史。
+
+源码 removeEditor 对未保存消息要求 Cancel Reword / Keep Editing 确认；本地保持
+文本直到选择确认，不以 Esc 或 Reset 静默丢弃。该细分确认场景目前只有源码依据
+和桌面回归，尚待补 Rebased/Plico 同条件原生截图。双击、范围选择和拖动也未完成
+全套原生验收，不将已有主场景截图扩大为边界全部通过。
+
+本步仅完成计划表组件，尚未接产品入口、父弹窗和右侧文件/详情；不得报告第8项
+可用或像素级还原完成。仍需图形连线/状态图标精细化、拖动排序、编辑区高度调整与
+记忆、菜单/快捷键完整性核对。新增 pause_dark.svg 来自同一参考提交 expui/run，
+来源和 Apache-2.0 记录在 assets/icons/SOURCE.txt、docs/THIRD-PARTY.txt。
+
+验证记录：计划表3项桌面回归通过，覆盖不改消息退出编辑、分组后稳定选择、Squash
+打开组根编辑器、Ctrl+Enter 实际事件派发、取消确认期间保留未保存文本。测试发现
+原始 capture_key_down 无法截取 Textarea 的 Ctrl+Enter（已被转换为 input::Enter），
+现改用 capture_action(input::Enter secondary)，修复后通过。渲染和事件拆到
+src/rebase_plan_table/view.rs，回归放 tests.rs，草稿生命周期保留主模块。
+全量 desktop-tests 157项通过；发布配置导航10项通过，日志
+/tmp/plico-rebase-table-desktop.log；cargo fmt --package plico -- --check及git diff --check
+通过。父弹窗/执行入口尚未接入，Windows新界面未验收；本次未提交、推送或发布。
+
+### 交互式 Rebase：父弹窗与右侧详情（2026-10-27）
+
+参考仍为 Rebased 4aec352 / 原生1.1.20，沿用本项已验证的左右分栏及上方文件、下方
+提交详情截图。本轮完整读取 FullCommitDetailsListPanel.kt（platform/vcs-log/impl/src/
+com/intellij/vcs/log/ui/details）：右侧纵向默认0.67；选择更新同时刷新详情、取消旧
+changes加载任务；异步完成回UI，失败显示错误。补读同目录 CommitDetailsListPanel.kt
+rebuildPanel/setCommits、GitLogUtil.readFullDetailsForHashes/getNoWalkParameter 和
+GitDetailsCollector.kt 的 readFullDetailsForHashes/readFullDetailsFromHandler：哈希
+通过 --no-walk=unsorted 加载，按当前选择顺序交给 zipChanges，不以日期重新排序。
+对应本地 interactive_rebase/details.rs；复用 commit_presentation、log_commit_changes
+和 combined_changes，按现有8MiB/变更数上限约束元数据，不预读文件内容。
+
+父弹窗 rebase_plan_dialog.rs 持有 Pending，Start消费一次计划答复，关闭丢弃 Pending
+取消worker等待；修改草稿后取消使用 Discard / Continue Rebasing 确认。输入编辑时
+禁用Start。已结束的操作不能再确认；状态查询仍需由后续操作协调器轮询关闭。
+Noop按 GitInteractiveRebaseEditorHandler.confirmNoopRebase 及 GitBundle 原文提示
+“继续会将当前分支重置到目标分支”，不能把它当作无副作用成功。Noop原生状态未验证。
+
+rebase_plan_details.rs 管理每次选择的generation、Cancel及任务；同一选择的消息编辑
+不重复读Git，切换或关闭后拒绝旧结果。view.rs上下分栏，文件树复用compact_rows，
+支持目录分组、展开收起、双击Diff；Diff复用现有DiffTab/Chain::combined并放入嵌套
+弹窗，关闭返回计划。消息卡片变高虚拟化，保留现有中英metadata及HTML转义。
+本地差异仍待收敛：分割线拖动/比例持久化、加载动画延迟、文件树根计数及快捷键、
+消息卡片的ref/包含分支细节；本步不是像素验收结论。尚未接Log入口/操作协调器，
+因此没有宣称产品可用，未提交、推送或发布。
+
+验证：真实Git选择详情测试通过，涵盖新增→修改→重命名聚合、请求顺序、重复ID、
+取消，以及工作区未提交内容不会混入提交Diff。计划UI定向6项通过（日志
+/tmp/plico-rebase-plan-ui-tests.log）：三项旧计划表回归，另含切换/关闭拒绝迟到结果、
+确认仅答复一次、关闭取消worker、过期Noop禁用确认。Windows新弹窗仍待入口接完后
+按原生相同场景验收。
+
+本步完整桌面回归160项通过，发布配置Diff导航10项通过，格式检查通过；日志
+/tmp/plico-rebase-dialog-desktop.log。此记录仅覆盖测试平台行为，不替代Windows验收。
+
+### 交互式 Rebase：Log 入口和执行协调（2026-10-27）
+
+重新核对 GitInteractiveRebaseAction.kt、GitCommitEditingActionBase.kt 的初始提交确认，
+GitBundle.properties 原文 Editing Initial Commit / Are you sure you want to edit the
+initial commit?；沿用前述 Rebased 的 Log 实机入口及实际成功执行记录。本轮没有补做
+原生初始提交警告/受保护分支禁用场景，仍待专项验收。
+
+本地 ui/interactive_rebase.rs 与 log_history.rs 接入“从此处交互式变基…”。菜单捕获
+repository/target/project身份；准备阶段异步读取Prepared，先检查HEAD祖先、protected、
+浅边界和现有操作；root确认后才可启动。执行前经过共享文档保存屏障，队列内再次
+复验Prepared，使用已实现的operation::execute，不另造重写算法。现有活动操作锁提供
+写入互斥/取消与spinner；bounded progress送入Rebase details，成功/暂停/冲突分别反馈，
+更新实际root工作区及项目Log，子仓库冲突交给open_conflicts_in。ordinary editor和auth
+请求继续走既有对话框；未知todo仍由核心路由回普通编辑器。
+
+计划弹窗新增open/accepted分离：关闭计划为主动取消，不能误显示执行失败；操作
+结束且其根弹窗仍打开时，关闭其嵌套Diff/确认层。已确认后打开的其他设置弹窗不会
+因为旧计划Entity仍被协调器持有而被关闭。此栈所有权假设限于本入口从Log创建根模态，
+不能直接复用于已有父模态内启动操作的场景。后续原生验收需覆盖取消时嵌套Diff。
+
+当前菜单同步门禁只判断单选、busy、浅边界和选中merge；protected/HEAD归属/已有Git
+操作在点击后的只读准备阶段确认。与Rebased已有包含分支缓存时立即禁用的行为仍有
+差异，待统一选择门禁缓存，不能当作菜单可用性完全对齐。计划表细节及未知编码等
+此前保留差异继续有效。
+
+桌面定向入口回归1项、弹窗生命周期2项通过，日志/tmp/plico-rebase-entry-tests.log；
+覆盖初始提交准备阶段无写入、释放操作锁、merge/浅边界门禁，以及dismissed与accepted
+区分。仅覆盖准备/UI状态；真实完整执行仍以前节helper集成为依据，Windows入口全链
+未验收。正在运行完整桌面、发布导航、核心interactive_rebase测试及Windows release
+构建，统一日志/tmp/plico-rebase-entry-validation.log，未提交或发布。
+
+入口版本验证完成：完整桌面161项、发布导航10项、核心interactive_rebase6项通过，
+格式检查及Windows release --bins构建通过，日志/tmp/plico-rebase-entry-validation.log。
+独立Windows fixture interactive-rebase-plico-ljtu8tb8，Plico自有PID32076/HWND21302256。
+实际右键step2→从此处交互式变基，计划含step2..4；F2打开行内编辑、Start禁用，
+单独发送Ctrl+Enter后编辑关闭/Start启用（一次SendKeys同时输入文本和组合键会受
+IME/消息时序影响，不用它判断快捷键失效）。点击Start后计划关闭、Log自动刷新、
+状态为变基完成。HEAD 7fe2c421→b4ddce6，step2消息为“step2： nativereword”，
+前后HEAD tree相同、status为空、共5提交；receipt为plico-interactive-result.json。
+截图plico-interactive-{entry,menu,dialog-ready,reword,apply,run,complete}.png均位于
+artifacts/collaboration-workflows-20261027，已逐张查看主要界面及结果。自有PID已关闭，
+未关闭用户Rebased/IDEA。内存输出仅截图脚本附带，不作为本轮基准或性能结论。
+
+实机发现todo标题含“#”：补读GitRebaseCommitsTableModel.getPresentation确认原始行
+使用getFullCommitMessage，Reword使用新消息，无metadata退回command/hash。
+本地view.rs已依此修正，六项计划UI回归通过（/tmp/plico-rebase-subject-tests.log）；
+这个纯展示修正晚于上述Windows二进制，尚未重新构建截图，不能把旧截图当修正验收。
+仍有工具栏尺寸、连线、焦点/取消/保护分支门禁等前述债务；未提交、未推送、未发布。
+
+补充原生验收（2026-10-27）：标题修正版Windows release构建成功，日志
+/tmp/plico-rebase-subject-windows.log。独立fixture仍为interactive-rebase-plico-ljtu8tb8，
+本轮自有PID13136/HWND77073560。计划三行标题均无todo注释“#”，与右侧详情一致；
+截图plico-interactive-subject-fixed.png。将首行标为Drop后取消，弹出放弃/继续变基，
+继续返回同一草稿且Drop仍保留；再次取消选择放弃，两个模态关闭，状态为操作已取消，
+未显示失败。截图plico-interactive-{modified-cancel,cancel-continue,cancel-discard}.png，
+均位于artifacts/collaboration-workflows-20261027。对应此前Rebased modified-cancel
+原生行为；本轮没有再次运行Rebased。HEAD仍为b4ddce6a3cd45a293a1ab753b6b636806a2e0293，
+status为空且rebase-merge不存在，确认丢弃计划没有改写历史。Edit暂停恢复、嵌套Diff
+取消及此前列出的视觉/门禁债务仍未完成原生验收，不扩大本次结论。
+
+### 交互式 Rebase：Edit暂停与继续原生核对（2026-10-27）
+
+Rebased1.1.20，独立reference-b4qzatic仓库，新开自有HWND39915282（PID31052共享，
+不结束进程）。选step2，从此处交互式变基，首行点击暂停图标后显示暂停标记；Start后
+停于step2，顶部Rebasing topic，绿色继续/红色中止按钮，通知Rebase stopped for editing
+含Continue/Abort。直接继续成功，返回topic，仅有Rebased创建的.idea未跟踪文件。
+截图rebased-interactive-edit-{plan,paused,continued}.png均在既有20261027目录。
+源码仍4aec352，补读plugins/git4idea/backend/src/rebase/GitRebaseProcess.java的
+rebaseSingleRoot循环及showStoppedForEditingMessage：Git命令成功但检测到editing停止
+也返回SUSPENDED，通知提供继续/中止；成功完成清理该通知。Linux只读检查Windows
+fixture须禁用core.filemode，避免把挂载权限差异误认为工作区编辑。
+
+Plico相同场景：自有PID2808/HWND6622730，step2标为Edit后Start，HEAD停在8a52acd8，
+工作区无变更，顶部有继续变基/中止变基；点击继续后topic恢复、Log刷新、状态变基完成。
+截图plico-interactive-edit-{plan,paused,continued}.png。确认此无内容修改的暂停/继续
+主流程有效；未将其推广为Amend后继续、Abort、冲突或嵌套Diff全通过。
+新确认展示差异：计划Edit行仍普通圆点（上游暂停图标），顶部仍显示hash游离HEAD
+（上游Rebasing topic），状态栏仅变基暂停（上游明确停止编辑）；需后续修正并验收。
+本轮没有修改产品代码，未提交、推送、发布。
+
+### 暂停展示修正（2026-10-27，原生待复验）
+
+基于上一节已实机验证的Edit状态，补读同一4aec352的
+plugins/git4idea/backend/src/rebase/interactive/dialog/GitRebaseCommitsTableView.kt：
+getDrawNodeType优先将Edit映射EDIT，drawEditNode绘制AllIcons.Actions.Pause，Edit节点
+不绘制普通连接线。src/rebase_plan_table/view.rs现以已有pause_dark.svg代替Edit圆点；
+其余节点/连线仍是此前记录的待完善项，不宣称整个graph还原完成。
+补读GitBranchWidget.kt::getFullBranchName委托及branch/GitBranchUtil.java::
+getDisplayableBranchText：REBASING使用状态前缀与分支名，不按普通DETACHED显示。
+本地ui/repository_popup.rs使用已加载operation_state.rebase_branch（核心读取并去除
+refs/heads/前缀），中英文增加Rebasing；缺少原分支信息时保留已有label作为回退。
+没有增加render期间Git查询，没有改变菜单路由或操作队列。
+Edit图标定向6项通过；合并标题修改后的验证及Windows构建日志
+/tmp/plico-rebase-presentation-validation.log。新显示尚未Windows原生复验，暂停原因
+提示、中止流程及其他未完成项仍保留。未提交/推送/发布。
+
+### Edit中止与暂停展示复验（2026-10-27）
+
+上述Windows构建成功（1m12s），定向6项通过。Rebased独立reference-b4qzatic项目
+HWND1509968：Edit停止后点击顶部红色中止，Abort Rebase确认“Abort rebase in project?”，
+确认后恢复topic并提示Abort rebase succeeded。截图rebased-interactive-abort-confirm.png、
+rebased-interactive-aborted.png。补读同一4aec352的actions/GitRebaseAbort.java委托
+GitRebaseUtils.abort，以及GitRebaseUtils.java的两个abort重载：项目spec和单仓库
+均调用GitAbortRebaseProcess.abortWithConfirmation；此阅读未扩大为整个abort过程已读。
+
+Plico自有PID41760/HWND40701714实际复验：首行Edit显示pause图标；启动后顶部显示
+“正在变基 topic”，确认上轮两个修正生效。点击中止，确认框明确仓库名及路径，
+确认后返回topic，HEAD仍b4ddce6a3cd45a293a1ab753b6b636806a2e0293、status干净、
+rebase-merge不存在，顶部恢复普通分支，Log及详情恢复。截图
+plico-interactive-edit-icon-fixed.png、plico-interactive-rebasing-title-fixed.png、
+plico-interactive-abort-confirm.png、plico-interactive-aborted.png，均在20261027目录。
+本次验证仅覆盖干净工作区Edit后直接Abort，未声称Amend后Abort或多根回滚全验收。
+本地确认框额外路径用于区分同名根；按钮颜色/图形、暂停原因通知及计划图形连线仍待对齐。
+
+### Edit暂停原因提示（2026-10-27）
+
+沿用已截图的Rebased Edit暂停通知与Plico暂停状态。补读4aec352的
+plugins/git4idea/backend/src/rebase/GitRebaseProblemDetector.java：大小写不敏感匹配
+“You can amend the commit now”，GitRebaseProcess成功退出分支据此返回SUSPENDED并
+显示Rebase stopped for editing。本地interactive_rebase/operation.rs增加
+Report::stopped_for_editing，检查stdout/stderr提示、正常退出及当前仍为rebase且无冲突；
+视图只消费核心结果，不另行解析输出。ui/interactive_rebase.rs及i18n.rs对应显示
+“变基已暂停，等待编辑提交”。Session已强制LC_ALL/LANG=C，检测不依赖应用显示语言。
+真实Git集成用例interactive_operation_preserves_dirty_index_and_restores_after_cancel_or_root_abort
+新增判断：root Edit/后续Continue均识别编辑暂停，成功及取消不误报；同时保留既有
+staged/unstaged恢复验证。专项已通过，桌面入口回归日志
+/tmp/plico-rebase-edit-reason-tests.log。此变更尚未Windows构建/原生复验。
+此检测不将所有未完成状态归为Edit；取消普通commit-message编辑器的提示仍需另行
+区分，不能把本次Edit检测声明为全部暂停原因处理完成。
+
+### Edit暂停原因原生验收完成（2026-10-27）
+
+Windows release构建已通过，日志/tmp/plico-rebase-edit-reason-windows.log。
+本轮重新确认自有PID9144/HWND8718688仍存活，在独立
+interactive-rebase-plico-ljtu8tb8/project中截图确认：右下显示
+“变基已暂停，等待编辑提交”，顶部“正在变基 topic”，详情保留Git的
+You can amend the commit now及git rebase --continue原始指引。
+关闭详情后点击继续变基，等待实际状态更新，再次截图确认顶部恢复topic、
+状态为“变基已完成”，继续/中止按钮消失。只读Git检查HEAD为
+b4ddce6a3cd45a293a1ab753b6b636806a2e0293、分支topic、工作区干净且
+.git/rebase-merge已移除。证据在artifacts/collaboration-workflows-20261027/
+plico-interactive-edit-reason-{details,continued}.png。
+验证后CloseMainWindow关闭自有PID9144并WaitForExit确认成功；未关闭用户Rebased窗口。
+此结果仅补齐前节Edit提示与直接继续的原生验收，不扩大为其他暂停原因或全部计划完成。
+
+### 非HEAD提交的交互式Rebase入口（2026-10-27，实现前对照）
+
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT，自有项目窗口HWND8521660：在独立
+reference-b4qzatic仓库从root创建eligibility-side，当前分支保持topic。选择仅在
+side分支的702c6c2提交，详情显示In 1 branch: eligibility-side；右键菜单中的
+Interactively Rebase from Here保留位置但呈禁用，其他checkout/reset入口仍可用。
+截图artifacts/collaboration-workflows-20261027/rebased-interactive-nonhead-disabled.png。
+参考4aec352的GitCommitEditingActionBase.kt::checkCommitsCanBeEdited读取已有
+containingBranchesGetter快速缓存：不含HEAD禁用，缓存未知留待actionPerformed复查。
+GitSingleCommitEditingAction.kt的最后检查同样要求HEAD归属，不要求HEAD到目标整段
+无merge；GitInteractiveRebaseAction.kt另声明ProhibitRebaseDuringRebasePolicy。
+本地先复用详情的选择级ContainingBranches查询，以仓库路径+完整hash匹配结果，
+避免额外Git查询和跨根同hash误用；查询失败/未完成仍由现有Prepared点击后严格复查。
+本节仅确认非HEAD入口规则，保护分支及运行中操作的原生禁用状态仍待验收。
+
+实现：src/containing_branches.rs保存单次查询的(root,hash)，contains_head仅在身份
+匹配且查询成功时返回已知判断；src/ui/interactive_rebase.rs的入口判定消费该缓存，
+未知/错误继续沿用点击后Prepared校验。未把reword的线性历史限制引入此入口，未新增
+后台查询或常驻缓存。桌面专项2项通过（/tmp/plico-rebase-ancestry-tests.log），新增
+真实Git侧分支用例验证禁用、切回HEAD祖先恢复，以及跨仓库/不同hash不复用缓存。
+自有Rebased项目窗口8521660已关闭，保留原31052与44688的用户窗口。
+Windows release构建53.42s通过（/tmp/plico-rebase-ancestry-windows.log），自有
+PID41676/HWND64229044在独立ljtu8tb8仓库完成同场景原生复验：side-only提交详情
+仅eligibility-side，右键“从此处交互式变基”灰显；切回topic HEAD后该项恢复可用。
+截图plico-interactive-nonhead-disabled.png、plico-interactive-head-enabled.png在同一
+20261027目录。验证未执行变基写操作，测试窗口CloseMainWindow/WaitForExit均成功。
+保护分支与操作状态的入口禁用尚未在本节实现；不把本次结果作为全部入口条件完成。
+
+### 保护分支入口实机依据（2026-10-27，尚未接线）
+
+Rebased安装版仍1.1.20 / IC-262.10968.SNAPSHOT。独立reference-b4qzatic仓库
+新增本地bare protected.git，通过protected-test远端推送topic至main；未访问网络远端。
+自有窗口29296410选择当前topic HEAD 7eadeb4，右键“Interactively Rebase from Here”
+禁用，菜单显示Branch 'protected-test/main'，与未发布状态的可用入口相区别。
+截图artifacts/collaboration-workflows-20261027/rebased-interactive-protected-disabled.png。
+补读参考4aec352完整GitProtectedBranches.kt：先取repository.branches.remoteBranches，
+对nameForRemoteOperations应用保护规则，再用nameForLocalOperations匹配归属结果。
+因此不能只看显示名后缀，也不能把本地origin/main当作远端。GitCommitEditingActionBase
+快速缓存未知时仍延后检查；当前Plico的Prepared已有fresh protected_containing拒绝，
+缺口是菜单前置灰显。现有ContainingBranches返回Vec<String>已丢失Local/Remote类型；
+直接按末段main/master猜测会误伤feature/main，远端名称含斜线还需最长配置名称匹配。
+后续应将结构化引用身份保留在核心查询结果中，并复用已知远端信息；未知状态仍交
+点击后的严格校验。此次只完成参考验收和数据约束确认，未宣称保护分支菜单已修复。
+
+### 保护分支入口结构化查询实现（2026-10-27，原生待验收）
+
+在前节实机依据后，补读4aec352 GitUtil.java::parseRemoteBranch：按斜线从左向右
+查找第一个已配置remote；没有配置匹配时回退第一个斜线构造fakeRemote。因此前节
+“最长配置名称匹配”是错误推断，在此更正；本实现复用pull::parse_remote_ref的
+首个匹配规则并为保护策略增加上游孤立引用回退，不改变Pull的可选目标范围。
+
+git::Repository::branch_membership复用原containing_branches的一次祖先遍历，额外保留
+非symbolic远端的完整refs/remotes身份。published_commits::Membership进行默认保护
+策略判断；仅存在main/master末段候选时执行一次git remote轻量配置查询，区分
+origin/feature/main与远端origin/feature的main。本地同名引用不进入候选。
+containing_branches视图先公布names，随后异步公布保护判断，匹配(root,hash)才供
+ui/interactive_rebase消费；未知/失败保持点击后复查，不阻塞详情首屏。多选卡片仍
+沿用只读名字查询，不增加保护检查。没有第二次历史遍历或每帧Git调用。
+默认执行前的squash_check::protected_containing也复用同一策略，避免菜单与实际
+执行对孤立远端引用产生不一致。显式Protection目标查询保持原有精确目标语义。
+核心新增真实Git测试覆盖本地同名、feature/main、重叠remote配置首匹配、孤立引用
+和symbolic引用；桌面新增HEAD属于保护远端时禁用及跨仓库身份不复用。
+
+验证：membership_protection核心用例及3项桌面入口测试通过；初次fixture使用git remote
+add创建重叠名称被Git拒绝，改用显式config构造兼容性场景后通过。后续回归为
+interactive_rebase 6项、reword 13项、repository squash_ 9项全部通过。
+日志/tmp/plico-protected-membership-tests.log、/tmp/plico-protected-execution-tests.log。
+前者末尾无效的squash_operation测试目标调用没有执行测试，已用后者正确目标补跑，
+不计为通过。Windows release构建1m17s成功，日志
+/tmp/plico-protected-membership-windows.log（既有Request变体unused警告保留）。
+原生自有PID31724/HWND9439164：独立ljtu8tb8仓库topic推送至本地bare远端
+protected-test/main后，选择HEAD，详情含该远端引用，菜单“从此处交互式变基”灰显，
+与Rebased参考状态一致。截图plico-interactive-protected-disabled.png在20261027目录。
+未通过UI执行历史写操作；验证后CloseMainWindow/WaitForExit确认关闭测试实例。
+默认保护仍为main/master；自定义保护表达式设置不属于本次新增范围。运行中Git操作的
+菜单禁用、多根后续边界及交互式Rebase其他验收债务仍未完成。未提交/推送/发布。
+
+### 进行中操作的交互式Rebase入口（2026-10-27，实现前依据）
+
+Rebased同版本，在独立reference-b4qzatic仓库移除本轮保护测试tracking ref，执行
+merge --no-commit --no-ff eligibility-side，产生真实MERGE_HEAD但无冲突。自有窗口
+11142160顶部Merging topic，选择HEAD后右键Interactively Rebase from Here禁用，
+Checkout/Reset等入口仍保留。截图rebased-interactive-merging-disabled.png在20261027目录。
+参考4aec352 GitCommitEditingActionBase.kt::getProhibitedStateMessage按选中提交的
+repository.state判断，NORMAL/DETACHED允许，REBASING/MERGING/GRAFTING/REVERTING
+拒绝；GitInteractiveRebaseAction声明该Prohibit策略。不能仅查Plico当前是否有worker，
+也不能用主仓库状态代替所选提交仓库。本地已有ProjectRoots.operations的按根观察结果，
+应直接复用，不新增Git调用；未知状态仍由点击后Prepared权威检查处理。
+本次原生已核对MERGING，其余状态源码明确但对应禁用菜单原生截图尚待。
+
+实现ui/interactive_rebase.rs使用ProjectRoots.operations按规范化仓库身份匹配，
+已有操作时禁用；未用主仓库operation_state，也不因另一根的暂停状态一并禁用。
+仍保留应用自身正在执行/保存文档时的统一busy限制。没有新增磁盘或Git读取。
+桌面4项通过（/tmp/plico-rebase-operation-gate-tests.log），新增用例覆盖六类本地
+operation枚举、另一根状态不影响选择、None+detached不因本次状态规则误禁用。
+这是菜单状态测试，不替代多根实际Git操作验收。Rebased测试窗口11142160关闭后，
+独立fixture merge --abort清理，仅保留Rebased自己的.idea未跟踪文件。
+Windows release构建通过（/tmp/plico-rebase-operation-gate-windows.log）。原生自有
+PID29360/HWND8192292：独立ljtu8tb8仓库外部merge --no-commit --no-ff后，Plico
+顶部显示完成/中止合并，所选HEAD的交互式变基入口灰显。外部merge --abort后不重启
+Plico，观察到顶部恢复普通分支，重新打开右键菜单入口恢复可用。工作区status干净。
+截图plico-interactive-merging-disabled.png与plico-interactive-operation-cleared.png
+在20261027目录；测试窗口已CloseMainWindow/WaitForExit成功关闭。
+本次原生观察另记录顶部缺少Rebased的Merging文字前缀，属于既有展示差异，尚未修正；
+其余暂停类型菜单的逐项原生截图仍未补齐，不将枚举测试算作全部实机覆盖。
+
+### 合并分支标题补齐（2026-10-27，原生待复验）
+
+以上rebased-interactive-merging-disabled.png明确显示Merging topic，本地对应截图
+仅topic。补读同一4aec352 GitBranchUtil.java::getDisplayableBranchText的MERGING
+分支，使用当前分支名加merge状态前缀。ui/repository_popup.rs补齐Operation::Merge
+标题，i18n.rs增加Merging/正在合并；沿用operation_state与snapshot，不新增查询。
+此处未同时改动尚无对应原生截图的GRAFTING/REVERTING标题，继续记录为后续差异。
+Windows release构建1m11s通过（/tmp/plico-merging-title-windows.log）。自有
+PID23340/HWND9046368原生确认“正在合并 topic”及完成/中止按钮并列，截图
+artifacts/collaboration-workflows-20261027/plico-merging-title.png。英文资源已接线，
+本次未切换英文实机。已关闭自有测试实例并确认退出，独立fixture中止merge后干净。
+
+下一处计划表图形对齐的依据：复看先前实际操作截图rebased-interactive-fixup.png，
+可见主列连续竖线、unite root双圆、child首行向上箭头及横线；Plico仍为●/↳字符。
+补读4aec352 GitRebaseCommitsTableView.kt::SubjectRenderer与
+GitRebaseCommitIconTableCellRenderer完整绘制段：Edit使用pause且不画主线，Drop与
+UniteChild不画节点但保留主线，UniteRoot双圆；child在subject前20px区域绘制分组线，
+首child向上箭头，末child不画下半线。Drop文字使用删除线。当前尚未实现该图形修正。
+
+### 计划表图形绘制（2026-10-27，原生待复验）
+
+基于上节已实际操作的rebased-interactive-fixup.png及Edit截图，补读4aec352
+platform/vcs-impl/.../CommitIconTableCellRenderer.kt完整实现：nodeWidth=8，中心x=8，
+中心y固定默认行高一半，编辑增高时仅下半连接线延长。rebase_plan_table/graph.rs
+将●/↳替换为行内canvas：1.5px主线、8px圆节点、unite双圆遮罩、Edit暂停无主线；
+Fixup在subject前20px画向上箭头及组内连接线。每行按自身最终bounds绘制，没有
+异步坐标测量或额外任务。view.rs保持选择、编辑和点击逻辑，只调整图形与subject缩进。
+当前仍保留既有Drop文字样式，删除线未在本节一并实现；不能声明全部计划表还原。
+验证：rebase_plan_table 3项桌面用例通过，Windows release构建成功，日志
+/tmp/plico-plan-graph-tests.log和/tmp/plico-plan-graph-windows.log。自有
+PID44524/HWND3344890打开step1起的4提交计划：普通节点连接线连续，最后节点下方
+无尾线；选择step2→Fixup后step1双圆、step2无主节点但保留主线，subject前向上箭头
+与横线符合先前Rebased截图结构。证据plico-plan-graph-{ordinary,fixup}.png在20261027
+目录。取消→放弃后HEAD仍b4ddce6a3cd45a293a1ab753b6b636806a2e0293、工作区干净、
+rebase-merge移除，随后CloseMainWindow/WaitForExit确认自有实例关闭。
+本次原生仅覆盖普通行及单child组；多child、编辑增高与Drop样式仍待进一步核对，
+整体toolbar间距、字体和对话框布局仍有此前记录的差异，未宣称像素级完成。
+
+### Drop 与 Reset 实机依据（2026-10-27，实现前）
+
+安装版 Rebased 1.1.20，自有 reference-b4qzatic 仓库从 step1 打开四条计划，
+选 step2→Drop→Reset→Cancel。截图 20261027 目录 rebased-plan-reset-{drop,after,cancel}.png：
+Drop 保持普通文字颜色并加删除线，主节点消失；Reset 后文字与节点恢复、Reset 链接隐藏，
+但 Cancel 仍弹出 Discard changes and cancel rebase 确认。取消并关闭自有参考窗口。
+源码 4aec352 的 GitInteractiveRebaseDialog.kt：两个模型监听分别设置 resetEntriesLabel
+可见与 sticky modified；Reset 回调最后隐藏链接，不清除 modified。
+GitRebaseCommitsTableModel.resetEntries 保存可撤销状态并通知模型变化；
+GitRebaseCommitsTableView.SubjectRenderer 对 Drop 使用 STYLE_STRIKEOUT 且不覆盖前景色。
+本地计划将链接可见状态与 Draft.modified 分离，只有模型改变重现链接，选择和编辑器
+开关不算模型变化；Drop 使用文字删除线。实现与本地原生验收尚待。
+
+实现完成：rebase_plan_table.rs 独立 reset_visible，只在成功修改 action/message/分组/
+顺序或撤销重做时显示；Reset 隐藏但保留 Draft.modified。view.rs 用 StyledText 删除线
+绘制 Drop，沿用普通前景色。新增桌面测试覆盖 Drop→Reset→选择/未改消息→Ctrl+Z，
+确认 Reset 可撤销、取消保护不丢失。4 项桌面测试通过（/tmp/plico-plan-reset-tests.log），
+Windows release 构建通过（/tmp/plico-plan-reset-windows.log）。
+原生 PID7988/HWND12125200 完成相同步骤，截图 plico-plan-reset-{drop,after,cancel}.png
+确认删除线、重置后隐藏链接、取消仍确认。Discard 后 HEAD 为
+b4ddce6a3cd45a293a1ab753b6b636806a2e0293，status 干净、无 rebase-merge；自有进程已关闭。
+本节只验收 Drop/Reset，既有计划表拖动、布局/按钮大小/链接颜色等差异仍待处理。
+
+### 计划表拖动依据（2026-10-27，实现前）
+
+Rebased 1.1.20 自有 reference-b4qzatic 四行计划原生操作：step1 拖到第三行→顺序
+2/3/1/4；Reset 后多选 step1/2 再拖 step1→第三行，仍为2/3/1/4，仅第三行选中；
+Reset 后 step2 Fixup 到 step1，再拖 step1 到第四行→3/4/1/2，组一起移动，
+最终选中第四行（child），不是根。截图 rebased-plan-drag-{single,multi,group}.png。
+取消放弃并关闭自有窗口；未执行实际变基。
+源码4aec352：GitInteractiveRebaseDialog 的 TableToolbarDecorator 安装 RowsDnDSupport；
+RowsDnDSupport.java 保存起点单行及 component 身份，同组件 enabled 才能 drop，
+目标上移在行上方画2px线、下移在行下方；exchangeRows 后选择目标索引。
+GitRebaseCommitsTableModel.exchangeRows 委托模型 exchangeIndices，canExchangeRows 为true。
+与 MoveTableItemRunnable 的多选批量操作不同。Rust 现有 Draft.reorder/Model.exchange
+已承载组规则；新 UI 只负责起点/目标/实例身份及落点选择，不能另造组重排规则。
+原生尚未验证长表边缘拖动自动滚动及编辑消息时拖动，本轮不声称覆盖。
+
+实现：rebase_plan_table/drag.rs 管理实例身份、稳定 RowId、目标提示及拖动生命周期；
+视图提供单行 on_drag/on_drop，落点委托 Draft.reorder，选择目标索引、刷新详情与Reset。
+拖动提示为独立绝对定位2px线，不增加行高；Esc停止拖动，拖出释放不改草稿。
+编辑器打开时暂不注册拖动，此项原生边界待核对，不能当作上游结论。
+5项计划表桌面测试通过（/tmp/plico-plan-drag-tests.log），新增鼠标事件测试验证
+0→2排序、目标选择及Esc取消不修改计划。Windows构建/原生复验进行中。
+
+Windows release构建通过（/tmp/plico-plan-drag-windows.log）。自有PID44676/HWND12649488
+原生拖动step1到第三行得到2/3/1/4，目标行选中；Reset后step2 Fixup到step1，
+拖根到第四行得到3/4/1/2，组选中目标child，与Rebased一致。
+截图plico-plan-drag-{single,group}.png。取消放弃后HEAD仍b4ddce6a3cd45a293a1ab753b6b636806a2e0293，
+工作区干净、无rebase-merge，自有Plico已关闭。拖动基础行为通过，长表边缘自动滚动、
+编辑消息期间的拖动规则及整体视觉差异仍待核对；未宣称整个交互式Rebase完成。
+
+### 本轮完整回归与 Reword 入口差异（2026-10-27）
+
+当前工作树完整核心回归949项/56组通过（/tmp/plico-workflows-core-regression.log），
+完整桌面166项通过（/tmp/plico-workflows-desktop-regression.log），发布断言配置下
+Diff导航10项通过（/tmp/plico-workflows-navigation-regression.log）。无新增忽略项，
+这是本地回归，不是CI或全部原生场景验收，也不代表8项总目标已完成。
+
+Rebased1.1.20自有reference-b4qzatic：点击Reword打开step1时Reset立即可见；
+不改字，从下方step2拖向step4的旧坐标，编辑器收起、计划不重排（收起后目标在空白区）。
+Reset后双击step1进入相同编辑器，Reset仍隐藏。截图rebased-reword-action-start.png、
+rebased-reword-click-away.png、rebased-reword-double-click.png。
+源码4aec352 ChangeEntryStateActions.kt::actionPerformed/updateModel、RewordAction
+及 GitRebaseCommitsTableModel.updateModel/SavedStates：工具栏/快捷键action先走
+统一updateModel，即使只打开编辑器，也保存状态并发模型通知；双击直接创建编辑器。
+CommitMessageCellEditor使用stopCellEditing提交，setValueAt修改当前模型，不额外
+保存历史状态。这揭示本地按钮与双击共用begin_message、统一在apply_message保存
+历史的剩余差异。前文“编辑器开关不算模型变化”的规则仅适用于双击入口，不能泛指
+Reword action；此前Drop/Reset原生证据仍有效。需要把action入口与双击入口分开，
+并一并核对撤销语义，不能只强行显示Reset掩盖历史状态差异。此项尚未修复。
+
+本轮源码另确认上游GitInteractiveRebaseEditorHandler使用getCommitEncodingCharset
+读写提交消息，本地interactive_rebase/operation.rs仍拒绝非UTF-8。Document目前以
+UTF-8 String保存原始内容，后续需同时处理解码、写回编码、原字节并发校验和继续操作；
+不能仅移除encoding门禁。非UTF-8原生场景尚未验证，未实施行为修改。
+自有Rebased窗口已关闭，参考HEAD仍7eadeb404d02f84a9d9becf9d8363e95062bbf5b，
+仅.idea未跟踪；未启动Plico实例。
+
+### Reword action 入口修正依据（2026-10-27，实现前）
+
+同版本Rebased独立四行计划，Reword按钮修改step1为changed native message，
+Ctrl+Enter后新消息可见，Ctrl+Z恢复原文，再Ctrl+Shift+Z仍原文，未恢复修改消息。
+截图rebased-reword-history-{applied,undo,redo}.png。结合上一节源码，action开启编辑
+时保存的是旧模型，setValueAt未更新该快照；不将此结果复制为Plico的保稿行为。
+本地拟区分action与双击入口：action立即显示Reset并保留取消保护；实际消息仍作为
+一次可撤销修改保存，重做恢复新消息，不额外塞入重复旧快照。保留差异理由是避免
+重做丢失用户草稿，同时维持有界历史。双击未改字仍不触发该action保护。
+
+实现rebase_plan_table::reword_action独立于双击begin_message：记录曾调用Reword、
+显示Reset；modified统一包含该标记，Reset不清除取消保护。按钮、F2、Alt+R接入，
+Squash与双击保持原入口。Draft仍只保存实际编辑结果，没有加入重复旧快照。
+6项计划表桌面测试通过（/tmp/plico-reword-action-tests.log），新增F2→改字→
+Ctrl+Enter→撤销→重做→Reset，验证重做消息与取消保护。原生复验进行中。
+
+Windows release构建通过（/tmp/plico-reword-action-windows.log）。自有PID24344/HWND11077984
+点击Reword后原生确认编辑器打开且Reset立即显示，见plico-reword-action-start.png。
+后续输入被foreground guard拒绝，未发送按键，不将撤销/重做称为原生通过；该部分
+只有上述桌面事件测试通过。定向点击取消/放弃后无rebase-merge，HEAD仍
+b4ddce6a3cd45a293a1ab753b6b636806a2e0293，status干净，CloseMainWindow确认退出。
+本次参考窗口也已关闭，未关闭用户原有Rebased窗口。原生键盘流程待恢复焦点后补验。
+
+### 非 UTF-8 编辑器：原生写回核对（2026-10-27）
+
+参考源码仍为 4aec35256d765c217aa0d662b82ac4e860c396fd，安装版仍为
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT。独立 rebase-encoding-akl5s4bi/project
+仓库配置 i18n.commitEncoding 与 i18n.logOutputEncoding 为 ISO-8859-1；
+初始提交消息含原始字节 cafe 的 e-acute（0xe9），无远端。
+在 Log 对 HEAD 打开交互式变基，Reword 编辑为 café rewritten，Ctrl+Enter
+后执行 Start Rebasing。截图 artifacts/collaboration-workflows-20261027/
+rebased-encoding-{plan,edit,ready,result}.png：计划和编辑框正确显示 café，
+执行显示成功，但 Log 变成 caf? rewritten。cat-file 原始对象确认消息确实
+为 ASCII 问号，encoding 头仍是 ISO-8859-1；原始字节记录见同目录
+rebased-encoding-result-bytes.txt。不能把这个原生结果当作无损兼容通过。
+
+已读取 plugins/git4idea/backend/src/config/GitConfigUtil.java：提交编码来自
+i18n.commitencoding；日志编码先取 i18n.logoutputencoding，再回退提交编码；
+未知 Charset 回退 UTF-8。已读同目录 rebase/GitInteractiveRebaseFile.java
+按日志编码读写 todo；GitInteractiveRebaseEditorHandler.java 按提交编码读取消息
+并用 getBytes(encoding) 写回自动 Reword 消息。源码版本与安装版不一致，
+本次尚未定位实机问号产生的确切环节，不据此猜测根因。
+
+本地映射 src/editor.rs 的 Document：需要分别保留原始字节和解码文本，
+保存前以原始字节检查外部变化；后续接入编码选择、严格编码和不可表示字符报错，
+不能静默替换为问号。目前交互式变基的非 UTF-8 门禁仍保留，完整编码支持待完成。
+
+补充源码：GitImplBase.java::loadFileAndShowInSimpleEditor 对普通编辑回退也使用
+提交编码；rebase/interactive/GitRewordedCommitMessageProvider.kt 保存 String 映射，
+以 onto hash 和原消息前缀匹配后消费映射。本轮未据此确认已安装版本问号的根因。
+本地先完成原字节／文本分离，新增真实 helper IPC 测试：打开 UTF-8 消息后外部以
+Latin-1 字节替换，保存明确报告外部修改且不覆盖文件。编辑器集成测试 20 项通过，
+日志 /tmp/plico-editor-bytes-tests.log；cargo fmt --package plico 已运行。
+Windows Plico 对完整编码行为待实现后验证。本轮自建 Rebased 编码项目窗口已关闭，
+保留原有三个用户窗口。未提交、推送或发布。
+
+### Git 编辑器严格编码接入（2026-10-27）
+
+沿用上一节实机截图与源码依据。src/editor/encoding.rs 集中读取 Git 生效配置，
+Document 在完成精确文件路径授权后查询编码，并捕获编码用于同一次保存；Git 查询
+使用请求取消令牌。提交消息取 commitEncoding，todo 取 logOutputEncoding（缺省
+回退 commitEncoding，再缺省 UTF-8）。linked worktree 从其专属 Git 目录查询，
+验证 extensions.worktreeConfig 的覆盖生效，不手动解析配置或假定全局根一致。
+
+UTF-8、ASCII、ISO-8859-1 显式实现；其他采用 encoding_rs 0.8.42 的规范编码名，
+仅接受 ASCII 兼容编码。ISO-8859-1 不使用 WHATWG 的 Windows-1252 替代。
+未知／尚不支持的别名明确报错，而非 Rebased 的 UTF-8 回退；保留此差异以避免
+在未证明等价时按错误字符集改写历史。无法编码或编码后不能往返还原的文本在
+打开写句柄前拒绝，允许用户继续修改同一草稿。读取和编码输出均受大小限制，
+保存仍按原字节校验外部修改。完整 Java Charset 别名集合尚未覆盖。
+
+interactive_rebase/operation.rs 原“仅 UTF-8”门禁改为保存本地修改之前验证两种
+编码；共享 Document 覆盖自动消息映射和普通编辑回退。既有单独 Commit/Reword
+操作的编码门禁未扩大范围修改。
+
+验证：22 项 editor 集成测试通过（/tmp/plico-encoding-tests.log），包括真实 Git
+Latin-1 commit 对象、不同日志／提交编码、不可表示字符拒绝且不改文件、根与
+非根交互式变基的 Latin-1 Reword/Squash。随后新增 linked worktree 编码覆盖与
+未知编码测试单独通过（/tmp/plico-encoding-worktree-tests.log）。格式化已运行。
+Windows 构建正在执行 /tmp/plico-encoding-windows.log，Plico 原生编码场景待验收，
+不能以这些核心测试宣称 UI 验收完成。尚未提交／推送。
+
+上述 Windows release 构建已通过（仅既有 Request dead_code 警告）。独立 Plico
+原生验收仓库 plico-encoding-pns4e67u 已准备，保留原始 Latin-1 café 提交，尚未启动。
+
+### Plico Windows 原生编码验收（2026-10-27）
+
+独立 plico-encoding-pns4e67u/project，原始 HEAD 与 Rebased 场景一致，两个
+编码均为 ISO-8859-1。从 HEAD 右键打开交互式变基，点击修改消息，输入
+café rewritten，Ctrl+Enter 后 Start。原生 Log 自动刷新为 café rewritten，
+cat-file 原始对象保留 encoding ISO-8859-1 及 0xe9（无问号）；消息修改成功。
+截图 artifacts/collaboration-workflows-20261027/plico-encoding-
+{initial,menu,plan,edit,ready,result}.png 与 result-bytes.txt。入口、编辑期间
+Start 禁用、应用后执行和成功后关闭计划均通过。仍有既存编辑框边框、工具栏
+按钮等视觉差异，本轮没有声称像素还原完成。未知编码及不可表示字符的原生
+报错界面尚未验收，核心测试已有覆盖。
+
+WSL git status 曾报告 review.txt 模式 100644→100755，文件内容一致；宿主机
+Git status --porcelain 为空，git diff --exit-code HEAD -- review.txt 返回 0。
+这是跨平台挂载权限观察差异，不作为工作文件内容改变。
+
+本轮编码原生验收 Plico 7816 已通过 CloseMainWindow 正常退出。共享编辑器改动
+触发完整核心、桌面及发布断言导航回归，日志分别为 /tmp/plico-encoding-
+{core,desktop,navigation}-regression.log；运行结果另行记录。
+
+本轮回归完成：953 项核心测试（56 组）、167 项桌面测试、10 项发布断言配置
+Diff 导航测试全部通过；上述两个运行会话均以 0 退出，无忽略项增加。
+这些是本地回归结果，不代表 CI 已运行。编码正向原生验收已完成，错误界面及
+完整第 8 项的其他待办仍保留。未提交／推送／发布。
+
+### 编码失败与子根变基原生验收（2026-10-27）
+
+编码 fixture 设置不存在的 plico-invalid-encoding 后，从 Log 启动交互式变基，
+出现“变基需要处理”弹窗，明示不支持的编码名；HEAD 与执行前完全相同，
+没有 rebase-merge 状态。截图 plico-encoding-error.png；已恢复 ISO-8859-1，
+测试实例 37460 正常关闭。错误详细信息保持原始英文诊断，标题和操作为中文，
+不可表示字符的保存失败界面仍未实测。
+
+新建独立 plico-multiroot-rebase-qcunbjlz/project，含 child 子模块。父仓库
+一个提交、子仓库两个提交；聚合 Log 显示三行。对 child step 2 启动交互式
+变基，计划和右侧文件均属于 child；Reword 打开编辑器，但 Windows 前台
+焦点检查阻止输入，因此取消并确认放弃，未把该步骤记为 Reword 成功。
+重新打开该子提交计划，点击 Drop 后执行，child HEAD 回到 child step 1；
+父 HEAD 和 ls-files --stage 与事前完全相同。父工作区仅有子模块指针变化，
+child 干净。聚合 Log 自动变为两行，总数异步最终更新为 2/2。
+
+截图 artifacts/collaboration-workflows-20261027/plico-multiroot-
+{initial,menu,plan,cancel,cancelled,drop,result,settled}.png；执行前后 Git
+状态证据 plico-multiroot-result.json。对应既有 ui/interactive_rebase.rs
+捕获 log_repository 身份及 operation::execute 路由，本轮无功能代码修改。
+本次证明子模块 Drop 的实际路由、取消与聚合刷新，不证明多根所有操作均已验收。
+
+### 交互式计划分隔拖动（2026-10-27，实现前）
+
+原生 Rebased 1.1.20 / IC-262.10968.SNAPSHOT，独立既有
+interactive-rebase-reference-b4qzatic/project：打开 step1 的交互式计划，
+将左右分隔 x761 拖至 x900；将右侧上下分隔 y614 拖至 y470，面板同步重排，
+未改草稿、未执行变基。截图 artifacts/collaboration-workflows-20261027/
+rebased-split-{before,after}.png。本次未测试跨重启恢复比例。
+
+读取参考 4aec352 的 plugins/git4idea/backend/src/rebase/interactive/dialog/
+GitInteractiveRebaseDialog.kt::createCenterPanel：OnePixelSplitter，
+Git.Interactive.Rebase.Details.Proportion，默认 0.5，中心首选 1000×550。
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/details/FullCommitDetailsListPanel.kt
+使用垂直 OnePixelSplitter，Full.Commit.Details.List.Splitter 默认 0.67。
+本地 rebase_plan_dialog.rs 与 rebase_plan_details/view.rs 目前固定比例；
+将使用现有 GPUI ResizableState 和 layout_preferences 保存两项独立比例，
+不改变计划草稿、选中提交或异步详情请求生命周期。
+
+补充原生观察：取消并重开相同计划，左右/上下比例保留（rebased-split-reopened.png）。
+已将参考比例拖回原位置，取消计划并关闭自有项目窗口，未执行 Git 写操作。
+实现：PlanDialog 与 Details 分别拥有 ResizableState，默认比例 0.5/0.67；
+layout_preferences::RebaseSplit 保存独立的 rebase-plan-ratio / rebase-details-ratio。
+两侧设置可用最小尺寸；沿用应用现有分隔组件，不增加消息总线或影响请求身份。
+编译阶段发现 ResizablePanelGroup 不直接实现 Styled，已改用外层容器承载样式。
+9 项 rebase_plan 桌面定向测试通过（/tmp/plico-rebase-split-tests.log）；
+Windows 构建 /tmp/plico-rebase-split-windows.log 进行中，原生拖动仍待验收。
+Windows release 构建随后通过（55.50s，仅既有 Request dead_code 警告）。
+本轮未提交，分隔拖动及重开持久化的 Plico 原生验收仍待完成。
+
+Plico 原生首次验收暴露初始化比例错误（plico-split-initial-bug.png）：只给第一个
+ResizablePanel 设置 flex_basis，第二个默认 size_full 导致 0.5 对 1 的收缩，
+实际左右约 1:2，上下也偏离 0.67。已读取 vendor/gpui-base/src/resizable/panel.rs
+确认初始样式及状态接管顺序，为两面板设置互补 basis。新增真实渲染测试读取
+ResizableState 尺寸，验证 50% 两侧等宽且草稿未修改；10 项定向测试通过。
+原测试窗口已取消计划后正常关闭，无变基写操作；修正版 Windows 构建中。
+
+修正版 Windows release 构建通过；原生 Plico 自有 PID33404 / HWND8849660
+确认默认左右 50%、详情上下约 67%。针对该窗口发送鼠标消息拖动后，
+保存比例为 0.609655 / 0.487273；取消直接关闭，无放弃草稿提示。
+重新从 step1 打开计划，两处分隔位置恢复，仍为原四条提交，Reset 未出现。
+截图 artifacts/collaboration-workflows-20261027/plico-split-
+{before,after,reopened,cancelled}.png。此项证明同进程重开恢复及比例落盘，
+未把它扩张为跨进程恢复或全部计划布局完成；本次未执行变基。
+
+### 交互式计划详情 Enter（2026-10-27，实现前）
+
+Rebased 1.1.20 原生独立 reference-b4qzatic/project，从 step1 打开计划，
+单击右侧 file-1.txt 后按 Enter，打开只读差异窗口（HWND9899442），
+计划保留在后面，没有开始变基。截图 rebased-details-enter-diff.png 位于
+artifacts/collaboration-workflows-20261027/。参考 4aec352，已读
+platform/vcs-impl/src/com/intellij/openapi/vcs/changes/ui/AsyncChangesBrowserBase.kt：
+AsyncChangesBrowserTreeList 初始化 setDoubleClickAndEnterKeyHandler，统一调用
+browser.onDoubleClick；SimpleAsyncChangesBrowser 继承该实现。
+本地 rebase_plan_details/view.rs 当前只有鼠标双击。补文件列表自己的焦点和
+无修饰 Enter 入口，复用 show_diff，不令工具栏/元数据的 Enter 打开差异。
+文件选择及迟到请求规则保持不变；树键盘导航仍单独待核对。
+
+Enter 已接入 Details 的文件列表 FocusHandle，单击文件取得焦点；只有无修饰
+Enter 且已选中文件才调用既有 show_diff 并消费事件。10 项定向桌面测试及
+Windows release 构建通过；尚未完成 Plico 原生 Enter 验收。原生首次尝试
+发现测试目录仅更新了主 exe，plico-editor.exe 哈希与本次构建不一致，
+Git 等待 sequence helper，未出现计划窗口；不能据此判断 Enter 功能。
+已点击取消并关闭自有 PID27876，更新配套 helper 后待重试。
+本轮参考窗口均已关闭，用户其他窗口保留。
+
+Enter 复验纠正（2026-10-27）：更新 helper 后仍有等待，因而此前“版本不一致
+导致窗口不出现”仅为假设，并未证实。Trace2 原生新实例最终成功显示计划，
+配置/提交详情查询均退出成功。首张截图过早，不能把准备阶段直接认定为卡死。
+更关键的是：选中文件后向测试 HWND 发送 Enter，计划被父弹窗 Confirm 提交，
+而不是打开 Diff；独立 fixture HEAD 仍为 b4ddce6（未修改计划的重放），
+无残留 sequencer。新桌面回归 file_list_enter_does_not_confirm_parent_rebase
+模拟真实 dialog + 列表焦点 + Enter，修前明确失败，断言父 on_ok 被错误触发。
+根因是框架 Enter→Confirm 动作优先于普通 on_key_down；改为列表自己的
+on_action<Confirm>，消费该动作并复用 show_diff，即使尚无选中文件也不能
+冒泡启动变基。原生修正版待复验。测试实例 36520 已关闭。
+
+Enter 修正版原生验收通过：Windows release 构建 54.17s，11 项 rebase_plan
+定向桌面测试通过（包含修前红/修后绿的父 Confirm 回归）。自有 PID33036 /
+HWND3278872，计划显示后单击 file-1.txt，向该句柄发送 Enter 键消息，
+打开只读差异，显示 8eb86e5d/file-1.txt/content 1；关闭差异回到四条
+原计划，选中提交及文件保留，没有提交计划。随后取消，截图
+artifacts/collaboration-workflows-20261027/plico-enter-fixed-
+{focused,diff,return,cancelled}.png。此项是原生窗口消息验收，非全局硬件键盘
+自动化；不宣称树上下键、多选、空状态等其余详情交互均完成。
+
+### 无法编码的新消息：原生发现（2026-10-27）
+
+独立 plico-encoding-pns4e67u/project 配置 ISO-8859-1；从根提交打开
+两条计划，Reword 根提交，输入含 CJK 字符消息后选择另一行应用，再开始。
+Windows 消息注入在 ANSI 路径得到 -噀base（并非目标“中文”，但同样不能
+被 Latin-1 表示）。原消息 COMMIT_EDITMSG 第一行仍是 base，未被有损替换；
+当前 HEAD 停在原根 495f56b，topic 指针仍原 553558e，保留 sequencer，
+映射 JSON 保存输入。结果 encoding-unrepresentable-result.json，截图
+encoding-root-{confirm,applied,result}.png 均位于当日协作 artifacts。
+本次不能记为完整通过：计划已关闭，错误发生在 Git 重放时；应在计划提交前
+校验 Reword 消息，保留原位编辑机会。另发现初始提交确认 Continue 缺中文翻译。
+下一步对照源行为及已有无损编码差异约定，补计划侧预校验，不降低编码保护。
+
+编码前置校验设计依据：再次读取参考 4aec352 的 GitInteractiveRebaseDialog.kt
+(getModel、创建与关闭流程)，其模型交付处未见字符编码校验。此前同一 Latin-1
+场景的 Rebased 原生输出出现问号，记录已保留；Plico 继续采用明确记录的
+无损差异，不复制有损替换。方案是在后台准备计划时捕获提交消息编码，将其
+作为 Question 的校验上下文交给弹窗；点击开始时纯内存检查 Reword 文本，
+失败保留 Pending/草稿并显示现有内联错误，不在 UI 线程启动 Git。实际写入
+仍按有效配置严格编码，避免准备之后配置变化绕过保护。
+
+实现映射：editor::MessageEncoding 提供后台 load 和纯内存 validate；
+interactive_rebase::editor 将该快照随 Question::Plan 交给 PlanDialog。
+confirm 在消费 Pending 之前验证全部 Reword；失败保留计划与请求并显示
+中英文内联错误。继续按钮加入中文映射。原 Document::save 无损检查保留。
+12 项 rebase_plan 桌面测试通过，新增 Latin-1 不可表示消息拒绝后 pending
+仍存活、模型文本不丢失、纠正为 café 后同一请求可提交的回归。
+editor_uses_commit_and_log_encodings_without_lossy_writes 真实 helper 测试
+也通过。Windows 构建 /tmp/plico-encoding-preflight-windows.log 已启动，
+修正版原生失败/修正验收待完成，未提交。
+
+编码前置校验 Windows 原生复验（2026-10-27）：自有 PID44532/HWND6228242，
+配套主程序及 editor 均为新构建。PostMessageW 输入真实“中文base”，点击开始后
+计划保留、中文错误显示，HEAD 仍 553558e9，未进入提交重放。原位改为 café base
+后同一计划成功完成，根提交 a006782a 的原始消息含 Latin-1 e9，encoding header
+为 ISO-8859-1；HEAD 79244086，无 rebase-merge。Windows Git status 干净；
+WSL Git 对该 Windows checkout 报 review.txt 模式差异（numstat 0/0），不作为
+Windows 工作区修改结论。证据 encoding-preflight-result.json 与
+encoding-fixed-{applied,rejected,corrected,completed}.png 保存于当日 artifacts。
+
+复验另发现错误提示原为水平容器第三子项，会压缩计划/详情宽度。保留已核对的
+GitInteractiveRebaseDialog 主体双面板；编码错误为本地无损保护差异，
+PlanDialog 改纵向容器，
+双面板保留独立固定高度，错误单独占下方一行；不改操作规则。布局回归增加
+错误出现前后两面板宽度不变断言。此布局修正 Windows 构建及原生复验待完成；
+上述编码流程截图来自布局修正前，不能作为布局通过证据。
+
+错误布局修正版完成 Windows 原生复验：自有 PID11564/HWND7342684，
+相同根计划输入中文后错误位于双面板下方，左右宽度和分隔位置保持；截图
+encoding-error-layout-fixed.png。随后取消并确认丢弃，Windows Git status
+干净且无 rebase-merge，测试窗口关闭。12 项计划桌面测试通过（含错误前后
+面板宽度断言），23 项 editor 集成测试全部通过，Windows release 构建通过。
+本条完成编码预校验及错误布局验证，不代表第8项其余交互验收均完成。
+
+### 子根 Reword 原生验收补齐（2026-10-27）
+
+继续使用独立 plico-multiroot-rebase-qcunbjlz，子根准备一条新增文件提交，
+父仓库 HEAD/index/原有子模块指针差异作为执行前基线保存。自有 Plico
+PID41540/HWND17502114 从聚合 Log 的 child 提交进入计划，提交详情和文件
+均属于 child。单条计划中的 Ctrl+Enter 因 Windows 前台保护拒绝发送，取消
+并丢弃；未绕过保护或修改产品快捷键。随后从 child 根提交进入两条计划，
+对第二条 Reword 输入“已验证 child reword target”，选择第一条应用消息，
+点击开始完成实际变基。父 HEAD 1cd50419/index/status 完全不变；子 HEAD
+从 ca722590 改为 2b177fa6，tree 不变，消息准确且 child 工作区干净。
+聚合 Log 自动显示新消息，计数仍 3/3，参考截图与 before/after Git 断言记录
+为当日 artifacts/multiroot-reword-{menu,root-ready,applied2,settled}.png 及
+multiroot-reword-result.json。此项补齐此前未通过的子根实际 Reword，不涉及
+代码修改；既有 ui/interactive_rebase.rs 的仓库身份捕获及操作路由得到验证。
+测试窗口已关闭，单条计划 Ctrl+Enter 原生验收仍未证明（桌面测试另有覆盖）。
+
+### Unshallow 关闭编辑页上下文：消除错误待办（2026-10-27）
+
+重新实读 4aec352 的 DvcsUtil.java::guessRepositoryForOperation/getSelectedFile、
+ProjectFrameHelper.kt::uiDataSnapshot、EditorTabbedContainer.kt::uiDataSnapshot、
+FileEditorManagerImpl.kt::getSelectedEditor。LAST_ACTIVE_FILE_EDITOR 来自当前选中
+且仍打开的编辑器（currentCompositeFlow/currentWindow.selectedComposite），
+不是“最近关闭文件”的历史缓存。操作依次取当前上下文文件、所选编辑器、项目根；
+不应该为此给 Plico 增加已关闭编辑器路径记忆。
+
+安装版 1.1.20 原生自有窗口 HWND5704962（共享 PID31052，其他用户窗口保留），
+独立 unshallow-reference-lp8l0ey_/project 的 parent 完整、child 深度2：
+Ctrl+Shift+N 打开 child/review.txt，Find Action 中关闭 Include disabled actions
+后 Unshallow repository 仍可见；Ctrl+F4 关闭该编辑页回 Log，再搜索并关闭
+Include disabled actions 后结果为空。仅查看可用性，未执行 fetch。
+截图 rebased-unshallow-editor-{file-open,editor-action,closed-disabled}.png。
+已关闭本次自有项目窗口，未关闭共享进程或用户其他窗口。
+
+本地 remote.rs 取活动 file/diff 再回退项目根，关闭页由 editor_tabs::close_file_tab
+实际移除，符合上述生命周期；无需功能代码修改。扩充现有 Review 桌面测试，
+从 child 编辑页可用开始，调用真实 close_file_tab 后断言不再保留 child 操作目标。
+Log 单根过滤的原生执行与外部 shallow 边界刷新已在前文完成，不再重复列为待做；
+安装版 Log DataContext 差异保持前文说明。Plico 关闭页这一项目前为桌面测试验收，
+未新增 Windows 同条件截图，不混同原生通过。
+
+关闭编辑页目标回归通过：1 项定向桌面测试，日志 /tmp/plico-unshallow-closed-editor.log。
+
+### 计划详情树导航：实现前依据（2026-10-27）
+
+参考4aec352，安装版1.1.20；自有窗口16189232，在独立交互式fixture多选
+step1/step2后，右侧有“2 files”根节点。选择file-1按Down选file-2；Left选择
+根节点，再Left折叠；Right展开，再Right进入第一个文件。截图details-nav-
+{down,collapsed,expanded}.png。未执行变基。源码AsyncChangesBrowserBase.kt
+使用AsyncChangesTree并安装Enter/双击处理；DefaultTreeUI.installKeyboardActions
+安装TreeAction，TreeActions.java映射Up/Down/Home/End/Left/Right为树导航动作。
+本地Details当前无方向键且无文件数根节点；补显式行身份、可见行导航和根节点，
+选择文件才打开其Diff；多选文件/目录Diff聚合本轮暂不声称已覆盖。
+
+进一步实读同版本 ui/tree/ui/TreeAction.java::selectChild/selectParent：Right 在
+叶子行也前进到下一可见行（不是停留原行）；无选择时先选首行。实现按此调整，
+加入键盘回归。Details 新增轻量行身份和滚动句柄；分组模式插入文件总数根节点，
+重建后按身份恢复选择，隐藏目标清除。navigation.rs 只处理可见树导航，不访问Git。
+此次未包含Shift多选、目录选择聚合Diff及分组选项跨窗口持久化，不宣称整棵树已完全对齐。
+
+13项计划桌面回归通过，Windows最终构建通过。自有PID24352/HWND6753538，
+独立fixture新增nav/a.txt与nav/b.txt的单提交后进入计划，鼠标选a，向目标HWND
+发送Down选b；Left两次选择nav并折叠；Right三次展开nav、进入a、前进b。
+截图plico-details-nav-{ready,down,collapsed,expanded}.png。未执行变基，取消
+计划并关闭本次实例。原生发现原有行未设满宽导致选中背景短于面板，已给目录行/
+文件行补w_full；这一最终视觉修正尚待重新构建截图，不把前述截图作为其验收。
+
+整行选中宽度修正版：13项定向桌面测试通过，Windows release 构建通过；
+自有PID22452/HWND271322584原生复验文件a及父目录nav的选中背景均铺满
+文件列表，截图plico-details-width-{file,folder}.png。取消计划后关闭测试窗口，
+未执行变基。复读FullCommitDetailsListPanel、SimpleAsyncChangesBrowser与
+ChangesGroupingSupport确认详情区仍有选择集/分组语义需要补齐；本条只验收
+单选导航、根节点及行背景宽度，不宣称目录Diff/多选/持久化已完成。
+
+### Rebase 详情目录 Diff 入口（2026-10-27，实施前核对）
+
+参考源码仍为 `4aec35256d765c217aa0d662b82ac4e860c396fd`，原生 Rebased 1.1.20（IC-262.10968.SNAPSHOT）。独立仓库 interactive-rebase-reference-b4qzatic 中选择 step 1/2，详情根目录含两个文件：单选根目录按 Enter 折叠目录；点击工具栏 Show Diff 打开 file-1.txt，导航显示 1/2 files。截图 `artifacts/collaboration-workflows-20261027/rebased-details-root-{selected,diff}.png`。未执行历史写入。
+
+已读 `ChangesBrowserBase.java::canShowDiff/showStandaloneDiff`、shared `VcsTreeModelData.java::getListSelectionOrAll/SelectedData`：选择目录递归展开数据（不依赖可见行），多个变更时使用选择范围；单文件或未选择回退全体链并定位选择项。`ChangesTreeHandlers.kt::MyEnterListener` 仅单叶子或多选触发 Diff，单目录保留树 Enter 行为。本地映射为 `rebase_plan_details` 的链范围、工具栏启用条件与 Confirm 路由。多选仍是后续项；本次先修单目录／未选择入口。
+
+实现：工具栏在非空详情数据时启用；目录 Diff 从完整数据按路径组件筛选，不受折叠状态影响，单文件保持全体链定位；单目录 Enter 只切换展开。新增测试覆盖折叠目录、同名前缀目录隔离、根目录及单文件全链定位；首轮相关 14 项通过。补充 Enter 折叠／展开的实际键盘回归运行中，Windows release 构建及 Plico 原生对应场景待验收。本次自建 Rebased Diff／计划／项目窗口已关闭，未执行 Rebase。
+
+原生验收补记：Windows release 构建通过（`/tmp/plico-details-directory-windows.log`）。Plico 独立 fixture `interactive-rebase-plico-ljtu8tb8/project`，选择 nav 目录，Enter 展开后再次 Enter 折叠；工具栏 Diff 打开 nav/a.txt 的 1/2 文件链，下一文件为 nav/b.txt 的 2/2，关闭返回原计划。截图同目录 `plico-directory-{collapsed,enter,diff,diff-next,return}.png`。取消计划后 Windows Git status 干净，HEAD 仍为 `45b2fa30d499f75bdb0da27545f99af2800efed1`，自建 PID 12364 已关闭。
+
+补充键盘测试首次放在非弹窗 Root 中，未注册 Dialog Confirm 的上下文绑定，Enter 断言失败；改为实际 `open_dialog` 场景后相关 14 项全部通过（`/tmp/plico-details-directory-dialog-tests.log`），没有放宽断言。原生也确认 Enter 不提交父 Rebase。当前仍保留多选、分组持久化与目录鼠标单击展开行为的后续核对项，未宣称完整视觉对齐。
+
+### Rebase 详情分组持久化（2026-10-27）
+
+实施前：同一参考 commit 与安装版本，独立 reference-b4qzatic 的 Rebase 详情关闭 Directory，取消后重新进入并选择同一提交，菜单仍未勾选 Directory，平铺文件不显示根目录。截图 `group-{menu,flat,reopened-menu}.png`。测试后恢复 Directory，并关闭本次自建计划／项目窗口。未执行 Rebase。
+
+已读 `SimpleAsyncChangesBrowser.java`、`AsyncChangesBrowserBase.kt`、shared `ChangesTree.java::installGroupingSupport/onGroupingChanged`：默认通用 ChangesTree 分组键存于项目 PropertiesComponent，改变时保存并以 KEEP_SELECTED_OBJECTS 重建。本地将项目身份从操作入口传入详情，复用带身份校验的用户设置存储；操作仓库仍独立用于 Git 查询。当前其他文件树有既有独立配置，本次先保存 Rebase 详情分组，不把所有浏览器强行共享偏好；这一共享范围差异保留记录。文件选择已有身份恢复；目录转平铺的多选映射另行收尾。
+
+实现与自动验证：`layout_preferences::{load,save}_rebase_grouping` 沿用项目身份验证与有界读取，缺省按目录；`ui/interactive_rebase.rs` 显式传项目根到 PlanDialog/Details，子仓库仍是独立 Repository。分组菜单保存偏好后重建，保存错误可见。14 项 Rebase 桌面回归、8 项 layout_preferences 核心测试通过（日志 `/tmp/plico-grouping-{tests,storage-tests}.log`）；新用例使用隔离目录验证 true/false 往返及项目身份冲突保护，不写真实用户设置。Windows 构建和原生重开验证进行中。
+
+分组原生验收补记：Windows 构建通过（`/tmp/plico-grouping-windows.log`）。自建 Plico PID 8712 / HWND 164040150，在独立 ljtu8tb8 fixture 中取消 Directory 后关闭计划、重新进入；保持平铺，菜单无勾选。平铺选中 a.txt 再开启 Directory 后，a.txt 仍选中。证据同目录 `plico-group-{options,flat,reopened,selected-flat,restored}.png`。恢复 Directory，取消计划后关闭自建进程。Windows Git status 干净，HEAD 保持 `45b2fa30d499f75bdb0da27545f99af2800efed1`。此条证明弹窗重开恢复与单文件选择保留，未冒充多选、跨进程原生或跨项目界面专项；项目隔离由实际身份存储测试与调用参数核对支持。
+
+### Rebase 详情多选实施前验证（2026-10-27）
+
+同一参考版本和独立 b4qzatic fixture：计划选择 step 1–3，文件树显示三个文件；点击 file-1，Ctrl 点击 file-3，只有 1/3 两行高亮；Enter 打开 1/2 files，下一文件为 file-3（2/2），没有纳入 file-2。关闭 Diff 后 Shift+Up 将范围改为 file-2/3。截图 `multi-{files,diff-first,diff-next,shift}.png`。随后取消计划并关闭自建项目窗口，未改历史。
+
+已读 shared `VcsTreeModelData.java::getListSelectionOrAll/SelectedData`：递归选中子树、去重；多个变更使用显式选择链，单个或未选择使用全体链。`ChangesTree.java::KeepSelectedObjectsStrategy` 保存选中节点递归对应对象，分组后恢复对象，而非保留旧行号。`platform/platform-impl/src/com/intellij/ui/tree/ui/TreeAction.java::select`：Shift 延伸从 anchor 到 lead 的可见范围，替换旧范围并保持 anchor；普通移动替换单选。当前本地仍只有 cursor/selected 单选，下一步需独立选择集与 anchor，不能仅让最后点击文件产生 Diff。尚未实现，不把本次参考操作作为 Plico 验收。
+
+多选实现：Details 以节点身份 HashSet 保存选择集，cursor/anchor 分别负责焦点行与范围锚点；Ctrl 单独切换、Shift 替换可见范围。Diff 从选择集递归提取文件并去重，多文件链只含所选文件；单文件保留全体链并从真实选择项开始，而非被 Ctrl 取消的 lead。Confirm 按选择集判断目录展开或 Diff；无选择不提交父弹窗。分组切换把目录选择转换成后代文件集合，并展开被选文件祖先，使选择在新布局中可见。reload 清除选择与锚点，避免旧数据索引穿透新结果。
+
+15 项定向桌面测试通过，日志 `/tmp/plico-details-multiselect-confirm-tests.log`。新增真实鼠标 Ctrl 选择 a/c、键盘 Shift+Up 变为 b/c、分组保留、根目录映射与 Ctrl 取消 lead 后 Diff 定位的回归；旧目录测试改为通过实际选择方法建立状态，不能再只写 cursor 冒充选择集。Windows 构建进行中；准备独立三文件 fixture `details-multiselect-plico-v4s4hyvf`，Plico 原生多选验收尚未完成。目录单击展开和 Ctrl+Shift 组合等未覆盖行为仍保留后续核对，不宣称所有树交互已对齐。
+
+多选原生验收完成：Windows release 构建通过（`/tmp/plico-details-multiselect-windows.log`）。独立 v4s4hyvf fixture，原生 Ctrl 点击 nav/a.txt、nav/c.txt 后仅这两行高亮；Enter 打开 1/2 文件链，下一项为 nav/c.txt（2/2），不包含 b。关闭 Diff 后 Shift+Up 选中 b/c，与 Rebased 同场景一致。截图 `plico-multi-{selected,diff-first,diff-next,shift,return}.png`。取消计划后宿主 Git 复验 HEAD `3237301cb9af62a4d1a3d04f7f3e659fd464c14a` 未变，status 干净（`plico-multiselect-result.json`）；自建 PID 43484 已关闭。没有执行 Rebase、提交或推送。
+
+### 计划表编辑中拖动核对（2026-10-27）
+
+同版本 Rebased 在 b4qzatic 独立计划编辑 step1，追加 ` draft`，由展开编辑器下方的 step2 行拖向 step4：消息应用并收起编辑器，仍保持 step1/2/3/4，无重排。截图 `drag-edit-{before,after}.png`。这说明不能把“编辑时完全无法触碰其他行”当作上游规则；本地 select 已先 apply_message，当前旧渲染的行不注册拖动，需验证这一手势只应用消息、不因行高度变化误重排。
+
+复读 `RowsDnDSupport.java`：同组件/启用状态验证，更新阶段拒绝不存在的目标行；默认交换后选择目标索引。另安装 SmoothAutoScroller。`GitInteractiveRebaseDialog.kt::onEditorCreate/onEditorRemove` 只禁用/恢复 OK，未禁用整表；`GitRebaseCommitsTableView.kt` 的 removeEditor 负责未保存取消确认。本轮不做长列表滚动自动化（遵守 AGENTS），边缘自动滚动仍作为明确差异/手测项，不由普通四行拖动冒充通过。
+
+### 详情目录鼠标行为（2026-10-27）
+
+Rebased 1.1.20 / IC-262.10968.SNAPSHOT，独立 b4qzatic 计划：单击根目录文字只选择，文件仍可见；点击左侧箭头折叠；双击折叠目录文字打开其文件 Diff。截图 `tree-{label-click,arrow-click,label-double}.png`。未执行历史重写。参考 4aec352：`ChangesTree.java::getToggleClickCount` 返回 -1；`ChangesBrowserBase.java::ChangesBrowserTreeList` 安装双击 handler，`onDoubleClick` 在 canShowDiff 时打开差异；`DefaultTreeUI.java::isLocationInExpandControl` 独立计算箭头命中区域。本地 `rebase_plan_details/view.rs` 目前整行单击折叠不符，改为箭头处理折叠且阻止事件冒泡，行处理选择和双击 Diff。Enter 保留此前实机确认行为，不因共用 handler 推断改动。Plico 原生验收待做。
+
+计划编辑中拖动桌面回归通过：16 项 rebase_plan 测试全部通过，`/tmp/plico-plan-drag-edit-tests.log`；新增鼠标拖动断言消息应用、退出编辑且提交顺序不变。该场景 Plico 原生截图仍待补。
+
+目录鼠标实现及验收完成：箭头独立命中并阻止冒泡，目录文字单击选择、双击 Show Diff。补读 `AsyncChangesBrowserBase.kt::AsyncChangesBrowserTreeList` 确认也通过同一双击 handler 路由。17 项 rebase_plan 定向回归通过；完整桌面 175 项通过（`/tmp/plico-workflow-desktop-final.log`），发布配置 Diff 导航 10 项通过（`/tmp/plico-workflow-navigation-final.log`），Windows release 构建通过（`/tmp/plico-folder-click-windows.log`）。
+
+原生 Plico PID48804，独立 v4s4hyvf：根目录文字单击保持 nav/a,b,c 可见；箭头单击折叠且保持选择；对折叠根目录双击打开 1/3 文件 Diff。截图 `plico-folder-{label,arrow,double,return,cancelled}.png`。真实全局双击因前台校验失败未发送，改用明确指定自有 HWND 的两次 WM_LBUTTONDOWN/UP，间隔70ms，经原生事件处理打开 Diff；不冒充全局鼠标验收。取消计划后宿主 Git 确认 HEAD 仍为3237301cb9af62a4d1a3d04f7f3e659fd464c14a，status 干净。本轮未重写历史、未提交。
+
+### 分组快捷键：实机与声明差异（2026-10-27）
+
+相同 Rebased 版本、参考4aec352、独立b4qzatic，详情文件选中后发送Ctrl+Alt+P；再次打开分组菜单，Directory仍勾选。分别使用SendKeys和前台PID校验后的原生keybd_event，均未观察到切换。截图`group-key-menu.png`、`group-key-menu-after.png`、`group-native-menu.png`。菜单确实显示Ctrl+Alt+P，但不能把显示的快捷键当作当前弹窗实机生效证据。源码`platform-resources/src/keymaps/$default.xml`声明ChangesView.GroupBy.Directory；`ChangesGrouppingActions.kt::SetChangesGroupingAction`允许模态上下文，按ChangesGroupingSupport.KEY取支持对象并切换directory。当前无法区分安装版快捷键路由与宿主拦截，保留待确认；本轮不凭推测增加Plico键盘行为，不将此当作核心流程阻塞。已取消只读计划并关闭本次自建项目窗口。
+
+本轮最终核心回归通过：`cargo test --locked --no-default-features` 正常退出，954 项测试通过（56 个结果组，含空目标/doc-tests），日志 `/tmp/plico-workflow-core-final.log`；格式检查通过，日志 `/tmp/plico-workflow-format-final.log`。完整桌面175项、发布配置Diff导航10项及Windows构建结果见上一节。本地回归不替代第6–8项剩余原生验收，也不代表CI已运行。
+
+### 关闭编辑页原生验收完成（2026-10-27）
+
+沿用前文 Rebased 源码及原生依据。Plico 最新 Windows release、自有 PID43000，独立 svp1fb5m 测试项目。父仓库完整，child通过本地file:// bare remote恢复深度2（仅测试fixture）；清除之前的child路径过滤后聚合Log为7条。打开child/review.txt，隐藏Project树并聚焦编辑区，主菜单Git包含“获取完整历史”；关闭编辑标签回聚合Log，再打开菜单，该项消失。截图`plico-closed-editor-{file,enabled,closed,disabled}.png`，仓库状态记录`plico-closed-editor-result.json`。未点击获取操作，child保持shallow，父仓库仍完整；父status仅既有未跟踪child/，子仓库干净。该行为无需新增代码，既有活动编辑页生命周期与回归一致。此处补齐此前Plico原生截图待办，不宣称第6/8项或整轮完成。
+
+### Autosquash 与 update-ref 的真实 Git 组合回归（2026-10-27）
+
+针对前文仅转换模型覆盖的缺口，新增 `tests/editor.rs::interactive_autosquash_preserves_messages_and_updates_other_branch_refs`。沿用已读参考4aec352 `GitRebaseTodoModelConverter.kt` / `GitSquashedCommitsMessage.kt` 规则与前文原生autosquash依据，不修改产品行为。独立真实仓库分别生成fixup!、squash!、amend!提交，保留checkpoint分支后运行真实 `git rebase -i --autosquash --update-refs`；经Plico编辑器桥接实际todo、Plan::load/save与持久化消息映射执行。断言checkpoint更新为重写后的HEAD~1、原fixup消息丢弃、squash正文合并、amend正文替换、HEAD树不变、提交数4→3、工作区干净且rebase状态清理。
+
+三种场景均通过（一个参数化集成用例），日志 `/tmp/plico-autosquash-refs-test.log`。补足真实Git执行覆盖，不冒充Windows原生弹窗专项或fixup -c独立场景。最新全核心954项结果早于此新增用例；新用例定向通过。Clippy `--locked --no-default-features --all-targets` 正常退出，保留既有警告，日志 `/tmp/plico-workflow-clippy-final.log`；未宣称零警告。
+
+### 编辑消息期间拖动：Plico 原生验收（2026-10-27）
+
+最新Windows release、自有PID19720/HWND17039926、独立ljtu8tb8。计划含step2/3/4及tree navigation fixture四行；首行Reword编辑器前插入`draft `，从编辑器下的第二行拖向第四行旧坐标。消息应用并关闭编辑器，四行顺序保持不变，第二行选中；符合前文Rebased该手势先结束编辑而不重排的规则。截图`plico-editdrag-{before,after,cancel,discard}.png`；通过显式目标HWND消息模拟拖动，没有滚动自动化。取消后放弃草稿，HEAD仍45b2fa3、工作区干净、无rebase-merge（`plico-editdrag-result.json`）。此项原生待办关闭，选择高亮与Rebased此前截图不同：Plico选中点击的第二行；未把该视觉/选择差异隐藏。此前桌面回归保护消息和顺序，不断言两端选中行完全一致。
+
+
+### 编辑结束后的选择差异：事件顺序定位（2026-10-27）
+
+继续核对参考4aec352的 `GitRebaseCommitsTableView.kt::removeEditor`、
+`dialog/view/CommitMessageCellEditor.kt`、`GitRebaseCommitsTableModel.kt::setValueAt`
+和 `GitInteractiveRebaseDialog.kt::onEditorRemove`。消息编辑器沿用
+AbstractCellEditor 的停止流程；表格收缩编辑行高度，Dialog 只恢复 OK 的启用状态，
+这些位置均没有“保留第一行选择”的专门规则。`BegTableUI.java` 没有重写鼠标处理。
+
+进一步读取 OpenJDK 21u 的
+[BasicTableUI.java](https://github.com/openjdk/jdk21u/blob/master/src/java.desktop/share/classes/javax/swing/plaf/basic/BasicTableUI.java)
+`Handler.mousePressed/adjustSelection`：先停止单元格编辑，随后用鼠标坐标查询行；
+查询得到无效行时不改变选择。这与本地 `rebase_plan_table/view.rs` 在旧布局命中的
+行回调里调用 `select(index)` 不同。本地先应用消息，但仍使用收缩前的 index。
+因此之前短表截图中原第二行的坐标，在收缩后可能已落到列表空白，能够解释
+Rebased 保留原选择的现象；不能由此推出所有点击都应保留原选择。
+
+本条是事件顺序的源码证据，不是已安装 JBR 运行时追踪。下一步用相同消息编辑
+状态区分单击与拖动，并比较收缩后坐标仍在有效行／已在空白的两种情况；确认后
+再决定 GPUI 的对应处理。当前没有把本地行为改成无条件吞掉第一次点击，也没有
+将这一选择差异标为修复。消息应用、不重排、取消不改 Git 的既有验收仍有效。
+
+
+### 编辑结束选择：原生单击对照（2026-10-27）
+
+自建 Rebased 项目 HWND12193026、计划 HWND8980754，仍使用独立 b4qzatic
+fixture。四行计划中编辑首行消息，追加 ` probe`，真实鼠标单击原第二行
+(180,288)：消息应用、编辑器收起，首行仍为蓝色选中，详情仍为 file-1。
+随后选择末行并 Reword，追加 ` upper`，单击上方第二行(180,153)：消息应用，
+第二行选中，详情切至 file-2。截图同目录 `rebased-edit-selection-
+{expanded,single,last,upper}.png`。这两项实测排除了“任何点击都被编辑结束吞掉”
+的规则，并证明首例无需拖动即可复现；与前文停止编辑后按坐标命中的源码顺序一致。
+
+取消计划并放弃这两条消息草稿，再关闭本次自建项目窗口，未执行 Rebase，保留
+原有其他 Rebased 窗口。本地修复需对结束编辑后的布局重新命中，不能使用旧 index，
+也不能无条件保留原选择。GPUI 0.1.8 的 on_next_frame 回调在 draw 之前运行，
+单次 next-frame 回调并不足以保证取得收缩后的 bounds；该实现约束已确认，尚未
+引入延迟选择补丁。当前截图属于参考侧，不冒充 Plico 修复验收。
+
+
+### 编辑结束选择：本地修正与回归（2026-10-27）
+
+基于上述原生前置与源码，`rebase_plan_table/pointer.rs` 将结束编辑的鼠标事件
+保留到收缩后列表绘制完成，再按 ListState 实际 bounds 命中。空白区保留原选择，
+有效行按原修饰键与双击规则选择；不使用猜测行高，也不修改 GPUI。后续选择或
+模型更新清除待处理事件，序号校验防止旧布局回调覆盖新操作。
+
+先为既有短表拖动用例添加选中行断言，实际失败 `[1] != [0]`，日志
+`/tmp/plico-edit-selection-red.log`；修正后通过。新增12行实际布局/鼠标回归：
+首行编辑收起后原第二行坐标命中较后的有效行；末行编辑时点击上方第二行正常
+切换。18项 rebase_plan 回归通过，日志 `/tmp/plico-edit-selection-tests.log`。
+全桌面、release导航和Windows构建正在验证；Plico原生两场景尚待补证，未宣称完成。
+
+
+修正版验收补记：完整桌面176项、release配置Diff导航10项通过，日志
+`/tmp/plico-edit-selection-{desktop,navigation}.log`；Windows release构建通过，
+日志`/tmp/plico-edit-selection-windows.log`，保留既有警告。自建Plico PID11408 /
+HWND10881530，独立ljtu8tb8四行计划：首行前插入probe，点击展开时第二行的旧
+坐标，编辑器收起且首行保留选择；编辑末行后点击上方第二行，第二行选中，详情
+切换file-3，末行修改保留。截图`plico-selection-{edit,single,last-edit,upper,
+cancel,discard}.png`。使用限定本次HWND的消息操作；取消并放弃草稿，HEAD仍
+45b2fa3、status干净、无rebase-merge，记录`plico-selection-result.json`。
+这关闭了此前编辑结束选择差异，不代表其他长表滚动或所有快捷键边界已验收。
+
 
 ### 第6项基础模块独立提交（2026-10-27）
 
@@ -7093,6 +13154,39 @@ reword各1；包括同hash不同仓库、共享common-dir不同worktree的误用
 保存格式扩展，branch_create仅使用现有非空base格式，后续类型迁移保留在工作区。
 此次未启动新的Plico/Rebased界面窗口；原生测试程序全部正常结束。
 
+### 第6、7项共享界面独立提交验收（2026-10-27，进行中）
+
+多仓库活动上下文同时承载顶部分支菜单、聚合Log、文件/编辑器选择、
+写操作/恢复目标与Unshallow入口，因此本轮将第6项界面和第7项一起验证，
+交互式Rebase计划界面、消息编码和root-rebase记录格式仍单独保留。
+独立索引导出：`/tmp/plico-project-ui-stage-qbn33p6i`；不以完整WIP通过
+代替本次可提交快照验证。首次编译发现漏选Squash Undo的仓库快照，
+已补入`src/squash_undo.rs`的root与repository()，保留原gitdir/HEAD复验。
+重新读取参考4aec352的
+`plugins/git4idea/backend/src/rebase/log/GitCommitEditingOperationResult.kt`：
+Complete持有repository，Undo检查该仓库并执行reset --keep。沿用前文
+“子仓库Squash与Undo的仓库快照”的Rebased原生记录与截图。
+
+当前独立快照核心918项、完整桌面154项通过（均无失败、无忽略）；
+发布配置导航10项及格式检查通过，Clippy结束码0（保留既有警告）。
+日志为`/tmp/plico-project-ui-stage-{core,desktop,navigation,format,clippy}.log`。
+Windows release及project_branches/unshallow原生测试程序开始构建，尚未运行原生验收。桌面构建的ContainingBranches未使用方法警告来自暂未纳入的
+交互式Rebase入口，不增加全局allow。本轮Windows原生整合验收尚待，
+不将之前分项截图或这次桌面测试视为当前快照原生验收已通过。
+
+本次独立快照Windows release --bins构建通过；Windows原生project_branches
+3项、unshallow5项全通过，日志`/tmp/plico-project-ui-stage-windows-tests.log`。
+GUI使用自有PID45716与membership-watch-iy0i7jp1/project：聚合Log2/2，
+分支菜单异步列出child/project；child二级菜单显示origin/main，鼠标点击
+“检出标签或版本”打开输入弹窗，取消未执行写入；选择child提交后右侧改为
+child.txt及child base/89d758ec，父提交保留；Paths取消project后变1/1，
+重新勾选后恢复2/2并保留child详情。截图为本日目录
+`plico-project-ui-stage-{default,branches-ready,child-scaled,child-checkout,child-details,paths,filter-child,filter-restored}.png`。
+最初点击无响应来自截图显示缩放：原图2182×1361，预览2000×1248；
+按原图坐标换算后成功，不把脚本落点错误当作产品缺陷。该窗口已请求正常关闭。
+这轮没有重复所有冲突写入场景；先前原生分项记录仍保留，当前快照的
+Unshallow GUI整合验收和提交资料整理继续进行，尚未提交或推送。
+
 ### 多仓库界面与浅克隆完整历史：独立快照交付（2026-10-27）
 
 本提交承接cce90ff、30bf0ac、b9beeee、3f9d421、c0844be的项目核心，将第6项
@@ -7157,3 +13251,51 @@ Unshallow GUI：自有PID41864，新fixture project-ui-shallow-ilw4jmoe/project�
 操作进度及失败详情复用Plico状态栏，与Rebased通知气泡有视觉差异；未宣称像素级完全一致。
 第6、7项共享界面已可提交，后续仍按总计划审计剩余边界；第8项继续，不宣称全目标完成。
 本地验证不等于CI通过；本轮不推送、不发包。
+
+整合提交结果：`4e87912`（多仓库界面及Unshallow），未推送。第8项WIP保留；全目标仍活动。
+
+### 第8项独立提交快照验收（2026-10-27，进行中）
+
+第6、7项已提交4e87912后，剩余交互式Rebase代码、编码支持、root-rebase
+记录格式及对应测试单独导出至`/tmp/plico-interactive-stage-g_z583ls`。
+不将此前完整WIP的通过结果直接当作该快照验证。格式检查通过；完整核心
+955项通过，完整桌面176项通过，日志分别为
+`/tmp/plico-interactive-stage-core.log`与`/tmp/plico-interactive-stage-desktop.log`。
+发布配置导航10项通过（`/tmp/plico-interactive-stage-navigation.log`）。
+Clippy、Windows release及原生interactive_rebase/editor测试程序构建已启动；
+原生运行仍待，未宣称CI通过或第8项已交付。
+
+本轮收尾要求映射：prepare维护HEAD/refs/仓库/浅边界/保护分支门禁；
+model/draft/todo及conversion维护动作、分组、重排和历史草稿；editor/messages
+对接真实Git序列和消息编辑，operation维护保存、取消、Edit暂停及恢复；
+PlanDialog/Table/Details负责入口、键盘/鼠标、详情与Diff。既有原生记录已覆盖
+子根Drop/Reword、编码错误原位修正、详情目录/多选/分组、分隔布局，以及编辑
+结束后的坐标重命中。长表边缘滚动和分组快捷键的安装版差异继续明确保留，
+不通过重复自动滚动验证绕过AGENTS约定，也不宣称像素级完全一致。
+
+第8项独立快照Windows构建通过，Clippy结束码0（既有警告保留）。原生GUI
+使用自有PID39312/HWND10160066，独立ljtu8tb8项目：从step2打开四行计划，
+工具栏、文件与提交详情均显示；将step3拖到末尾后顺序改变且选中拖动项，
+Ctrl+Z恢复step2/3/4/tree navigation原顺序。取消弹出放弃确认，放弃后
+宿主Git确认HEAD仍45b2fa30d499f75bdb0da27545f99af2800efed1、status为空、
+无rebase-merge。截图本日`plico-interactive-stage-{initial,menu,plan,drag,undo,
+cancel,discard}.png`及`plico-interactive-stage-result.json`。窗口已正常关闭。
+该次没有执行重写；真实执行由Windows临时仓库测试和前文原生执行记录覆盖。
+Windows核心资格6项通过；editor全套原生回归仍在运行，已通过交互式普通/根提交、
+Latin-1、autosquash/update-refs、Edit继续与取消恢复，不提前记整套通过。
+
+第8项独立提交最终验证：Windows interactive_rebase 6项、editor 24项全部通过，
+无失败、无忽略，进程正常结束。后者包括已有Squash/Reword/Undo/冲突继续，
+同时覆盖编码桥接改动，日志`/tmp/plico-interactive-stage-windows-tests.log`。
+完整核心955项、桌面176项、发布配置导航10项、fmt及Clippy均通过
+（Clippy保留既有警告）；Windows release构建通过。当前所有产品/测试代码
+均与上述独立验证快照一致。来源和完整分阶段参考/原生记录一并归档，
+保留先前阶段的“待验证”历史文字，以后续明确验收条目为准。
+
+第8项主交付包括计划重排、Pick/Reword/Edit/Squash/Fixup/Drop、草稿撤销/重做、
+资格检查、根提交确认、消息编辑、取消/冲突恢复、项目仓库身份和中英文界面。
+详情分组、多选/目录Diff及编辑结束选择的此前待办已由后续原生记录关闭。
+保留差异：长表拖动边缘自动滚动尚未实现（常规滚动按AGENTS由用户手测）；
+分组快捷键安装版行为未确认；轻量编码桥接仅接受可无损往返的受支持编码，
+其他配置在改写前明确失败；操作反馈复用Plico状态栏，未宣称像素级完全一致。
+本提交不推送、不发包，CI未运行；整轮仍需按原8项清单归拢最终完成证据。

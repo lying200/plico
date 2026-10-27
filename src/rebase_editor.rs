@@ -12,6 +12,12 @@ use std::{io, path::Path, process::Command, thread, time::Duration};
 
 /// Operation-scoped bridge. Persisted matching messages bypass the ordinary UI;
 /// every unmatched request retains the ordinary editor and cancellation path.
+struct Interactive {
+    repo: crate::git::Repository,
+    head: String,
+    plans: crate::interactive_rebase::interaction::Requests,
+}
+
 pub(crate) struct Router {
     server: Option<Server>,
     stop: Cancel,
@@ -19,6 +25,29 @@ pub(crate) struct Router {
 }
 impl Router {
     pub(crate) fn start(directory: &Path, fallback: Requests, token: Cancel) -> io::Result<Self> {
+        Self::start_inner(directory, fallback, token, None)
+    }
+    pub(crate) fn start_interactive(
+        repo: crate::git::Repository,
+        head: String,
+        plans: crate::interactive_rebase::interaction::Requests,
+        fallback: Requests,
+        token: Cancel,
+    ) -> io::Result<Self> {
+        let directory = repo.editor_directory(&token).map_err(io::Error::other)?;
+        Self::start_inner(
+            &directory,
+            fallback,
+            token,
+            Some(Interactive { repo, head, plans }),
+        )
+    }
+    fn start_inner(
+        directory: &Path,
+        fallback: Requests,
+        token: Cancel,
+        interactive: Option<Interactive>,
+    ) -> io::Result<Self> {
         let requests = Requests::new(token.clone());
         let server = Server::start(requests.clone())?;
         let stop = Cancel::default();
@@ -28,6 +57,7 @@ impl Router {
             .name("rebase-editor".into())
             .spawn(move || {
                 let mut error = None;
+                let mut sequence_seen = false;
                 while !worker_stop.cancelled() && !token.cancelled() {
                     let Some(pending) = requests.take_pending() else {
                         thread::sleep(Duration::from_millis(10));
@@ -37,7 +67,28 @@ impl Router {
                         if matches!(pending.kind, Kind::CommitEditor | Kind::SequenceEditor) {
                             let mut document =
                                 Document::open(pending, &directory).map_err(|e| e.to_string())?;
-                            if squash_message::apply(&mut document).map_err(|e| e.to_string())? {
+                            if document.sequence && !sequence_seen {
+                                sequence_seen = true;
+                                if let Some(interactive) = &interactive {
+                                    use crate::interactive_rebase::editor::{Response, handle};
+                                    match handle(
+                                        &interactive.repo,
+                                        &mut document,
+                                        &interactive.head,
+                                        &interactive.plans,
+                                        &worker_stop,
+                                        &token,
+                                    )? {
+                                        Response::Saved | Response::Cancelled => return Ok(()),
+                                        Response::Text => {}
+                                    }
+                                }
+                            }
+                            if crate::interactive_rebase::messages::apply(&mut document)
+                                .map_err(|e| e.to_string())?
+                                || squash_message::apply(&mut document)
+                                    .map_err(|e| e.to_string())?
+                            {
                                 return Ok(());
                             }
                             match document.forward(&fallback, &worker_stop) {

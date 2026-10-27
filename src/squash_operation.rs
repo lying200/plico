@@ -112,7 +112,7 @@ pub fn execute(
     let save = dirty.then(|| session.save("GitReview: before Squash", token, progress));
     let record = session.saved_oid().map(|stash| rebase_saved::Record {
         head: checked.head.clone(),
-        base: checked.base.clone(),
+        base: Some(checked.base.clone()),
         branch: checked.branch.clone(),
         stash: stash.to_owned(),
     });

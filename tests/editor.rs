@@ -153,6 +153,27 @@ fn editor_rejects_external_files_and_changed_content() {
 }
 
 #[test]
+fn editor_compares_external_changes_as_bytes_before_writing() {
+    let f = Fixture::new();
+    let helper = f.helper();
+    let requests = Requests::new(Cancel::default());
+    let server = Server::start(requests.clone()).unwrap();
+    let path = f.0.join(".git/COMMIT_EDITMSG");
+    fs::write(&path, "original").unwrap();
+    let mut command = Command::new(&helper);
+    server.configure(&mut command);
+    let child = command.arg(&path).spawn().unwrap();
+    let mut document = Document::open(pending(&requests), &f.0.join(".git")).unwrap();
+    let external = b"external caf\xe9\n";
+    fs::write(&path, external).unwrap();
+    let error = document.save("replacement").unwrap_err();
+    assert_eq!(error.to_string(), "Editor file changed while editing");
+    assert_eq!(fs::read(&path).unwrap(), external);
+    drop(document);
+    assert!(!child.wait_with_output().unwrap().status.success());
+}
+
+#[test]
 fn real_git_sequence_editor_receives_todo_and_preserves_commit_order() {
     let f = Fixture::new();
     let helper = f.helper();
@@ -882,6 +903,8 @@ fn squash_undo_restores_original_history_and_rechecks_publication_head_and_workt
             report.command
         );
         let undo = Undo::capture(&repo, &report, &token).unwrap();
+        assert_eq!(prepared.repository().path, repo.path);
+        assert_eq!(undo.repository().path, repo.path);
         assert_eq!(undo.commit_to_focus_on_undo(), ids[0]);
         assert_eq!(
             undo.commit_to_focus().unwrap(),
@@ -926,7 +949,7 @@ fn squash_undo_restores_original_history_and_rechecks_publication_head_and_workt
         let before = f.git(&["rev-parse", "HEAD"]);
         let index = f.git(&["ls-files", "--stage"]);
         let status = f.git(&["status", "--porcelain"]);
-        let result = undo.execute(&repo, Protection::Defaults, &token, &progress);
+        let result = undo.execute(&undo.repository(), Protection::Defaults, &token, &progress);
         if matches!(mode, "published" | "head-moved" | "branch-changed") {
             assert!(result.is_err(), "{mode}");
             assert_eq!(f.git(&["rev-parse", "HEAD"]), before);
@@ -1393,7 +1416,7 @@ fn squash_local_changes_preserve_index_worktree_and_existing_stash() {
                 let path = rebase_saved::path(&f.0.join(".git"));
                 let text = fs::read_to_string(&path)
                     .unwrap()
-                    .replace(&record.base, &record.head);
+                    .replace(record.base.as_deref().unwrap(), &record.head);
                 fs::write(path, text).unwrap();
             }
             let aborted = plico::rebase_operation::execute(
@@ -1516,4 +1539,552 @@ fn multi_root_editor_does_not_authorize_nested_git_directory_by_parent_prefix() 
         assert_eq!(process.wait_with_output().unwrap().status.success(), allow);
     }
     assert_eq!(fs::read_to_string(file).unwrap(), "nested edited");
+}
+
+#[test]
+fn interactive_messages_route_multiple_real_editor_requests_and_fallback() {
+    use plico::interactive_rebase::messages::{Mapping, apply, install};
+    let f = Fixture::new();
+    let helper = f.helper();
+    let gitdir = f.0.join(".git");
+    let rebase = gitdir.join("rebase-merge");
+    fs::create_dir(&rebase).unwrap();
+    let head = "1".repeat(40);
+    fs::write(rebase.join("orig-head"), &head).unwrap();
+    fs::write(rebase.join("onto"), "2".repeat(40)).unwrap();
+    install(
+        &gitdir,
+        &head,
+        vec![
+            Mapping {
+                original: "same\n".into(),
+                replacement: "第一个\n".into(),
+            },
+            Mapping {
+                original: "same\n".into(),
+                replacement: "第二个\n".into(),
+            },
+        ],
+    )
+    .unwrap();
+    let path = gitdir.join("COMMIT_EDITMSG");
+    for (original, expected, mapped) in [
+        ("unrelated\n", "manual\n", false),
+        ("same\n\n# comment", "第一个\n", true),
+        ("same\n", "第二个\n", true),
+        ("same\n", "manual\n", false),
+    ] {
+        // Each request uses a new server and document, exercising persisted state.
+        let requests = Requests::new(Cancel::default());
+        let server = Server::start(requests.clone()).unwrap();
+        fs::write(&path, original).unwrap();
+        let mut command = Command::new(&helper);
+        server.configure(&mut command);
+        let child = command.arg(&path).spawn().unwrap();
+        let mut document = Document::open(pending(&requests), &gitdir).unwrap();
+        assert_eq!(apply(&mut document).unwrap(), mapped);
+        if !mapped {
+            document.save(expected).unwrap();
+        }
+        assert!(child.wait_with_output().unwrap().status.success());
+        assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+    }
+}
+
+#[test]
+fn interactive_plan_bridge_rewrites_real_git_history_including_root() {
+    use plico::{
+        git::Repository,
+        interactive_rebase::{
+            editor::{Response, handle},
+            interaction::{Answer, Question, Requests as PlanRequests},
+            messages,
+            model::Action,
+        },
+    };
+    for (root, latin1) in [(false, false), (true, false), (false, true), (true, true)] {
+        let f = Fixture::new();
+        f.git(&["config", "core.autocrlf", "false"]);
+        f.git(&["config", "core.hooksPath", "disabled-hooks"]);
+        if latin1 {
+            f.git(&["config", "i18n.commitEncoding", "ISO-8859-1"]);
+        }
+        let replacement = if latin1 {
+            "café rewritten\n"
+        } else {
+            "合并后的消息\n"
+        };
+        let helper = f.helper();
+        for n in 0..4 {
+            fs::write(f.0.join(format!("file-{n}")), format!("value {n}\n")).unwrap();
+            f.git(&["add", "."]);
+            f.git(&["commit", "-m", &format!("commit {n}")]);
+        }
+        let head = f.git(&["rev-parse", "HEAD"]);
+        let base = f.git(&["rev-parse", "HEAD~3"]);
+        let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+        let repo = Repository::new(&f.0);
+        let gitdir = f.0.join(".git");
+        let token = Cancel::default();
+        let requests = Requests::new(token.clone());
+        let server = Server::start(requests.clone()).unwrap();
+        let mut command = Command::new("git");
+        command.arg("-C").arg(&f.0).args([
+            "-c",
+            "core.commentChar=\u{1}",
+            "rebase",
+            "--interactive",
+        ]);
+        command.arg(if root { "--root" } else { &base });
+        command
+            .env(
+                "GIT_SEQUENCE_EDITOR",
+                editor::command(&helper, true).unwrap(),
+            )
+            .env("GIT_EDITOR", editor::command(&helper, false).unwrap());
+        server.configure(&mut command);
+        let child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut document = Document::open(pending(&requests), &gitdir).unwrap();
+        let plans = PlanRequests::new(token.clone());
+        thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                handle(
+                    &repo,
+                    &mut document,
+                    &head,
+                    &plans,
+                    &Cancel::default(),
+                    &token,
+                )
+            });
+            let started = Instant::now();
+            let question = loop {
+                if let Some(question) = plans.take_pending() {
+                    break question;
+                }
+                assert!(started.elapsed() < Duration::from_secs(5));
+                thread::sleep(Duration::from_millis(2));
+            };
+            let Question::Plan(model, _) = &question.question else {
+                panic!("expected structured plan")
+            };
+            assert_eq!(model.rows().len(), if root { 4 } else { 3 });
+            let mut edited = model.clone();
+            assert!(edited.set(&[0], Action::Reword(replacement.into())));
+            assert!(edited.unite(&[0, 1]).is_some());
+            question.answer(Answer::Plan(edited)).unwrap();
+            assert!(matches!(worker.join().unwrap().unwrap(), Response::Saved));
+        });
+        let mut message = Document::open(pending(&requests), &gitdir).unwrap();
+        assert!(messages::apply(&mut message).unwrap());
+        let outcome = child.wait_with_output().unwrap();
+        assert!(
+            outcome.status.success(),
+            "{}",
+            String::from_utf8_lossy(&outcome.stderr)
+        );
+        assert_eq!(f.git(&["rev-parse", "HEAD^{tree}"]), tree);
+        assert_eq!(f.git(&["rev-list", "--count", "HEAD"]), "3");
+        assert!(
+            f.git(&["log", "--encoding=UTF-8", "--format=%B"])
+                .contains(replacement.trim())
+        );
+        assert!(!gitdir.join("rebase-merge").exists());
+    }
+}
+
+#[test]
+fn interactive_operation_preserves_dirty_index_and_restores_after_cancel_or_root_abort() {
+    use plico::{
+        git::Repository,
+        interactive_rebase::{
+            interaction::{Answer, Question, Requests as PlanRequests},
+            model::Action,
+            operation,
+            prepare::Prepared,
+        },
+        operation_process::Progress,
+        published_commits::Protection,
+    };
+    for (root, mode) in [
+        (false, "success"),
+        (true, "success"),
+        (true, "cancel"),
+        (true, "edit"),
+        (true, "edit-continue"),
+    ] {
+        let f = Fixture::new();
+        let helper = f.helper();
+        f.git(&["config", "core.hooksPath", "disabled-hooks"]);
+        f.git(&["config", "core.autocrlf", "false"]);
+        fs::write(f.0.join("local"), "original\n").unwrap();
+        f.git(&["add", "local"]);
+        f.git(&["commit", "-m", "base"]);
+        let base = f.git(&["rev-parse", "HEAD"]);
+        fs::write(f.0.join("a"), "a\n").unwrap();
+        f.git(&["add", "a"]);
+        f.git(&["commit", "-m", "first"]);
+        let first = f.git(&["rev-parse", "HEAD"]);
+        fs::write(f.0.join("b"), "b\n").unwrap();
+        f.git(&["add", "b"]);
+        f.git(&["commit", "-m", "last"]);
+        let head = f.git(&["rev-parse", "HEAD"]);
+        let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+        fs::write(f.0.join("local"), "staged\n").unwrap();
+        f.git(&["add", "local"]);
+        fs::write(f.0.join("local"), "unstaged\n").unwrap();
+        let index = f.git(&["ls-files", "--stage"]);
+        let repo = Repository::new(&f.0);
+        let token = Cancel::default();
+        let progress = Progress::default();
+        let prepared = Prepared::prepare(
+            &repo,
+            if root { &base } else { &first },
+            Protection::Defaults,
+            &token,
+        )
+        .unwrap();
+        let plans = PlanRequests::new(token.clone());
+        let fallback = Requests::new(token.clone());
+        let report = thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                operation::execute(
+                    &prepared,
+                    root,
+                    &helper,
+                    Protection::Defaults,
+                    &plans,
+                    &fallback,
+                    &token,
+                    &progress,
+                )
+            });
+            let started = Instant::now();
+            let pending = loop {
+                if let Some(pending) = plans.take_pending() {
+                    break pending;
+                }
+                assert!(
+                    !worker.is_finished(),
+                    "operation ended before plan; mode {mode}"
+                );
+                assert!(started.elapsed() < Duration::from_secs(10));
+                thread::sleep(Duration::from_millis(2));
+            };
+            let Question::Plan(model, _) = &pending.question else {
+                panic!("plan expected")
+            };
+            let mut edited = model.clone();
+            if mode == "cancel" {
+                drop(pending);
+            } else {
+                if mode.starts_with("edit") {
+                    assert!(edited.set(&[0], Action::Edit));
+                    assert!(edited.set(&[1], Action::Reword("after pause\n".into())));
+                } else {
+                    assert!(edited.set(&[0], Action::Reword("rewritten\n".into())));
+                }
+                pending.answer(Answer::Plan(edited)).unwrap();
+            }
+            worker.join().unwrap().unwrap()
+        });
+        assert!(
+            report.recovery_error.is_none(),
+            "{:?}",
+            report.recovery_error
+        );
+        assert!(report.editor_error.is_none(), "{:?}", report.editor_error);
+        if mode.starts_with("edit") {
+            assert!(!report.succeeded());
+            assert!(report.stopped_for_editing());
+            assert!(report.saved_oid.is_some());
+            assert!(report.state.as_ref().unwrap().in_progress());
+            let commit_editor = editor::command(&helper, false).unwrap();
+            let action = if mode == "edit" {
+                plico::rebase_operation::Action::Abort
+            } else {
+                plico::rebase_operation::Action::Continue {
+                    editor: &commit_editor,
+                    requests: Some(&fallback),
+                }
+            };
+            let result =
+                plico::rebase_operation::execute(&repo, action, &token, &progress).unwrap();
+            assert!(result.command.as_ref().unwrap().status.success());
+            assert!(
+                result.recovery_error.is_none(),
+                "{:?}",
+                result.recovery_error
+            );
+            if mode == "edit" {
+                assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+            } else {
+                assert!(f.git(&["log", "--format=%B"]).contains("after pause"));
+            }
+        } else if mode == "cancel" {
+            assert!(!report.succeeded());
+            assert!(!report.stopped_for_editing());
+            assert!(report.saved_oid.is_none());
+            assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+        } else {
+            assert!(report.succeeded());
+            assert!(!report.stopped_for_editing());
+        }
+        assert_eq!(f.git(&["ls-files", "--stage"]), index, "{mode}");
+        assert_eq!(fs::read_to_string(f.0.join("local")).unwrap(), "unstaged\n");
+        assert_eq!(f.git(&["rev-parse", "HEAD^{tree}"]), tree);
+        assert!(!f.0.join(".git/rebase-merge").exists());
+        assert!(
+            plico::rebase_saved::read(&f.0.join(".git"))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(f.git(&["stash", "list"]), "");
+    }
+}
+
+#[test]
+fn editor_uses_commit_and_log_encodings_without_lossy_writes() {
+    let f = Fixture::new();
+    f.git(&["config", "i18n.commitEncoding", "ISO-8859-1"]);
+    f.git(&["config", "i18n.logOutputEncoding", "UTF-8"]);
+    let helper = f.helper();
+    let requests = Requests::new(Cancel::default());
+    let server = Server::start(requests.clone()).unwrap();
+    for sequence in [false, true] {
+        let path = f.0.join(if sequence {
+            ".git/rebase-merge/git-rebase-todo"
+        } else {
+            ".git/COMMIT_EDITMSG"
+        });
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original: &[u8] = if sequence {
+            "pick abc café\n".as_bytes()
+        } else {
+            b"caf\xe9\n"
+        };
+        fs::write(&path, original).unwrap();
+        let mut command = Command::new(&helper);
+        server.configure(&mut command);
+        if sequence {
+            command.arg("--sequence");
+        }
+        let child = command.arg(&path).spawn().unwrap();
+        let mut document = Document::open(pending(&requests), &f.0.join(".git")).unwrap();
+        assert!(document.text().contains("café"));
+        if !sequence {
+            assert!(document.save("中文").is_err());
+            assert_eq!(fs::read(&path).unwrap(), original);
+        }
+        document.save("café rewritten\n").unwrap();
+        assert!(child.wait_with_output().unwrap().status.success());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            if sequence {
+                "café rewritten\n".as_bytes()
+            } else {
+                b"caf\xe9 rewritten\n"
+            }
+        );
+    }
+}
+
+#[test]
+fn real_git_commit_editor_preserves_latin1_commit_object() {
+    let f = Fixture::new();
+    f.git(&["config", "i18n.commitEncoding", "ISO-8859-1"]);
+    let helper = f.helper();
+    let requests = Requests::new(Cancel::default());
+    let server = Server::start(requests.clone()).unwrap();
+    let mut command = Command::new("git");
+    server.configure(&mut command);
+    let child = command
+        .arg("-C")
+        .arg(&f.0)
+        .args(["commit", "--allow-empty", "--edit", "-m", "initial"])
+        .env("GIT_EDITOR", editor::command(&helper, false).unwrap())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut document = Document::open(pending(&requests), &f.0.join(".git")).unwrap();
+    document.save("café rewritten\n").unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let object = Command::new("git")
+        .arg("-C")
+        .arg(&f.0)
+        .args(["cat-file", "commit", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(object.status.success());
+    assert!(object.stdout.ends_with(b"\n\ncaf\xe9 rewritten\n"));
+    assert!(
+        object
+            .stdout
+            .windows(b"encoding ISO-8859-1".len())
+            .any(|s| s == b"encoding ISO-8859-1")
+    );
+}
+
+#[test]
+fn linked_worktree_editor_reads_its_effective_encoding_and_rejects_unknown_encoding() {
+    let f = Fixture::new();
+    f.git(&["commit", "--allow-empty", "-m", "base"]);
+    let worktree = f.0.join("linked");
+    f.git(&[
+        "worktree",
+        "add",
+        "-b",
+        "linked",
+        worktree.to_str().unwrap(),
+    ]);
+    f.git(&["config", "extensions.worktreeConfig", "true"]);
+    let run = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&worktree)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    };
+    let directory = PathBuf::from(run(&["rev-parse", "--absolute-git-dir"]));
+    let helper = f.helper();
+    let requests = Requests::new(Cancel::default());
+    let server = Server::start(requests.clone()).unwrap();
+    for encoding in ["ISO-8859-1", "plico-invalid-encoding"] {
+        run(&["config", "--worktree", "i18n.commitEncoding", encoding]);
+        let path = directory.join("COMMIT_EDITMSG");
+        fs::write(&path, b"caf\xe9\n").unwrap();
+        let mut command = Command::new(&helper);
+        server.configure(&mut command);
+        let child = command.arg(&path).spawn().unwrap();
+        let result = Document::open(pending(&requests), &directory);
+        if encoding == "ISO-8859-1" {
+            let mut document = result.unwrap();
+            assert_eq!(document.text(), "café\n");
+            document.save("café linked\n").unwrap();
+            assert!(child.wait_with_output().unwrap().status.success());
+            assert_eq!(fs::read(path).unwrap(), b"caf\xe9 linked\n");
+        } else {
+            assert!(result.is_err());
+            assert!(!child.wait_with_output().unwrap().status.success());
+            assert_eq!(fs::read(path).unwrap(), b"caf\xe9\n");
+        }
+    }
+}
+
+#[test]
+fn interactive_autosquash_preserves_messages_and_updates_other_branch_refs() {
+    use plico::{
+        git::Repository,
+        interactive_rebase::{
+            editor::{Input, load},
+            messages,
+        },
+    };
+    for kind in ["fixup", "squash", "amend"] {
+        let f = Fixture::new();
+        f.git(&["config", "core.hooksPath", "disabled-hooks"]);
+        f.git(&["config", "core.autocrlf", "false"]);
+        let helper = f.helper();
+        fs::write(f.0.join("base"), "base\n").unwrap();
+        f.git(&["add", "."]);
+        f.git(&["commit", "-m", "base"]);
+        let base = f.git(&["rev-parse", "HEAD"]);
+        fs::write(f.0.join("feature"), "original\n").unwrap();
+        f.git(&["add", "."]);
+        f.git(&["commit", "-m", "feature", "-m", "original body"]);
+        fs::write(f.0.join("feature"), "corrected\n").unwrap();
+        f.git(&["add", "."]);
+        f.git(&[
+            "commit",
+            "-m",
+            &format!("{kind}! feature"),
+            "-m",
+            "replacement body",
+        ]);
+        f.git(&["branch", "checkpoint"]);
+        let checkpoint = f.git(&["rev-parse", "checkpoint"]);
+        fs::write(f.0.join("tail"), "tail\n").unwrap();
+        f.git(&["add", "."]);
+        f.git(&["commit", "-m", "tail"]);
+        let head = f.git(&["rev-parse", "HEAD"]);
+        let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+        let token = Cancel::default();
+        let requests = Requests::new(token.clone());
+        let server = Server::start(requests.clone()).unwrap();
+        let gitdir = f.0.join(".git");
+        let mut command = Command::new("git");
+        command
+            .arg("-C")
+            .arg(&f.0)
+            .args([
+                "-c",
+                "core.commentChar=\u{1}",
+                "rebase",
+                "-i",
+                "--autosquash",
+                "--update-refs",
+                &base,
+            ])
+            .env(
+                "GIT_SEQUENCE_EDITOR",
+                editor::command(&helper, true).unwrap(),
+            )
+            .env("GIT_EDITOR", editor::command(&helper, false).unwrap());
+        server.configure(&mut command);
+        let child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut document = Document::open(pending(&requests), &gitdir).unwrap();
+        assert!(document.text().contains("update-ref refs/heads/checkpoint"));
+        let Input::Plan(plan) = load(&Repository::new(&f.0), &document, &token).unwrap() else {
+            panic!("expected structured autosquash plan");
+        };
+        let edited = plan.model.clone();
+        plan.save(&edited, &mut document, &head).unwrap();
+        if kind != "fixup" {
+            let mut message = Document::open(pending(&requests), &gitdir).unwrap();
+            assert!(messages::apply(&mut message).unwrap());
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{kind}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(f.git(&["rev-parse", "HEAD^{tree}"]), tree);
+        assert_eq!(f.git(&["rev-list", "--count", "HEAD"]), "3");
+        let updated = f.git(&["rev-parse", "checkpoint"]);
+        assert_ne!(updated, checkpoint);
+        assert_eq!(updated, f.git(&["rev-parse", "HEAD~1"]));
+        let message = f.git(&["show", "-s", "--format=%B", "checkpoint"]);
+        match kind {
+            "fixup" => assert_eq!(message, "feature\n\noriginal body"),
+            "amend" => assert_eq!(message, "replacement body"),
+            _ => {
+                assert!(message.starts_with("feature\n\noriginal body"));
+                assert!(message.ends_with("replacement body"));
+            }
+        }
+        assert!(f.git(&["status", "--porcelain"]).is_empty());
+        assert!(!gitdir.join("rebase-merge").exists());
+    }
 }

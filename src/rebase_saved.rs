@@ -9,10 +9,12 @@ use std::{
 // Preserve the on-disk format used by released Squash recovery records.
 const NAME: &str = "gitui-squash-saved";
 const MAGIC: &str = "GitReview squash saved v1";
+const ROOT_MAGIC: &str = "Plico root rebase saved v2";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
     pub head: String,
-    pub base: String,
+    /// None is a --root rebase; Git generates its onto after startup.
+    pub base: Option<String>,
     pub stash: String,
     pub branch: Option<String>,
 }
@@ -20,9 +22,8 @@ pub fn path(directory: &Path) -> PathBuf {
     directory.join(NAME)
 }
 fn valid(record: &Record) -> bool {
-    [&record.head, &record.base, &record.stash]
-        .iter()
-        .all(|s| is_oid(s))
+    [&record.head, &record.stash].iter().all(|s| is_oid(s))
+        && record.base.as_ref().is_none_or(|base| is_oid(base))
         && record.branch.as_ref().is_none_or(|s| {
             s.starts_with("refs/heads/") && s.len() <= 4096 && !s.contains(['\n', '\r', '\0'])
         })
@@ -44,12 +45,21 @@ pub fn read(directory: &Path) -> Result<Option<Record>, String> {
         .read_to_string(&mut text)
         .map_err(|e| e.to_string())?;
     let parts = text.split('\n').collect::<Vec<_>>();
-    if text.len() > 8192 || parts.len() != 6 || parts[0] != MAGIC || parts[5] != "" {
+    if text.len() > 8192
+        || parts.len() != 6
+        || !matches!(parts[0], MAGIC | ROOT_MAGIC)
+        || parts[5] != ""
+    {
         return Err("Invalid rebase saved-changes record".into());
+    }
+    if (parts[0] == MAGIC && parts[2].is_empty())
+        || (parts[0] == ROOT_MAGIC && !parts[2].is_empty())
+    {
+        return Err("Invalid saved rebase base".into());
     }
     let record = Record {
         head: parts[1].into(),
-        base: parts[2].into(),
+        base: (!parts[2].is_empty()).then(|| parts[2].into()),
         stash: parts[3].into(),
         branch: (!parts[4].is_empty()).then(|| parts[4].into()),
     };
@@ -71,10 +81,15 @@ pub(crate) fn create(directory: &Path, record: &Record) -> Result<(), String> {
         options.mode(0o600);
     }
     let mut file = options.open(&path).map_err(|e| e.to_string())?;
+    let magic = if record.base.is_some() {
+        MAGIC
+    } else {
+        ROOT_MAGIC
+    };
     let text = format!(
-        "{MAGIC}\n{}\n{}\n{}\n{}\n",
+        "{magic}\n{}\n{}\n{}\n{}\n",
         record.head,
-        record.base,
+        record.base.as_deref().unwrap_or(""),
         record.stash,
         record.branch.as_deref().unwrap_or("")
     );
@@ -108,9 +123,19 @@ pub(crate) fn for_rebase(directory: &Path) -> Result<Option<Record>, String> {
         (false, true) => apply,
         _ => return Err("Cannot identify the rebase owning saved changes".into()),
     };
+    let root_onto;
+    let base = if let Some(base) = &record.base {
+        base.as_str()
+    } else {
+        root_onto = fs::read_to_string(rebase.join("squash-onto")).map_err(|e| e.to_string())?;
+        if !is_oid(root_onto.trim_end()) {
+            return Err("Invalid root rebase identity".into());
+        }
+        root_onto.trim_end()
+    };
     for (name, expected) in [
         ("orig-head", record.head.as_str()),
-        ("onto", record.base.as_str()),
+        ("onto", base),
         (
             "head-name",
             record.branch.as_deref().unwrap_or("detached HEAD"),

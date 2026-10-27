@@ -319,7 +319,7 @@ pub fn execute_choice(
                 .previous_tip
                 .clone()
                 .expect("rebase has an existing local branch"),
-            base: prepared.target.clone(),
+            base: Some(prepared.target.clone()),
             stash: stash.to_owned(),
             branch: Some(reference.clone()),
         });

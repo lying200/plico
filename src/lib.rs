@@ -242,3 +242,5 @@ pub mod unshallow_notice;
 pub mod project_repositories;
 
 pub mod project_operations;
+
+pub mod interactive_rebase;

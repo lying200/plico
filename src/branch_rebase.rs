@@ -106,7 +106,7 @@ pub fn execute(
     let save = dirty.then(|| session.save("Plico: before branch rebase", token, progress));
     let record = session.saved_oid().map(|stash| rebase_saved::Record {
         head: prepared.head.clone(),
-        base: prepared.target.clone(),
+        base: Some(prepared.target.clone()),
         branch: Some(prepared.branch.clone()),
         stash: stash.to_owned(),
     });

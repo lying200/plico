@@ -163,3 +163,6 @@ Worktree prune: clearCash_dark.svg, platform/icons/src/expui/actions/clearCash_d
 4aec35256d765c217aa0d662b82ac4e860c396fd. Unmodified Apache-2.0, JetBrains and contributors.
 
 magicResolve_dark.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396fd, platform/icons/src/diff/magicResolve_dark.svg (unmodified, Apache-2.0).
+
+pause_dark.svg: Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd,
+platform/icons/src/expui/run/pause_dark.svg (unmodified, JetBrains Apache-2.0).

@@ -341,6 +341,9 @@ impl Review {
                                                 let s = s.read(cx); let ids = s.commit_ids();
                                                 let mut hashes = s.log_selection.ordered(&ids); hashes.reverse(); hashes.iter().map(|id| id.hash.as_str()).collect::<Vec<_>>().join(" ")
                                             }).unwrap_or_default();
+                                            let interactive_owner=checkout_owner.clone();let interactive_target=target.clone();let interactive_path=path.clone();
+                                            let interactive_repository=checkout_repository.clone();
+                                            let interactive_enabled=checkout_owner.upgrade().is_some_and(|e|e.read(cx).can_interactive_rebase(i, cx));
                                             let reword_owner = checkout_owner.clone();
                                             let reword_enabled = checkout_owner.upgrade().is_some_and(|e| e.read(cx).can_reword(&target, cx));
                                             let create_owner=checkout_owner.clone(); let create_target=target.clone(); let create_path=path.clone();
@@ -422,6 +425,9 @@ impl Review {
                                                 })).separator()
                                                 .item(PopupMenuItem::new(t("Edit Commit Message…")).action(Box::new(EditCommitMessage)).disabled(!reword_enabled).on_click(move |_, w, cx| {
                                                     let _ = reword_owner.update(cx, |s, cx| s.edit_commit_message(w, cx));
+                                                }))
+                                                .item(PopupMenuItem::new(t("Interactively Rebase from Here…")).disabled(!interactive_enabled).on_click(move |_,w,cx|{
+                                                    let _=interactive_owner.update(cx,|s,cx|if s.repo.path==interactive_path {if let Some(repo)=&interactive_repository{s.prepare_interactive_rebase(repo.clone(),interactive_target.clone(),w,cx);}});
                                                 }))
                                                 .item(PopupMenuItem::new(t("Go to Child Commit")).disabled(!adjacent_enabled).on_click(move |_, w, cx| {
                                                     let _ = child_owner.update(cx, |s, cx| s.navigate_adjacent(false, false, w, cx));

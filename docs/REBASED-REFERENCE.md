@@ -6906,3 +6906,27 @@ whitespace检查通过。Windows构建沿用最近group-preview成功产物，�
 收口检查及后续修正。保留此前记录的精确视觉差异；独立固定分支文件面板无刷新按钮
 与参考一致，引用刷新通过双分支日志比较入口完成。大规模内存基准未在本轮重测。
 第6项仅清单基础，代码不纳入第5项提交；第7、8项未开始，总目标仍未完成。
+
+
+### 第6项基础模块独立提交（2026-10-27）
+
+将项目成员及声明发现拆为可独立编译的基础提交：`submodules` 只读取声明、gitlink
+与真实子仓库状态；`project_repositories` 管理已注册根、声明关系及持久映射，
+不因gitlink删除丢失恢复入口，不将普通目录冒充父仓库。操作上下文使用已验证根
+按最长路径前缀解析，不在界面线程读取磁盘。映射存储按项目隔离、有界读取、锁内
+合并及原子替换，取消或损坏记录不能静默覆盖原文件。
+
+参考仍为4aec352的GitModulesFileReader/GitSubmodule、VcsRepositoryManager、
+ProjectLevelVcsManagerImpl及DvcsUtil；安装版1.1.20。此前原生“项目映射与子模块
+声明分离”“映射持久化”记录的双根冲突与删除声明后重开是对应界面证据，截图
+`artifacts/collaboration-workflows-20261027/plico-mappings-{before,reopened}-ready.png`。
+独立提交仅交付领域基础及其真实Git回归；聚合Log、整组Update、操作路由及第7/8项
+继续保留在工作区，不将基础提交等同于第6项全部完成。完整原生记录随后续接线提交。
+
+独立暂存快照验证：完整核心775项通过；两项Windows测试数据修正后，Linux定向15项、
+Windows宿主真实Git13项均通过（Unix专属路径测试不在Windows编译）。初次Windows
+失败分别是fixture目录末尾空格被Git忽略、错误路径的verbatim前缀导致字符串比较
+失败；修正为合法长路径并明确断言参数总长仍超过32767，以及按既有平台路径身份
+验证错误归属，没有放宽产品结果断言。日志 `/tmp/plico-inventory-stage-core.log`、
+`/tmp/plico-inventory-stage-final-tests.log`、`/tmp/plico-inventory-stage-windows-final-tests.log`。
+格式和暂存差异检查通过；CI尚未运行，本提交无新增可见UI。

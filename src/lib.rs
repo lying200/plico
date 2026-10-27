@@ -231,3 +231,6 @@ pub mod branch_compare;
 pub mod working_comparison;
 
 pub mod tree_selection;
+
+pub mod project_repositories;
+pub mod submodules;

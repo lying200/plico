@@ -399,3 +399,18 @@ Repository initialization / first-push behavioral adaptations (Rebased 4aec352):
   Copyright JetBrains s.r.o. and contributors, Apache-2.0.
   Local mappings: src/init_repository.rs, src/ui/init.rs, src/ui/push_remote.rs,
   src/push_dialog.rs; remote configuration and authentication reuse existing modules.
+
+
+Project repository membership and submodule discovery
+
+src/submodules.rs follows GitModulesFileReader.kt and GitSubmodule.kt under
+plugins/git4idea/backend/src/repo/.
+src/project_repositories.rs and its submodules follow membership, persistence,
+and context rules from:
+platform/dvcs-impl/src/com/intellij/dvcs/repo/VcsRepositoryManager.kt
+platform/vcs-impl/src/com/intellij/openapi/vcs/impl/ProjectLevelVcsManagerImpl.kt
+platform/dvcs-impl/src/com/intellij/dvcs/DvcsUtil.java
+Copyright JetBrains s.r.o. and contributors. Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+Rust uses bounded repository discovery and per-user atomic mapping files instead
+of the IntelliJ VFS/project services. License: licenses/assets/icons/LICENSE.txt.

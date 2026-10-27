@@ -190,6 +190,35 @@ pub struct BatchReport {
     pub retry: Option<Batch>,
 }
 impl Batch {
+    pub(crate) fn validate(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
+        if SavedChanges::read(repo, token)?.is_some() {
+            return Err("Handle saved Revert changes before starting another revert".into());
+        }
+        if Recovery::record_exists(repo, token)? {
+            return Err("Review the saved revert queue before starting another revert".into());
+        }
+        self.commits
+            .first()
+            .ok_or("No commits selected")?
+            .validate(repo, token)
+    }
+
+    pub(crate) fn execute_under_guard(
+        &self,
+        repo: &Repository,
+        guard: &crate::operation_queue::Guard,
+        editor: &OsStr,
+        requests: Option<&Requests>,
+        token: &Cancel,
+        progress: &Progress,
+    ) -> Result<BatchReport, String> {
+        if !guard.owns(&repo.operation_key(token)?) {
+            return Err("Revert does not own this repository".into());
+        }
+        self.validate(repo, token)?;
+        self.execute_locked(repo, editor, requests, token, progress)
+    }
+
     pub fn targets(&self) -> impl Iterator<Item = &str> {
         self.commits.iter().map(|p| p.target.as_str())
     }

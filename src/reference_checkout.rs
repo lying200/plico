@@ -7,6 +7,8 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Prepared {
+    root: std::path::PathBuf,
+    git_dir: std::path::PathBuf,
     pub reference: String,
     pub target: String,
     pub head: String,
@@ -60,6 +62,9 @@ fn upstream(repo: &Repository, reference: &str, token: &Cancel) -> Result<Option
         .and_then(|(_, value)| (!value.is_empty()).then(|| value.to_owned())))
 }
 impl Prepared {
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.root)
+    }
     pub fn read(
         repo: &Repository,
         reference: &str,
@@ -97,6 +102,8 @@ impl Prepared {
             .to_owned();
         let raw_ref = optional_ref(repo, reference, token)?.ok_or("Reference no longer exists")?;
         let mut result = Self {
+            root: repo.path.clone(),
+            git_dir: repo.editor_directory(token)?,
             reference: reference.into(),
             target: target.into(),
             head: head.into(),
@@ -151,6 +158,9 @@ impl Prepared {
         Ok(result)
     }
     fn validate(&self, repo: &Repository, choice: Choice, token: &Cancel) -> Result<(), String> {
+        if repo.editor_directory(token)? != self.git_dir {
+            return Err("Checkout repository changed; refresh before checking out".into());
+        }
         let current = repo.text(&["rev-parse", "--verify", "HEAD"], token)?;
         let symbolic = repo.text(&["rev-parse", "--symbolic-full-name", "HEAD"], token)?;
         if current.trim() != self.head || symbolic.trim() != self.symbolic_head {

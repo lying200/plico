@@ -1,5 +1,8 @@
 //! Branch creation: Rebased 4aec352 GitNewBranchDialog and
 //! GitCheckoutNewBranchOperation (JetBrains and contributors, Apache-2.0).
+pub mod batch;
+pub mod rollback;
+
 use crate::{
     git::{Cancel, Repository},
     operation_process::{self, Outcome, Progress},
@@ -7,6 +10,8 @@ use crate::{
 
 /// A displayed starting commit and HEAD identity, rechecked before writing.
 pub struct Prepared {
+    repository: Repository,
+    directory: std::path::PathBuf,
     name: String,
     source: String,
     target: String,
@@ -25,6 +30,10 @@ pub enum Choice {
     Rebase,
 }
 impl Prepared {
+    /// The worktree captured when this operation was prepared.
+    pub fn repository(&self) -> Repository {
+        self.repository.clone()
+    }
     pub fn default_choice(&self) -> Choice {
         if self.previous_tip.is_some() && !self.overwrite && !self.checkout {
             Choice::KeepLocal
@@ -137,6 +146,8 @@ impl Prepared {
             return Err("Finish the current Git operation before creating a branch".into());
         }
         Ok(Self {
+            repository: repo.clone(),
+            directory: repo.editor_directory(token)?,
             name: name.into(),
             source: source.into(),
             target,
@@ -205,6 +216,9 @@ pub fn execute_choice(
     progress: &Progress,
 ) -> Result<Report, String> {
     let mut session = crate::update_session::Session::begin(repo, token)?;
+    if repo.editor_directory(token)? != prepared.directory {
+        return Err("Repository changed; review the branch starting point again".into());
+    }
     let current = Prepared::read_options(
         repo,
         &prepared.name,

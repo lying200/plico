@@ -528,3 +528,57 @@ fn unresolved_merge_and_rebase_choice_remain_blocked() {
         );
     }
 }
+
+#[test]
+fn prepared_checkout_cannot_be_replayed_in_another_worktree_with_identical_refs() {
+    let f = Fixture::new();
+    let root = f.0.join("linked");
+    f.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        root.to_str().unwrap(),
+        "HEAD",
+    ]);
+    // Both trees are detached at the same object, with the same shared tag.
+    f.git(&["checkout", "--detach", "HEAD"]);
+    f.git(&["tag", "target"]);
+    let head = f.head();
+    let prepared = Prepared::read(
+        &Repository::new(&f.0),
+        "refs/tags/target",
+        &head,
+        &head,
+        None,
+        &Cancel::default(),
+    )
+    .unwrap();
+    assert_eq!(prepared.repository().path, f.0);
+    let other = Repository::new(&root);
+    for smart in [false, true] {
+        let error = reference_checkout::recover(
+            &other,
+            &prepared,
+            Choice::Checkout,
+            smart,
+            &Cancel::default(),
+            &Default::default(),
+        )
+        .err()
+        .expect("must reject foreign recovery");
+        assert!(error.contains("repository changed"), "{error}");
+    }
+    let error = reference_checkout::execute(
+        &other,
+        &prepared,
+        Choice::Checkout,
+        &Cancel::default(),
+        &Default::default(),
+    )
+    .err()
+    .expect("must reject foreign execution");
+    assert!(error.contains("repository changed"), "{error}");
+    assert_eq!(f.head(), head);
+    assert!(f.git(&["stash", "list"]).is_empty());
+    assert!(f.run(&prepared, Choice::Checkout).verified);
+}

@@ -1,5 +1,8 @@
 //! Log Cherry-pick. Rebased 4aec352 VcsCherryPickManager / CherryPickProcess.
 //! Uses upstream's Git-sequencer mode so Git retains the queue across restarts.
+mod recovery;
+pub use recovery::Recovery;
+
 use crate::{
     auth_request::Requests,
     git::{Cancel, Repository, is_oid},
@@ -74,7 +77,7 @@ impl Prepared {
         prepared.validate(repo, token)?;
         Ok(prepared)
     }
-    fn validate(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
+    pub(crate) fn validate(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
         if repo.editor_directory(token)? != self.directory
             || crate::commit_operation::head(repo, token)?.as_ref() != Some(&self.head)
             || crate::squash_check::symbolic_head(repo, token)? != self.branch
@@ -104,6 +107,7 @@ pub struct Report {
     pub empty: Option<EmptyCommit>,
     pub status: Status,
     pub retry: Option<Prepared>,
+    pub recovery: Option<Recovery>,
 }
 /// Does not stage local files, automatically stash, or discard a failed queue.
 /// The caller refreshes even on cancellation and offers existing sequencer recovery.
@@ -116,6 +120,20 @@ pub fn execute(
     progress: &Progress,
 ) -> Result<Report, String> {
     let _guard = repo.operation_guard(token)?;
+    execute_locked(repo, prepared, editor, requests, token, progress)
+}
+pub(crate) fn execute_under_guard(
+    repo: &Repository,
+    prepared: &Prepared,
+    guard: &crate::operation_queue::Guard,
+    editor: &OsStr,
+    requests: Option<&Requests>,
+    token: &Cancel,
+    progress: &Progress,
+) -> Result<Report, String> {
+    if !guard.owns(&repo.operation_key(token)?) {
+        return Err("Cherry-pick does not own this repository".into());
+    }
     execute_locked(repo, prepared, editor, requests, token, progress)
 }
 fn execute_locked(
@@ -149,36 +167,18 @@ fn execute_locked(
     let inspect = Cancel::default();
     let state = repo.operation_state(&inspect);
     let empty = EmptyCommit::read(repo, &inspect)?;
-    let status = match (&command, &state) {
-        (Ok(output), _) if output.stopped.is_some() => Status::Cancelled,
-        (_, Ok(state)) if !state.conflicts.is_empty() => Status::Conflicts,
-        (Ok(output), Ok(state))
-            if output.status.success() && output.input_error.is_none() && !state.in_progress() =>
-        {
-            Status::Success
-        }
-        _ if empty.is_some() => Status::Empty,
-        (Ok(output), _)
-            if output
-                .events
-                .contains(Event::UntrackedFilesWouldBeOverwritten) =>
-        {
-            Status::UntrackedFiles
-        }
-        (Ok(output), _)
-            if output
-                .events
-                .contains(Event::ApplyChangesWouldBeOverwritten) =>
-        {
-            Status::LocalChanges
-        }
-        _ => Status::Failed,
-    };
+    let status = classify(&command, &state, empty.is_some());
     // Never reapply an already-written prefix. Git normally rejects dirty
     // index/worktree before starting the sequence; otherwise use Continue.
     let retry = (status == Status::LocalChanges && prepared.validate(repo, &inspect).is_ok())
         .then(|| prepared.clone());
+    let recovery = if matches!(status, Status::Conflicts | Status::Empty) {
+        Recovery::capture(repo, &inspect).ok()
+    } else {
+        None
+    };
     Ok(Report {
+        recovery,
         retry,
         command,
         state,
@@ -270,5 +270,37 @@ impl Prepared {
             }
         }
         Ok(result)
+    }
+}
+
+fn classify(
+    command: &Result<Outcome, String>,
+    state: &Result<State, String>,
+    empty: bool,
+) -> Status {
+    match (command, state) {
+        (Ok(output), _) if output.stopped.is_some() => Status::Cancelled,
+        (_, Ok(state)) if !state.conflicts.is_empty() => Status::Conflicts,
+        (Ok(output), Ok(state))
+            if output.status.success() && output.input_error.is_none() && !state.in_progress() =>
+        {
+            Status::Success
+        }
+        _ if empty => Status::Empty,
+        (Ok(output), _)
+            if output
+                .events
+                .contains(Event::UntrackedFilesWouldBeOverwritten) =>
+        {
+            Status::UntrackedFiles
+        }
+        (Ok(output), _)
+            if output
+                .events
+                .contains(Event::ApplyChangesWouldBeOverwritten) =>
+        {
+            Status::LocalChanges
+        }
+        _ => Status::Failed,
     }
 }

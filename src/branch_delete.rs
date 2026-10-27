@@ -6,6 +6,7 @@ use crate::{
 };
 #[derive(Clone)]
 pub struct Prepared {
+    root: std::path::PathBuf,
     pub name: String,
     pub tip: String,
     pub base: String,
@@ -40,6 +41,18 @@ fn config(repo: &Repository, name: &str, token: &Cancel) -> Result<Vec<(String, 
         .collect())
 }
 impl Prepared {
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.root)
+    }
+    fn validate_repository(&self, repo: &Repository) -> Result<(), String> {
+        if crate::recent_projects::identity(&repo.path)
+            != crate::recent_projects::identity(&self.root)
+        {
+            return Err("Branch deletion belongs to a different repository".into());
+        }
+        Ok(())
+    }
+
     pub fn read(repo: &Repository, reference: &str, token: &Cancel) -> Result<Self, String> {
         let name = reference
             .strip_prefix("refs/heads/")
@@ -102,6 +115,7 @@ impl Prepared {
             .map(str::to_owned)
             .collect();
         Ok(Self {
+            root: repo.path.clone(),
             name: name.into(),
             tip: branch_tip,
             base,
@@ -124,6 +138,7 @@ pub fn execute(
     token: &Cancel,
     progress: &Progress,
 ) -> Result<Report, String> {
+    prepared.validate_repository(repo)?;
     let _guard = repo.operation_guard(token)?;
     let current = Prepared::read(repo, &format!("refs/heads/{}", prepared.name), token)?;
     if current.tip != prepared.tip
@@ -167,6 +182,7 @@ pub fn restore(
     token: &Cancel,
     progress: &Progress,
 ) -> Result<(), String> {
+    prepared.validate_repository(repo)?;
     let _guard = repo.operation_guard(token)?;
     let reference = format!("refs/heads/{}", prepared.name);
     let refs = repo.text(&["for-each-ref", "--format=%(refname)", &reference], token)?;

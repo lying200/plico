@@ -46,6 +46,7 @@ impl Mode {
     }
 }
 pub struct Prepared {
+    repository: PathBuf,
     directory: PathBuf,
     head: String,
     branch: Option<String>,
@@ -74,6 +75,7 @@ impl Prepared {
             }
         };
         let prepared = Self {
+            repository: repo.path.clone(),
             directory: repo.editor_directory(token)?,
             head,
             branch,
@@ -83,6 +85,9 @@ impl Prepared {
         };
         prepared.check(repo, token)?;
         Ok(prepared)
+    }
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.repository)
     }
     pub fn source(&self) -> String {
         self.branch

@@ -492,3 +492,94 @@ fn merge_recovery_diagnostic_includes_transport_state_and_restore_errors() {
     assert!(!diagnostic.contains("secret"));
     assert!(!diagnostic.contains("private"));
 }
+
+#[test]
+fn prepared_merge_cannot_be_reused_in_another_repository_with_identical_refs() {
+    let source = Fixture::new();
+    let base = source.commit("base\n", "base");
+    source.git(&["checkout", "-b", "task"]);
+    let target = source.commit("task\n", "task");
+    source.git(&["checkout", "main"]);
+    let other = Fixture::new();
+    other.git(&[
+        "fetch",
+        source.0.to_str().unwrap(),
+        "refs/heads/main:refs/heads/main",
+        "refs/heads/task:refs/heads/task",
+        "--update-head-ok",
+    ]);
+    other.git(&["reset", "--hard", "main"]);
+    let token = Cancel::default();
+    let prepared = Prepared::read(&source.repo(), "refs/heads/task", &token).unwrap();
+    assert_eq!(prepared.repository().path, source.repo().path);
+    let error = branch_merge::execute(
+        &other.repo(),
+        &prepared,
+        true,
+        OsStr::new("true"),
+        None,
+        &token,
+        &Default::default(),
+    )
+    .err()
+    .expect("cross-repository execution must fail");
+    assert!(error.contains("different repository"));
+    assert!(
+        prepared
+            .matches_pending_merge(&other.repo(), &token)
+            .unwrap_err()
+            .contains("different repository")
+    );
+    assert!(
+        prepared
+            .prepare_deletion(&other.repo(), &token)
+            .err()
+            .unwrap()
+            .contains("different repository")
+    );
+    assert_eq!(other.git(&["rev-parse", "HEAD"]), base);
+    assert_eq!(fs::read(other.0.join("a")).unwrap(), b"base\n");
+    assert!(other.git(&["stash", "list"]).is_empty());
+    assert_eq!(
+        merge(&source, "refs/heads/task", false).status,
+        Status::Success
+    );
+    assert_eq!(source.git(&["rev-parse", "HEAD"]), target);
+    assert_eq!(other.git(&["rev-parse", "HEAD"]), base);
+    assert!(prepared.prepare_deletion(&source.repo(), &token).is_ok());
+}
+
+#[test]
+fn prepared_merge_is_bound_to_worktree_not_shared_git_directory() {
+    let source = Fixture::new();
+    let base = source.commit("base\n", "base");
+    source.git(&["branch", "task"]);
+    let worktree = source.0.join("linked");
+    source.git(&[
+        "worktree",
+        "add",
+        "-b",
+        "linked",
+        worktree.to_str().unwrap(),
+    ]);
+    let token = Cancel::default();
+    let prepared = Prepared::read(&source.repo(), "refs/heads/task", &token).unwrap();
+    let linked = Repository::new(&worktree);
+    let error = branch_merge::execute(
+        &linked,
+        &prepared,
+        false,
+        OsStr::new("true"),
+        None,
+        &token,
+        &Default::default(),
+    )
+    .err()
+    .expect("another worktree must not accept the prepared merge");
+    assert!(error.contains("different repository"));
+    assert_eq!(
+        source.git(&["-C", worktree.to_str().unwrap(), "rev-parse", "HEAD"]),
+        base
+    );
+    assert_eq!(source.git(&["rev-parse", "HEAD"]), base);
+}

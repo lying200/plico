@@ -474,3 +474,33 @@ fn prepared_message_rechecks_external_merge_without_head_change() {
     assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
     assert_eq!(fs::read(f.0.join("added")).unwrap(), b"topic\n");
 }
+
+#[test]
+fn prepared_repository_keeps_same_hash_rewrite_in_the_selected_worktree() {
+    let parent = Fixture::new();
+    let child = Fixture::new();
+    parent.write("file", "original");
+    let original = parent.commit("original message");
+    child.git(&["fetch", parent.0.to_str().unwrap(), "main"]);
+    child.git(&["reset", "--hard", "FETCH_HEAD"]);
+    let prepared = child.prepare(&original);
+    assert_eq!(prepared.repository().path, child.0);
+    let done = prepared
+        .execute(
+            &prepared.repository(),
+            "child message",
+            &Cancel::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert_ne!(done.target, original);
+    assert_eq!(
+        child.text(&["show", "-s", "--format=%s", "HEAD"]),
+        "child message"
+    );
+    assert_eq!(parent.text(&["rev-parse", "HEAD"]), original);
+    assert_eq!(
+        parent.text(&["show", "-s", "--format=%s", "HEAD"]),
+        "original message"
+    );
+}

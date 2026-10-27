@@ -336,8 +336,9 @@ pub fn resolve_reference(
     if reference != "HEAD"
         && !reference.starts_with("refs/heads/")
         && !reference.starts_with("refs/remotes/")
+        && !reference.starts_with("refs/tags/")
     {
-        return Err("Choose a local or remote branch".into());
+        return Err("Choose a branch or tag".into());
     }
     if reference != "HEAD" {
         repo.text(&["check-ref-format", reference], token)?;

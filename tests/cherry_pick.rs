@@ -323,3 +323,145 @@ fn untracked_blockage_and_cancel_never_offer_silent_overwrite() {
     assert_eq!(f.git(&["rev-parse", "HEAD"], true), before);
     assert!(f.git(&["stash", "list"], true).is_empty());
 }
+
+#[test]
+fn original_recovery_keeps_applied_prefix_and_remaining_git_queue() {
+    original_recovery_case("continue");
+}
+
+#[test]
+fn original_recovery_rejects_changed_queue_branch_or_aborted_operation() {
+    for change in ["todo", "branch", "abort"] {
+        original_recovery_case(change);
+    }
+}
+
+#[test]
+fn original_recovery_reports_empty_resolution_without_skipping_it() {
+    for choice in ["empty", "empty-skip", "empty-keep"] {
+        original_recovery_case(choice);
+    }
+}
+
+fn original_recovery_case(change: &str) {
+    let f = Fixture::new();
+    f.commit("base");
+    f.git(&["checkout", "-b", "feature"], true);
+    fs::write(f.0.join("first"), "first").unwrap();
+    f.git(&["add", "first"], true);
+    f.git(&["commit", "-qm", "prefix"], true);
+    let first = f.git(&["rev-parse", "HEAD"], true);
+    f.commit("conflicting");
+    let middle = f.git(&["rev-parse", "HEAD"], true);
+    fs::write(f.0.join("last"), "last").unwrap();
+    f.git(&["add", "last"], true);
+    f.git(&["commit", "-qm", "last"], true);
+    let last = f.git(&["rev-parse", "HEAD"], true);
+    f.git(&["checkout", "main"], true);
+    f.commit("ours");
+    let report = run(&f, &[last, middle, first]);
+    assert_eq!(report.status, Status::Conflicts);
+    let recovery = report.recovery.unwrap();
+    let head = f.git(&["rev-parse", "HEAD"], true);
+    let repo = Repository::new(&f.0);
+    assert!(
+        recovery
+            .resume(
+                &repo,
+                std::ffi::OsStr::new("true"),
+                None,
+                &Cancel::default(),
+                &Default::default()
+            )
+            .is_err(),
+        "unresolved conflicts must stop"
+    );
+    fs::write(
+        f.0.join("a"),
+        if change.starts_with("empty") {
+            "ours"
+        } else {
+            "resolved"
+        },
+    )
+    .unwrap();
+    f.git(&["add", "a"], true);
+    match change {
+        "todo" => {
+            let path = f.0.join(".git/sequencer/todo");
+            let old = fs::read_to_string(&path).unwrap();
+            fs::write(
+                path,
+                old.lines().take(1).collect::<Vec<_>>().join("\n") + "\n",
+            )
+            .unwrap();
+        }
+        "branch" => {
+            f.git(&["branch", "-m", "renamed"], true);
+        }
+        "abort" => {
+            f.git(&["cherry-pick", "--abort"], true);
+        }
+        _ => {}
+    }
+    let result = recovery.resume(
+        &repo,
+        std::ffi::OsStr::new("true"),
+        None,
+        &Cancel::default(),
+        &Default::default(),
+    );
+    if change == "continue" {
+        assert_eq!(result.unwrap().status, Status::Success);
+        assert!(f.0.join("last").exists());
+        assert_eq!(
+            f.git(&["log", "--format=%s", "--all"], true)
+                .lines()
+                .filter(|s| *s == "prefix")
+                .count(),
+            2
+        );
+        assert_eq!(
+            f.git(&["rev-list", "--count", &format!("{head}..HEAD")], true),
+            "2"
+        );
+    } else if change.starts_with("empty") {
+        let report = result.unwrap();
+        assert_eq!(report.status, Status::Empty);
+        assert!(report.empty.is_some());
+        assert!(report.recovery.is_some());
+        assert!(!f.0.join("last").exists());
+        assert_eq!(f.git(&["rev-parse", "HEAD"], true), head);
+        if change != "empty" {
+            let choice = if change == "empty-keep" {
+                sequencer_operation::EmptyChoice::Keep
+            } else {
+                sequencer_operation::EmptyChoice::Skip
+            };
+            let done = report
+                .recovery
+                .unwrap()
+                .resolve_empty(
+                    &repo,
+                    (report.empty.as_ref().unwrap(), choice),
+                    std::ffi::OsStr::new("true"),
+                    None,
+                    &Cancel::default(),
+                    &Default::default(),
+                )
+                .unwrap();
+            assert_eq!(done.status, Status::Success);
+            assert!(f.0.join("last").exists());
+            assert_eq!(
+                f.git(&["rev-list", "--count", &format!("{head}..HEAD")], true),
+                if change == "empty-keep" { "2" } else { "1" }
+            );
+        }
+    } else {
+        assert!(result.is_err());
+        assert!(!f.0.join("last").exists());
+        if change != "abort" {
+            assert_eq!(f.git(&["rev-parse", "HEAD"], true), head);
+        }
+    }
+}

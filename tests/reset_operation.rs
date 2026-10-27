@@ -398,3 +398,40 @@ fn prepared_reset_cannot_be_reused_in_a_clone_with_the_same_head() {
     assert_eq!(fs::read(clone.join("file")).unwrap(), b"clone draft\n");
     assert_eq!(fs::read(f.0.join("file")).unwrap(), b"second\n");
 }
+
+#[test]
+fn captured_reset_repository_keeps_the_other_same_hash_worktree_unchanged() {
+    let (parent, base, head) = history();
+    let child = parent.0.join("child-clone");
+    parent.git(&["clone", "--no-hardlinks", ".", child.to_str().unwrap()]);
+    let prepared =
+        Prepared::prepare(&Repository::new(&child), base.clone(), &Cancel::default()).unwrap();
+    assert_eq!(prepared.repository().path, child);
+    let parent_index = fs::read(parent.0.join(".git/index")).unwrap();
+    let parent_file = fs::read(parent.0.join("file")).unwrap();
+    let result = prepared
+        .execute(
+            &prepared.repository(),
+            Mode::Mixed,
+            &Cancel::default(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(result.command.unwrap().status.success());
+    assert_eq!(
+        String::from_utf8(parent.git(&["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim(),
+        head
+    );
+    assert_eq!(fs::read(parent.0.join(".git/index")).unwrap(), parent_index);
+    assert_eq!(fs::read(parent.0.join("file")).unwrap(), parent_file);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&child)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), base);
+}

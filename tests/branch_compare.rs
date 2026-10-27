@@ -800,3 +800,36 @@ fn remote_comparison_reads_renames_and_binary_without_touching_dirty_state() {
     assert_eq!(f.git(&["show-ref"]), refs);
     assert_eq!(f.git(&["symbolic-ref", "HEAD"]), head);
 }
+
+#[test]
+fn comparison_reference_peels_tags_but_rejects_non_commit_objects() {
+    let f = Fixture::new();
+    let head = f.git(&["rev-parse", "HEAD"]);
+    f.git(&["tag", "light"]);
+    f.git(&[
+        "-c",
+        "tag.gpgsign=false",
+        "tag",
+        "-a",
+        "annotated",
+        "-m",
+        "annotation",
+    ]);
+    f.git(&["tag", "blob", "HEAD:a"]);
+    let repo = f.repo();
+    let token = Cancel::default();
+    for reference in ["refs/tags/light", "refs/tags/annotated"] {
+        assert_eq!(
+            plico::branch_compare::resolve_reference(&repo, reference, &token).unwrap(),
+            head
+        );
+    }
+    for reference in [
+        "refs/tags/blob",
+        "refs/tags/missing",
+        "refs/tags/light~1",
+        "--all",
+    ] {
+        assert!(plico::branch_compare::resolve_reference(&repo, reference, &token).is_err());
+    }
+}

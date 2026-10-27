@@ -140,6 +140,21 @@ impl<'a> Session<'a> {
             merge_started: false,
         })
     }
+    /// Reattach a retained stash from an owned save workflow. The caller must
+    /// validate its captured worktree identity before constructing this session.
+    pub(crate) fn retained_under_guard(
+        repo: &'a Repository,
+        group: &'a Guard,
+        saved: Option<String>,
+        cancel: &Cancel,
+    ) -> Result<Self, String> {
+        let mut session = Self::under_guard(repo, group, cancel)?;
+        session.saved = saved;
+        session.save_attempted = true;
+        session.save_succeeded = true;
+        Ok(session)
+    }
+
     pub fn saved_oid(&self) -> Option<&str> {
         self.saved.as_deref()
     }

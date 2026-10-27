@@ -18,12 +18,18 @@ pub struct Prepared {
     pub initial: bool,
     branch: Option<String>,
     directory: PathBuf,
+    repository: PathBuf,
 }
 pub struct Completed {
     pub target: String,
     pub warning: Option<String>,
 }
 impl Prepared {
+    /// Keep the operation's repository attached to the prepared action, including
+    /// while dialogs or asynchronous checks outlive the current Log selection.
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.repository)
+    }
     pub fn prepare(repo: &Repository, target: String, token: &Cancel) -> Result<Self, String> {
         if !is_oid(&target) {
             return Err("Invalid commit".into());
@@ -55,6 +61,7 @@ impl Prepared {
             target,
             branch,
             directory,
+            repository: repo.path.clone(),
             initial: fields[0].trim().is_empty(),
             author: fields[1].into(),
             message: fields[2].strip_suffix('\n').unwrap_or(fields[2]).into(),

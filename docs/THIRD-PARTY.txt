@@ -453,3 +453,16 @@ history, graph projection and file navigation identities with bounded metadata.
 Copyright 2000-2025 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
 Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
 License text: licenses/assets/icons/LICENSE.txt.
+
+
+Root-bound operations and multi-repository continuation
+
+src/branch_create/{batch,rollback}.rs follows GitBranchWorker,
+GitCreateBranchOperation and GitCheckoutOperation at Rebased 4aec352, with
+explicitly documented preservation of local drafts and overwritten branch tips.
+src/project_sequence.rs and submodules, src/cherry_pick/recovery.rs and the
+scoped operation request changes follow GitApplyChangesProcess, CherryPickProcess,
+GitRevertProcess and GitStashChangesSaver at the same reference revision.
+Copyright 2000-2025 JetBrains s.r.o. and contributors. Apache License, Version 2.0.
+Reference: https://github.com/detachhead/rebased/tree/4aec35256d765c217aa0d662b82ac4e860c396fd
+License text: licenses/assets/icons/LICENSE.txt.

@@ -12,6 +12,7 @@ use std::{ffi::OsStr, path::PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct Prepared {
+    root: PathBuf,
     pub reference: String,
     pub target: String,
     pub branch: String,
@@ -19,6 +20,19 @@ pub struct Prepared {
     directory: PathBuf,
 }
 impl Prepared {
+    pub fn repository(&self) -> Repository {
+        Repository::new(&self.root)
+    }
+
+    fn validate_repository(&self, repo: &Repository) -> Result<(), String> {
+        if crate::recent_projects::identity(&repo.path)
+            != crate::recent_projects::identity(&self.root)
+        {
+            return Err("Branch merge belongs to a different repository".into());
+        }
+        Ok(())
+    }
+
     pub fn read(repo: &Repository, reference: &str, token: &Cancel) -> Result<Self, String> {
         if !(reference.starts_with("refs/heads/") || reference.starts_with("refs/remotes/"))
             || reference.contains(['\0', '\n', '\r'])
@@ -35,6 +49,7 @@ impl Prepared {
         let head =
             crate::commit_operation::head(repo, token)?.ok_or("Cannot merge without HEAD")?;
         let prepared = Self {
+            root: repo.path.clone(),
             reference: reference.into(),
             target,
             branch,
@@ -59,6 +74,7 @@ impl Prepared {
         repo: &Repository,
         token: &Cancel,
     ) -> Result<crate::branch_delete::Prepared, String> {
+        self.validate_repository(repo)?;
         if !self.may_propose_delete()
             || repo.editor_directory(token)? != self.directory
             || crate::squash_check::symbolic_head(repo, token)?.as_ref() != Some(&self.branch)
@@ -86,6 +102,7 @@ impl Prepared {
 
     /// Bind a later Continue action to the exact merge originally started here.
     pub fn matches_pending_merge(&self, repo: &Repository, token: &Cancel) -> Result<bool, String> {
+        self.validate_repository(repo)?;
         Ok(repo.editor_directory(token)? == self.directory
             && crate::squash_check::symbolic_head(repo, token)?.as_ref() == Some(&self.branch)
             && crate::commit_operation::head(repo, token)?.as_ref() == Some(&self.head)
@@ -98,6 +115,7 @@ impl Prepared {
     }
 
     fn validate(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
+        self.validate_repository(repo)?;
         if repo.editor_directory(token)? != self.directory
             || crate::squash_check::symbolic_head(repo, token)?.as_ref() != Some(&self.branch)
             || crate::commit_operation::head(repo, token)?.as_ref() != Some(&self.head)
@@ -150,6 +168,7 @@ pub fn execute(
     token: &Cancel,
     progress: &Progress,
 ) -> Result<Report, String> {
+    prepared.validate_repository(repo)?;
     let mut session = Session::begin(repo, token)?;
     prepared.validate(repo, token)?;
     if editor.is_empty() {

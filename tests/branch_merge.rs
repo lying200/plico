@@ -224,7 +224,10 @@ fn finishing_smart_merge_restores_staged_and_unstaged_drafts_after_reopen() {
     )
     .unwrap();
     assert!(completed.command.unwrap().status.success());
-    assert!(completed.restore.unwrap().is_ok());
+    completed
+        .restore
+        .expect("merge completion must attempt saved-draft restoration")
+        .expect("saved-draft restoration failed");
     assert_eq!(f.git(&["show", ":other"]), "staged");
     assert_eq!(fs::read(f.0.join("other")).unwrap(), b"unstaged\n");
     assert_eq!(f.git(&["show", "HEAD:other"]), "original");

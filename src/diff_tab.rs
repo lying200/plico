@@ -1389,7 +1389,9 @@ mod editable_navigation_tests {
                 .unwrap();
             assert!(
                 output.status.success(),
-                "{}",
+                "git {args:?} in {} exited {}: {}",
+                path.display(),
+                output.status,
                 String::from_utf8_lossy(&output.stderr)
             );
             String::from_utf8(output.stdout).unwrap()

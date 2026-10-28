@@ -1,5 +1,56 @@
 # 代码与变更约束
 
+## 隔离测试入口（2026-10-28 起试行）
+
+真实 Git、helper 和桌面状态测试优先使用同一个跨平台入口。入口是 `tools/test-runner` 的独立、
+无第三方依赖 Rust 小程序；保留现有测试布局和业务断言。只需项目 Rust 工具链、Git，以及固定版本
+`cargo-nextest 0.9.150`。nextest 可从官方发行包安装，或执行：
+
+```sh
+cargo install cargo-nextest --version 0.9.150 --locked
+cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- doctor
+cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- core
+cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- desktop
+cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- navigation
+```
+
+`all` 依次执行上述三个套件，即使某一套失败仍继续下一套，最终返回非零。尾部参数传给 nextest，
+例如 `core --test clone_repository` 或 `desktop -E 'test(diff_tab::editable_navigation_tests)'`。
+定向过滤结果不能标为全量通过。nextest 不执行 doctest，另保留
+`cargo test --locked --no-default-features --doc`；目前源码未包含 Rust 文档代码示例。
+
+工具默认从 PATH 查找，也可通过 `PLICO_TEST_GIT`、`PLICO_TEST_NEXTEST`、`PLICO_TEST_CARGO`、
+`PLICO_TEST_RUSTC` 指定可执行文件。入口不会下载工具或修改系统配置。Windows 仍需 MSVC/SDK、
+LLVM（含可在 PATH 找到的 llvm-rc）；Linux 桌面构建依赖参见 `.github/workflows/build.yml`。
+doctor 报告 Rust/Git/nextest/Cargo 路径和版本，不代替完整编译依赖检查。
+当前本地验证基线为 Windows x64、Rust 1.99.0、Git for Windows 2.56.0；其他设备/版本须实际运行验收。
+
+隔离通过 nextest 的 [Cargo target runner](https://nexte.st/docs/features/target-runners/) 完成，
+在测试进程启动前清除继承的 Git/编辑器/代理等干扰，为每个进程创建独立 HOME、应用设置、临时目录和
+Git global config。构建工具保留原环境；测试主动启动的子进程继承其隔离环境，并可显式覆盖配置。
+禁止通过测试线程内修改进程环境来配置某个用例。基线关闭自动换行与签名，清空 credential helper，
+但没有使用强制 `-c` 或 GIT_CONFIG_COUNT 覆盖用例本身的设置。
+
+核心默认双并发、桌面单并发，无自动重试，单项慢测试 60 秒提示、180 秒终止。
+每次运行结果位于独立 `artifacts/test-runs/<id>/`，包含工具摘要、阶段日志、退出状态及
+`default/*.xml` JUnit。测试目录在系统临时目录的 `plico-tests` 下，避免嵌套 checkout 或过长路径；
+可用 `PLICO_TEST_TEMP_ROOT` 指定仓库外的较短路径，入口拒绝位于 Git 仓库内的临时根目录。
+失败目录保留并在报告的 `cases/*.txt` 记录位置，成功目录清理，清理失败也计为失败。
+现有 fixture 可能自行删除仓库，保留目录不保证包含所有失败现场；后续按诊断需求迁移。
+硬终止可能来不及执行 wrapper 清理，保留目录由后续人工检查，不扩大删除范围。
+本入口当前针对原生目标；不用于交叉编译运行测试。用户提供的额外 nextest 参数会影响运行范围和调度，
+验收记录应注明实际参数，不把有意覆盖后的结果当作默认配置结果。
+
+入口本身的回归覆盖带空格/中文路径、继承配置污染和两个并发测试进程的可写目录隔离：
+
+```sh
+cargo test --locked --manifest-path tools/test-runner/Cargo.toml
+cargo fmt --manifest-path tools/test-runner/Cargo.toml -- --check
+```
+
+不把隔离入口当作安全沙箱：它不封锁网络或操作系统凭据 API。测试仍只能访问自建资源，
+真实 OS 凭据专项必须使用唯一测试键；不得把用户账号或公网作为普通测试前提。
+
 ## 格式与工具链
 
 Rust 工具链以根目录 `rust-toolchain.toml` 为准，格式由 `rustfmt.toml` 决定。
@@ -29,13 +80,13 @@ EditorConfig 统一自有文件的缩进、UTF-8 与 LF；Markdown 保留有意�
 涉及桌面状态、焦点或生命周期时运行相关 `desktop-tests`；可见交互按项目要求做
 Windows 原生验收。已知失败必须记录具体用例和复现条件，不能扩大忽略范围。
 
-核心回归：`cargo test --locked --no-default-features`。
-桌面定向回归：`cargo test --locked --features desktop-tests --bin plico <filter>`。
+核心回归：隔离入口 `core`，另运行 `cargo test --locked --no-default-features --doc`。
+桌面定向回归：隔离入口 `desktop -E 'test(<filter>)'`。
 修改 Tab、焦点、编辑器或共享文档生命周期后，完整桌面验收包含两条命令：
 
 ```sh
-cargo test --locked --features desktop-tests --bin plico
-cargo test --locked --config 'profile.test.debug-assertions=false' --features desktop-tests --bin plico diff_tab::editable_navigation_tests
+cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- desktop
+cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- navigation
 ```
 
 Diff 导航测试包含跨文件 F7 焦点与工具栏实际鼠标点击，均在默认调试配置下执行。

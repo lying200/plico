@@ -8,7 +8,9 @@ impl Fixture {
     fn new() -> Self {
         let mut id = [0u8; 16];
         getrandom::fill(&mut id).unwrap();
-        let root = std::env::temp_dir().join(format!("plico-clone-{:x?}", id));
+        // This fixture tests clone semantics, not file-URL metacharacters.
+        let id: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
+        let root = std::env::temp_dir().join(format!("plico-clone-{id}"));
         fs::create_dir(&root).unwrap();
         Self(root)
     }

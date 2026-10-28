@@ -8,11 +8,49 @@ use std::{
     fs,
     path::PathBuf,
     process::{Command, Stdio},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
 static SEQ: AtomicUsize = AtomicUsize::new(0);
+// Must be created inside the scope, after spawning its worker: unwinding then
+// requests cancellation before thread::scope waits for that worker to finish.
+struct CancelOnDrop<'a>(&'a Cancel);
+impl Drop for CancelOnDrop<'_> {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            self.0.cancel();
+        }
+    }
+}
+
+#[test]
+fn failed_editor_assertion_cancels_before_scope_joins() {
+    let token = Cancel::default();
+    let worker_observed_cancel = AtomicBool::new(false);
+    let result = std::panic::catch_unwind(|| {
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while !token.cancelled() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                worker_observed_cancel.store(token.cancelled(), Ordering::Relaxed);
+            });
+            let _cancel_on_panic = CancelOnDrop(&token);
+            panic!("simulate a failed readiness assertion");
+        });
+    });
+    assert!(result.is_err());
+    assert!(token.cancelled());
+    assert!(worker_observed_cancel.load(Ordering::Relaxed));
+    let normal = Cancel::default();
+    drop(CancelOnDrop(&normal));
+    assert!(
+        !normal.cancelled(),
+        "successful scopes must preserve their token"
+    );
+}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -1763,6 +1801,7 @@ fn interactive_operation_preserves_dirty_index_and_restores_after_cancel_or_root
                     &progress,
                 )
             });
+            let _cancel_on_panic = CancelOnDrop(&token);
             let started = Instant::now();
             let pending = loop {
                 if let Some(pending) = plans.take_pending() {

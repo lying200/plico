@@ -31,15 +31,18 @@ impl Fixture {
         fixture
     }
     fn git(&self, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.0)
+            .args(args)
+            .output()
+            .unwrap();
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(&self.0)
-                .args(args)
-                .output()
-                .unwrap()
-                .status
-                .success()
+            output.status.success(),
+            "git {args:?} in {} exited {}: {}",
+            self.0.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
         );
     }
     fn helper(&self) -> PathBuf {
@@ -82,6 +85,9 @@ fn http_server(repository: Option<PathBuf>) -> (String, Cancel, thread::JoinHand
                 }
                 Err(e) => panic!("HTTP fixture accept: {e}"),
             };
+            // Accepted sockets inherit nonblocking mode on Windows. Reads below
+            // use bounded blocking IO, independently of listener polling.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();

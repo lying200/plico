@@ -1,0 +1,8 @@
+[package]
+name = "plico-test-runner"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Keep the test launcher independent of desktop dependencies.
+[workspace]

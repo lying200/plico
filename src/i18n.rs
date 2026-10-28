@@ -89,9 +89,9 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
     match english {
         "Move up" => "上移",
         "Move down" => "下移",
-        "Squash" => "压缩合并",
+        "Squash" => "压缩",
         "Drop" => "丢弃",
-        "Cancel Reword" => "取消修改消息",
+        "Cancel Reword" => "取消改写提交消息",
         "Entered commit message will be lost" => "输入的提交消息将丢失",
         "Keep Editing" => "继续编辑",
         "Cancel Rebase" => "取消变基",
@@ -107,8 +107,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Merging" => "正在合并",
         "Rebasing Commits" => "变基提交",
         "Start Rebasing" => "开始变基",
-        "Pick" => "采用",
-        "Reword" => "修改消息",
+        "Pick" => "选取",
+        "Reword" => "改写提交消息",
         "Fixup" => "修正合并",
         "Press Ctrl+Enter to apply changes" => "按 Ctrl+Enter 应用更改",
         "Create Git Repository" => "创建 Git 仓库",
@@ -122,25 +122,33 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "已取消初始化。目录仍保留在磁盘上，请检查后再重试。"
         }
         "Could not connect to hosting service" => "无法连接到代码托管服务",
+        "HTTP request failed" => "HTTP 请求失败",
+        "Could not load containing branches" => "无法加载包含此提交的分支",
         "Account needs to log in again" => "账号需要重新登录",
         "Authorization timed out" => "授权超时，请重试",
         "Browser login is unavailable in this build or for this server; use a token" => {
             "此版本或服务器暂不支持浏览器登录，请使用 Token"
         }
-        "Token permissions: read_api, read_user, write_repository" => {
-            "Token 所需权限：read_api、read_user、write_repository"
+        "Token scopes requested by Generate: read_api, read_user, write_repository" => {
+            "“生成”申请的 Token 权限：read_api、read_user、write_repository"
         }
-        "Token permissions: repository access and read user" => {
-            "Token 需要仓库访问和读取用户信息权限"
+        "Token scopes requested by Generate: repo, read:user, read:org, workflow" => {
+            "“生成”申请的 Token 权限：repo、read:user、read:org、workflow"
         }
         "Invalid server URL" => "服务器 URL 无效",
         "Use an HTTPS server URL without credentials" => "请使用不含凭据的 HTTPS 服务器 URL",
         "GitHub Enterprise is not supported" => "暂不支持 GitHub Enterprise",
         "Account changed during authorization" => "授权期间账号已更改，请重新登录",
-        "Authorization was denied" => "授权被拒绝",
-        "OAuth callback port is in use" => "OAuth 回调端口已被占用",
+        "OAuth authorization returned an error" => "OAuth 授权返回错误",
+        "Could not bind the OAuth callback port" => "无法绑定 OAuth 回调端口",
         "Could not start OAuth callback" => "无法启动 OAuth 回调",
         "OAuth callback failed" => "OAuth 回调失败",
+        "Invalid OAuth configuration" => "OAuth 配置无效",
+        "Could not generate OAuth verifier" => "无法生成 OAuth 校验随机值",
+        "Invalid authorization callback" => "授权回调无效",
+        "Invalid authorization state" => "授权回调的 state 参数无效",
+        "Missing authorization code" => "授权回调中缺少有效的授权码",
+        "Missing OAuth access token" => "OAuth 响应中缺少有效的访问 Token",
         "Access denied: check account permissions or organization policy" => {
             "访问被拒绝，请检查账号权限或组织策略"
         }
@@ -149,6 +157,10 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Account storage is full" => "账号存储已满",
         "Invalid repository list" => "仓库列表无效",
+        "Missing account username" => "服务器响应中缺少账号用户名",
+        "Missing repository URL" => "服务器响应中缺少仓库 URL",
+        "Invalid repository URL" => "服务器返回的仓库 URL 无效",
+        "Missing repository name" => "服务器响应中缺少仓库名称",
         "Unexpected repository host" => "仓库地址与账号服务器不匹配",
         "Hosting response is too large" => "服务器响应过大",
         "Could not read hosting response" => "无法读取服务器响应",
@@ -201,6 +213,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Shallow clone" => "浅克隆",
         "Clone submodules" => "克隆子模块",
         "Clone depth must be greater than zero" => "克隆深度必须大于零",
+        "Clone depth must be a positive integer" => "克隆深度必须为正整数",
         "Clone destination directory" => "克隆目标目录",
         "Cancelling clone…" => "正在取消克隆…",
         "Cloning…" => "正在克隆…",
@@ -210,6 +223,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "目标目录仍保留在磁盘上，请检查后再重试。"
         }
         "Remote name" => "名称",
+        "Invalid remote name" => "远端名称无效",
+        "Remote URL or path is empty or invalid" => "远端地址或路径为空或无效",
         "Edit Remote" => "编辑远端",
         "Shallow clone with a history truncated to" => "浅克隆，仅保留最近",
         "Edit" => "编辑",
@@ -257,7 +272,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Merge completed; saved changes require attention" => "合并操作已结束，保存的修改需要处理",
         "Merge aborted; saved changes require attention" => "已中止合并，保存的修改需要处理",
         "Merge requires attention" => "合并需要处理",
-        "Saved changes retained" => "已保留暂存的修改",
+        "Saved changes retained" => "更改备份已保留",
         "Git Merge Problem" => "Git 合并问题",
         "Don't Merge" => "不合并",
         "Local Changes Prevent Revert" => "本地修改阻止了撤销提交",
@@ -279,7 +294,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "请先完成或中止当前 Git 操作，再清除队列。"
         }
         "Saved Merge Changes" => "合并前保存的修改",
-        "Show Stashes" => "查看 Stash",
+        "Show Stashes" => "查看已保存的更改",
         "Retry Restore" => "重试恢复",
         "Review the retained stash before retrying. Retry requires a clean tracked working tree and the original merge result. Clearing the record does not restore or delete the stash." => {
             "重试前请检查保留的 Stash。重试要求跟踪文件无修改且仍处于原合并结果。清除记录不会恢复或删除 Stash。"
@@ -294,7 +309,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Not run" => "未执行",
         "Local Changes Prevent Cherry-pick" => "本地更改阻止拣选提交",
         "Save local changes in a stash and retry? Changes will be restored after success. If the operation stops, they remain available in Stashes." => {
-            "将本地更改保存到 Stash 并重试？成功后将恢复更改；如果操作中断，可在 Stash 列表中找回。"
+            "将本地更改保存到 Stash 并重试？成功后将恢复更改；如果操作中断，可在“已保存的更改”中查看。"
         }
         "Cherry-Pick" => "拣选提交",
         "Cherry-picking commits…" => "正在拣选提交…",
@@ -335,17 +350,17 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Apply Non-Conflicting Changes" => "应用非冲突更改",
         "Resolve All Simple Conflicts" => "解决所有简单冲突",
         "Resolving Conflicts…" => "正在解决冲突…",
-        "No conflicts were resolved automatically" => "没有可自动解决的冲突",
-        "All conflicts were resolved automatically" => "所有冲突均已自动解决",
+        "No changes were resolved automatically" => "未自动处理任何更改",
+        "All changes have been resolved" => "所有更改均已处理",
         "Automatic resolution cancelled; completed changes have been kept" => {
             "已取消自动解决；已完成的更改已保留"
         }
         "All conflicts have been resolved" => "所有冲突均已解决",
-        "Revert Conflict Resolution" => "撤销冲突解决",
+        "Revert Conflict Resolution" => "撤销冲突解决结果",
         "Revert" => "撤销",
         "Confirm Revert" => "确认撤销",
-        "All changes will be reverted. The file will return to its original conflicted state." => {
-            "将撤销所有解决更改，文件将恢复到最初的未解决状态。"
+        "Discard this file's conflict resolutions and restore the base version? The file will remain unresolved." => {
+            "放弃此文件的冲突解决结果并恢复基准版本？文件仍将保持未解决状态。"
         }
         "Overwrite Changes" => "覆盖更改",
         "Discard and Accept" => "放弃并采纳",
@@ -360,8 +375,10 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Discard Changes?" => "放弃更改？",
         "Discard Changes" => "放弃更改",
         "Continue Merge" => "继续合并",
-        "Closing the dialog discards partial merge progress. Saved file contents remain in the working tree." => {
-            "关闭对话框将放弃部分解决的合并进度。已保存的文件内容仍保留在工作区。"
+        "Discard Partial Merge Progress?" => "放弃未完成的合并进度？",
+        "Discard Progress" => "放弃进度",
+        "Closing the dialog discards resolution progress for partially resolved files, but keeps their saved contents. Fully resolved files will be staged." => {
+            "关闭对话框会丢弃未完全解决文件的解决进度，但保留已保存的文件内容。已完全解决的文件将被暂存。"
         }
         "Apply Changes" => "应用更改",
         "Review Changes" => "复查更改",
@@ -394,8 +411,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Delete Branch" => "删除分支",
         "Delete branch" => "删除分支",
         "Branch Is Not Fully Merged" => "分支尚未完全合并",
-        "These commits are not merged into the branch's upstream or HEAD. Delete the branch anyway?" => {
-            "这些提交尚未合入该分支的上游或 HEAD。仍要删除分支吗？"
+        "These commits are not merged into the upstream branch (or HEAD when no upstream is available). Delete the branch anyway?" => {
+            "这些提交尚未合入上游分支（上游不可用时以 HEAD 为准）。仍要删除分支吗？"
         }
         "More commits are not shown" => "还有更多提交未显示",
         "Could not delete branch" => "无法删除分支",
@@ -458,8 +475,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Include selected lines in commit" => "将所选行包含到提交",
         "Exclude selected lines from commit" => "从提交中排除所选行",
         "Commit this change" => "提交此处更改",
-        "Rollback this change" => "撤回此处更改",
-        "Copy original lines" => "复制原内容",
+        "Rollback this change" => "回滚此处更改",
+        "Copy original lines" => "复制原始行",
         "Git baseline changed. Reopen the change marker." => "Git 基线已变化，请重新打开变更标记。",
         "Open Project" => "打开项目",
         "Where would you like to open the project?" => "您希望在哪里打开此项目？",
@@ -489,7 +506,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Commit…" => "提交…",
         "Filters" => "筛选",
         "Amend" => "修订提交",
-        "Amend last commit" => "修订上次提交",
+        "Amend last commit" => "修订最新提交",
         "Amend Commit" => "修订提交",
         "Amend Commit and Push…" => "修订提交并推送…",
         "Commit and Push…" => "提交并推送…",
@@ -499,7 +516,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Commit failed" => "提交失败",
         "Could not restore staged changes" => "无法恢复暂存的更改",
         "Could not load local changes" => "无法加载本地变更",
-        "Could not load commit message" => "无法加载提交说明",
+        "Could not load commit message" => "无法加载提交消息",
         "Long Edges" => "长连线",
         "Directory" => "目录",
         "Layout" => "布局",
@@ -527,10 +544,10 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Could not check out branch; repository refreshed" => "无法检出分支；已刷新仓库",
         "Continue" => "继续",
         "Message cannot be represented in Git editor encoding" => {
-            "提交信息包含 Git 配置编码无法表示的字符。请修改信息后重试。"
+            "提交消息包含 Git 配置编码无法表示的字符。请修改提交消息后重试。"
         }
         "Git editor encoding would change the message" => {
-            "Git 配置编码会改变提交信息。请修改信息后重试。"
+            "Git 配置编码会改变提交消息。请修改提交消息后重试。"
         }
         "Continue Rebase" => "继续变基",
         "Abort Rebase" => "中止变基",
@@ -580,8 +597,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "强制推送可能覆盖远端提交。确定要继续吗？"
         }
         "Push help" => "推送帮助",
-        "Push selected commits to the target branch. Enable Push tags to include tags. Force Push checks the last known remote revision before replacing history." => {
-            "将所选提交推送到目标分支。勾选推送标签可同时推送标签。强制推送会在替换历史前核对已知的远端版本。"
+        "Push the current branch to the target branch. Enable Push tags to include tags. Force Push checks the last known remote revision before replacing history." => {
+            "将当前分支推送到目标分支。勾选推送标签可同时推送标签。强制推送会在替换历史前核对已知的远端版本。"
         }
         "Push" => "推送",
         "Push Commits" => "推送提交",
@@ -619,8 +636,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "推送失败或未完成；部分远端更新可能已完成"
         }
         "Pop" => "弹出",
-        "Restore changes and keep the stash" => "恢复更改并保留保存记录",
-        "Restore changes and remove the stash on success" => "恢复更改，成功后移除保存记录",
+        "Restore changes and keep the stash" => "恢复更改并保留 Stash 备份",
+        "Restore changes and remove the stash on success" => "恢复更改，成功后移除 Stash 备份",
         "New Tag…" => "新建标签…",
         "Create New Tag On" => "创建标签于",
         "Enter the name of new tag" => "输入新标签的名称",
@@ -632,7 +649,13 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "选择一条引用历史，将对应提交恢复为分支。"
         }
         "No reflog entries" => "没有引用历史记录",
-        "entries loaded" => "条记录已加载",
+        "Invalid reflog page size" => "引用历史的读取数量无效",
+        "Incomplete reflog response" => "Git 返回的引用历史数据不完整",
+        "Malformed reflog response" => "Git 返回的引用历史数据格式错误",
+        "Invalid reflog commit" => "引用历史中的提交 ID 无效",
+        "Invalid reflog selector" => "引用历史中的记录选择表达式无效",
+        "Invalid reflog timestamp" => "引用历史中的时间戳无效",
+        "Invalid reflog reference" => "引用历史中的引用名称无效",
         "Load More" => "加载更多",
         "Loading…" => "正在加载…",
         "Could not load comparison. Refresh to retry." => "无法加载比较，请刷新重试。",
@@ -642,16 +665,15 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Rename…" => "重命名…",
         "Rename" => "重命名",
         "Rename Branch" => "重命名分支",
-        "No tracking branch" => "没有跟踪分支",
+        "No tracking branch" => "未设置上游分支",
         "Unset upstream branch" => "取消上游分支跟踪",
         "Renaming branch…" => "正在重命名分支…",
         "Branch renamed" => "分支已重命名",
         "Branch renamed; upstream settings need attention" => "分支已重命名；上游设置需要处理",
         "Could not rename branch" => "无法重命名分支",
-        "Saved changes from Rebase still need review." => "Rebase 保存的更改仍需确认处理。",
+        "Saved changes from Rebase still need review." => "变基时保存的更改仍需检查。",
         "Already handled externally…" => "已在外部处理…",
-        "Could not inspect the Rebase recovery record." => "无法读取 Rebase 恢复记录。",
-        "Finish Rebase recovery" => "结束变基恢复",
+        "Could not inspect the Rebase recovery record." => "无法读取变基恢复记录。",
         "Swap branches" => "交换分支",
         "Differences between files in {branch} and the current working tree on {current}." => {
             "比较 {branch} 中的文件与 {current} 上的当前工作树。"
@@ -671,7 +693,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Clear recovery record" => "清除恢复记录",
         "Clearing recovery record…" => "正在清除恢复记录…",
-        "Recovery record cleared; saved changes kept" => "恢复记录已清除，保存的更改已保留",
+        "Recovery record cleared" => "恢复记录已清除",
         "Recovery record was not cleared. Refresh and review the repository state." => {
             "未清除恢复记录，请刷新并检查仓库状态。"
         }
@@ -686,11 +708,15 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "History for Selection" => "选中范围的历史",
         "History" => "历史",
         "Copy" => "复制",
+        "Cut" => "剪切",
+        "Paste" => "粘贴",
+        "Cancelled" => "已取消",
+        "Detached HEAD" => "游离 HEAD",
         "Select All" => "全选",
         "Changes only" => "仅显示有更改的版本",
         "Version" => "版本",
         "Author" => "作者",
-        "Commit Message" => "提交说明",
+        "Commit Message" => "提交消息",
         "Revision" => "版本",
         "Counting commits…" => "正在统计提交…",
         "Retry count" => "重试统计",
@@ -702,6 +728,9 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "No history for this file" => "此文件没有 Git 历史",
         "Loading file history…" => "正在加载文件历史…",
         "Could not load file history" => "无法加载文件历史",
+        "Invalid three-way revisions" => "三方比较的版本无效",
+        "Project repository information is not ready" => "项目仓库信息尚未就绪",
+        "Could not refresh User filter" => "无法刷新用户筛选",
         "Jump to Source · F4" => "跳转到源码 · F4",
         "Jump to Commit" => "跳转到提交",
         "Commit is outside the loaded history window" => "提交不在已加载的历史窗口中",
@@ -745,18 +774,18 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Text contents are identical" => "文本内容相同",
         "Only line separators differ" => "仅换行符不同",
-        "Edit Commit Message…" => "编辑提交信息…",
-        "Edit Commit Message" => "编辑提交信息",
-        "Edit message for commit" => "编辑提交信息：",
+        "Edit Commit Message…" => "编辑提交消息…",
+        "Edit Commit Message" => "编辑提交消息",
+        "Edit message for commit" => "编辑提交消息：",
         "by" => "作者",
         "Editing Initial Commit" => "编辑初始提交",
         "Editing the initial commit rewrites the history of the current branch. Continue?" => {
             "编辑初始提交将重写当前分支的历史。是否继续？"
         }
-        "Editing commit message…" => "正在编辑提交信息…",
-        "Commit message edited" => "提交信息已修改",
-        "Commit message edited; follow-up failed" => "提交信息已修改，但后续处理失败",
-        "Could not edit commit message" => "无法编辑提交信息",
+        "Editing commit message…" => "正在编辑提交消息…",
+        "Commit message edited" => "提交消息已修改",
+        "Commit message edited; follow-up failed" => "提交消息已修改，但后续处理失败",
+        "Could not edit commit message" => "无法编辑提交消息",
         "This will reset the current branch head to the selected commit,\nand update the working tree and the index according to the selected mode:" => {
             "将当前分支的 HEAD 重置到选中的提交，\n并根据所选模式更新工作区和暂存区："
         }
@@ -812,10 +841,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         }
         "Saved changes have conflicts; review Local Changes" => "恢复时发生冲突，请查看本地更改",
         "Could not restore the saved index; review Local Changes" => {
-            "无法恢复暂存状态，请查看本地更改"
+            "无法恢复已保存的暂存区状态，请查看本地更改"
         }
-        "Local changes would be overwritten; stash kept" => "本地更改会被覆盖，保存记录已保留",
-        "Untracked files would be overwritten; stash kept" => "未跟踪文件会被覆盖，保存记录已保留",
+        "Local changes would be overwritten; stash kept" => "本地更改会被覆盖，Stash 备份已保留",
+        "Untracked files would be overwritten; stash kept" => {
+            "未跟踪文件会被覆盖，Stash 备份已保留"
+        }
         "Restore cancelled; check Local Changes before retrying" => {
             "已取消恢复，重试前请检查本地更改"
         }
@@ -868,7 +899,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Next" => "下一页",
         "New branch" => "新分支",
         "Push references changed; reopen the push dialog" => {
-            "远端引用已变化，请重新打开推送窗口以刷新列表"
+            "推送引用已变化，请重新打开推送窗口以刷新列表"
         }
         "Smart Checkout" => "智能检出",
         "Force Checkout" => "强制检出",
@@ -896,14 +927,14 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "detached HEAD" => "游离 HEAD",
         "Checkout Revision" => "检出提交",
         "Checkout timed out; repository refreshed" => "检出超时，仓库状态已刷新",
-        "Resolve existing index conflicts before checkout" => "请先解决索引中的冲突，再检出提交",
+        "Resolve existing index conflicts before checkout" => "请先解决暂存区中的冲突，再检出提交",
         "Local changes would be overwritten by checkout" => "检出会覆盖本地修改，请先处理这些修改",
         "Untracked files would be overwritten by checkout" => {
             "检出会覆盖未跟踪文件，请先处理这些文件"
         }
         "Checking out commit…" => "正在检出提交…",
         "Checkout cancelled; repository refreshed" => "已取消检出，仓库状态已刷新",
-        "Commit checked out (detached HEAD)" => "已检出提交（分离 HEAD）",
+        "Commit checked out (detached HEAD)" => "已检出提交（游离 HEAD）",
         "Could not check out commit; repository refreshed" => "无法检出提交，仓库状态已刷新",
         "Could not load outgoing commits" => "无法加载待推送提交，请检查目标",
         "Loading commit details…" => "正在加载提交详情…",
@@ -919,7 +950,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "已取消拉取；本地修改仍保存在 stash 中"
         }
         "Pull incomplete; local changes remain saved in stash" => {
-            "拉取未完整完成；本地修改仍保存在 stash 中"
+            "拉取未完成；本地修改仍保存在 stash 中"
         }
         "Pull failed" => "拉取失败",
         "Pull cancelled" => "已取消拉取",
@@ -931,8 +962,8 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Modify options" => "修改选项",
         "Select an existing remote branch" => "请选择已有的远端分支",
         "Git editor helper is unavailable" => "Git 编辑器辅助程序不可用",
-        "Edit commit message" => "编辑提交说明",
-        "Commit message" => "提交说明",
+        "Edit commit message" => "编辑提交消息",
+        "Commit message" => "提交消息",
         "Edit rebase todo" => "编辑变基任务",
         "Could not save. The file may have changed or the operation has ended." => {
             "无法保存：文件可能已更改，或操作已经结束。"
@@ -985,13 +1016,18 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Remember for this session" => "在本次会话中记住",
         "Authentication" => "身份验证",
         "Applies to all repositories" => "应用于所有仓库",
-        "Use credentials helper" => "使用凭据助手",
+        "Use credential helper" => "使用凭据助手",
         "Credential storage is unavailable. Clear Remember to continue without saving." => {
             "凭据存储不可用。取消“记住”可继续且不保存。"
         }
         "Enter your credentials" => "请输入凭据",
         "Username must not be empty" => "用户名不能为空",
         "Password must not be empty" => "密码不能为空",
+        "Password or token must not be empty" => "密码或 Token 不能为空",
+        "Token must not be empty" => "Token 不能为空",
+        "Credential storage is unavailable. Clear Remember to continue without saving the password or token." => {
+            "凭据存储不可用。取消勾选“记住”可继续，而不保存密码或 Token。"
+        }
         "Username" => "用户名",
         "Password" => "密码",
         "Username and password must not be empty" => "用户名和密码不能为空",
@@ -1052,12 +1088,12 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "磁盘上的文件不可用，已保留编辑器内容。"
         }
         "File changed on disk. Your edits have been kept; reload or compare before saving." => {
-            "磁盘上的文件已更改。你的编辑已保留，请检查后重新加载。"
+            "磁盘上的文件已更改。你的编辑已保留；保存前请重新加载或比较文件内容。"
         }
         "File is read-only. Your edits have been kept." => "文件为只读。你的编辑已保留。",
         "Read-only file" => "只读文件",
         "Reload file" => "重新加载文件",
-        "Collapse folders before opening more files" => "请先折叠部分文件夹，再展开更多文件",
+        "Collapse folders before loading more entries" => "请先折叠部分文件夹，再加载更多条目",
         "Linked or special files are not opened" => "暂不支持打开链接或特殊文件",
         "Binary file cannot be displayed as text" => "二进制文件无法以文本显示",
         "File encoding is not supported" => "暂不支持此文件编码",
@@ -1076,7 +1112,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Repositories skipped" => "已跳过部分仓库",
         "Cannot update project" => "无法更新项目",
         "Update cancelled; review local changes and saved stash" => {
-            "更新已取消，请检查本地改动和保存的暂存"
+            "更新已取消，请检查本地更改和保留的 Stash 备份"
         }
         "Update incomplete; review conflicts and saved local changes" => {
             "更新未完成，请检查冲突和保存的本地改动"
@@ -1207,6 +1243,20 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Select…" => "选择…",
         "Select in Tree…" => "在树中选择…",
         "Version Control · Git" => "版本控制 · Git",
+        "Worktree location must be absolute" => "工作树位置必须使用绝对路径",
+        "Worktree directory is not empty" => "工作树目录不为空",
+        "Choose a local branch, remote branch or tag" => "请选择本地分支、远端分支或标签",
+        "Remote branch no longer exists" => "远端分支已不存在",
+        "Choose a remote branch, not its HEAD alias" => "请选择远端分支，而不是它的 HEAD 别名",
+        "Remote branch has no configured remote" => "此远端分支没有对应的远端配置",
+        "Invalid branch name" => "分支名称无效",
+        "A branch or branch directory with this name already exists" => {
+            "同名分支已存在，或名称与已有分支路径冲突"
+        }
+        "Branch name clashes with a remote branch" => "分支名称与远端分支冲突",
+        "Branch is already checked out; open its worktree or create a new branch" => {
+            "分支已检出；请打开对应工作树或创建新分支"
+        }
         "Prunable" => "可清理",
         "Locked" => "已锁定",
         "Selected branch is checked out; create a new branch or open its worktree." => {
@@ -1278,6 +1328,9 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
             "更新未完成，请先检查冲突和已保存的本地修改，再推送"
         }
         "Select Paths to Filter by" => "选择要筛选的路径",
+        "Collapse folders before expanding more than 16,384 nodes" => {
+            "节点数量已达 16,384 个的显示限制，请先折叠部分文件夹再展开"
+        }
         "Cancel" => "取消",
         "Recent" => "最近使用",
         "me" => "我",
@@ -1297,7 +1350,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Older window" => "较早的历史",
         "Load more" => "加载更多",
         "  · Shallow history boundary" => "  · 浅克隆历史边界",
-        "  · End of available history" => "  · 已到历史末尾",
+        "  · End of available history" => "  · 已到可用历史末尾",
         "In branches: loading…" => "所属分支：正在加载…",
         "Not in any branch" => "不在任何分支中",
         "Hide" => "收起",
@@ -1353,6 +1406,7 @@ pub enum Message<'a> {
     HiddenInLog(&'a str),
     NotInHistory(&'a str),
     MoreReferences(usize),
+    LoadedEntries(usize),
     LoadedCommits {
         count: usize,
         offset: usize,
@@ -1392,6 +1446,11 @@ pub(crate) fn render_message(value: Message<'_>, chinese: bool) -> String {
         }
         (Message::MoreReferences(count), true) => format!("另有 {count} 个引用"),
         (Message::MoreReferences(count), false) => format!("{count} more"),
+        (Message::LoadedEntries(count), true) => format!("已加载 {count} 条记录"),
+        (Message::LoadedEntries(count), false) => {
+            let noun = if count == 1 { "entry" } else { "entries" };
+            format!("{count} {noun} loaded")
+        }
         (Message::AuthorDate { author, date }, true) => format!("{author} 于 {date}"),
         (Message::AuthorDate { author, date }, false) => format!("{author} on {date}"),
         (Message::Committer { person, date }, true) => match (person, date) {
@@ -1412,10 +1471,14 @@ pub(crate) fn render_message(value: Message<'_>, chinese: bool) -> String {
             format!("已加载 {count} 条提交 · 偏移 {offset}")
         }
         (Message::LoadedCommits { count, offset }, false) => {
-            format!("{count} commits loaded · offset {offset}")
+            let noun = if count == 1 { "commit" } else { "commits" };
+            format!("{count} {noun} loaded · offset {offset}")
         }
         (Message::FilePosition { current, total }, true) => format!("{current}/{total} 个文件"),
-        (Message::FilePosition { current, total }, false) => format!("{current}/{total} files"),
+        (Message::FilePosition { current, total }, false) => {
+            let noun = if total == 1 { "file" } else { "files" };
+            format!("{current}/{total} {noun}")
+        }
         (Message::DiffCount { total, included }, chinese) => {
             let mut text = if chinese {
                 format!("{total} 处差异")
@@ -1524,12 +1587,17 @@ mod setup_translation_tests {
 
 /// Counts refer to the displayed immutable query, not to unfiltered repository HEAD.
 pub fn history_count(loaded: usize, offset: usize, total: Option<usize>) -> String {
+    let noun = if total == Some(1) {
+        "commit"
+    } else {
+        "commits"
+    };
     let total = total.map(|n| n.to_string()).unwrap_or_else(|| "—".into());
     if offset == 0 || loaded == 0 {
         if is_chinese() {
             format!("已加载 {loaded} / {total} 条提交")
         } else {
-            format!("{loaded} of {total} commits loaded")
+            format!("{loaded} of {total} {noun} loaded")
         }
     } else if is_chinese() {
         format!(
@@ -1539,7 +1607,7 @@ pub fn history_count(loaded: usize, offset: usize, total: Option<usize>) -> Stri
         )
     } else {
         format!(
-            "{loaded} loaded · {}–{} of {total} commits",
+            "{loaded} loaded · {}–{} of {total} {noun}",
             offset + 1,
             offset + loaded
         )
@@ -1550,28 +1618,24 @@ pub fn history_count(loaded: usize, offset: usize, total: Option<usize>) -> Stri
 pub fn automatic_merge_result(resolved: usize, remaining: Option<usize>, files: usize) -> String {
     if is_chinese() {
         match remaining {
-            Some(n) => format!("已解决 {resolved} 处冲突；{files} 个文件中还有 {n} 处需要处理"),
-            None => format!("已解决 {resolved} 处冲突；还有 {files} 个文件需要处理"),
+            Some(n) => format!("已自动处理 {resolved} 处更改；{files} 个文件中还有 {n} 处需要处理"),
+            None => format!("已自动处理 {resolved} 处更改；还有 {files} 个文件需要处理"),
         }
     } else {
-        let resolved_noun = if resolved == 1 {
-            "conflict"
-        } else {
-            "conflicts"
-        };
+        let resolved_noun = if resolved == 1 { "change" } else { "changes" };
         let file_noun = if files == 1 { "file" } else { "files" };
         match remaining {
             Some(n) => {
-                let conflict_noun = if n == 1 { "conflict" } else { "conflicts" };
+                let change_noun = if n == 1 { "change" } else { "changes" };
                 let verb = if n == 1 { "requires" } else { "require" };
                 format!(
-                    "{resolved} {resolved_noun} resolved. {n} {conflict_noun} in {files} {file_noun} still {verb} attention"
+                    "{resolved} {resolved_noun} resolved automatically. {n} {change_noun} in {files} {file_noun} still {verb} attention"
                 )
             }
             None => {
                 let verb = if files == 1 { "requires" } else { "require" };
                 format!(
-                    "{resolved} {resolved_noun} resolved. {files} {file_noun} still {verb} attention"
+                    "{resolved} {resolved_noun} resolved automatically. {files} {file_noun} still {verb} attention"
                 )
             }
         }

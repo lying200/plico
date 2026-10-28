@@ -317,7 +317,7 @@ impl Panel {
         let expected = self.selected.clone().filter(|_| self.login_ui);
         let persist = !self.login_only;
         if !browser && token.trim().is_empty() {
-            self.error = Some(t("Password must not be empty").into());
+            self.error = Some(t("Token must not be empty").into());
             cx.notify();
             return;
         }
@@ -383,8 +383,8 @@ impl Render for Panel {
                             }
                         }))))
                     .child(div().ml(px(68.)).text_color(rgb(crate::ui_style::MUTED)).whitespace_normal().child(t(match self.provider {
-                        Provider::GitHub => "Token permissions: repository access and read user",
-                        Provider::GitLab => "Token permissions: read_api, read_user, write_repository",
+                        Provider::GitHub => "Token scopes requested by Generate: repo, read:user, read:org, workflow",
+                        Provider::GitLab => "Token scopes requested by Generate: read_api, read_user, write_repository",
                     })))
                     .child(h_flex().ml(px(68.)).mt_2().gap_3()
                         .child(Button::new("host-login").label(t("Log In")).disabled(self.busy).on_click(cx.listener(|s, _, w, cx| s.login(false, w, cx))))
@@ -716,6 +716,15 @@ impl Render for Panel {
 }
 
 fn error_text(error: String) -> String {
+    // Only the local API adapter's status-only diagnostic is a format template.
+    // Preserve unknown diagnostics and external data verbatim.
+    if let Some(code) = error
+        .strip_prefix("HTTP request failed (")
+        .and_then(|s| s.strip_suffix(')'))
+        .filter(|s| s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return format!("{} ({code})", t("HTTP request failed"));
+    }
     match error.as_str() {
         "Browser login is unavailable in this build or for this server; use a token" => {
             t("Browser login is unavailable in this build or for this server; use a token").into()
@@ -730,10 +739,16 @@ fn error_text(error: String) -> String {
         }
         "GitHub Enterprise is not supported" => t("GitHub Enterprise is not supported").into(),
         "Account changed during authorization" => t("Account changed during authorization").into(),
-        "Authorization was denied" => t("Authorization was denied").into(),
-        "OAuth callback port is in use" => t("OAuth callback port is in use").into(),
+        "Authorization was denied" => t("OAuth authorization returned an error").into(),
+        "OAuth callback port is in use" => t("Could not bind the OAuth callback port").into(),
         "Could not start OAuth callback" => t("Could not start OAuth callback").into(),
         "OAuth callback failed" => t("OAuth callback failed").into(),
+        "Invalid OAuth configuration" => t("Invalid OAuth configuration").into(),
+        "Could not generate OAuth verifier" => t("Could not generate OAuth verifier").into(),
+        "Invalid authorization callback" => t("Invalid authorization callback").into(),
+        "Invalid authorization state" => t("Invalid authorization state").into(),
+        "Missing authorization code" => t("Missing authorization code").into(),
+        "Missing OAuth access token" => t("Missing OAuth access token").into(),
         "Access denied: check account permissions or organization policy" => {
             t("Access denied: check account permissions or organization policy").into()
         }
@@ -742,6 +757,10 @@ fn error_text(error: String) -> String {
         }
         "Account storage is full" => t("Account storage is full").into(),
         "Invalid repository list" => t("Invalid repository list").into(),
+        "Missing account username" => t("Missing account username").into(),
+        "Missing repository URL" => t("Missing repository URL").into(),
+        "Invalid repository URL" => t("Invalid repository URL").into(),
+        "Missing repository name" => t("Missing repository name").into(),
         "Unexpected repository host" => t("Unexpected repository host").into(),
         "Hosting response is too large" => t("Hosting response is too large").into(),
         "Could not read hosting response" => t("Could not read hosting response").into(),
@@ -765,6 +784,26 @@ fn repository_label<'a>(name: &'a str, account: Option<&Account>) -> &'a str {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn status_translation_preserves_codes_and_unknown_diagnostics() {
+        for code in [302, 404, 429, 500, 503] {
+            assert_eq!(
+                error_text(format!("HTTP request failed ({code})")),
+                format!("{} ({code})", t("HTTP request failed"))
+            );
+        }
+        for raw in [
+            "HTTP request failed (500): server detail",
+            "HTTP request failed (５０３)",
+            "HTTP request failed (50)",
+            "HTTP request failed (5000)",
+            "HTTP request failed (token)",
+            "server returned {code}: 中文",
+        ] {
+            assert_eq!(error_text(raw.into()), raw);
+        }
+    }
 
     #[test]
     fn repository_labels_keep_external_owners_and_gitlab_namespaces() {

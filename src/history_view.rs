@@ -766,7 +766,7 @@ impl HistoryView {
         use gpui_kit::component::diff::{DiffTint, ThreeWayRow};
         let versions: Option<Vec<_>> = versions.into_iter().collect();
         let Some(versions) = versions.filter(|v| v.len() == 3) else {
-            self.preview_error = Some("Invalid three-way revisions".into());
+            self.preview_error = Some(t("Invalid three-way revisions").into());
             return;
         };
         let files = versions

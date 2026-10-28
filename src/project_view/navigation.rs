@@ -191,7 +191,7 @@ impl ProjectView {
                             .sum::<usize>()
                             + tree.directories.values().map(Vec::len).sum::<usize>();
                         if size > project_files::DISPLAY_NODE_LIMIT {
-                            s.error = Some("Collapse folders before opening more files".into());
+                            s.error = Some("Collapse folders before loading more entries".into());
                         } else {
                             for (parent, entries) in tree.directories {
                                 s.cursors.remove(&parent);

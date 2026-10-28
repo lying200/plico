@@ -45,12 +45,24 @@ impl Browser {
                         s.selected = selected.and_then(|e| s.entries.iter().position(|r| r == &e));
                         s.more = page.has_more;
                     }
-                    Err(error) => s.error = Some(error),
+                    Err(error) => s.error = Some(error_text(error)),
                 }
                 cx.notify();
             });
         });
         cx.notify();
+    }
+}
+fn error_text(error: String) -> String {
+    match error.as_str() {
+        "Invalid reflog page size" => t("Invalid reflog page size").into(),
+        "Incomplete reflog response" => t("Incomplete reflog response").into(),
+        "Malformed reflog response" => t("Malformed reflog response").into(),
+        "Invalid reflog commit" => t("Invalid reflog commit").into(),
+        "Invalid reflog selector" => t("Invalid reflog selector").into(),
+        "Invalid reflog timestamp" => t("Invalid reflog timestamp").into(),
+        "Invalid reflog reference" => t("Invalid reflog reference").into(),
+        _ => error,
     }
 }
 impl Render for Browser {
@@ -155,7 +167,9 @@ impl Render for Browser {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(format!("{} {}", self.entries.len(), t("entries loaded")))
+                    .child(plico::i18n::message(plico::i18n::Message::LoadedEntries(
+                        self.entries.len(),
+                    )))
                     .when(self.more, |v| {
                         v.child(
                             Button::new("more-reflog")

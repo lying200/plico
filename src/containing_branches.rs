@@ -226,11 +226,10 @@ impl Render for ContainingBranches {
         );
         match &self.result {
             None => panel.child(t("In branches: loading…")),
-            Some(Err(error)) => panel.child(
-                div()
-                    .whitespace_normal()
-                    .child(format!("Could not load containing branches: {error}")),
-            ),
+            Some(Err(error)) => panel.child(div().whitespace_normal().child(format!(
+                "{}: {error}",
+                t("Could not load containing branches")
+            ))),
             Some(Ok(branches)) if branches.is_empty() => panel.child(t("Not in any branch")),
             Some(Ok(branches)) => {
                 let head = i18n::message(i18n::Message::ContainingBranches(branches.len()));

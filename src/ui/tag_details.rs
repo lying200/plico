@@ -136,7 +136,7 @@ impl Render for Files {
                                 .child(
                                     div()
                                         .text_color(rgb(MUTED))
-                                        .child(format!("{count} {}", t("files"))),
+                                        .child(crate::ui_style::file_count(count)),
                                 )
                                 .on_click(cx.listener(move |s, _, _, cx| {
                                     if !s.collapsed.remove(&path) {

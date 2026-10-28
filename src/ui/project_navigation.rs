@@ -17,7 +17,7 @@ impl Review {
         };
         let members = self.project_roots.read(cx).snapshot().and_then(Result::ok);
         if clear_filters && members.is_none() {
-            self.error = Some("Project repository information is not ready".into());
+            self.error = Some(t("Project repository information is not ready").into());
             cx.notify();
             return;
         }

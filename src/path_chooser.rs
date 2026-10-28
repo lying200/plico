@@ -417,9 +417,24 @@ impl Render for PathChooser {
                 .track_scroll(&self.scroll),
             )
             .when_some(self.loading.clone(), |view, path| {
-                view.child(div().text_sm().child(format!("Loading {path}…")))
+                let message = if plico::i18n::is_chinese() {
+                    format!("正在加载 {path}…")
+                } else {
+                    format!("Loading {path}…")
+                };
+                view.child(div().text_sm().child(message))
             })
             .when_some(self.error.clone(), |view, error| {
+                let error = match error.as_str() {
+                    "Path does not belong to a project repository" => {
+                        plico::i18n::t("Path does not belong to a project repository").to_owned()
+                    }
+                    "Collapse folders before expanding more than 16,384 nodes" => {
+                        plico::i18n::t("Collapse folders before expanding more than 16,384 nodes")
+                            .to_owned()
+                    }
+                    _ => error,
+                };
                 view.child(div().text_sm().text_color(rgb(0xf75464)).child(error))
             })
     }

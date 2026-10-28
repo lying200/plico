@@ -146,7 +146,7 @@ impl ListDelegate for FilePicker {
                         .child(
                             div()
                                 .text_color(rgb(0x9fa2a8))
-                                .child(format!("{count} files")),
+                                .child(crate::ui_style::file_count(*count)),
                         ),
                     *depth,
                 )

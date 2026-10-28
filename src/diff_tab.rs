@@ -573,7 +573,7 @@ impl DiffTab {
         if let Err(error) =
             layout_preferences::save_diff_unified(self.place(), mode == DiffMode::Unified)
         {
-            self.preference_error = Some(format!("Cannot save Diff view: {error}"));
+            self.preference_error = Some(format!("{}: {error}", t("Cannot save Diff view")));
             cx.notify();
             return;
         }
@@ -594,7 +594,7 @@ impl DiffTab {
     }
     fn set_appearance(&mut self, value: DiffAppearance, cx: &mut Context<Self>) {
         if let Err(error) = layout_preferences::save_diff_appearance(self.place(), value) {
-            self.preference_error = Some(format!("Cannot save Diff settings: {error}"));
+            self.preference_error = Some(format!("{}: {error}", t("Cannot save Diff settings")));
             cx.notify();
             return;
         }
@@ -1263,7 +1263,11 @@ impl Render for DiffTab {
                             .py_1()
                             .gap_2()
                             .child(div().text_color(rgb(0xf2a6a6)).child(t(
-                                "Could not save Diff preferences. Try the setting again.",
+                                if self.disk_error.is_some() {
+                                    "Could not refresh diff"
+                                } else {
+                                    "Could not save Diff preferences. Try the setting again."
+                                },
                             )))
                             .child(
                                 Button::new("copy-diff-preference-error")

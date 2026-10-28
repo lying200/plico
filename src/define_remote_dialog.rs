@@ -159,13 +159,14 @@ impl Form {
 fn t_error(error: &str) -> String {
     // Validation strings contain no URL or raw Git output.
     match error {
+        "Invalid remote name" => t("Invalid remote name").into(),
         "A remote with that name already exists" => {
             t("A remote with that name already exists").into()
         }
         "Remote changed; reopen the remote configuration" => {
             t("Remote changed; reopen the remote configuration").into()
         }
-        "Enter a nonempty remote URL or path" => t("Enter a nonempty remote URL or path").into(),
+        "Enter a nonempty remote URL or path" => t("Remote URL or path is empty or invalid").into(),
         "Authentication helper is unavailable" => t("Authentication helper is unavailable").into(),
         _ => t("Could not validate the remote configuration").into(),
     }

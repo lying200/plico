@@ -59,7 +59,7 @@ impl Form {
             match self.depth.read(cx).value().parse::<u32>() {
                 Ok(n) if n > 0 => Some(n),
                 _ => {
-                    self.error = Some(t("Clone depth must be greater than zero").into());
+                    self.error = Some(t("Clone depth must be a positive integer").into());
                     cx.notify();
                     return None;
                 }

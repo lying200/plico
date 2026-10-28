@@ -544,6 +544,17 @@ mod tests {
         assert_eq!(m.text(), "a\n");
     }
     #[test]
+    fn automatic_progress_includes_non_conflicting_changes() {
+        let mut merge = Merge::new("base\n", "ours\n", "base\n");
+        assert_eq!(merge.changes.len(), 1);
+        assert!(!merge.changes[0].conflict());
+        assert_eq!(merge.state().progress(), (0, 1));
+        assert!(merge.resolve_automatically(0).is_some());
+        assert_eq!(merge.text(), "ours\n");
+        assert_eq!(merge.state().progress(), (1, 1));
+    }
+
+    #[test]
     fn automatic_resolution_preserves_unresolved_blocks_and_restored_decisions() {
         let base = "alpha beta gamma\nunchanged\nbase two\n";
         let yours = "ALPHA beta gamma\nunchanged\nours two\n";

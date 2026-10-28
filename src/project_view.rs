@@ -261,7 +261,7 @@ impl ProjectView {
                         s.cursors = tree.cursors;
                         s.error = tree.error.map(directory_error_text).or_else(|| {
                             tree.limited
-                                .then(|| "Collapse folders before opening more files".into())
+                                .then(|| "Collapse folders before loading more entries".into())
                         });
                     }
                     Err(error) => {
@@ -331,7 +331,7 @@ impl ProjectView {
                     Ok(page) => {
                         let used: usize = s.directories.values().map(Vec::len).sum();
                         if used + page.entries.len() > project_files::DISPLAY_NODE_LIMIT {
-                            s.error = Some("Collapse folders before opening more files".into());
+                            s.error = Some("Collapse folders before loading more entries".into());
                         } else {
                             let first_new = if more {
                                 page.entries.first().map(|e| e.path.clone())

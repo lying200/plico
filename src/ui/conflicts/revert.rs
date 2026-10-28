@@ -26,7 +26,7 @@ impl Review {
             let view = view.clone();
             let path = path.clone();
             d.title(t("Confirm Revert")).w(px(480.)).centered(true).overlay_closable(false)
-                .child(div().whitespace_normal().child(t("All changes will be reverted. The file will return to its original conflicted state.")))
+                .child(div().whitespace_normal().child(t("Discard this file's conflict resolutions and restore the base version? The file will remain unresolved.")))
                 .footer(crate::dialog_style::confirmation(Button::new("revert-conflict-resolution").primary().label(t("Revert"))))
                 .on_ok(move |_, w, cx| {
                     w.close_dialog(cx);

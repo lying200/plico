@@ -2,7 +2,483 @@
 
 仓库：https://github.com/detachhead/rebased
 
-本次已读取的参考 commit：`4aec35256d765c217aa0d662b82ac4e860c396fd`。这是源码快照，不表示与宿主机安装版本一致。现有 checkout `/tmp/gitui-rebased-reference` 只作缓存；可用 `git show <commit>:<path>` 读取 sparse checkout 外文件。
+长期参考 checkout：`~/projects/rebased`，与 Plico 平级（本机为 `C:/Users/echoyn/projects/rebased`）。2026-10-28 获取的 `master` 快照为 `245042348669114adb8e24e5b0fc0ce73763f3c4`，从本轮文本校对开始采用；使用 shallow、blobless、sparse clone，按需扩展源码目录。后续更新时记录实际 commit，不把浮动分支当作版本依据。
+
+下文既有实现记录默认参考 `4aec35256d765c217aa0d662b82ac4e860c396fd`，除非章节另有说明；不能将旧记录追溯改成新快照。旧临时路径 `/tmp/gitui-rebased-reference` 不再作为长期入口。源码快照不代表宿主机安装版本；本轮未核对已安装 Rebased 版本，也不声称完成原生 UI 验收。
+
+## 本轮交付边界（2026-10-28）
+
+按用户“不要无止境做下去”的要求，本轮止于第二十二批，不再自动新增校对范围。此前记录中的“下一步”仅作为后续候选，不表示本轮继续执行。尚未完成全项目文本逐项验收；未完成项保留为待办，不以无限扩展替代交付。
+
+本轮交付包括：长期 Rebased checkout 与固定参考版本；中文语言包来源和许可调查；提交／变基／stash 术语统一；推送、冲突解决和恢复确认的中英语义修正；动态计数、固定错误映射及部分漏译补齐。Git 操作算法、恢复协议、远端请求权限与测试隔离方案未改变。新增两项针对性测试分别验证 HTTP 错误格式识别边界及自动解决计数包含非冲突更改。
+
+已知限制集中保留：原生界面排版与长文案换行未验收；认证入口仍可能将不同失败归为存储错误；部分核心诊断、历史／文件导航菜单、欢迎页、日期和恢复详情未逐项覆盖。第二十一批覆盖表保留详细边界。没有导入中文语言包资源，也未建立该语言包的开源再分发授权。
+
+收尾复查：累计 29 个文件，其中 2 个为文档；直接字面量翻译调用未发现缺键，按大小写精确比较未发现重复字典键。此扫描不覆盖所有动态调用，不能证明全量语义或 UI 排版正确。所有改动仍在工作区，未提交或推送。
+
+收尾完整验证：`cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- all` 已结束，三个阶段退出码均为 0。结果目录：`artifacts/test-runs/5d38-18e2b7efce514e94-0/`。
+
+| 套件 | 结果 | 说明 |
+| --- | --- | --- |
+| core | 946 通过，0 跳过 | 完整核心套件 |
+| desktop | 184 通过，0 跳过 | 完整桌面测试套件 |
+| navigation | 10 通过，174 按预定范围过滤 | 单独配置 `profile.test.debug-assertions=false` 的导航回归；并非 Cargo release profile |
+| doctest | 通过，0 用例 | `cargo test --locked --no-default-features --doc` |
+| 格式／差异 | 通过 | `cargo fmt --package plico -- --check`、`git diff --check` |
+
+合计 1,140 次用例执行通过，其中导航用例与完整桌面套件有重叠，不称为 1,140 个独立用例。此次结果仅证明当前 Windows 环境的执行结果，不替代跨设备运行、原生视觉验收或 CI。没有新增提交、推送或 CI 运行。本轮完成收尾，后续校对等待用户重新指定范围。
+
+## 中英文源码校对（2026-10-28，第一批）
+
+按用户本轮要求，纯文本校对直接检查资源键、调用方和操作含义，不以原生截图作为前置条件；此范围不包含功能行为或界面结构修改。后续涉及这些修改时仍按项目原生验证要求执行。
+
+### 资源与许可证
+
+- 英文基准：上述新快照的 `plugins/git4idea/shared/resources/messages/GitBundle.properties`。已核对交互式变基动作、取消改写提示、开始／继续／取消变基及 stash 相关条目。
+- 官方中文包：[Chinese (Simplified) Language Pack](https://plugins.jetbrains.com/plugin/13710-chinese-simplified-language-pack----)，插件 ID `com.intellij.zh`，发布者 JetBrains。Marketplace 说明 2024.2 起随 IDE 捆绑；可单独下载的最新包为 `232.322`（2024-07-22），不能视为当前 Rebased 的完整中文基准。
+- [官方元数据](https://plugins.jetbrains.com/api/plugins/13710) 的源码链接为空，许可证链接指向 [JetBrains 用户协议](https://www.jetbrains.com/legal/docs/toolbox/user/)，未找到可用于开源再分发的授权。因此只检查短术语作参照，独立依据英文及操作语义校对，不导入整包译文。进一步许可说明见 [LICENSING.md](LICENSING.md)。
+- 参考树包含协议、更新器等少量中文资源，未找到对应的完整中文 GitBundle；不能据此声称 Rebased 完全没有中文资源。
+- 本地只读证据：`artifacts/localization-20261028/marketplace-13710.json`、`zh.232.322.zip`（忽略目录，不提交）。ZIP SHA-256：`528e50e24f7c39e9b95afbd97372f0ce852464fc539156f2ab2ec31ea90c07db`。查阅路径为包内 `zh.232.322/lib/zh.232.322.jar!/messages/GitBundle.properties`，未安装或执行该插件。
+
+### 验证
+
+本批 `cargo fmt --package plico -- --check` 与 `git diff --check` 通过；隔离入口 `core -E 'test(i18n::)'` 运行 4 项、全部通过，另 941 项被过滤，未重跑全量测试。运行记录：`artifacts/test-runs/3268-18e2b1f34266a138-0/`。当前 shell 的 PATH 未包含 nextest，本次通过入口支持的 `PLICO_TEST_NEXTEST` 指定本机已有的 0.9.150 可执行文件，没有改项目路径配置。未做原生 UI／排版验收。
+
+### 已核对与修改
+
+源码均基于 `245042348669114adb8e24e5b0fc0ce73763f3c4`：
+
+- `plugins/git4idea/backend/src/rebase/GitRebaseEntry.kt::Action`：显示名称从资源键读取，与实际 Git 命令分离。Plico 对应 `src/rebase_plan_table/view.rs` 与 `src/i18n.rs`，此次只改显示译文。
+- `plugins/git4idea/backend/src/rebase/interactive/dialog/GitRebaseCommitsTableView.kt::removeEditor`：取消改写提示针对尚未应用的提交消息，不是取消整个变基。Plico 保留 Cancel Reword 与 Cancel Rebase 的区分。
+- GitBundle 的 `rebase.notification.saved.local.changes.part.stash.text` 明确指向 stash；Plico 的 `src/branch_rebase.rs::execute` 经 `Session` 保存更改，并以 `saved_oid` 返回保留的 stash，`src/ui/branch_rebase.rs` 显示通知。不能翻成表示 index 的“暂存”。
+
+| Plico 英文键 | 原中文 | 本轮中文 | 校对依据 |
+| --- | --- | --- | --- |
+| Squash | 压缩合并 | 压缩 | 对应 `rebase.entry.action.name.squash`；与现有“压缩提交／撤销压缩”一致 |
+| Pick | 采用 | 选取 | 对应 `rebase.entry.action.name.pick`；表示选取提交进入变基序列 |
+| Reword | 修改消息 | 改写提交消息 | 对应 `rebase.entry.action.name.reword`；明确操作对象 |
+| Cancel Reword | 取消修改消息 | 取消改写提交消息 | 对应取消改写提示；与动作名称一致 |
+| Saved changes retained | 已保留暂存的修改 | 更改备份已保留 | Plico 自有通知，表示 stash 备份保留，并附 OID |
+
+这些英文动作和取消提示已与上游核对，无须为制造差异而修改英文。保留 Drop 的“丢弃”、Start Rebasing 的“开始变基”和 Fixup 的“修正合并”：旧中文包分别采用“删除”“启动变基”和未翻译的 Fixup，本地现有表达更能区分操作含义。较长的 noop 提示、其他动态错误消息尚未完成语义核对，不列为本批通过项。
+
+后续按功能逐批校对：提交／Amend 与历史操作 → 分支及 Fetch／Pull／Push → Log 过滤、文件树与 Diff → 设置及错误提示。每批记录英文资源键、调用方、中文语义、占位符和保留差异；Plico 自有行为独立表述，避免套用上游不适用的承诺。本批仅完成上表五处修正及相关英文检查，不代表全量校对完成。
+
+## 中英文源码校对（2026-10-28，第二批）
+
+沿用第一批的纯文本范围和参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批检查提交／Amend、历史中的提交消息编辑及 Squash 消息输入；仅修改 `src/i18n.rs` 的 14 个中文值，没有修改英文键、动态值拼接、Git 命令或交互行为。
+
+### 源码依据与本地映射
+
+- `platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties`：`commit.message.placeholder`、`commit.message.editor.accessible.name`、`label.selected.revision.commit.message` 均使用 Commit Message；`amend.commit.load.message.error.text` 指待修订提交的消息加载失败。Plico 对应 `src/local_view.rs` 输入框及无障碍名称、`src/history_view.rs` 历史详情、`src/i18n.rs` 加载错误。
+- `plugins/git4idea/backend/src/checkin/GitAmendCommitService.kt::getLastCommitMessage`：读取最新一条提交的完整消息（`%B`，旧 Git 回退为 subject + body）；`VcsBundle` 的 `checkbox.amend`／`dropdown.link.amend` 区分 Amend 与 last commit。Plico 的 `src/local_view.rs` 勾选项和 `src/commit_operation.rs` 使用 `git commit --amend`，现有范围为当前分支最新提交，不引入上游另有的指定提交修订功能。
+- `plugins/git4idea/backend/src/rebase/GitRewordAction.kt::actionPerformedAfterChecks`：对话框使用 `commit.fullMessage`，标题和说明分别来自 `rebase.log.reword.dialog.title`／`description.label`，说明带提交哈希与作者。Plico 对应 `src/reword_dialog.rs`；保留英文标题和哈希／作者拼接，只统一中文“提交消息”。
+- `plugins/git4idea/backend/src/rebase/log/squash/GitSquashLogAction.kt::actionPerformedAfterChecks`：从所选提交的 fullMessage 生成压缩提交消息；资源键为 `rebase.log.squash.new.message.dialog.title`／`label`。Plico `src/squash_dialog.rs` 的英文标题仍为 Squash Commits，提示为 Message for the squashed commit，语义清晰，保留此措辞差异；中文提示已经使用“提交消息”，无须修改。
+- Plico 自有诊断：`src/editor/encoding.rs::encode` 及 `src/rebase_plan_dialog.rs` 检查消息能否按 Git 配置编码无损表示；`src/ui/reword.rs` 区分“消息已改写但后续处理失败”与“改写失败”。这些区别保留，不套用上游的通用成功／失败通知。
+
+### 修改清单与术语规则
+
+| 英文键或同组键 | 原中文用语 | 本轮用语／范围 |
+| --- | --- | --- |
+| Amend last commit | 修订上次提交 | 修订最新提交，明确是当前分支的 HEAD |
+| Could not load commit message | 提交说明 | 提交消息 |
+| Commit Message / Commit message | 提交说明 | 提交消息，覆盖标题、输入提示和无障碍名称 |
+| Edit Commit Message… / Edit Commit Message / Edit commit message | 提交信息／提交说明 | 编辑提交消息，保留原有省略号 |
+| Edit message for commit | 编辑提交信息： | 编辑提交消息：，保留后接的哈希和作者 |
+| Editing commit message… / Commit message edited / Commit message edited; follow-up failed / Could not edit commit message | 提交信息 | 提交消息，保留进行中、成功、后续失败和失败的区别 |
+| Message cannot be represented in Git editor encoding / Git editor encoding would change the message | 提交信息；修改信息 | 提交消息；修改提交消息，明确需要修改的内容 |
+
+Commit Message 统一为“提交消息”，包括 subject 与 body，不改称只表示首行的“提交标题”。Amend 保留“修订提交”，Reword 为“改写提交消息”，避免暗示二者具有相同的更改范围。本批英文与上述资源及本地语义相符，保持现有文本；保留大小写不同的查找键，避免影响调用方。未导入中文语言包资源，也没有新增需要转录的上游代码。
+
+本批未覆盖全部历史操作：Reset、Revert、Cherry-Pick 的整组提示和提交后恢复流程仍需逐项检查；未进行原生 UI 排版验收。
+
+验证：`cargo fmt --package plico -- --check` 与 `git diff --check` 通过；通过隔离入口 `core -E 'test(i18n::)'` 运行的 4 项 i18n 测试全部通过，另 941 项被过滤，未重跑全量测试。沿用本机已有 nextest 0.9.150，并通过 `PLICO_TEST_NEXTEST` 显式指定。结果目录：`artifacts/test-runs/19a0-18e2b2204e7f2d8c-0/`。
+
+## 中英文源码校对（2026-10-28，第三批）
+
+沿用第一批纯文本范围，参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批校对 Reset 四种模式说明、Revert／Cherry-Pick 主要动作名称及 stash 恢复结果；不将“名称已核对”扩展为整套操作和所有诊断均已验收。
+
+已读源码与结论：
+
+- Rebased `plugins/git4idea/backend/src/reset/GitNewResetDialog.kt::createCenterPanel` 使用各模式的名称及说明；GitBundle 的 `git.reset.mode.{soft,mixed,hard,keep}.description` 对应 Plico `src/reset_operation.rs::Mode::description` 与 `src/reset_dialog.rs`。四段英文与上游一致（HTML 换行转为换行符），中文分别说明文件、暂存区、本地更改的影响，保留当前译文。模式名称 Soft／Mixed／Hard／Keep 保留英文，与 Git 选项对应。
+- Rebased `revert/GitRevertProcess.kt::applyChanges` 调用 revert，`AUTO_COMMIT=true`；GitBundle 的 `action.Git.Revert.In.Log.description` 明确产生抵消原更改的新提交。Plico `src/revert_operation.rs` 同样执行 `git revert`。保留“撤销提交”，但不将其理解为删除历史或 Reset；本批不改写由 Git 生成的提交消息。
+- Rebased `cherrypick/CherryPickProcess.kt` 使用 `cherry.pick.name`，保留提交元数据；`generateDefaultMessage` 将 cherry-picked-from 后缀标为不可本地化。Plico `src/cherry_pick.rs` 执行 cherry-pick。保留“拣选提交”、继续／中止及空提交提示；没有翻译命令参数、哈希或 Git 消息模板。
+- Rebased `stash/GitStashChangesSaver.java::UnstashConflictResolver::notifyUnresolvedRemain` 区分恢复未完成、仍存在的 stash 与查看保存更改入口，使用 GitBundle 的 `stash.unstash.unresolved.conflict.warning.notification.*`。Plico `src/stash_operation.rs::execute`／`classify` 区分 stash apply／pop 的结果与单独的恢复记录清理，`src/ui/saved_changes.rs` 映射通知；备份实体不能称为“保存记录”。
+- Plico `src/ui/merge_recovery.rs`／`src/ui/revert_saved.rs` 的 Show Stashes 按钮调用 `open_stashes`。入口名称应与现有 Stashes 译名“已保存的更改”一致，而不是让用户寻找另一个叫“Stash 列表”的界面。
+
+本轮修改 `src/i18n.rs` 五处中文值，英文键不变：
+
+| 英文键／上下文 | 原中文 | 本轮中文 |
+| --- | --- | --- |
+| Show Stashes | 查看 Stash | 查看已保存的更改 |
+| Cherry-pick 保存并重试提示中的 Stashes 入口 | 可在 Stash 列表中找回 | 可在“已保存的更改”中查看 |
+| Local changes would be overwritten; stash kept | 本地更改会被覆盖，保存记录已保留 | 本地更改会被覆盖，Stash 备份已保留 |
+| Untracked files would be overwritten; stash kept | 未跟踪文件会被覆盖，保存记录已保留 | 未跟踪文件会被覆盖，Stash 备份已保留 |
+| Could not restore the saved index; review Local Changes | 无法恢复暂存状态，请查看本地更改 | 无法恢复已保存的暂存区状态，请查看本地更改 |
+
+“清除恢复记录不会恢复或删除 Stash”等既有说明保留；不把失败提示改成已经回滚成功的承诺。第三批没有修改状态判定、恢复流程或按钮行为；尚未进行原生 UI 排版验收。 本批 4 项 i18n 测试通过（隔离入口 `core -E 'test(i18n::)'`，941 项被过滤），结果保存在 `artifacts/test-runs/2b94-18e2b3e4258200d8-0/`；执行格式化后，`cargo fmt --package plico -- --check` 和 `git diff --check` 均通过。未重跑全量测试。下一批进入分支和 Fetch／Pull／Push，并继续检查动态通知中的对象名称与占位符。
+
+## 中英文源码校对（2026-10-28，第四批）
+
+继续按纯文本范围校对，参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批检查推送帮助、结果提示、远端引用提示、分支上下文和检出术语，并补齐上一批漏掉的两个 Stash 操作 tooltip。修改 8 组文案，其中推送帮助同时修正英文和中文；不改变实际推送或检出行为。
+
+### 已读依据
+
+- Rebased `plugins/git4idea/backend/src/push/GitPushOperation.java::doPush/createPushSpec` 从 source revision 与目标引用构建 refspec，Force-with-lease 使用本地远端跟踪引用记录的预期哈希。Plico `src/push_dialog.rs::spec` 固定源分支和 OID，`src/push.rs` 复验后推送 `refs/heads/<source>:<target>`，同样设置明确的 lease。列表选择没有进入 Spec，不能描述为任意“所选提交”。本地仅支持当前分支作为这里的推送源，不引入上游额外源类型。
+- Plico `src/git.rs::outgoing_commits_checked` 通过 `for-each-ref refs/remotes/<remote>/` 检查本地远端跟踪引用（特殊目标另读指定引用），并未查询服务器实时状态。引用变化通知属于本地预览一致性校验，不应翻译成断言远端已变化。
+- Plico `src/compare_view.rs` 的 No tracking branch 仅在分支没有 upstream 时出现，中文明确为“未设置上游分支”。对应上游 GitBundle 的 `branches.tracking.branch.doesn.t.configured.for.s`；保留本地简短 tooltip。
+- GitBundle 的 `git.status.bar.widget.tooltip.detached` 说明 detached HEAD 不指向分支。Plico 同一状态已有“游离 HEAD”，本轮统一成功通知；index 统一为项目现有术语“暂存区”。
+- GitBundle 的 `pull.option.*`、`push.notification.description.*`、`push.notification.force.with.lease.help.description.*` 和 fetch 成功资源已检查；Plico `src/pull.rs::dispatch` 区分 RebaseUpdate 与 PullCommand。现有获取／拉取／推送、快进／变基、推送拒绝与可能部分完成等文案保留，不因校对把拉取说成仅获取，或把取消推送说成远端已回滚。
+- 两个 Stash tooltip 位于 `src/stash_view.rs`，分别传递 Apply 和 Pop；对应第三批已读 `src/stash_operation.rs`，保留／移除的是实际 stash，而不是 Plico 恢复记录。
+
+### 修改清单
+
+| 英文键／范围 | 修改 |
+| --- | --- |
+| 推送帮助首句 | 英文 Push selected commits → Push the current branch；中文“将所选提交”→“将当前分支”；同步修改 `src/ui/remote.rs` 调用键和 `src/i18n.rs` |
+| Push references changed; reopen the push dialog | “远端引用已变化”→“推送引用已变化” |
+| No tracking branch | “没有跟踪分支”→“未设置上游分支” |
+| Commit checked out (detached HEAD) | “分离 HEAD”→“游离 HEAD” |
+| Resolve existing index conflicts before checkout | “索引中的冲突”→“暂存区中的冲突” |
+| Restore changes and keep the stash | “保留保存记录”→“保留 Stash 备份” |
+| Restore changes and remove the stash on success | “成功后移除保存记录”→“成功后移除 Stash 备份” |
+| Pull incomplete; local changes remain saved in stash | “拉取未完整完成”→“拉取未完成”；保留 stash 仍存在的说明 |
+
+没有修改动态哈希、分支名或 Git 输出。Fetch／Pull／Push 的所有细分错误、设置和多仓库汇总尚未全部核对，不能据本批宣称整个远程操作模块完成。尚未进行原生 UI 排版验收。
+
+验证：4 项 i18n 测试通过（隔离入口 `core -E 'test(i18n::)'`，941 项被过滤）；结果目录 `artifacts/test-runs/41e8-18e2b41bc2504924-0/`。另确认新推送帮助英文键同时存在于调用方与翻译表，格式检查和差异检查通过。本批未重跑全量或桌面测试，测试通过不代替文案语义核对。
+
+## 中英文源码校对（2026-10-28，第五批）
+
+参考仍为 `245042348669114adb8e24e5b0fc0ce73763f3c4`，仅校对文本。已查阅 `platform/vcs-log/impl/resources/messages/VcsLogBundle.properties` 的 `vcs.log.filter.text.hash.*`、`vcs.log.no.commits.matching.status`、父提交导航和加载状态资源，以及 `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/TextFilterModel.kt` 中正则、大小写和文本／哈希筛选的区分。现有“文本或哈希”“正则表达式”“区分大小写”“没有符合筛选条件的提交”保留。`platform/diff-api/resources/messages/DiffBundle.properties` 的 `side.by.side.viewer`、`unified.viewer`、`option.highlighting.policy.lines/words` 与本地双栏／单栏、行／单词选项含义相符，保留译文，不据此宣称所有 Diff 设置已核对。
+
+本批修改 6 组文案：
+
+| 文案 | 修正与调用依据 |
+| --- | --- |
+| File changed on disk. Your edits have been kept; reload or compare before saving. | 中文补回“保存前请重新加载或比较文件内容”。`src/editing/external.rs` 检测到磁盘变化与未保存编辑并存时保留草稿；`src/editing.rs` 保存冲突也显示同一提示。这里是内容核对建议，不声称新增内置磁盘比较按钮；现有重新加载仍须确认放弃未保存编辑。 |
+| Update cancelled; review local changes and saved stash | “保存的暂存”改为“保留的 Stash 备份”。`src/ui/remote.rs` 项目更新结果使用该提示，保存更改与暂存区不是同一概念，沿用第三、四批已读 stash 保存依据。 |
+| Rollback this change | “撤回此处更改”改为“回滚此处更改”，与现有 Rollback 术语一致。`src/source_changes.rs` 行内按钮调用 `revert`，不是 Revert Commit；上游 VcsBundle 的 `activity.name.rollback` 同样使用 Rollback。 |
+| Copy original lines | “复制原内容”明确为“复制原始行”，对应 `src/source_changes.rs` 行内复制按钮及其复制内容。 |
+| Collapse folders before opening more files | 英文改为 Collapse folders before loading more entries，中文改为“请先折叠部分文件夹，再加载更多条目”。`src/project_view.rs` 在加载目录页后检查 DISPLAY_NODE_LIMIT，`src/project_view/navigation.rs` 也会遇到节点容量限制；这不是文件编辑器的打开数量限制。同步修改翻译键和调用处，不改容量或加载行为。 |
+| End of available history | 补回 available，改为“已到可用历史末尾”；此键目前只查到翻译表，不作为当前 UI 已显示或已验收的证据。 |
+
+另检查 `src/i18n.rs::history_count`、`Message::LoadedCommits` 等动态数量文案：保留 loaded／offset／total 和用户提供的引用名称，不把它们纳入翻译查找键。本批没有修改动态格式。全量遗漏检查及各调用处真实范围仍待后续审计。
+
+验证：最终文本的 4 项 i18n 测试通过（隔离入口 `core -E 'test(i18n::)'`，941 项被过滤），结果目录 `artifacts/test-runs/4dc0-18e2b45a4401bcd0-0/`。格式与差异检查通过；检索确认文件树提示的三个调用点和翻译键已同步，无旧键残留。未重跑全量／桌面测试，未进行原生 UI 排版验收。
+
+## 中英文源码校对（2026-10-28，第六批）
+
+沿用纯文本范围和参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批检查设置页标签及翻译遗漏，未改布局、操作范围或状态流转。
+
+- Rebased `platform/platform-resources-en/src/messages/ActionsBundle.properties` 的 `action.EditorCut.text`／`action.EditorPaste.text` 分别为 Cut／Paste。本地 `src/project_view.rs` 的文本编辑器上下文菜单已有翻译调用，却没有对应字典项，补入“剪切”“粘贴”；不是新增文件树剪切／粘贴功能。
+- `src/hosting_panel.rs` 将登录取消错误映射到 `t("Cancelled")`，补入“已取消”。`src/ui/tag_general.rs` 的分支显示回退到 `t("Detached HEAD")`，补入“游离 HEAD”，与第四批及 GitBundle 的 detached HEAD 说明一致。
+- `src/push_dialog.rs` 和 `src/ui/tag_details.rs` 的文件数原来拼接 `t("files")`，既漏中文，也会生成 `1 files`。改为复用 `src/ui_style.rs::file_count`，英文按数量选 file／files，中文显示“个文件”；不新增重复的计数逻辑。上游 VcsBundle 的 `changes.nodetitle.directory.file.changecount` 同样按数量区分名词形式。
+- `src/path_chooser.rs` 的加载路径提示原为直接英文格式化；现在按当前语言显示，路径值不参与翻译。对“路径不属于项目仓库”复用已有翻译，对 16,384 节点上限补入中文；在渲染时仅映射这两条固定错误，其他动态诊断保留原文。上游 VcsLogBundle 的 `vcs.log.path.filter.action.text` 对应路径筛选入口，本地节点上限是 Plico 自有约束，不冒充上游限制。
+- 检查 `src/ui/settings.rs` 的语言、外观、编辑器字体、标签页导航及 `src/update_settings.rs` 的更新方法。与 GitBundle 的 `settings.auto.update.on.push.rejected`、`settings.git.update.method.*` 对照后保留现有文案；Git／GitHub／GitLab、字体名称和语言自身名称不强行翻译。
+
+扫描记录在忽略目录 `artifacts/localization-20261028/`：`literal-key-audit.json` 检查 src 中直接 `t("固定文本")` 调用与翻译表的对应关系，修复后缺失数为 0；`direct-ui-literals.json` 列出直接传给 label／tooltip／placeholder／title／child／aria_label 的简单字符串候选。人工确认其中 Delete 是快捷键名、Replacement 是测试窗口标题、Plico／Git 是名称、Cc 是区分大小写按钮的符号（其 tooltip 已本地化），均不作为漏译修改。此正则扫描不覆盖计算键、所有多行表达式、所有控件 API、动态格式或字符串的语义质量；零缺失只适用于上述字面量调用范围。
+
+本批补入 5 个翻译键、接通一条已有翻译，并修复两处文件计数和一处加载提示。原生界面排版尚未验收，全量文本语义及动态键仍待继续核对。
+
+验证：最终源码通过桌面编译，隔离入口 `desktop -E 'test(path_chooser::tests) | test(push_dialog::tests) | test(ui::tag_details)'` 实际匹配 3 项、全部通过（180 项过滤；没有匹配的 tag_details 测试，不宣称已验证该界面显示）。记录 `artifacts/test-runs/270-18e2b4a2ce4113f8-0/`。`core -E 'test(i18n::)'` 的 4 项测试通过（941 项过滤），记录 `artifacts/test-runs/2544-18e2b4b5d8aedde4-0/`。格式和差异检查通过；未重跑全量测试。
+
+## 中英文源码校对（2026-10-28，第七批）
+
+继续以 `245042348669114adb8e24e5b0fc0ce73763f3c4` 为参考，仅处理文案。动态格式候选记录为 `artifacts/localization-20261028/dynamic-text-candidates.json`；正则扫描用于定位，不作为全量完成证明。
+
+已核对并保留两组动态说明：`src/ui/branch_compare.rs` 按比较方向交换 included／excluded，中文“存在于 A，但不存在于 B 的提交”与 GitBundle 的 `git.compare.branches.explanation.message` 一致；`src/ui/auto_refresh.rs` 的 incoming／outgoing 数量和远端未知／尚未获取提示已有中文，分别对应 GitBundle 的 `branches.tooltip.number.incoming.commits`、`number.outgoing.commits` 和 `some.incoming.commits.not.fetched`。保留本地基于缓存引用计数的附加说明，不承诺这些数值必然是服务器实时状态。
+
+修复四处应用自有提示：
+
+- `src/ui/history_operations.rs`：原始英文 `Saved local changes: <oid>` 改为复用 `Saved changes retained` 翻译键；显示“更改备份已保留：<oid>”。此处来自 Squash 结果的 `saved_oid`，沿用第一、三批对 stash 保存语义的核对，OID 原样保留。
+- `src/ui/project_navigation.rs`：项目仓库信息缺失时，`Project repository information is not ready` 接入翻译，显示“项目仓库信息尚未就绪”；未改变清除筛选或导航前置条件。
+- `src/history_view.rs`：三方比较不是三个有效版本时，`Invalid three-way revisions` 接入翻译，显示“三方比较的版本无效”；版本数据、比较方向和加载行为不变。
+- `src/ui.rs`：用户筛选加载失败的固定前缀接入 `Could not refresh User filter`，中文为“无法刷新用户筛选”；冒号后的底层诊断保留原文。上游 VcsLogBundle 的 `vcs.log.user.filter.action.text` 为 Filter by User，本地错误是该入口自有异步加载诊断，不伪造上游资源对应键。
+
+新增三个中文键，另复用一个已有键。扫描中发现的测试文本、窗口标题 Plico 及已有中英文分支不重复修改。尚未核对所有计算标签、底层错误对用户的呈现和动态数量边界，原生 UI 排版仍未验收。
+
+验证：桌面编译通过；隔离入口 `desktop -E 'test(history_view::) | test(ui::project_navigation::)'` 的 4 项测试全部通过，179 项被过滤；结果目录 `artifacts/test-runs/5370-18e2b4e6c7f581c0-0/`。格式和差异检查通过。本批未重跑全量测试，既有导航／历史测试不构成所有译文正确的证明。
+
+## 中英文源码校对（2026-10-28，第八批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`，本批校对分支删除确认及工作树主要操作文案。只修改一组中英文确认文本，不改 Git 行为。
+
+分支删除的旧文案为 `These commits are not merged into the branch's upstream or HEAD. Delete the branch anyway?`。已读 `src/branch_delete.rs::Prepared::read`：优先以上游引用为比较基准；未配置或引用已不存在时才用 HEAD，并以 `<base>..<branch_tip>` 读取未合并提交。不是“上游和 HEAD 都没有包含这些提交”。上游 `plugins/git4idea/backend/src/branch/GitDeleteBranchOperation.java::getUnmergedCommits` 使用相同方向的范围；其 `GitBranchNotMergedToUpstreamDetector` 明确处理“已合入 HEAD，但尚未合入上游”的情形。GitBundle 的 `branch.not.fully.merged.dialog.the.branch.was.not.fully.merged.to` 也针对特定比较目标。
+
+因此在 `src/ui/branch_management.rs` 和 `src/i18n.rs` 同步替换为：
+
+- 英文：These commits are not merged into the upstream branch (or HEAD when no upstream is available). Delete the branch anyway?
+- 中文：这些提交尚未合入上游分支（上游不可用时以 HEAD 为准）。仍要删除分支吗？
+
+本地保留简洁的基准选择说明，不新增上游对话框中的动态目标控件。已有 `tests/branch_create.rs::deletion_uses_upstream_merge_status_and_cancel_preserves_ref` 正好覆盖“已合入 HEAD，但未合入上游”的场景；无须增加只断言文案字面值的测试。
+
+工作树核对结果：
+
+- 已读 Rebased `workingTrees/ui/actions/RemoveWorkingTreeAction.kt`：删除确认展示所选路径，调用工作树服务；`PruneWorkingTreesAction.kt`：筛选 prunable 条目并确认清理 Git 记录。对应 GitBundle 的 `Git.WorkingTrees.dialog.delete.worktree.*`、`dialog.prune.worktree.*` 及 `action.Git.WorkingTrees.Prune.description`。
+- Plico `src/ui/worktrees.rs`、`src/ui/worktrees/form.rs` 和 `src/worktrees.rs::create/remove/prune` 分别对应创建／打开、删除工作树目录与清理不存在目录的记录。现有“删除工作树”“清理失效工作树”“移除……Git 记录”、关闭并删除／不删除及创建位置、项目名称、新分支等文案含义正确，保持原样。
+- Locked／Prunable 为状态显示，仍译为“已锁定／可清理”。当前上游新增的 Lock／Unlock 操作不在本轮文案范围内，不因资源中存在这些名称而给 Plico 增加无行为入口。
+- Plico 结果提示 Worktrees updated 是通用刷新成功提示，失败走 Worktree operation needs attention 及原始诊断；本批没有把所有错误或取消表述为已经回滚。
+
+本批未改变确认按钮、判断条件或恢复机制，未进行原生界面排版验收；工作树底层动态诊断仍有未本地化内容，须在后续错误呈现审计中处理。
+
+验证：隔离入口 `core --test branch_create` 的 36 项测试全部通过，包含上游基准、未合并确认、取消、恢复及工作树占用相关用例；结果目录 `artifacts/test-runs/524c-18e2b52a24620634-0/`。格式及差异检查通过。未重跑全量或桌面测试。
+
+## 中英文源码校对（2026-10-28，第九批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批处理第八批留下的工作树创建校验提示：`src/ui/worktrees/form.rs` 原先直接显示 `Create::prepare` 的英文错误，现在在渲染时只翻译已确认的固定提示，其他 Git／OS 诊断逐字保留。英文原文、校验条件、输入和创建流程不变。
+
+已读上游 `plugins/git4idea/backend/src/workingTrees/dialog/GitWorkingTreeDialog.kt` 的 `validateExistingRefOnApply`、`validateNewBranchNameField`、`updateExistingRefComment` 和位置校验入口：区分未选择源分支、远端分支的默认本地名称冲突、新分支名冲突、已有工作树占用及路径错误。资源依据为 GitBundle 的 `working.tree.dialog.location.validation.*`／`branch.validation.*`。Plico 的具体检查来自 `src/worktrees.rs::destination/Create::prepare` 及 `src/branch_rename.rs::validate_name`，不假定与上游每条限制完全一致。
+
+新增十条中文翻译并接通表单显示：
+
+| 英文固定诊断 | 中文 |
+| --- | --- |
+| Worktree location must be absolute | 工作树位置必须使用绝对路径 |
+| Worktree directory is not empty | 工作树目录不为空 |
+| Choose a local branch, remote branch or tag | 请选择本地分支、远端分支或标签 |
+| Remote branch no longer exists | 远端分支已不存在 |
+| Choose a remote branch, not its HEAD alias | 请选择远端分支，而不是它的 HEAD 别名 |
+| Remote branch has no configured remote | 此远端分支没有对应的远端配置 |
+| Invalid branch name | 分支名称无效 |
+| A branch or branch directory with this name already exists | 同名分支已存在，或名称与已有分支路径冲突 |
+| Branch name clashes with a remote branch | 分支名称与远端分支冲突 |
+| Branch is already checked out; open its worktree or create a new branch | 分支已检出；请打开对应工作树或创建新分支 |
+
+另外复用既有 Cancelled → 已取消。分支路径冲突译文同时涵盖 `foo` 与 `foo/bar` 的引用前缀冲突，不误导为工作区目录已经存在。翻译仅匹配完整固定诊断，不搜索或替换任意错误内部的英文片段，保留路径、分支名、哈希和工具输出。映射限定在创建表单，不声称其他分支操作或工作树执行结果的原始诊断已全部本地化。未改变源模块的错误返回值，原生 UI 排版尚未验收。
+
+验证：桌面编译通过，隔离入口 `desktop -E 'test(ui::worktrees::)'` 匹配的两项工作树入口测试全部通过（181 项过滤），记录 `artifacts/test-runs/58b4-18e2b55b007358dc-0/`。格式与差异检查通过。测试覆盖入口创建／窗口复用，不覆盖十条译文的原生显示或所有错误分支；语义依据为上述逐条源码核对，未重跑全量测试。
+
+## 中英文源码校对（2026-10-28，第十批）
+
+仍以 `245042348669114adb8e24e5b0fc0ce73763f3c4` 为参考，仅修改三处提示及其翻译键。
+
+1. 克隆深度输入：已读 Rebased `plugins/git4idea/backend/src/ui/GitShallowCloneViewModel.kt`，使用 `intTextField(1..Int.MAX_VALUE, 1)`；GitBundle 的 `clone.dialog.shallow.clone` 与 `clone.dialog.shallow.clone.depth` 组成“浅克隆……提交”选项。本地 `src/clone_dialog.rs::request` 按 `u32` 解析且要求大于零，小数、字母、负数和零都可能进入同一失败提示。输入框错误从 `Clone depth must be greater than zero` 改为 `Clone depth must be a positive integer`／“克隆深度必须为正整数”。保留本地 u32 范围，不把上游 Int 上限带入实现。核心 `src/clone_repository.rs` 接收的是已解析数值，其零值诊断仍保留“大于零”，未改变内部错误契约。
+2. 远端名称校验：已读 Rebased `plugins/git4idea/backend/src/remote/GitDefineRemoteDialog.kt::createCenterPanel`，分别校验名称非空、合法和唯一；资源 `remotes.define.empty.remote.name.validation.message`／`invalid.remote.name.validation.message`／`duplicate.remote.name.validation.message` 区分对应原因。Plico `src/remote_management.rs::validate_name` 对空名称、前导连字符或控制字符返回固定 `Invalid remote name`。此前 `src/define_remote_dialog.rs::t_error` 将它落入通用验证失败提示，本批添加精确映射，显示 Invalid remote name／“远端名称无效”。Git check-ref-format 的其他诊断处理方式未改动。
+
+另外核对克隆的目录、浅克隆数量单位、子模块、取消／失败后目标目录保留，以及远端配置可能部分生效的提示；现有文本与调用范围相符，保留。登录界面的 provider 名称与 Log in to／Log in via 拼接已检查，中英文前缀都存在，不翻译 GitHub／GitLab、URL、Token 或 OAuth 权限标识。仅此项不构成整个授权流程或全部网络错误校对完成。
+
+本批未修改克隆参数、名称校验、凭据处理或网络请求。远端地址还有一处过窄提示：`validate_url` 对空白地址、前导连字符或控制字符都返回 Enter a nonempty remote URL or path。表单现在将该固定诊断显示为 Remote URL or path is empty or invalid／“远端地址或路径为空或无效”，避免把所有情况都说成未填写地址；核心返回值保持不变。原生 UI 排版仍未验收，其他网络诊断不列为本批全部完成。
+
+验证：最终源码通过 `cargo check --locked --features desktop-tests --bin plico`、`cargo fmt --package plico -- --check` 和 `git diff --check`。check 报告未修改的 `src/ui/sequencer.rs` 中 Revert／CherryPick 变体未构造警告，本批不处理。只改提示与固定错误映射，未新增镜像测试或重跑全量测试。
+
+## 中英文源码校对（2026-10-28，第十一批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批修正三处冲突解决文案，不改变解决算法或写入行为。
+
+已读上游 `platform/diff-impl/src/com/intellij/diff/merge/RevertConflictResolutionAction.kt::actionPerformed`：使用 DiffBundle 的 `message.revert.conflict.resolution.dialog.*` 确认后调用 `MergeThreesideViewer.resetChanges`；后者对已解决更改逐项调用模型的 `resetResolvedChange`。上游原提示为“All changes will be reverted. The file will return to its original conflicted state.”，不能单凭这段文本推断 Plico 也恢复原始磁盘字节或冲突标记。
+
+Plico `src/ui/conflicts/revert.rs::revert_conflict_resolution_confirmed` 实际读取 `text_inputs` 的 base，将其写入合并结果并调用 `access.apply`，成功后移除决策草稿；`src/ui/conflicts/access.rs` 将 apply 与 stage 分开。已有 `src/ui/conflicts/update_tests.rs` 明确断言撤销后工作文件为 `base\n`，自动解决测试也核对 index 仍有未合并条目。
+
+因此修改：
+
+- 菜单 Revert Conflict Resolution：“撤销冲突解决”→“撤销冲突解决结果”。
+- 确认英文改为 `Discard this file's conflict resolutions and restore the base version? The file will remain unresolved.`；中文为“放弃此文件的冲突解决结果并恢复基准版本？文件仍将保持未解决状态。”。同步修改 `src/ui/conflicts/revert.rs` 的键与 `src/i18n.rs`。保留与上游措辞的差异，是为了准确说明当前本地实现，不把文案校对变成行为改造。
+- No conflicts were resolved automatically：“没有可自动解决的冲突”→“未自动解决任何冲突”。`src/ui/conflicts/automatic.rs::automatic_message` 仅依据 `changed == 0` 返回这条结果，不能据此断言所有冲突都不可自动解决。
+
+复核 `src/ui/conflicts/session.rs`：接受 Yours／Theirs 若已有合并进度会先显示覆盖确认，既有“放弃并采纳”和“覆盖这些更改”准确，保持不变。Accept Yours／Accept Theirs／Accept Both／Keep Base 的旧字典项当前没有查到实际 UI 调用，本批不凭这些条目宣称对应控件已验收。其他合并编辑器关闭、保存、标记解决相关文本仍需结合各入口进一步检查。
+
+验证：桌面编译通过；隔离入口 `desktop -E 'test(ui::conflicts::automatic_tests) | test(ui::conflicts::update_tests)'` 的两项测试全部通过（181 项过滤），结果目录 `artifacts/test-runs/3e80-18e2b5e5b70ac2bc-0/`。覆盖自动解决、撤销结果及 Update 会话保持等路径；格式和差异检查通过。未重跑全量测试，也未做原生 UI 排版验收。
+
+## 中英文源码校对（2026-10-28，第十二批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批核对合并编辑器的保存、关闭与标记解决文案，仅修改冲突列表关闭确认的标题、按钮和正文。
+
+上游依据：
+
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/merge/flow/IterativeMergeFlowDelegate.kt::createSouthPanel`：文件同时具有已解决和未解决更改时，关闭按钮显示 `multiple.file.iterative.merge.close.confirmation.*` 确认；确认后调用 `onClose`。
+- `platform/vcs-impl/src/com/intellij/openapi/vcs/merge/MultipleFileMergeDialog.kt::doCancelAction/finishResolution`：关闭时读取已解决文件及模型，保存文档并逐项标记处理完成。
+- `platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties` 提供上述关闭确认；`platform/diff-api/resources/messages/DiffBundle.properties` 区分部分解决后保存当前结果与保存并标记解决。
+
+本地映射：`src/ui/merge_result.rs::apply_merge_result` 在迭代会话中写入工作区并保留决策，不立即 stage；非迭代路径继续 stage。`src/ui/text_merge.rs::save_and_close` 保留未完成决策，显式应用则标记模型已解决。`src/ui/conflicts/session.rs::close_conflict_session_confirmed` 只将 `draft.resolved()` 的文件交给 `stage_resolved`，成功后结束会话；失败仍保留会话并显示错误。
+
+因此在 `src/ui/conflicts/session.rs` 与 `src/i18n.rs` 同步修正：
+
+- 标题 `Discard Changes?` 改为 `Discard Partial Merge Progress?`／“放弃未完成的合并进度？”。
+- 确认按钮 `Discard Changes` 改为 `Discard Progress`／“放弃进度”。
+- 正文明确：丢弃未完全解决文件的解决进度，但保留已保存的文件内容；已完全解决的文件将被暂存。英文为 `Closing the dialog discards resolution progress for partially resolved files, but keeps their saved contents. Fully resolved files will be staged.`。
+
+保留差异：不照搬上游概括性的“丢弃更改”，以免误导为恢复工作区文件；本地正文明确当前写入与暂存边界。现有“保存并关闭”“合并结果已保存”“应用并标记已解决”与上述路径相符，保留。未改变关闭条件、失败恢复或 Git 行为。
+
+验证：隔离入口 `desktop -E 'test(partial_merge_progress_survives_review_and_close_only_stages_complete_files)'` 通过（1 项通过，182 项过滤），结果目录 `artifacts/test-runs/1c10-18e2b6476298dc48-0/`。该既有测试覆盖取消确认保留草稿、确认关闭只暂存完整文件、部分文件保留工作区内容及未合并 index、HEAD 与 MERGE_HEAD 保持。未重跑全量测试；原生排版及长文案换行尚未验收。
+
+## 中英文源码校对（2026-10-28，第十三批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批核对设置页面的名称、作用范围与保存时机，统一凭据助手英文术语，不改变设置或认证行为。
+
+已读 `plugins/git4idea/backend/src/config/GitVcsPanel.kt` 的 `cdOverrideCredentialHelper`，它使用 `GitBundle.properties::settings.credential.helper=Use credential helper`，绑定应用级设置；`GitHandlerAuthenticationManager.java::prepare` 依据同一开关决定是否传入空的 `credential.helper`。另外读取 `commands/GitHttpLoginDialog.kt::createCenterPanel` 的 helper 单选项，该入口使用的资源 `login.dialog.select.login.way.use.helper` 却写作 `Use credentials helper`。这是上游两个入口的措辞差异，不是两个功能。
+
+本地 `src/update_settings.rs` 与 `src/auth_dialog.rs` 统一使用 `Use credential helper`，同步 `src/i18n.rs` 的键，中文仍为“使用凭据助手”。采用设置页及 Git 配置术语，保留与上游登录页复数措辞的差异；不复制这种不一致。
+
+已核对并保留的内容：
+
+- `src/update_preferences.rs::for_repository` 使用当前工作树管理目录，`src/project_update_preferences.rs` 将显示选项偏好放在同目录。“仅应用于当前工作树”与这两个设置相符；“跟随分支配置”对应 `Strategy::BranchDefault`，不是应用全局默认值。
+- `src/http_auth.rs::use_credential_helper/set_use_credential_helper` 使用应用存储，因此认证区域的“应用于所有仓库”准确。两处作用范围文案不能合并为同一个范围。
+- `src/ui/settings.rs::apply_settings/set_language` 在应用或确定时保存语言、预览与字体；语言刷新窗口、字体调用 `apply`。现有文案没有“重启后生效”的错误承诺；未添加此类提示。
+- `src/ui/settings.rs::settings_panel` 的外观、编辑器字体、字体、字号、预览、恢复默认值、编辑器标签页、启用预览标签页均有对应草稿字段与操作。字体预览中的中英混合样本用于观察字体覆盖，保留，不按漏译处理。“恢复默认值”只修改当前字体页的草稿，未宣称重置全部设置。
+
+本批仅对上述设置入口完成源码语义核对，不代表全部认证错误、账号存储诊断或原生界面排版已验收。
+
+验证：`cargo check --locked --features desktop-tests --bin plico` 通过，仅有既存 `sequencer.rs` 未构造变体警告。只修改三个位置的一组英文键，未新增镜像字符串测试，也未重跑全量测试。
+
+## 中英文源码校对（2026-10-28，第十四批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批核对 HTTP 凭据与托管平台 Token 登录中的字段校验及保存提示，仅修改三组显示文本。
+
+上游依据：`plugins/git4idea/backend/src/commands/GitHttpLoginDialog.kt::buildCredentialsPanel` 分别校验用户名、密码，使用 `rememberCheckbox` 控制密码记忆；`GitHttpGuiAuthenticator.java::PasswordSafeProvider.savePassword` 先保存 URL／用户名，再依据 `mySavePassword` 决定是否保存密码。因此“不记住密码”不能解释为完全不保存任何登录信息。托管平台入口读取 `plugins/github/github-core/src/org/jetbrains/plugins/github/authentication/ui/GHTokenCredentialsUi.kt::getValidator` 及 `resources/messages/GithubBundle.properties::login.token.cannot.be.empty`，该处明确校验 Token。另读 GitLab 的 `GitLabTokenLoginPanelModel.kt::checkToken`，传入的是 token，而不是账号密码。
+
+本地映射与修改：
+
+- `src/auth_dialog.rs` 的 HTTP 字段原本标为 `Password or token`，空值提示却只说 Password。改为 `Password or token must not be empty`／“密码或 Token 不能为空”。保留 SSH 使用的原密码提示，不把 SSH 字段改成 Token。
+- `src/hosting_panel.rs::login` 在非浏览器登录时构造 `Credentials::token`，空值提示改为 `Token must not be empty`／“Token 不能为空”。
+- HTTP 凭据存储错误提示改为 `Credential storage is unavailable. Clear Remember to continue without saving the password or token.`／“凭据存储不可用。取消勾选‘记住’可继续，而不保存密码或 Token。”。`src/http_auth.rs::remember` 仍可能写入用户名和记住偏好，仅在 remember 为 true 时写入秘密值；新文案不承诺所有数据都不保存。SSH 的独立提示本批保留。
+
+三个新键均在 `src/i18n.rs` 中配对。保留与上游的差异：Plico 的 HTTP 输入明确支持 Token，因此其空值提示也明确 Token，而不是机械照搬上游 Password。
+
+剩余问题：`src/auth_dialog.rs::confirm` 将 `save_credentials/select_helper` 的多类失败统一设置为 `storage_error`；`src/auth_request.rs` 还可能返回 Cancelled、InvalidResponse 等。当前文案对真正的存储失败准确，但错误分类未完整区分。需要单独核对生命周期与原生状态后修正，不能凭本轮纯文本改动宣称所有认证失败提示已准确。`http_auth::switch_helper` 在持久化失败时可继续使用会话级 helper，不应把这一情况误写为必然无法登录。
+
+验证：隔离入口 `core -E 'test(auth_request::persistence_tests) | test(remembered_login_without_password_and_none_mode)'` 三项全部通过（942 项过滤），结果目录 `artifacts/test-runs/52ac-18e2b694af2e8c2c-0/`。覆盖存储失败后不记住仍可继续、取消请求不能保存／切换 provider、保留用户名但不保存密码。`cargo check --locked --features desktop-tests --bin plico` 通过，仅有既存 sequencer 警告。未重跑全量测试，未做原生排版验收。
+
+## 中英文源码校对（2026-10-28，第十五批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批核对 Token 生成权限说明、浏览器授权结果页及托管 API 固定诊断。
+
+已读上游 `plugins/github/github-core/src/org/jetbrains/plugins/github/authentication/ui/GHTokenCredentialsUi.kt::centerPanel/browseNewTokenUrl` 与 `authentication/util/GHSecurityUtil.kt::MASTER_SCOPES/buildNewTokenUrl`：显示说明和生成链接使用同一 scope 列表，上游含 repo、gist、read:org、workflow、read:user、user:email。另读 `plugins/gitlab/gitlab-core/src/org/jetbrains/plugins/gitlab/authentication/GitLabSecurityUtil.kt::MASTER_SCOPES/buildNewTokenUrl`，其列表是 api、read_user。不能把这些上游权限完整搬入 Plico，因为功能范围和现有请求不同。
+
+本地 `src/hosting_panel.rs` 生成链接与 `src/hosting/oauth.rs::authorize_url` 使用 GitHub 的 repo、read:user、read:org、workflow，以及 GitLab 的 read_api、read_user、write_repository。旧 GitHub 说明只写仓库访问和读取用户信息，遗漏两项；GitLab 中文又把请求范围写成普遍“所需权限”。现将两个入口提示分别改为 `Token scopes requested by Generate: ...`，中文为“‘生成’申请的 Token 权限：…”，完整列出各自现有 scope。说明描述当前按钮申请的范围，不承诺这些是所有 Token 类型的最低权限，不修改生成链接或 OAuth 请求。
+
+`src/hosting/api.rs::validate_token/parse_repositories` 的四条本地固定错误经 `Panel::work` 进入 `error_text`，此前原样显示英文。现补齐精确匹配的翻译映射及 `src/i18n.rs` 键：
+
+| 英文诊断 | 中文显示 |
+| --- | --- |
+| Missing account username | 服务器响应中缺少账号用户名 |
+| Missing repository URL | 服务器响应中缺少仓库 URL |
+| Invalid repository URL | 服务器返回的仓库 URL 无效 |
+| Missing repository name | 服务器响应中缺少仓库名称 |
+
+这些消息来自服务器响应解析，不是要求用户补填输入框。保留后端诊断原文和未知错误直通，不把 URL、账号名等外部数据当作翻译键。
+
+另外核对 `src/hosting/oauth.rs::result_page`：现有“已收到授权响应”“请返回 Plico 查看登录结果”没有把收到回调误写为账号登录成功，保持不变。头像加载是独立路径，其诊断未计入本批可见错误覆盖。动态 `HTTP request failed ({code})` 仍缺中文映射；OAuth 回调的多个失败类型及错误归类也需继续检查，不宣称托管错误已全部覆盖。
+
+验证：`cargo check --locked --features desktop-tests --bin plico` 通过，仅有既存 sequencer 警告。格式与差异检查通过。本批为静态显示文本和固定错误映射，未添加镜像字符串测试，未重跑全量测试；原生长文案换行尚未验收。
+
+## 中英文源码校对（2026-10-28，第十六批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批沿 OAuth 入口到界面的错误传播路径核对，修改固定错误的显示映射，不改变回调校验、端口绑定或错误返回契约。
+
+上游已读：`platform/collaboration-tools/auth-base/src/com/intellij/collaboration/auth/services/OAuthCallbackHandler.kt::execute` 将授权结果区分为页面／重定向，并单独处理异常；同目录 `OAuthServiceBase.kt::handleServerCallback/processCode` 区分 code 与 error/error_description，并传播获取凭据失败；`platform/collaboration-tools/auth/src/com/intellij/collaboration/auth/services/OAuthCredentialsAcquirerHttp.kt::requestToken/convertToAcquireCredentialsResult` 将交换失败与成功凭据分开。上游结构说明“回调错误”不是“用户拒绝”的同义词，不能仅凭资源名称推断具体原因。
+
+本地 `src/hosting/oauth.rs::authorize/callback` 的证据及修正：
+
+- `TcpListener::bind` 的所有错误都映射成内部字符串 `OAuth callback port is in use`，但绑定失败不只发生于端口占用。`src/hosting_panel.rs::error_text` 现将该固定诊断显示为 `Could not bind the OAuth callback port`／“无法绑定 OAuth 回调端口”。
+- `callback` 只要存在 error 参数就返回内部字符串 `Authorization was denied`，并未检查是否为 access_denied。显示改为 `OAuth authorization returned an error`／“OAuth 授权返回错误”，避免把服务器错误或配置错误说成用户拒绝。
+- 补齐六条精确匹配翻译：Invalid OAuth configuration（OAuth 配置无效）、Could not generate OAuth verifier（无法生成 OAuth 校验随机值）、Invalid authorization callback（授权回调无效）、Invalid authorization state（授权回调的 state 参数无效）、Missing authorization code（授权回调中缺少有效的授权码）、Missing OAuth access token（OAuth 响应中缺少有效的访问 Token）。后两项的“有效”覆盖缺字段、空值及非字符串值，不能仅按缺字段理解。
+
+可见性核对：完全不匹配 state 的请求通常返回 400 并继续等待，不把每个此类请求都计作界面错误；但外层 valid_state 只检查存在匹配值，因此重复 state、错误路径或缺 code 等含匹配 state 的请求可能经 `break result?` 进入 `Panel::work/error_text`，这些固定提示确实存在可见路径。`config`、`random`、`token_response` 的失败同样向调用方传播。保留本地回环服务与上游内建服务的实现差异；没有引入上游原始服务器错误正文，也不改变已有秘密值保护。
+
+验证：隔离入口 `core -E 'test(hosting::oauth::tests)'` 六项全部通过（939 项过滤），目录 `artifacts/test-runs/2cd0-18e2b6e1df00daac-0/`，覆盖回调拒绝、取消及端口释放、无授权码结果页、PKCE 和 Token 轮换。`cargo check --locked --features desktop-tests --bin plico` 通过，仅有既存 sequencer 警告；格式及差异检查通过。未重跑全量测试，未做原生 UI 排版验收。动态 HTTP 状态码提示仍待本地化；本批不等同于全部登录错误审计完成。
+
+## 中英文源码校对（2026-10-28，第十七批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批补齐托管服务动态 HTTP 状态码提示，保持错误类别、状态码和未知诊断内容不变。
+
+复读上游 `platform/collaboration-tools/auth/src/com/intellij/collaboration/auth/services/OAuthCredentialsAcquirerHttp.kt::convertToAcquireCredentialsResult`：成功响应交给凭据解析，失败产生错误结果，可能带响应正文。本地 `src/hosting/api.rs::request` 则有意只生成状态码诊断，401 映射重新登录、403 映射权限／组织策略，其余 HTTP 错误生成 `HTTP request failed ({code})`；不复制上游响应正文。已有 `request_does_not_follow_redirect_or_expose_response_secrets` 的源码断言响应及请求秘密值不进入错误，本批未修改该保护。
+
+`src/hosting_panel.rs::error_text` 现在只识别完整固定前后缀和三位 ASCII 数字，使用 `src/i18n.rs` 新键 `HTTP request failed`／“HTTP 请求失败”拼接原状态码。示例为 `HTTP 请求失败 (503)`；英语保持原文。401、403 的专门提示沿用原分支。带额外正文、非数字、全角数字或位数不匹配的文本原样返回，不把外部文本当作格式模板，也不根据状态码自行推断限流、维护或其他根因。
+
+新增测试 `status_translation_preserves_codes_and_unknown_diagnostics` 只覆盖新解析边界：多种状态码保留、相似但不匹配的诊断不被改写。没有修改进程语言或系统环境。验证：隔离入口 `desktop -E 'test(hosting_panel::tests)'` 两项全部通过（182 项过滤），目录 `artifacts/test-runs/3644-18e2b702bbbac474-0/`，包含既有仓库名称／命名空间保留测试；桌面测试编译、格式及差异检查通过。未重跑全量测试，未做原生排版验收。HTTP 动态提示缺口已补齐，但不据此宣称所有模块的动态文本或认证诊断均完成校对。
+
+## 中英文源码校对（2026-10-28，第十八批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批核对动态计数和分支查询错误前缀，不改变查询、分页或选择行为。
+
+上游已读 `platform/vcs-impl/shared/src/com/intellij/openapi/vcs/changes/ui/ChangesBrowserNode.java` 中文件／目录数量文本的选择逻辑（通过 git show 读取 sparse checkout 外文件），以及 `platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties::changes.nodetitle.changecount`：按数量区分 file/files。相关 `iterative.merge.files.count`、`multiple.file.iterative.merge.status.partially.resolved` 也区分数量及动词形式。Plico 不复制上游目录计数结构，只修正现有数量文本。
+
+修改：
+
+- `src/diff_picker.rs::FilePicker::render_item` 的目录行原为硬编码 `{count} files`，现复用 `ui_style::file_count`，中文显示“n 个文件”，英语区分 1 file 与其他数量。计数仍来自当前文件树 Row::Folder，路径保持原文。
+- `src/i18n.rs::render_message` 的 `FilePosition` 在 total 为 1 时使用 file，否则 files；调用方 `src/diff_tab.rs` 传入当前比较链的位置和长度，不把当前位置当作总量。中文原文保留。
+- `history_count` 在已知总量为 1 时使用 commit，否则 commits，保留未知总量的破折号、偏移范围和中文单位。`src/history_view.rs` 只在加载完成且无更多历史及错误时提供总量；`src/ui/log_count.rs` 的现有快照计数调用不变。
+- `Message::LoadedCommits` 同步修正 count 为 1 时的单数；搜索只见定义和测试，本批不据此宣称某个可见控件经过验收。
+- `src/containing_branches.rs` 的错误前缀改走新翻译键 `Could not load containing branches`／“无法加载包含此提交的分支”，错误详情原样附加；成功路径原有分支单复数保持不变。
+
+仍待追查：自动合并结果虽然单复数已处理，但 `src/ui/conflicts/automatic.rs` 从 `decisions.progress()` 统计完成数量，`src/text_merge.rs::State::progress` 定义为已解决块／总块数。是否包含单侧非冲突更改需进一步核对；不能仅凭当前字典中的 conflict 一词认定计数全是冲突。本批未修改这一组提示。
+
+验证：`core -E 'test(i18n::)'` 四项通过（941 项过滤），目录 `artifacts/test-runs/4dc0-18e2b72eaa1a6e8c-0/`；`desktop -E 'test(containing_branches::)'` 一项通过（183 项过滤），目录 `artifacts/test-runs/5fac-18e2b72a0c2961f0-0/`，覆盖跨仓库相同哈希的查询归属。桌面编译、格式及差异检查通过。既有测试未逐一断言本批单数字符串，不将其表述为所有文本分支的测试覆盖；未重跑全量测试或原生排版验收。
+
+## 中英文源码校对（2026-10-28，第十九批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批解决第十八批发现的自动合并计数语义问题，只调整状态提示，不修改算法或计数值。
+
+上游 `platform/vcs-impl/src/com/intellij/openapi/vcs/merge/flow/IterativeMergeFlowDelegate.kt` 的 `resolvedChangeCount/unresolvedChangeCount` 取所有已解决／未解决更改；另有 `resolvedConflictCount` 按 isConflict 过滤，供 `computeMagicWandResult` 区分真正冲突与单侧更改。但界面状态 `multiple.file.iterative.merge.status.*` 使用所有更改数，资源却称为 conflicts。这是已核实的上游措辞不精确，不能照搬为 Plico 计数定义。
+
+本地依据：`src/text_merge/automatic.rs::resolve` 对 theirs == base 或 yours == base 的单侧更改也返回结果；`src/text_merge.rs::resolve_automatically` 将该块标记 resolved；`State::progress` 统计全部块，没有按 `Change::conflict` 过滤。`src/merge_result/automatic.rs` 遍历全部块，`src/ui/conflicts/automatic.rs` 使用已完成数量减去保存草稿的已完成数量作为本次变化量。全部完成状态还可能包含以前手动完成的更改。
+
+对应修正：
+
+- 无变化提示改为 `No changes were resolved automatically`／“未自动处理任何更改”。
+- 全部完成提示改为 `All changes have been resolved`／“所有更改均已处理”，不再声称所有更改均由本次自动处理。
+- `src/i18n.rs::automatic_merge_result` 的计数单位改为 change/changes／“处更改”，并明确已自动处理的数量；剩余数量未知时仍只说明文件数。保留英语单复数及 requires/require 匹配。
+
+相应调用键同步更新；不改变工作区写入、暂存时机、取消行为或原有未知计数处理。第十一批“未自动解决任何冲突”的初步措辞由本批根据更完整的计数证据修正，历史记录保留。
+
+新增语义测试 `automatic_progress_includes_non_conflicting_changes`：构造一处单侧更改，确认 conflict 为 false，但自动处理后进度从 (0,1) 到 (1,1)，且结果文本正确。此测试用于证明计数含义，非复制译文字面。与既有未解决块／草稿恢复测试共同运行，两项通过（944 项过滤），目录 `artifacts/test-runs/2e88-18e2b753f82e0370-0/`。桌面 `ui::conflicts::automatic_tests` 一项通过（183 项过滤），目录 `artifacts/test-runs/5514-18e2b756f14e3554-0/`，覆盖取消与批处理后迭代状态保持。编译、格式及差异检查通过，未重跑全量测试或原生排版验收。
+
+## 中英文源码校对（2026-10-28，第二十批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批检查动态提示，修正 Diff 错误显示与 Reflog 计数；不改变设置保存、刷新、分页或恢复行为。
+
+Diff 依据：已读上游 `platform/diff-impl/src/com/intellij/diff/impl/DiffSettingsHolder.kt`，其持久化状态区分共享设置与 place 设置。Plico 对应 `src/layout_preferences.rs::save_diff_unified/save_diff_appearance` 按使用位置写本地设置；`src/diff_tab.rs::set_view_mode/set_appearance` 仅在保存成功后更新偏好。两处失败详情原为硬编码英文，现复用已有翻译键 `Cannot save Diff view`／“无法保存差异视图”、`Cannot save Diff settings`／“无法保存差异设置”，保留底层错误原文。
+
+另沿 `DiffTab::disk_changed` 查明：`disk_error` 来自工作区刷新失败，而底部状态栏将它与 `preference_error` 合并后，一律显示“无法保存 Diff 偏好设置”。现仅调整显示文本选择：存在 disk_error 时用已有 `Could not refresh diff`／“无法刷新差异”，否则保持保存偏好失败提示。错误优先级、复制详情按钮、刷新生命周期均不变。此修正依据本地实际错误来源，未凭上游持久化类推断本地失败原因。
+
+Reflog 为本地恢复浏览器；本次在上游 git4idea 树中未定位到同名专用浏览器，不声称存在已验证的一一对应界面。已读 `src/ui/reflog.rs::Browser::reload/render` 与 `src/reflog.rs::read`：数量是已加载事件条数，不是去重提交数，同一提交可有多条记录。新增 typed message `Message::LoadedEntries`，显示 `1 entry loaded`／`n entries loaded`，中文改为“已加载 n 条记录”，替换数字与 `entries loaded` 的拼接并删除不再使用的旧键。仓库引用、Git 原始 action、作者及提交 ID 均不参与翻译。
+
+验证：`cargo check --locked --features desktop-tests --bin plico`、格式和差异检查通过；只有既存 sequencer 警告。本批未更改状态处理逻辑，未添加镜像字符串测试或重跑全量测试。未进行原生错误状态及排版验收。Reflog 底层诊断、其他核心动态错误和完整文本覆盖清单仍需继续核对。
+
+## 中英文源码校对（2026-10-28，第二十一批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批沿本地 Reflog 的读取、解析、显示和恢复入口核对文本。
+
+`src/reflog.rs::read/parse` 产生七条固定诊断：Invalid reflog page size、Incomplete reflog response、Malformed reflog response、Invalid reflog commit、Invalid reflog selector、Invalid reflog timestamp、Invalid reflog reference。`src/ui/reflog.rs::Browser::reload` 原样保存后直接显示，确有漏译。现增加局部 `error_text` 精确映射，中文分别表述读取数量无效、Git 返回数据不完整／格式错误、提交 ID／记录选择表达式／时间戳／引用名称无效。同步 `src/i18n.rs`；核心错误契约不变，未知错误及 Git 原始诊断仍原样保留。
+
+范围核对：无记录时只在非加载、无错误且 entries 为空时显示“没有引用历史记录”，并未掩盖读取失败；加载更多重新读取有界前缀，现有“加载更多”准确。恢复按钮将所选条目的完整 commit OID 交给 `Review::new_branch_dialog`，不是按会变化的 reflog 序号写操作。已复读上游 `plugins/git4idea/backend/src/actions/GitCreateNewBranchAction.kt::actionPerformed` 和 `branch/GitNewBranchDialog.kt` 的创建／切换选项，确认其分支流程与本地复用入口的参考关系；上游顶层 action 使用 HEAD，不能据此声称上游提供同样的 Reflog 恢复浏览器。本地“选择一条引用历史，将对应提交恢复为分支”“新建分支”保留，不承诺一键恢复工作区或删除原记录。
+
+验证：隔离入口 `core --test reflog` 的三项测试全部通过，目录 `artifacts/test-runs/5eb8-18e2b79b844a2464-0/`，覆盖有界读取、保留事件、无提交仓库和数量限制，以及按 OID 恢复分支时不改变 HEAD/index。`cargo check --locked --features desktop-tests --bin plico`、格式和差异检查通过；仅有既存 sequencer 警告。未重跑全量测试，未做原生排版验收。
+
+### 当前覆盖边界与后续顺序
+
+下表用于约束完成声明，不是全量完成清单；各批已列出的具体源码、改动与验证结果仍为依据。
+
+| 范围 | 已有证据 | 仍需完成 |
+| --- | --- | --- |
+| 参考仓库与中文包 | 固定 checkout、英文资源、中文包来源及许可核查，第一批 | 后续沿具体功能补充源文件；不导入未获授权的语言包 |
+| 提交、分支、远端、工作树 | 第一至十批的主要术语、确认及部分校验 | 核心失败／恢复诊断到 UI 的全路径；尚未覆盖的成功和部分失败状态 |
+| 冲突与迭代合并 | 第十一、十二、十九批的撤销、关闭及计数 | 其余合并编辑器工具提示与结果详情逐项核对 |
+| 登录、账号、OAuth | 第十三至十七批的设置、字段、scope、回调及 HTTP 状态码 | 账号存储和平台错误的所有显示入口；第十四批记录的错误类别混用 |
+| Log、文件树、Diff、Reflog | 第五至七、十八、二十、二十一批的部分标签、动态计数与错误 | 完整工具栏／上下文菜单、状态提示、文件与历史导航；不可将扫描无漏键当作语义完成 |
+| 设置、欢迎页、编辑与恢复 | 已核对设置部分名称和生效时机，若干文件编辑提示 | 欢迎页、编辑器诊断、提交／变基恢复、日期显示的完整覆盖 |
+| 汇总验收 | 每批定向检查及编译，尚未提交 | 完整文本覆盖复查、累计改动的适当回归；原生排版未验证须继续如实标注 |
+
+下一步先核对提交及变基恢复提示，再检查其余导航／工具栏，最后对已修改文本做统一复查，避免只不断修补同一入口。
+
+## 中英文源码校对（2026-10-28，第二十二批）
+
+参考 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`。本批核对提交暂存区恢复与变基保存更改的记录清除，修改四处显示文案，不改变恢复操作。
+
+上游已读 `plugins/git4idea/backend/src/checkin/GitIndexInfoStagingAreaStateManager.kt` 的 index-info 内容生成和恢复相关路径，以及 `stash/GitStashChangesSaver.java::load` 调用 GitStashOperations.unstash 的路径。暂存区状态恢复与恢复 stash 是不同操作；Plico 的持久恢复记录属于本地补充，不能直接套用上游 unstash 成功文本。
+
+本地 `src/commit_recovery.rs::restore` 对记录路径集、正在进行的操作、受影响 index 身份及路径重叠逐项校验，然后执行 update-index 并复核，成功才删除恢复记录。`src/local_view.rs` 使用 `Failure::restore` 显示“无法恢复暂存内容”，成功才显示“暂存内容已恢复”。这些主要动作与状态标签保留，不称为回滚提交或恢复所有工作区文件；底层详细诊断尚需继续核对。
+
+`src/rebase_saved.rs::acknowledge_external_recovery` 只验证工作树、当前 Git 操作及冲突状态、记录字节与取消状态，随后 remove_file 删除应用记录。它不恢复／删除 stash，也不验证记录中的 stash 当前仍存在。因此：
+
+- `src/ui/saved_changes.rs` 确认标题复用 `Clear recovery record`／“清除恢复记录”，替代 `Finish Rebase recovery`，避免把仅清记录说成完成恢复操作；删除不再使用的旧标题键。
+- 成功消息改为 `Recovery record cleared`／“恢复记录已清除”，去掉 `saved changes kept`，避免对外部可能已处理或删除的备份作存在性保证。原确认正文“不恢复或删除 stash，也不修改文件”仍准确，保留。
+- `Saved changes from Rebase still need review.` 中文改为“变基时保存的更改仍需检查。”；`Could not inspect the Rebase recovery record.` 中文改为“无法读取变基恢复记录。”，统一变基术语。
+
+保留差异：此处不实现上游 unstash，不改变记录格式、stash 身份或操作检查，也不把清记录动作改成自动恢复。共享记录可能来自 Squash 或交互变基，通用清记录标题不误指某一种具体历史整理操作。
+
+验证：`core -E 'test(squash_external_recovery_)'` 四项通过（942 项过滤），目录 `artifacts/test-runs/538-18e2b7cbfcd66d90-0/`，覆盖只删除确认记录、工作树隔离、冲突阻止清除和异常记录替换。`cargo check --locked --features desktop-tests --bin plico`、格式及差异检查通过，只有既存 sequencer 警告。测试未新增备份已在外部删除的场景，此场景的提示修正依据当前函数未检查 stash 存在性的源码；不将其记为已执行验证。未重跑全量测试或原生排版验收。
 
 ## 过滤与对齐
 

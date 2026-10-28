@@ -810,7 +810,7 @@ impl Render for PushDialog {
                                     .child(
                                         div()
                                             .text_color(rgb(0x6f737a))
-                                            .child(format!("{count} {}", t("files"))),
+                                            .child(crate::ui_style::file_count(count)),
                                     )
                                     .on_mouse_down(
                                         MouseButton::Left,

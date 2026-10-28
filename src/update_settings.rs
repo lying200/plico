@@ -112,7 +112,7 @@ impl Render for Settings {
             )
             .child(
                 Checkbox::new("git-credential-helper")
-                    .label(t("Use credentials helper"))
+                    .label(t("Use credential helper"))
                     .checked(self.helper)
                     .on_click(cx.listener(|s, value, _, cx| {
                         s.helper = *value;

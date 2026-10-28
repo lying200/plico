@@ -249,7 +249,10 @@ impl Review {
                                         notes.push(error);
                                     }
                                     if let Some(oid) = report.saved_oid {
-                                        notes.push(format!("Saved local changes: {oid}"));
+                                        notes.push(format!(
+                                            "{}: {oid}",
+                                            t("Saved changes retained")
+                                        ));
                                     }
                                     if let Some(Err(error)) = report.restore {
                                         notes.push(error);

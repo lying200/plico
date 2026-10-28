@@ -580,7 +580,7 @@ impl Review {
             |s, _, event: &crate::user_menu::Changed, cx| match event {
                 crate::user_menu::Changed::Applied => s.apply_text_filter(cx),
                 crate::user_menu::Changed::Failed(error) => {
-                    s.error = Some(format!("Could not refresh User filter: {error}"));
+                    s.error = Some(format!("{}: {error}", t("Could not refresh User filter")));
                     cx.notify();
                 }
             },

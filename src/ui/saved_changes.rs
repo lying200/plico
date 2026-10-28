@@ -138,7 +138,7 @@ impl Review {
         let path = self.repo.path.clone();
         window.open_dialog(cx, move |dialog, _, _| {
             let owner = owner.clone(); let path = path.clone(); let pending = pending.clone(); let repo = repo.clone();
-            dialog.title(t("Finish Rebase recovery")).w(px(510.)).centered(true).overlay_closable(false)
+            dialog.title(t("Clear recovery record")).w(px(510.)).centered(true).overlay_closable(false)
                 .child(div().child(t("Confirm only after handling the saved changes externally. This clears the app recovery record; it does not restore or delete any stash or change your files.")))
                 .child(div().truncate().child(path.display().to_string()))
                 .footer(gpui_kit::component::dialog::DialogFooter::new()
@@ -186,7 +186,7 @@ impl Review {
                     return;
                 }
                 let message = t(if result.is_ok() {
-                    "Recovery record cleared; saved changes kept"
+                    "Recovery record cleared"
                 } else {
                     "Recovery record was not cleared. Refresh and review the repository state."
                 });

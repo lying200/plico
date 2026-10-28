@@ -18,7 +18,7 @@ impl Automatic {
 impl ConflictList {
     pub(super) fn automatic_message(&self, changed: usize) -> String {
         if changed == 0 {
-            return t("No conflicts were resolved automatically").into();
+            return t("No changes were resolved automatically").into();
         }
         let mut files = 0;
         let mut remaining = 0;
@@ -42,7 +42,7 @@ impl ConflictList {
             }
         }
         if files == 0 {
-            t("All conflicts were resolved automatically").into()
+            t("All changes have been resolved").into()
         } else {
             plico::i18n::automatic_merge_result(changed, known.then_some(remaining), files)
         }

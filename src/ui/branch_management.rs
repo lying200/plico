@@ -586,7 +586,7 @@ impl Review {
                 .w(px(560.)).centered(true).overlay_closable(false)
                 .child(div().whitespace_normal().child(format!("{} ‘{}’", t("Delete branch"), prepared.name)))
                 .when(prepared.repository().path != path, |d| d.child(div().text_color(rgb(crate::ui_style::MUTED)).child(prepared.repository().path.display().to_string())))
-                .when(unmerged, |d| d.child(div().whitespace_normal().child(t("These commits are not merged into the branch's upstream or HEAD. Delete the branch anyway?")))
+                .when(unmerged, |d| d.child(div().whitespace_normal().child(t("These commits are not merged into the upstream branch (or HEAD when no upstream is available). Delete the branch anyway?")))
                     .child(v_flex().id("unmerged-branch-commits").max_h(px(240.)).overflow_y_scroll()
                         .children(prepared.unmerged.iter().take(100).map(|commit| div().truncate().child(commit.clone())))
                         .when(prepared.unmerged.len()>100,|v|v.child(t("More commits are not shown")))))

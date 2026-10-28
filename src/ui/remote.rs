@@ -43,7 +43,7 @@ impl Review {
                                     let tags_draft = draft.clone(); let mode_draft = draft.clone();
                                     DialogFooter::new().items_center().flex_wrap().gap(px(12.)).mx(px(-16.)).px(px(12.)).py(px(8.)).border_t_1().border_color(rgb(0x26282c))
                                         .child(Button::new("push-help").ghost().label("?").accessibility_label(t("Push help")).size(control_height).with_size(control_height).p_0().rounded(control_height / 2.).border_1().border_color(rgb(0x40434a)).mr(px(8.)).on_click(|_,w,cx| {
-                                            w.open_dialog(cx,|d,_,_|d.title(t("Push")).w(px(460.)).child(t("Push selected commits to the target branch. Enable Push tags to include tags. Force Push checks the last known remote revision before replacing history.")).footer(DialogFooter::new().child(gpui_kit::component::dialog::DialogClose::new().trigger(|b|b.label(t("Close"))))));
+                                            w.open_dialog(cx,|d,_,_|d.title(t("Push")).w(px(460.)).child(t("Push the current branch to the target branch. Enable Push tags to include tags. Force Push checks the last known remote revision before replacing history.")).footer(DialogFooter::new().child(gpui_kit::component::dialog::DialogClose::new().trigger(|b|b.label(t("Close"))))));
                                         }))
                                         .child(h_flex().items_center().gap(px(8.))
                                         .child(gpui_kit::component::checkbox::Checkbox::new("push-tags").label(t("Push tags:"))

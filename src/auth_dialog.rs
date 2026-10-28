@@ -377,7 +377,7 @@ impl Render for Login {
                     .external_focus_ring(false)
                     .content_type(InputContentType::Password),
                 self.password_error,
-                "Password must not be empty",
+                "Password or token must not be empty",
             ))
             .child(
                 div().pl(px(LABEL_WIDTH + 12.)).child(
@@ -398,7 +398,7 @@ impl Render for Login {
             .when(self.helper_available, |v| {
                 v.child(
                     Radio::new("auth-use-helper")
-                        .label(t("Use credentials helper"))
+                        .label(t("Use credential helper"))
                         .checked(self.use_helper)
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.use_helper = true;
@@ -408,7 +408,7 @@ impl Render for Login {
             })
             .when(self.storage_error, |v| {
                 v.child(div().text_color(rgb(0xf2a6a6)).child(t(
-                    "Credential storage is unavailable. Clear Remember to continue without saving.",
+                    "Credential storage is unavailable. Clear Remember to continue without saving the password or token.",
                 )))
             })
             .into_any_element()

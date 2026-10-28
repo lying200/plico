@@ -221,10 +221,10 @@ impl Review {
                 let owner = owner.clone();
                 let view = view.clone();
                 let continued = view.clone();
-                d.title(t("Discard Changes?")).w(px(480.)).centered(true).overlay_closable(false)
-                    .child(div().whitespace_normal().child(t("Closing the dialog discards partial merge progress. Saved file contents remain in the working tree.")))
+                d.title(t("Discard Partial Merge Progress?")).w(px(480.)).centered(true).overlay_closable(false)
+                    .child(div().whitespace_normal().child(t("Closing the dialog discards resolution progress for partially resolved files, but keeps their saved contents. Fully resolved files will be staged.")))
                     .footer(gpui_kit::component::dialog::DialogFooter::new()
-                        .child(gpui_kit::component::dialog::DialogAction::new().child(Button::new("discard-partial-merge").primary().label(t("Discard Changes"))))
+                        .child(gpui_kit::component::dialog::DialogAction::new().child(Button::new("discard-partial-merge").primary().label(t("Discard Progress"))))
                         .child(gpui_kit::component::dialog::DialogClose::new().trigger(|b| b.label(t("Continue Merge")))))
                     .on_cancel(move |_, _, cx| {
                         continued.update(cx, |s, _| s.after_close = None);

@@ -1,5 +1,28 @@
 //! Rebased GitWorkingTreeDialog: source, optional new branch, name and location.
 use super::*;
+
+// Translate only fixed application validation messages; preserve Git/OS diagnostics.
+fn validation_message(error: &str) -> String {
+    for message in [
+        "Worktree location must be absolute",
+        "Worktree directory is not empty",
+        "Choose a local branch, remote branch or tag",
+        "Remote branch no longer exists",
+        "Choose a remote branch, not its HEAD alias",
+        "Remote branch has no configured remote",
+        "Invalid branch name",
+        "A branch or branch directory with this name already exists",
+        "Branch name clashes with a remote branch",
+        "Branch is already checked out; open its worktree or create a new branch",
+        "Cancelled",
+    ] {
+        if error == message {
+            return t(message).to_owned();
+        }
+    }
+    error.to_owned()
+}
+
 struct Form {
     reference: Option<String>,
     refs: Vec<String>,
@@ -261,7 +284,12 @@ impl Render for Form {
                     )),
             )
             .when_some(self.error.clone(), |v, e| {
-                v.child(div().text_color(rgb(0xf2a6a6)).whitespace_normal().child(e))
+                v.child(
+                    div()
+                        .text_color(rgb(0xf2a6a6))
+                        .whitespace_normal()
+                        .child(validation_message(&e)),
+                )
             })
     }
 }

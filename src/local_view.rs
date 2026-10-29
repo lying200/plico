@@ -407,13 +407,14 @@ impl LocalView {
         cx.notify();
     }
     pub fn preview_loading(&self, cx: &App) -> bool {
-        self.refresh.read(cx).busy()
+        let refresh = self.refresh.read(cx);
+        refresh.busy() && !refresh.loaded()
     }
     pub fn preview_revision(&self, cx: &App) -> u64 {
         self.refresh.read(cx).revision()
     }
     pub fn preview_change(&self, cx: &App) -> Option<&plico::git::Change> {
-        if self.refresh.read(cx).busy() || self.error.is_some() {
+        if self.preview_loading(cx) || self.error.is_some() {
             return None;
         }
         self.model
@@ -442,7 +443,7 @@ impl LocalView {
         }
     }
     fn show_diff(&mut self, cx: &mut Context<Self>) {
-        if self.refresh.read(cx).busy() || self.error.is_some() {
+        if self.preview_loading(cx) || self.error.is_some() {
             return;
         }
         let Some(change) = self
@@ -509,7 +510,7 @@ impl Render for LocalView {
                 .child(Button::new("local-rollback").ghost().small().icon(icon("jb/rollback_dark.svg")).tooltip(t("Rollback… · Ctrl+Alt+Z"))
                     .disabled(!self.can_rollback(cx)).on_click(cx.listener(|s,_,_,cx|s.request_rollback(cx))))
                 .child(Button::new("local-diff").ghost().small().icon(icon("jb/diff_dark.svg")).tooltip(t("Show Diff · Ctrl+D"))
-                    .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.model.selected().is_none() || self.model.selected().is_some_and(|i|self.model.files()[i].area==plico::git::Area::Ignored)).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
+                    .disabled(self.preview_loading(cx) || self.error.is_some() || self.model.selected().is_none() || self.model.selected().is_some_and(|i|self.model.files()[i].area==plico::git::Area::Ignored)).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
                 .child(self.view_options(cx))
                 .child(div().w(px(1.)).h(px(20.)).bg(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4))))
                 .child(Button::new("local-locate").ghost().small().icon(icon("jb/locate_dark.svg")).tooltip(t("Show selected change")).disabled(self.model.selected().is_none()).on_click(cx.listener(|s,_,_,cx|{if let Some(c)=s.model.selected().and_then(|i|s.model.files().get(i)).cloned(){if let Some(row)=s.model.reveal(&c){s.scroll.scroll_to_item(row,ScrollStrategy::Top);cx.notify();}} })))
@@ -688,6 +689,30 @@ mod refresh_tests {
         cx.update(|w, cx| w.draw(cx).clear(cx));
         assert_eq!(cx.debug_bounds("local-tree").unwrap(), before);
         assert!(local.read_with(cx, |s, cx| s.refresh.read(cx).feedback()));
+        // Read-only entry points keep using the displayed snapshot while the
+        // replacement is pending. This is the double-click/Enter dispatch path.
+        let opened = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let captured = opened.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&local, move |_, event: &OpenDiff, _| {
+                captured.borrow_mut().push(event.0.identity().path.clone());
+            })
+            .detach();
+            local.update(cx, |s, cx| {
+                s.model.select(0);
+                assert!(!s.preview_loading(cx));
+                assert_eq!(
+                    s.preview_target(cx).unwrap().0.identity().path,
+                    std::path::PathBuf::from("review-1.txt")
+                );
+                s.show_diff(cx);
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            &*opened.borrow(),
+            &[std::path::PathBuf::from("review-1.txt")]
+        );
         assert_eq!(
             local.read_with(cx, |s, _| s.head.clone()).as_deref(),
             Some("head-1")

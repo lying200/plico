@@ -14372,3 +14372,87 @@ revision 26→27 的 Diff 仍保留，截图 `refresh-plico-preview-{before,afte
 全部截图在本节 artifacts 目录；本轮自启 Plico 22396、4752、39448 与无窗口启动进程
 40380 已关闭，既有 Rebased 窗口保留。实际滚轮与边界滚动仍待用户手测；本轮没有
 spring-framework 全仓性能基准，不以此宣称所有性能问题已排除，也不宣称全局像素级一致。
+
+## Changes 刷新浏览与 Log 文件菜单（2026-10-29）
+
+实现前实机：Windows Rebased 1.1.22 / 262.10968.SNAPSHOT；源码 checkout
+`245042348669114adb8e24e5b0fc0ce73763f3c4`（不假定与安装包完全一致）。独立仓库、
+本地 bare remote 与同 HEAD 的 Plico clone 见 `artifacts/changes-menu-20261029/fixture.json`。
+测试分支 `changes-menu-20261029`，提交 e842a73e → 5b5595bc，menu-case 下两个文本文件。
+Git 代理只给测试实例的 log/for-each-ref/status 加 60 秒延迟，用于观察交互，不作为性能数据。
+
+- `rebased-local-diff-updating.png`：Commit 的 Changes 行仍显示 updating…，双击 beta.txt
+  已打开 HEAD → Current version；文件行可选，刷新图标与提交按钮分别体现加载和写入门禁。
+  Plico preview.14 同条件 `plico-before-local-doubleclick.png` 只选中文件而没有打开 Diff。
+- `rebased-refresh-diff-during-query.png`：Log 刷新期间亦可打开已有提交的 alpha 差异。
+  16:27:06 打开时代理 PID 17788/12428/11276/22880 仍在等待查询。
+- `rebased-directory-menu.png`、`rebased-file-menu.png`：目录与文件共用主要菜单顺序；
+  目录 History Up to Here 不可用。`rebased-directory-local-diff.png` 显示目录操作产生
+  1/2 files 导航，左侧所选提交、右侧 Current version，而非整仓库比较。
+- `rebased-get-confirm.png`：存在本地修改时 Get Revision 提示 Overwrite Modified File / Cancel。
+  alpha 工作树为 alpha unstaged、index 为 alpha staged；取消后两者不变；确认后工作树
+  恢复所选提交两行内容，index 仍为 alpha staged，HEAD 仍为 5b5595bc。
+
+已读源码及映射：`CommitChangesViewWithToolbarPanel.kt` 的 ChangesViewInputHandler 按
+selectedDiffableNode 发出 diffRequests，不以刷新中拒绝双击；refresh 单独更新 busy 绘制。
+本地对应 `src/local_view.rs` 的 show_diff/preview_change/preview_loading 与工具栏，需区分
+首次无数据加载和已有列表刷新，保留提交、回滚等写门禁。`AsyncChangesBrowserBase.kt`、
+`VcsLogChangesBrowser.kt`、`VcsLogAsyncChangesTreeModel.kt`、`ChangesBrowserBase.java`
+将树模型、双击、Diff request chain 分开，操作依据 Change 的修订，不依据随后变化的行号。
+本地菜单需捕获不可变 Target/Chain，不能在点击执行时重新解释旧索引。
+
+`ShowDiffWithLocalAction.java` 取 after（或 before）修订与 CurrentContentRevision 比较；
+重命名优先该侧路径，不存在时回退另一侧；缺失一侧允许新增/删除差异；目录使用所选后代。
+`GetVersionFromRepositoryActionProvider.java` 使用 SELECTED_CHANGES_IN_DETAILS 的 after 内容；
+`GetVersionAction.java` 统一确认本地修改，然后逐文件写入，after 不存在表示删除。
+本地复用 working_comparison、get_revision 的实际内容读取与保存校验，菜单不引入 Git checkout。
+尚未实机验证删除、重命名、目录批量 Get 的结果；不可把以上单文件观察当成这些场景已通过。
+本节后续补充实现范围、自动测试与原生验收，当前为前置研究记录。
+
+补充目录 Get 前置实测：`rebased-directory-get-confirm.png`，目录内 alpha 工作树与所选
+提交相同、index 独立修改，beta 工作树修改。目录 Get 只提示 beta 的本地修改；确认后
+两个文件均为所选提交内容，alpha index 保持 alpha staged。本地目录批量操作复用逐文件
+保存校验，执行前先校验整组选中文件；I/O 失败仍可能部分完成，必须明确报告已完成范围。
+
+本轮实现及原生验收（同一 fixture，Windows release 构建）：
+
+- `src/local_view.rs` 仅在首次尚无快照时阻止只读 Diff；已有列表刷新时继续按所见条目
+  发出 OpenDiff，提交、回滚的刷新门禁保持。`plico-local-diff-updating.png` 为打开瞬间，
+  `plico-local-diff-updating-loaded.png` 同时显示“正在更新”和完整 HEAD → 工作区内容。
+  最终使用 20 秒查询延迟，结束后恢复正常；此前 60 秒代理触发产品查询超时，另存
+  `plico-local-diff-after-delay-timeout.png`，不将该截图当作刷新成功证据。测试延迟已关闭。
+- `src/ui/files.rs`、`src/ui/files_menu.rs` 在菜单打开时解析文件／目录后代，捕获固定
+  Target；列表快照失效时禁用菜单，点击不重新解释旧行号。菜单顺序为显示差异、与本地
+  比较、分隔线、从修订获取。`plico-file-menu.png`、`plico-directory-menu.png` 记录入口。
+  `plico-directory-show-diff.png` 为目录的父提交 → 所选提交差异及 1/2 文件导航。
+- `src/diff_target.rs` 保留提交端点；`src/change_comparison.rs` 构造所选提交 after →
+  工作区比较，重命名本地路径优先 after、再回退 before，缺失端允许单侧差异。
+  `plico-directory-local-diff.png`、`plico-directory-local-beta.png` 验证目录 1/2 → 2/2
+  导航、alpha 相同、beta 本地修改。内容继续沿用惰性 Diff 加载。
+- `src/ui/get_revision.rs` 复用文档保存门禁和操作状态；`src/get_revision.rs` 批量执行
+  先复验整组选中文件的 HEAD、index、磁盘基线，再逐文件复验与写入；中途失败报告完成
+  数量及失败路径，不承诺文件系统事务。`plico-directory-get-confirm.png` 记录统一确认。
+  取消后 alpha unstaged、beta local change 与 alpha staged 均保留；确认后工作树两个
+  文件恢复所选提交，alpha index 仍为 alpha staged，HEAD 仍为 5b5595bc。
+  `plico-directory-get-success.png` 记录成功状态。
+
+明确保留的差异：菜单仅实现以上三项，不添加占位操作；从修订获取限主仓库普通非删除
+文件，包含删除条目或子仓库时禁用，尚未实现 Rebased 的删除恢复语义。批量确认沿用原有
+Git status 判定，可能同时提示只有 index 修改的文件。文件菜单的 Diff 导航限所选文件，
+目录限后代；目录右键暂不改变树中原文件高亮。菜单图标、快捷键提示及精确像素细节尚未
+对齐；本轮比较使用 Plico 已有统一 Diff 模式，不宣称全局像素还原。重命名回退和缺失本地
+文件由核心测试覆盖，尚未做对应原生场景验收。
+
+多仓库整组显示差异沿用 combined_roots，逐项保留仓库身份；与本地比较当前限单仓库
+选择，跨仓库整组禁用。现有多仓库桌面回归增加菜单文件／目录范围断言，原生验收仍限
+上述单仓库场景。测试自启 Plico 已关闭，用户原有 Rebased 窗口保留。
+
+自动回归扩展了实际刷新期间 OpenDiff 事件路径，以及批量写入前整组复验、HEAD/index
+保留、重命名回退与缺失侧比较。定向桌面测试 2 项通过；Windows release 构建通过。
+doctest 通过（当前 0 项）；Clippy 按贡献规范命令完成，仍有现有仓库警告。
+
+最终隔离入口 `all` 返回 0，报告 `artifacts/test-runs/5c2c-18e2f3f16965cc88-0/`：
+核心 954/954（1229.296s），完整桌面 188/188（816.806s），Diff 导航专项 10/10
+（8.147s；按入口过滤其他 178 项）。桌面包含最后补充的多仓库菜单范围断言。
+最终 release 构建、`cargo fmt --package plico -- --check` 与 `git diff --check` 均通过。
+以上为本机 Windows 验证，本轮尚未提交或运行远端 CI。

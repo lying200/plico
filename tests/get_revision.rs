@@ -5,6 +5,77 @@ use plico::{
 };
 use std::{fs, path::PathBuf, process::Command};
 struct Fixture(PathBuf);
+
+#[test]
+fn batch_checks_every_file_before_writing_and_preserves_index() {
+    let f = Fixture::new();
+    let old = f.commit(b"old");
+    let current = f.commit(b"current");
+    fs::write(f.0.join("second.txt"), "second").unwrap();
+    let token = Cancel::default();
+    let prepare = || {
+        ["file.txt", "second.txt"]
+            .iter()
+            .map(|path| Prepared::read(&f.repo(), path.as_ref(), &old, &token).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let files = prepare();
+    fs::write(f.0.join("second.txt"), "external").unwrap();
+    assert!(plico::get_revision::execute_all(&files, &f.repo(), &token).is_err());
+    assert_eq!(fs::read(f.0.join("file.txt")).unwrap(), b"current");
+    let files = prepare();
+    let index = fs::read(f.0.join(".git/index")).unwrap();
+    plico::get_revision::execute_all(&files, &f.repo(), &token).unwrap();
+    for path in ["file.txt", "second.txt"] {
+        assert_eq!(fs::read(f.0.join(path)).unwrap(), b"old");
+    }
+    assert_eq!(fs::read(f.0.join(".git/index")).unwrap(), index);
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), current.id);
+}
+
+#[test]
+fn compare_local_keeps_revision_and_rename_fallback_and_missing_side() {
+    use plico::{
+        combined_changes::{Change, Revision as Endpoint},
+        diff_target::Target,
+    };
+    let f = Fixture::new();
+    let old = f.commit(b"old");
+    let make = |after_path: &str| {
+        Target::combined(
+            f.repo(),
+            Change {
+                before: Some(Endpoint {
+                    revision: old.id.clone(),
+                    path: "file.txt".into(),
+                }),
+                after: Some(Endpoint {
+                    revision: old.id.clone(),
+                    path: after_path.into(),
+                }),
+            },
+        )
+        .unwrap()
+    };
+    let target = make("renamed.txt");
+    let (compared, _) =
+        plico::change_comparison::with_local(&[target], &Cancel::default()).unwrap();
+    let endpoints = compared.identity().working_comparison.as_ref().unwrap();
+    assert_eq!(
+        endpoints.before.as_ref().unwrap().path(),
+        std::path::Path::new("renamed.txt")
+    );
+    assert_eq!(
+        endpoints.after.as_ref().unwrap().path(),
+        std::path::Path::new("file.txt")
+    );
+    fs::remove_file(f.0.join("file.txt")).unwrap();
+    let (compared, _) =
+        plico::change_comparison::with_local(&[make("file.txt")], &Cancel::default()).unwrap();
+    let content = compared.read_contents(&Cancel::default()).unwrap().unwrap();
+    assert_eq!(content.before.as_deref(), Some("old"));
+    assert!(content.after.is_none());
+}
 impl Fixture {
     fn new() -> Self {
         let nonce = std::time::SystemTime::now()

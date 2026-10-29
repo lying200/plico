@@ -12,7 +12,16 @@ impl Review {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if request.repository != self.repo.path
+        self.get_file_revisions(vec![request], window, cx);
+    }
+    pub(super) fn get_file_revisions(
+        &mut self,
+        requests: Vec<GetRevision>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if requests.is_empty()
+            || requests.iter().any(|r| r.repository != self.repo.path)
             || self.operation.busy()
             || self.operation.saving_documents()
         {
@@ -20,7 +29,7 @@ impl Review {
         }
         if self.documents.pending(cx) {
             self.with_saved_documents(window, cx, move |s, w, cx| {
-                s.get_file_revision(request, w, cx)
+                s.get_file_revisions(requests, w, cx)
             });
             return;
         }
@@ -33,7 +42,12 @@ impl Review {
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
                 .background_spawn(async move {
-                    Prepared::read(&repo, &request.path, &request.revision, &token)
+                    requests
+                        .iter()
+                        .map(|request| {
+                            Prepared::read(&repo, &request.path, &request.revision, &token)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
                 })
                 .await;
             let _ = this.update_in(wx, |s, w, cx| {
@@ -54,7 +68,7 @@ impl Review {
                     ),
                     Ok(prepared) => {
                         let prepared = Arc::new(prepared);
-                        if !prepared.modified {
+                        if !prepared.iter().any(|file| file.modified) {
                             s.apply_file_revision(root.clone(), prepared, w, cx);
                             return;
                         }
@@ -77,20 +91,29 @@ impl Review {
                                 .w(px(520.))
                                 .centered(true)
                                 .overlay_closable(false)
+                                .child(div().whitespace_normal().child(t(if prepared.len() == 1 {
+                                    "This file has been locally modified."
+                                } else {
+                                    "Selected files have been locally modified."
+                                })))
                                 .child(
-                                    div()
-                                        .whitespace_normal()
-                                        .child(t("This file has been locally modified.")),
-                                )
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .child(prepared.path.to_string_lossy().into_owned()),
+                                    div().truncate().child(
+                                        prepared
+                                            .iter()
+                                            .filter(|p| p.modified)
+                                            .map(|p| p.path.to_string_lossy().into_owned())
+                                            .collect::<Vec<_>>()
+                                            .join(", "),
+                                    ),
                                 )
                                 .footer(crate::dialog_style::confirmation(
-                                    Button::new("get-revision-overwrite")
-                                        .primary()
-                                        .label(t("Overwrite Modified File")),
+                                    Button::new("get-revision-overwrite").primary().label(t(
+                                        if prepared.len() == 1 {
+                                            "Overwrite Modified File"
+                                        } else {
+                                            "Overwrite Modified Files"
+                                        },
+                                    )),
                                 ))
                                 .on_ok(move |_, w, cx| {
                                     let _ = owner.update(cx, |s, cx| {
@@ -108,7 +131,7 @@ impl Review {
     fn apply_file_revision(
         &mut self,
         root: PathBuf,
-        prepared: Arc<Prepared>,
+        prepared: Arc<Vec<Prepared>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -125,11 +148,13 @@ impl Review {
             return;
         };
         let repo = self.repo.clone();
-        let path = prepared.path.clone();
+        let paths = prepared.iter().map(|p| p.path.clone()).collect();
         self.status_message = Some(t("Restoring file revision…").into());
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
             let result = wx
-                .background_spawn(async move { prepared.execute(&repo, &token) })
+                .background_spawn(async move {
+                    plico::get_revision::execute_all(&prepared, &repo, &token)
+                })
                 .await;
             let _ = this.update_in(wx, |s, w, cx| {
                 if s.finish_operation(id, cx).is_none() || s.repo.path != root {
@@ -149,7 +174,7 @@ impl Review {
                 }
                 s.sync_worktree(
                     plico::worktree_events::Batch {
-                        paths: [path].into(),
+                        paths,
                         ..Default::default()
                     },
                     true,

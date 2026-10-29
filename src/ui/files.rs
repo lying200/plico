@@ -432,6 +432,32 @@ impl Review {
                         uniform_list("files", rows.len(), move |range, _, cx| {
                             range
                                 .map(|row| {
+                                    let menu_owner = owner.clone();
+                                    let menu_files = files.clone();
+                                    let menu_row = rows[row].clone();
+                                    let menu = move |menu,
+                                                     _: &mut Window,
+                                                     cx: &mut Context<
+                                        gpui_kit::component::menu::PopupMenu,
+                                    >| {
+                                        if let Some(owner) = menu_owner.upgrade() {
+                                            owner.update(cx, |s, cx| {
+                                                let targets = if Arc::ptr_eq(&menu_files, &s.files)
+                                                {
+                                                    let targets = s.file_row_targets(&menu_row);
+                                                    if let FileRow::File(index, _) = menu_row {
+                                                        s.load_file(index, cx);
+                                                    }
+                                                    targets
+                                                } else {
+                                                    vec![]
+                                                };
+                                                s.files_context_menu(menu, targets, cx)
+                                            })
+                                        } else {
+                                            menu
+                                        }
+                                    };
                                     let (i, depth) = match &rows[row] {
                                         FileRow::File(i, depth) => (*i, *depth),
                                         FileRow::Folder(
@@ -496,6 +522,7 @@ impl Review {
                                                         cx.notify();
                                                     });
                                                 })
+                                                .context_menu(menu)
                                                 .into_any_element();
                                         }
                                         FileRow::Group(area, count, expanded) => {
@@ -537,6 +564,7 @@ impl Review {
                                                         cx.notify();
                                                     });
                                                 })
+                                                .context_menu(menu)
                                                 .into_any_element();
                                         }
                                     };
@@ -619,6 +647,7 @@ impl Review {
                                                 }
                                             });
                                         })
+                                        .context_menu(menu)
                                         .into_any_element()
                                 })
                                 .collect()

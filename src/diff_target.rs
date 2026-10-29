@@ -253,6 +253,34 @@ impl Target {
     pub fn change(&self) -> &Change {
         &self.change
     }
+    /// Preserve the revisions that produced the displayed committed change.
+    pub fn committed_endpoints(&self) -> Option<crate::combined_changes::Change> {
+        if let Some(change) = &self.identity.combined {
+            return Some(change.clone());
+        }
+        let commit = self.commit.as_ref()?;
+        let revision = |id: &str, path: &PathBuf| crate::combined_changes::Revision {
+            revision: id.to_owned(),
+            path: path.clone(),
+        };
+        Some(crate::combined_changes::Change {
+            before: if self.change.status.starts_with('A') {
+                None
+            } else {
+                commit.parents.first().map(|id| {
+                    revision(
+                        id,
+                        self.change.old_path.as_ref().unwrap_or(&self.change.path),
+                    )
+                })
+            },
+            after: if self.change.status.starts_with('D') {
+                None
+            } else {
+                Some(revision(&commit.id, &self.change.path))
+            },
+        })
+    }
     pub fn read_full(&self, cancel: &Cancel) -> Result<String> {
         if self.identity.working_comparison.is_some() || self.identity.combined.is_some() {
             return Err("Use revision contents for a combined target".into());

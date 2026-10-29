@@ -1,6 +1,7 @@
 pub mod authors;
 pub mod branch_context;
 pub mod branches;
+pub mod change_comparison;
 pub mod date_filter;
 pub mod diff_target;
 pub mod file_document;

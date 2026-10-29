@@ -42,6 +42,14 @@ mod tests {
                 let preferred = s.preferred_log_file().unwrap();
                 s.collapsed_directories.insert(("first".into(), Area::Commit, "src".into()));
                 s.rebuild_files(cx);
+                let menu_targets = s.file_row_targets(&FileRow::Group(Area::Commit, 2, true));
+                assert_eq!(menu_targets.len(), 2);
+                assert_eq!(menu_targets[0].identity().repository, PathBuf::from("first"));
+                assert_eq!(menu_targets[1].identity().repository, PathBuf::from("second"));
+                let folder = s.file_rows.iter().find(|row| matches!(row, FileRow::Folder(root, _, path, ..) if root == &PathBuf::from("second") && path.as_os_str().is_empty())).unwrap();
+                let folder_targets = s.file_row_targets(folder);
+                assert_eq!(folder_targets.len(), 1);
+                assert_eq!(folder_targets[0].identity().repository, PathBuf::from("second"));
                 assert!(!s.file_rows.iter().any(|row| matches!(row, FileRow::File(0, _))));
                 assert!(s.file_rows.iter().any(|row| matches!(row, FileRow::File(1, _))));
                 assert_eq!(s.file_rows.iter().filter(|row| matches!(row, FileRow::Folder(_, _, path, _, _, _, _) if path.as_os_str().is_empty())).count(), 2);

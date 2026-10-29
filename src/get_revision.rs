@@ -183,6 +183,10 @@ impl Prepared {
     /// optimistic revalidation guarantees as ordinary editor saves.
     pub fn execute(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
         let _guard = repo.operation_guard(token)?;
+        self.check_current(repo, token)?;
+        self.write(repo, token)
+    }
+    fn check_current(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
         let project = Project::new(&repo.path).map_err(|e| format!("{e:?}"))?;
         if project.root() != self.root
             || crate::commit_operation::head(repo, token)? != self.head
@@ -191,6 +195,10 @@ impl Prepared {
         {
             return Err("File or repository changed; reopen Get Revision".into());
         }
+        Ok(())
+    }
+    fn write(&self, repo: &Repository, token: &Cancel) -> Result<(), String> {
+        let project = Project::new(&repo.path).map_err(|e| format!("{e:?}"))?;
         match &self.expected {
             Some(expected) => {
                 crate::file_save::save_from_file(&project, &self.path, expected, &self.bytes, token)
@@ -199,4 +207,25 @@ impl Prepared {
         }
         .map_err(|e| format!("Could not restore file revision: {e:?}"))
     }
+}
+
+/// Validate the complete selection before the first write; retain per-file race checks.
+/// Like Rebased, this is a sequence of file writes, not an atomic filesystem transaction.
+pub fn execute_all(files: &[Prepared], repo: &Repository, token: &Cancel) -> Result<(), String> {
+    let _guard = repo.operation_guard(token)?;
+    for file in files {
+        file.check_current(repo, token)?;
+    }
+    for (completed, file) in files.iter().enumerate() {
+        file.check_current(repo, token)
+            .and_then(|_| file.write(repo, token))
+            .map_err(|error| {
+                format!(
+                    "Restored {completed}/{} files; {}: {error}",
+                    files.len(),
+                    file.path.display()
+                )
+            })?;
+    }
+    Ok(())
 }

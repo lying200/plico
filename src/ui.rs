@@ -12,6 +12,7 @@ mod clone;
 mod conflicts;
 mod editor_tabs;
 mod files;
+mod files_menu;
 mod files_options;
 mod get_revision;
 mod git_interaction;

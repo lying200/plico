@@ -26,18 +26,12 @@ pub fn load(
     let shallow = repo.shallow_boundaries(token)?;
     let outgoing = repo.outgoing_preview_commits(source, target, expected, max_commits, token)?;
     let count = outgoing.commits.len();
-    let mut changes = Vec::new();
-    for mut commit in outgoing.commits.into_iter().rev() {
-        if token.cancelled() {
-            return Err("Cancelled".into());
-        }
+    let mut commits = outgoing.commits;
+    commits.reverse();
+    for commit in &mut commits {
         commit.shallow_boundary = shallow.1.contains(&commit.id);
-        let files = repo.push_commit_changes(&commit, token)?;
-        if files.len() > combined_changes::MAX_INPUT_CHANGES.saturating_sub(changes.len()) {
-            return Err("Combined preview exceeds the change limit".into());
-        }
-        changes.extend(files);
     }
+    let changes = repo.push_changes_batch(&commits, token)?;
     if repo.shallow_boundaries(token)? != shallow {
         return Err("Shallow history changed; reopen the push dialog".into());
     }

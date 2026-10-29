@@ -10,6 +10,7 @@ pub(super) struct AutoRefresh {
     pub(super) token: Cancel,
     remote_token: Cancel,
     pub references: Option<References>,
+    pub history_observation: Option<plico::branch_updates::HistoryObservation>,
     pub counts: Counts,
     pub remote: RemoteState,
     remote_busy: bool,
@@ -24,6 +25,7 @@ impl Default for AutoRefresh {
             token: Cancel::default(),
             remote_token: Cancel::default(),
             references: None,
+            history_observation: None,
             counts: Counts::default(),
             remote: RemoteState::Unknown,
             remote_busy: false,
@@ -64,9 +66,13 @@ impl Review {
                     let repo = repo.clone();
                     let query_token = token.clone();
                     let previous = this
-                        .read_with(cx, |s, _| s.updates.references.clone())
-                        .ok()
-                        .flatten();
+                        .read_with(cx, |s, _| {
+                            (s.updates.references.clone(), s.log_query.stamp())
+                        })
+                        .ok();
+                    let Some((previous, stamp)) = previous else {
+                        break;
+                    };
                     let result = cx
                         .background_spawn(async move {
                             let refs = References::read(&repo, &query_token)?;
@@ -84,6 +90,7 @@ impl Review {
                                 || s.operation.busy()
                                 || s.documents.locked()
                                 || s.log_query.busy()
+                                || !s.log_query.is_current(stamp)
                             {
                                 return;
                             }
@@ -95,19 +102,7 @@ impl Review {
                                 |old| old != &refs,
                             );
                             let notify = counts.is_some();
-                            let remote_changed = s.updates.references.as_ref().map(|r| &r.upstream)
-                                != Some(&refs.upstream);
-                            if let Some(counts) = counts {
-                                s.updates.counts = counts;
-                            }
-                            if remote_changed {
-                                s.updates.remote_token.cancel();
-                                s.updates.remote_task = Task::ready(());
-                                s.updates.remote_busy = false;
-                                s.updates.remote = RemoteState::Unknown;
-                                s.updates.next_remote = Instant::now();
-                            }
-                            s.updates.references = Some(refs);
+                            s.accept_reference_observation(refs, counts);
                             if changed {
                                 s.refresh_impl(false, true, None, cx);
                             }
@@ -124,6 +119,27 @@ impl Review {
                 cx.background_executor().timer(Duration::from_secs(5)).await;
             }
         });
+    }
+    /// A successful history refresh publishes the observation made BEFORE its
+    /// history read. Later external changes remain detectable by the next poll.
+    pub(super) fn accept_reference_observation(
+        &mut self,
+        refs: References,
+        counts: Option<Counts>,
+    ) {
+        let remote_changed =
+            self.updates.references.as_ref().map(|r| &r.upstream) != Some(&refs.upstream);
+        if let Some(counts) = counts {
+            self.updates.counts = counts;
+        }
+        if remote_changed {
+            self.updates.remote_token.cancel();
+            self.updates.remote_task = Task::ready(());
+            self.updates.remote_busy = false;
+            self.updates.remote = RemoteState::Unknown;
+            self.updates.next_remote = Instant::now();
+        }
+        self.updates.references = Some(refs);
     }
     fn check_remote_updates(&mut self, cx: &mut Context<Self>) {
         if self.updates.remote_busy || Instant::now() < self.updates.next_remote {

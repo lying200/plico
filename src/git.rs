@@ -1,4 +1,6 @@
 //! Read-only Git access. Commands are bounded, cancellable, and never invoke external diffs.
+#[path = "git_push_changes.rs"]
+mod push_changes;
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
@@ -1853,51 +1855,7 @@ impl Repository {
             .map(OsStr::new),
             token,
         )?;
-        let files = if commit.parents.len() <= 1 {
-            parse_names(&bytes)?
-        } else {
-            // Without --combined-all-paths Git emits one destination path per
-            // combined status, including renames. Rebased takes status[0] and
-            // falls back to that path when MOVED has no second path.
-            let mut fields = bytes.split(|b| *b == 0);
-            let mut files = Vec::new();
-            while let Some(status) = fields.next() {
-                if status.is_empty() {
-                    if fields.next().is_some() {
-                        return Err("Malformed combined status".into());
-                    }
-                    break;
-                }
-                if status.len() != commit.parents.len()
-                    || !status.iter().all(|c| b"AMDTCR".contains(c))
-                {
-                    return Err("Unsupported combined status".into());
-                }
-                let path = path_from_bytes(
-                    fields
-                        .next()
-                        .filter(|p| !p.is_empty())
-                        .ok_or("Missing combined path")?,
-                )?;
-                files.push(Change {
-                    old_path: matches!(status[0], b'R' | b'C').then(|| path.clone()),
-                    path,
-                    status: String::from_utf8(vec![status[0]]).unwrap(),
-                    area: Area::Commit,
-                });
-            }
-            files
-        };
-        files
-            .iter()
-            .map(|file| {
-                crate::combined_changes::from_file(
-                    file,
-                    &commit.id,
-                    commit.parents.first().map(String::as_str),
-                )
-            })
-            .collect()
+        push_changes::parse(commit, &bytes)
     }
 
     /// Log details use per-parent diffs and VcsStatusMerger, not Push's -c parser.

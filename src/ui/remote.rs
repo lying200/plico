@@ -1071,6 +1071,18 @@ impl Review {
         );
         let requests = plico::auth_request::Requests::persistent(token.clone());
         requests.set_project(&self.repo.path);
+        // Only a fully rendered single-root log can be retained after a no-op fetch.
+        let refresh_stamp = self.log_query.stamp();
+        let baseline = (!unshallow
+            && !self.local
+            && !self.log_query.running()
+            && self.repo.path == repo.path
+            && self.snapshot.is_some()
+            && self.error.is_none()
+            && !self.project_roots.read(cx).has_multiple_roots()
+            && self.log.project_window().is_none())
+        .then(|| self.updates.history_observation.clone())
+        .flatten();
         let worker_requests = requests.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         cx.background_spawn(async move {
@@ -1095,7 +1107,12 @@ impl Review {
                     &helper,
                 )
             });
-            let _ = tx.send(result);
+            let unchanged = result.as_ref().is_ok_and(|batch| batch.successful())
+                && !token.cancelled()
+                && baseline
+                    .as_ref()
+                    .is_some_and(|before| before.unchanged(&repo, &token));
+            let _ = tx.send((result, unchanged));
         })
         .detach();
         self.operation_task = cx.spawn_in(window, async move |this, wx| {
@@ -1116,11 +1133,11 @@ impl Review {
                 let result = match rx.try_recv() {
                     Ok(result) => Some(result),
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        Some(Err("Fetch worker ended".into()))
+                        Some((Err("Fetch worker ended".into()), false))
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => None,
                 };
-                if let Some(result) = result {
+                if let Some((result, unchanged)) = result {
                     let _ = wx.update(|window, cx| {
                         if login
                             .as_ref()
@@ -1185,7 +1202,9 @@ impl Review {
                             });
                             // Fetch may have changed refs even on failure/cancellation.
                             s.user_menu.update(cx, |menu, cx| menu.refresh(cx));
-                            s.refresh_impl(false, true, None, cx);
+                            if cancelled || !unchanged || !s.log_query.is_current(refresh_stamp) {
+                                s.refresh_impl(false, true, None, cx);
+                            }
                             cx.notify();
                         });
                     });

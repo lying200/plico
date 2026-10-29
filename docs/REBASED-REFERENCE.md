@@ -6,6 +6,57 @@
 
 下文既有实现记录默认参考 `4aec35256d765c217aa0d662b82ac4e860c396fd`，除非章节另有说明；不能将旧记录追溯改成新快照。旧临时路径 `/tmp/gitui-rebased-reference` 不再作为长期入口。源码快照不代表宿主机安装版本；本轮未核对已安装 Rebased 版本，也不声称完成原生 UI 验收。
 
+## Fetch / Update / Push 速度对照（2026-10-29）
+
+原生操作记录、截图路径与分析、Trace2 口径和数据见
+[Windows 操作速度排查](PERFORMANCE-AUDIT-20261029.md)。安装版 Rebased 1.1.22 /
+`262.10968.SNAPSHOT`，源码参考 `245042348669114adb8e24e5b0fc0ce73763f3c4`；
+原版 Plico 为 preview.13 release 包。先在独立临时仓库和本地 bare remote 实测空 Fetch、
+单提交 Update Project（Merge）、1/20 提交 Push，再核对源码并实现；未触碰用户仓库。
+
+Push 批量读取依据同一上游 commit 的 `GitOutgoingCommitsProvider`、`GitHistoryUtils`、
+`GitLogUtil`、`GitDetailsCollector.readFullDetailsForHashes/readRecordsFromHandler`
+及 `GitCommitRequirements.DEFAULT`。对应路径与提取规则见性能记录：范围历史与
+name-status 流式读取、rename 检测、combined merge、只读元数据。本地映射到
+`src/git_push_changes.rs` 和 `src/push_preview.rs`，按明确 OID 顺序每批最多 128 个
+使用 `show --no-walk=unsorted`；保留 NUL 路径、每提交 8 MiB、总变化数量上限、
+浅克隆拒绝、取消和 refs 复验，继续使用既有 combined-change 转换和 zipChanges。
+差异是显式 ID 小批次而非复用上游全量缓存，适配 Windows 命令行上限与低内存目标。
+
+刷新依据 `GitRepositoryImpl.kt::update` 比较旧/新 repoInfo 后通知，以及
+`GitRepositoryUpdater.kt` 按 refs、index、merge/rebase 等变化更新消费者。
+本地 `src/branch_updates.rs::HistoryObservation` 比较 refs 与完整 shallow 边界；
+`src/ui/repository.rs` 在读取完整历史前采样，仅成功接纳当前查询时发布，筛选和翻页
+不增加采样。`src/ui/auto_refresh.rs` 同步轮询基线，并按 Log stamp 丢弃迟到结果，
+避免五秒轮询重复刷新，同时不把历史读取后才出现的变化错误标记为已显示。
+`src/ui/remote.rs` 仅对成功、无变化、查询代次不变的普通单仓库 Fetch 保留历史；
+多仓库、unshallow、失败、取消、观察失败等路径继续完整刷新。
+
+优化版 release 身份见 `artifacts/speed-audit-20261029/optimized-build.json`。
+正式原生复测期间没有构建或测试负载，使用同 seed 的 50 提交/200 文件独立工作区。
+空 Fetch 查询链 0.912–0.984 s / 12 次，Update 5.883 s / 99 次，20 提交 Push 预览
+1.828 s / 27 次。Push 确认首簇略慢（3.359/3.469 s），但后续重复整轮历史刷新消失。
+不宣称所有首屏等待都改善，也不把 Git 命令簇时间当作精确 UI 延迟。成功状态、提交列表、
+聚合文件与最终 refs 核验通过，工作区干净；截图索引及结构/交互差异见性能记录。
+原生取消、失败、公网认证及冲突未在本次复测，相关自动回归不能替代这些状态的实机验收。
+
+最终默认配置 `all` 运行：`artifacts/test-runs/848-18e2e99993d5c200-0/`，
+core 952/952（1100.328 s）、desktop 188/188（796.505 s）、navigation 10/10
+（8.027 s）全部通过，三个套件及总命令退出码均为 0。core/desktop 零跳过；navigation
+按入口约定只运行导航 10 项，另外 178 项已由 desktop 覆盖。没有增加重试或放宽断言。
+新增覆盖包括根提交、rename、combined/clean merge、129 个空提交跨批次、字节边界、
+shallow 深度变化、refs 变化、取消/读取失败和六秒轮询后 Log 请求 stamp 不变。
+
+保留失败历史：首轮 `artifacts/test-runs/5540-18e2e729fb364a54-0/` 为 948/950，
+编辑器用例 `interactive_operation_preserves_dirty_index_and_restores_after_cancel_or_root_abort`
+及 `merge_update_routes_editor_and_preserves_saved_changes_on_rejection` 在 10/5 秒等待
+断言超时。无并行构建时的 `5e24-18e2e94855dd4230-0` 仍有后一项失败，重新编译后的
+`5b18-18e2e9810b4c4318-0` 两项失败；这些均在 `artifacts/test-runs/`。
+原版 checkout 对照日志在 `artifacts/speed-audit-20261029/baseline-editor-single/`
+和 `baseline-editor-pair/`，均通过；当前代码不重新编译的定向运行
+`artifacts/test-runs/9f4-18e2e98fdac25124-0/` 两项通过，最终完整套件也均通过。
+证据提示时序敏感，具体系统原因未确定；不能以最终通过抹掉早先失败，也没有修改这些测试。
+
 ## Islands Light 与主题切换（2026-10-29）
 
 交付状态：双主题功能已完成，设置 → 外观 → 主题即时切换；保留字体、已有编辑器

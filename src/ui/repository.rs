@@ -319,12 +319,12 @@ impl Review {
             return;
         }
         let offset = self.log.offset().saturating_sub(git::HISTORY_MAX);
-        self.reload_history(false, false, Some(offset), cx);
+        self.reload_history(false, false, Some(offset), false, cx);
     }
     /// A filter is a new Log query, not a repository-change notification.
     pub(super) fn refresh_log_filter(&mut self, cx: &mut Context<Self>) {
         self.history_count.invalidate();
-        self.reload_history(false, false, None, cx);
+        self.reload_history(false, false, None, false, cx);
     }
     pub(super) fn refresh_impl(
         &mut self,
@@ -344,13 +344,14 @@ impl Review {
                 view.update(cx, |s, cx| s.refresh(cx));
             }
         }
-        self.reload_history(more, preserve, requested_offset, cx);
+        self.reload_history(more, preserve, requested_offset, !more, cx);
     }
     fn reload_history(
         &mut self,
         more: bool,
         preserve: bool,
         requested_offset: Option<usize>,
+        observe_references: bool,
         cx: &mut Context<Self>,
     ) {
         if !self.local
@@ -412,6 +413,21 @@ impl Review {
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_spawn(async move {
+                        // Capture before history, never after: publishing a newer
+                        // observation than the rendered log could hide an external
+                        // ref change. Paging fixed roots must not advance the baseline.
+                        let observation =
+                            if observe_references && !local && requested_offset.is_none() {
+                                plico::branch_updates::HistoryObservation::read(&repo, &token)
+                                    .and_then(|observation| {
+                                        let counts =
+                                            observation.references.counts(&repo, &token)?;
+                                        Ok((observation, counts))
+                                    })
+                                    .ok()
+                            } else {
+                                None
+                            };
                         let state = repo.operation_state(&token);
                         let recovery = Self::read_primary_recovery(&repo, &token);
                         let result = if local {
@@ -454,7 +470,7 @@ impl Review {
                                 .transpose()?;
                             Ok((window, local))
                         });
-                        (result, state, graph_model, recovery)
+                        (result, state, graph_model, recovery, observation)
                     })
                     .await;
                 let _ = this.update(cx, |this, cx| {
@@ -465,6 +481,15 @@ impl Review {
                     this.merge_recovery_available = result.3.0;
                     this.revert_recovery_available = result.3.1;
                     this.revert_saved_available = result.3.2;
+                    if result.0.is_ok() {
+                        if let Some((observation, counts)) = result.4 {
+                            this.accept_reference_observation(
+                                observation.references.clone(),
+                                Some(counts),
+                            );
+                            this.updates.history_observation = Some(observation);
+                        }
+                    }
                     match result.0 {
                         Ok((
                             Some(history::Window {

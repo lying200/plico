@@ -292,6 +292,33 @@ mod tests {
             assert!(s.message.is_empty());
             assert!(s.files.is_empty());
         });
+        let refreshed = review.read_with(cx, |s, _| {
+            assert_eq!(
+                s.updates.references.as_ref().and_then(|r| r.head.as_ref()),
+                s.snapshot.as_ref().and_then(|s| s.head_id.as_ref()),
+                "accepted refresh must also advance the refs observation baseline"
+            );
+            let observation = s.updates.history_observation.as_ref().unwrap();
+            assert_eq!(
+                observation.references.head,
+                s.snapshot.as_ref().unwrap().head_id
+            );
+            assert_eq!(
+                observation.is_shallow(),
+                s.snapshot.as_ref().unwrap().shallow
+            );
+            s.log_query.stamp()
+        });
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(6));
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert_eq!(
+                s.log_query.stamp(),
+                refreshed,
+                "the periodic observer must not reload the change already rendered"
+            );
+        });
     }
 
     #[gpui::test]

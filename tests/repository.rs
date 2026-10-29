@@ -7122,12 +7122,20 @@ fn push_commit_changes_follow_combined_merge_and_root_rules() {
     };
     let token = Cancel::default();
     let repo = f.repo();
+    let compared = std::cell::RefCell::new(Vec::new());
+    let compare = |commit: &Commit, token: &Cancel| {
+        let single = repo.push_commit_changes(commit, token);
+        let batch = repo.push_changes_batch(std::slice::from_ref(commit), token);
+        assert_eq!(single, batch);
+        if let Ok(files) = single {
+            compared.borrow_mut().push((commit.clone(), files));
+        }
+        batch
+    };
     f.write("shared", "base\n");
     f.commit("base");
     let base = f.git(&["rev-parse", "HEAD"]);
-    let root = repo
-        .push_commit_changes(&commit(base.clone(), vec![]), &token)
-        .unwrap();
+    let root = compare(&commit(base.clone(), vec![]), &token).unwrap();
     assert_eq!(root.len(), 1);
     assert!(root[0].before.is_none());
     f.git(&["checkout", "-b", "side"]);
@@ -7156,12 +7164,11 @@ fn push_commit_changes_follow_combined_merge_and_root_rules() {
         "-m",
         "resolved merge",
     ]);
-    let result = repo
-        .push_commit_changes(
-            &commit(merge.clone(), vec![main.clone(), side.clone()]),
-            &token,
-        )
-        .unwrap();
+    let result = compare(
+        &commit(merge.clone(), vec![main.clone(), side.clone()]),
+        &token,
+    )
+    .unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(
         result[0].before.as_ref().unwrap().path,
@@ -7184,7 +7191,7 @@ fn push_commit_changes_follow_combined_merge_and_root_rules() {
         "clean merge",
     ]);
     assert!(
-        repo.push_commit_changes(&commit(clean, vec![main.clone(), side]), &token)
+        compare(&commit(clean, vec![main.clone(), side]), &token)
             .unwrap()
             .is_empty()
     );
@@ -7192,9 +7199,7 @@ fn push_commit_changes_follow_combined_merge_and_root_rules() {
     f.git(&["mv", "shared", "renamed"]);
     f.commit("rename");
     let renamed = f.git(&["rev-parse", "HEAD"]);
-    let result = repo
-        .push_commit_changes(&commit(renamed, vec![main.clone()]), &token)
-        .unwrap();
+    let result = compare(&commit(renamed, vec![main.clone()]), &token).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(
         result[0].before.as_ref().unwrap().path,
@@ -7204,11 +7209,97 @@ fn push_commit_changes_follow_combined_merge_and_root_rules() {
         result[0].after.as_ref().unwrap().path,
         PathBuf::from("renamed")
     );
+    let records = compared.borrow();
+    let commits = records.iter().map(|(c, _)| c.clone()).collect::<Vec<_>>();
+    let expected = records
+        .iter()
+        .flat_map(|(_, files)| files.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(repo.push_changes_batch(&commits, &token).unwrap(), expected);
     let mut shallow = commit(main, vec![base]);
     shallow.shallow_boundary = true;
-    assert!(repo.push_commit_changes(&shallow, &token).is_err());
+    assert!(compare(&shallow, &token).is_err());
     token.cancel();
-    assert!(repo.push_commit_changes(&shallow, &token).is_err());
+    assert!(compare(&shallow, &token).is_err());
+}
+
+#[test]
+fn push_batch_crosses_chunk_boundary_with_empty_commits() {
+    let f = Fixture::new();
+    f.write("file", "base\n");
+    f.commit("base");
+    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+    let mut parent = f.git(&["rev-parse", "HEAD"]);
+    let mut commits = Vec::new();
+    for i in 0..129 {
+        let id = f.git(&[
+            "commit-tree",
+            &tree,
+            "-p",
+            &parent,
+            "-m",
+            &format!("empty {i}"),
+        ]);
+        commits.push(Commit {
+            id: id.clone(),
+            parents: vec![parent],
+            shallow_boundary: false,
+            committer_timestamp: 0,
+            author: String::new(),
+            date: String::new(),
+            subject: String::new(),
+            refs: vec![],
+        });
+        parent = id;
+    }
+    let token = Cancel::default();
+    assert!(
+        f.repo()
+            .push_changes_batch(&commits, &token)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(f.repo().push_changes_batch(&[], &token).unwrap().is_empty());
+    token.cancel();
+    assert!(f.repo().push_changes_batch(&commits, &token).is_err());
+    assert!(f.repo().push_changes_batch(&[], &token).is_err());
+}
+
+#[test]
+fn history_observation_retains_only_identical_refs_and_shallow_boundaries() {
+    use plico::branch_updates::HistoryObservation;
+    let f = Fixture::new();
+    f.write("file", "base\n");
+    f.commit("base");
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("file", "next\n");
+    f.commit("next");
+    let head = f.git(&["rev-parse", "HEAD"]);
+    let repo = f.repo();
+    let token = Cancel::default();
+    let observation = HistoryObservation::read(&repo, &token).unwrap();
+    assert!(observation.unchanged(&repo, &token));
+    // A remote/tag move matters even when the checked-out HEAD is unchanged.
+    f.git(&["update-ref", "refs/remotes/origin/main", &base]);
+    assert!(!observation.unchanged(&repo, &token));
+    let observation = HistoryObservation::read(&repo, &token).unwrap();
+    f.git(&["tag", "review", &base]);
+    assert!(!observation.unchanged(&repo, &token));
+    let observation = HistoryObservation::read(&repo, &token).unwrap();
+    fs::write(f.0.join(".git/shallow"), format!("{head}\n")).unwrap();
+    assert!(!observation.unchanged(&repo, &token));
+    let observation = HistoryObservation::read(&repo, &token).unwrap();
+    assert!(observation.is_shallow());
+    // Comparing only is-shallow would miss a deepen without ref movement.
+    fs::write(f.0.join(".git/shallow"), format!("{base}\n")).unwrap();
+    assert!(!observation.unchanged(&repo, &token));
+    let observation = HistoryObservation::read(&repo, &token).unwrap();
+    token.cancel();
+    assert!(!observation.unchanged(&repo, &token));
+    let missing = Repository {
+        path: f.0.join("missing"),
+    };
+    assert!(!observation.unchanged(&missing, &Cancel::default()));
 }
 
 #[test]

@@ -20,6 +20,30 @@ pub struct References {
     pub upstream: Option<Upstream>,
     push_oid: Option<String>,
 }
+
+/// Inputs which can invalidate a rendered history even when its visible HEAD
+/// stays the same. Capture before reading history; never publish a later sample
+/// as evidence that an earlier history result is current.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryObservation {
+    pub references: References,
+    shallow: (bool, std::collections::HashSet<String>),
+}
+impl HistoryObservation {
+    pub fn read(repo: &Repository, token: &Cancel) -> Result<Self> {
+        Ok(Self {
+            references: References::read(repo, token)?,
+            shallow: repo.shallow_boundaries(token)?,
+        })
+    }
+    pub fn is_shallow(&self) -> bool {
+        self.shallow.0
+    }
+    /// Failed/cancelled reads are not evidence that history can be retained.
+    pub fn unchanged(&self, repo: &Repository, token: &Cancel) -> bool {
+        Self::read(repo, token).as_ref() == Ok(self)
+    }
+}
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     pub incoming: usize,

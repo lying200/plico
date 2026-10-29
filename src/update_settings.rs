@@ -121,7 +121,11 @@ impl Render for Settings {
             )
             .child(t("Applies to all repositories"))
             .when_some(self.error.clone(), |v, error| {
-                v.child(div().text_color(rgb(0xf2a6a6)).child(error))
+                v.child(
+                    div()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(error),
+                )
             })
     }
 }

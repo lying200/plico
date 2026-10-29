@@ -13,7 +13,7 @@ impl PlanTable {
             .gap(px(3.))
             .px(px(4.))
             .border_b_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .child(
                 Button::new("plan-up")
                     .small()
@@ -111,7 +111,7 @@ impl PlanTable {
         let selected = self.selected.contains(&row.id);
         let color = match row.action() {
             Action::Reword(_) => 0x6b9bfa,
-            _ => FG,
+            _ => crate::ui_theme::palette(cx).foreground,
         };
         // Git's todo may prefix the subject with "#" (rebase.instructionFormat).
         // GitRebaseCommitsTableModel.getPresentation uses full commit metadata,
@@ -136,10 +136,12 @@ impl PlanTable {
             .items_start()
             .min_h(px(22.))
             .pr(px(6.))
-            .when(selected && editing.is_none(), |v| v.bg(rgb(SELECT)))
+            .when(selected && editing.is_none(), |v| {
+                v.bg(rgb(crate::ui_theme::palette(cx).selection))
+            })
             .relative()
             .pl(px(if row.parent().is_some() { 44. } else { 24. }))
-            .child(self.graph(index, selected && editing.is_none()))
+            .child(self.graph(index, selected && editing.is_none(), cx))
             .when_some(self.drag_line(index), |v, below| {
                 v.child(
                     div()
@@ -164,7 +166,7 @@ impl PlanTable {
                     .child(
                         div()
                             .px(px(8.))
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                             .child(t("Press Ctrl+Enter to apply changes")),
                     )
                     .into_any_element()
@@ -218,7 +220,7 @@ impl Render for PlanTable {
             .size_full()
             .relative()
             .min_w_0()
-            .bg(rgb(BG))
+            .bg(rgb(crate::ui_theme::palette(cx).background))
             .track_focus(&self.focus)
             .child(self.toolbar(cx))
             .child(
@@ -234,7 +236,11 @@ impl Render for PlanTable {
                 v.child(self.mouse_selection_after_layout(cx))
             })
             .when_some(self.error.clone(), |v, error| {
-                v.child(div().text_color(rgb(0xf2a6a6)).child(error))
+                v.child(
+                    div()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(error),
+                )
             })
             .capture_action(
                 cx.listener(|s, event: &gpui_kit::component::input::Enter, w, cx| {

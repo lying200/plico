@@ -562,9 +562,9 @@ impl Render for SourceChanges {
                 .top(popup.position.y)
                 .w(px(530.))
                 .max_w(relative(0.85))
-                .bg(rgb(0x202124))
+                .bg(rgb(crate::ui_theme::color(cx, 0x202124, 0xffffff)))
                 .border_1()
-                .border_color(rgb(0x43454a))
+                .border_color(rgb(crate::ui_theme::color(cx, 0x43454a, 0xdddfe4)))
                 .shadow_md()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down_out(cx.listener(|s, _, _, cx| {
@@ -659,7 +659,7 @@ impl Render for SourceChanges {
                                 * (preview.read(cx).source_line_count().clamp(1, 12) as f32)
                                 + px(8.))
                             .border_t_1()
-                            .border_color(rgb(0x43454a))
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x43454a, 0xdddfe4)))
                             .child(
                                 Editor::new(&preview)
                                     .readonly(true)
@@ -672,7 +672,12 @@ impl Render for SourceChanges {
                     )
                 })
                 .when_some(self.error.clone(), |v, error| {
-                    v.child(div().p_2().text_color(rgb(0xf2a6a6)).child(error))
+                    v.child(
+                        div()
+                            .p_2()
+                            .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                            .child(error),
+                    )
                 });
             layer = layer.child(deferred(panel).with_priority(2));
         }

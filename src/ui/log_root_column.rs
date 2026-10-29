@@ -60,7 +60,7 @@ impl Column {
                 } else {
                     project.color(&repo.path)
                 }
-                .unwrap_or(BG);
+                .unwrap_or(crate::ui_theme::palette(cx).background);
                 (
                     plico::recent_projects::identity(&repo.path),
                     RootStyle { name, color },
@@ -80,13 +80,16 @@ impl Column {
         first_readable: usize,
         owner: WeakEntity<Review>,
         row_background: u32,
+        cx: &App,
     ) -> impl IntoElement {
         let root = &ids[index].root;
         let same_prev = index.checked_sub(1).is_some_and(|i| ids[i].root == *root);
         let same_next = ids.get(index + 1).is_some_and(|id| id.root == *root);
         let style = self.roots.get(&plico::recent_projects::identity(root));
         let name = style.map(|s| s.name.clone()).unwrap_or_default();
-        let color = style.map(|s| s.color).unwrap_or(BG);
+        let color = style
+            .map(|s| s.color)
+            .unwrap_or(crate::ui_theme::palette(cx).background);
         let expanded = self.expanded;
         let tooltip = format!(
             "{}\n{}",
@@ -112,7 +115,11 @@ impl Column {
             .flex_shrink_0()
             .cursor_pointer()
             .overflow_hidden()
-            .bg(rgb(if expanded { BG } else { row_background }))
+            .bg(rgb(if expanded {
+                crate::ui_theme::palette(cx).background
+            } else {
+                row_background
+            }))
             .tooltip(move |w, cx| Tooltip::new(tooltip.clone()).build(w, cx))
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 // The enclosing row must not select/focus a commit for this click.

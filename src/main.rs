@@ -47,6 +47,7 @@ mod ui_actions;
 mod ui_font;
 mod ui_graph;
 mod ui_style;
+mod ui_theme;
 mod unified_editing;
 mod update_dialog;
 mod update_settings;

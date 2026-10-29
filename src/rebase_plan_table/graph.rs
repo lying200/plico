@@ -3,7 +3,7 @@
 use super::*;
 
 impl PlanTable {
-    pub(super) fn graph(&self, index: usize, selected: bool) -> AnyElement {
+    pub(super) fn graph(&self, index: usize, selected: bool, cx: &App) -> AnyElement {
         let rows = self.model().rows();
         let row = &rows[index];
         let edit = matches!(row.action(), Action::Edit);
@@ -22,7 +22,11 @@ impl PlanTable {
             .is_none_or(|next| next.parent() != parent);
         let head = index + 1 == rows.len();
         let width = if parent.is_some() { 44. } else { 24. };
-        let background = if selected { SELECT } else { BG };
+        let background = if selected {
+            crate::ui_theme::palette(cx).selection
+        } else {
+            crate::ui_theme::palette(cx).background
+        };
         div()
             .absolute()
             .left_0()
@@ -32,8 +36,8 @@ impl PlanTable {
             .child(
                 canvas(
                     |_, _, _| {},
-                    move |bounds, _, window, _| {
-                        let ink = rgb(0x87929a);
+                    move |bounds, _, window, cx| {
+                        let ink = rgb(crate::ui_theme::color(cx, 0x87929a, 0x6c707e));
                         let p = |x: f32, y: f32| point(bounds.left() + px(x), bounds.top() + px(y));
                         let height = bounds.size.height.as_f32();
                         let line = |a, b, window: &mut Window| {

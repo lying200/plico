@@ -87,14 +87,15 @@ impl UpdateDialog {
                     .label(t(label))
                     .when(action == default, |b| b.primary())
                     .when(index == self.selected, |b| {
-                        b.border_2().border_color(rgb(0x6b9bfa))
+                        b.border_2()
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x6b9bfa, 0x2f5eb9)))
                     })
                     .on_click(cx.listener(move |s, _, w, cx| s.answer(action, w, cx))),
             );
         }
         h_flex().w_full().gap_4()
             .when(self.has_remember(), |v| v.child(
-                div().flex_1().min_w_0().rounded(px(3.)).border_2().border_color(if self.selected == self.actions().len() { rgb(0x6b9bfa) } else { rgba(0x00000000) })
+                div().flex_1().min_w_0().rounded(px(3.)).border_2().border_color(if self.selected == self.actions().len() { rgb(crate::ui_theme::color(cx, 0x6b9bfa, 0x2f5eb9)) } else { rgba(0x00000000) })
                 .child(Checkbox::new("remember-update").label(t("Remember this choice for future push rejections (change in Settings)"))
                     .tab_stop(false).checked(self.remember).on_click(cx.listener(|s, value, w, cx| { s.remember = *value; s.selected = s.actions().len(); s.focus.focus(w, cx); cx.notify(); })))))
             .child(div().flex_1().when(self.has_remember(), |v| v.flex_none()))

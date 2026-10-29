@@ -719,9 +719,9 @@ impl Review {
             .w(px(28.))
             .h_full()
             .flex_shrink_0()
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .border_r_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .child(
                 Button::new("toggle-branches")
                     .ghost()
@@ -752,13 +752,13 @@ impl Review {
                         .flex()
                         .justify_center()
                         .cursor_pointer()
-                        .hover(|d| d.bg(rgb(0x292b2e)))
+                        .hover(|d| d.bg(rgb(crate::ui_theme::color(cx, 0x292b2e, 0xf7f8f9))))
                         .child(
                             svg()
                                 .path(label_asset)
                                 .w(px(14.))
                                 .h(px(label_height))
-                                .text_color(rgb(FG)),
+                                .text_color(rgb(crate::ui_theme::palette(cx).foreground)),
                         )
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.branches_visible = true;
@@ -929,7 +929,7 @@ impl Review {
         cx.notify();
     }
     pub(super) fn branches(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selection_color = row_selection(&self.tree_focus, window);
+        let selection_color = row_selection(&self.tree_focus, window, cx);
         let owner = cx.entity().downgrade();
         let head_owner = owner.clone();
         let branches = self.branch_rows.clone();
@@ -948,14 +948,14 @@ impl Review {
             .track_focus(&self.tree_focus)
             .on_key_down(cx.listener(Self::tree_key))
             .size_full()
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .child(
                 h_flex()
                     .h(px(LOG_TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .px_2()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .child(
                         Input::new(&self.branch_search)
                             .small()
@@ -1038,7 +1038,7 @@ impl Review {
                         div()
                             .px_3()
                             .py_2()
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                             .child(t("No matching branches")),
                     )
                 },
@@ -1093,12 +1093,17 @@ impl Review {
                                     {
                                         0x868a91
                                     } else {
-                                        FG
+                                        crate::ui_theme::palette(cx).foreground
                                     })),
                                 )
                                 .when(branch.branch.is_none() && branch.depth > 0, |d| {
                                     d.child(
-                                        img("jb/folder_dark_4x.svg").size(px(16.)).flex_shrink_0(),
+                                        img(crate::ui_style::themed_asset(
+                                            "jb/folder_dark_4x.svg",
+                                            cx,
+                                        ))
+                                        .size(px(16.))
+                                        .flex_shrink_0(),
                                     )
                                 })
                                 .child(div().truncate().child(match branch.key.as_str() {

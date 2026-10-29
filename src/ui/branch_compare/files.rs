@@ -291,8 +291,8 @@ impl Pane {
             Row::Folder { label, depth, .. } => (
                 *depth,
                 label.to_string_lossy().into_owned(),
-                "jb/folder_dark.svg".to_owned(),
-                FG,
+                crate::ui_style::themed_asset("jb/folder_dark.svg", cx).to_owned(),
+                crate::ui_theme::palette(cx).foreground,
                 matches!(&row, Row::Folder { path, .. } if self.selected_folder.as_ref() == Some(path)),
             ),
             Row::File { index, depth } => {
@@ -305,8 +305,8 @@ impl Pane {
                         .unwrap_or_default()
                         .to_string_lossy()
                         .into_owned(),
-                    file_icon(&change.path).to_owned(),
-                    crate::ui_style::change_color(change),
+                    file_icon(&change.path, cx).to_owned(),
+                    crate::ui_style::change_color(change, cx),
                     self.selected_file == Some(*index),
                 )
             }
@@ -333,7 +333,9 @@ impl Pane {
             .pl(px(8. + depth as f32 * 16.))
             .pr_2()
             .gap_2()
-            .when(selected, |v| v.bg(rgb(0x2e4773)))
+            .when(selected, |v| {
+                v.bg(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)))
+            })
             .when_some(
                 match &row {
                     Row::Folder { expanded, .. } => Some(*expanded),
@@ -352,7 +354,7 @@ impl Pane {
                 StyledText::new(label).with_highlights([(
                     name_end..label_end,
                     HighlightStyle {
-                        color: Some(rgb(MUTED).into()),
+                        color: Some(rgb(crate::ui_theme::palette(cx).muted).into()),
                         ..Default::default()
                     },
                 )]),
@@ -365,7 +367,7 @@ impl Pane {
                 |v, count| {
                     v.child(
                         div()
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                             .child(super::super::files_options::log_file_count(count)),
                     )
                 },

@@ -2,7 +2,7 @@
 //! historical snapshots own read-only editors without a save-capable document.
 use crate::editing::{Documents, Editing};
 use gpui_kit::component::{
-    diff::{DiffFile, DiffSide},
+    diff::{DiffColors, DiffFile, DiffSide},
     h_flex,
     input::{
         Editor, EditorState, InputEvent, RopeExt as _, TextDecoration, TextDecorationCollection,
@@ -33,6 +33,7 @@ pub struct EditableDiff {
     eol_only: bool,
     path: String,
     original_marks: TextDecorationCollection,
+    mark_colors: DiffColors,
     working_marks: TextDecorationCollection,
     documents: Documents,
     generation: u64,
@@ -206,6 +207,7 @@ impl EditableDiff {
             eol_only: false,
             path: document_path.to_string_lossy().into_owned(),
             original_marks,
+            mark_colors: DiffColors::current(cx),
             working_marks,
             documents,
             generation: 0,
@@ -321,14 +323,20 @@ impl EditableDiff {
         };
         let original = make(baseline.to_string(), false, window, cx);
         let modified = make(modified_text.to_owned(), true, window, cx);
+        let colors = DiffColors::current(cx);
         let marks = |side| {
-            file.editor_change_highlights(side)
-                .into_iter()
-                .map(|(r, s, whole)| {
-                    let d = TextDecoration::new(r, s);
-                    if whole { d.whole_line() } else { d }
-                })
-                .collect()
+            file.editor_highlights_with_colors(
+                side,
+                Some(gpui_kit::component::diff::DiffInlineUnit::Word),
+                false,
+                colors,
+            )
+            .into_iter()
+            .map(|(r, s, whole)| {
+                let d = TextDecoration::new(r, s);
+                if whole { d.whole_line() } else { d }
+            })
+            .collect()
         };
         let original_marks = original.update(cx, |e, cx| {
             e.create_decorations_collection(marks(DiffSide::Original), cx)
@@ -358,6 +366,7 @@ impl EditableDiff {
             eol_only: false,
             path: path.to_string_lossy().into_owned(),
             original_marks,
+            mark_colors: DiffColors::current(cx),
             working_marks,
             documents: Documents::default(),
             generation: 0,
@@ -407,9 +416,11 @@ impl EditableDiff {
                     (DiffSide::Modified, &self.working_marks),
                 ] {
                     collection.set(
-                        file.editor_change_highlights_with_unit(
+                        file.editor_highlights_with_colors(
                             side,
                             crate::diff_settings::inline_unit(value.emphasis),
+                            false,
+                            DiffColors::current(cx),
                         )
                         .into_iter()
                         .map(|(r, s, whole)| {
@@ -751,7 +762,7 @@ impl EditableDiff {
                             icon.into(),
                             None,
                             TransformationMatrix::unit(),
-                            rgb(0xced0d6).into(),
+                            rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)).into(),
                             cx,
                         );
                     }
@@ -814,7 +825,15 @@ impl EditableDiff {
                             .read(cx)
                             .source_line_extent(a.clone())
                             .map(|(top, bottom)| {
-                                (top, bottom, if b.is_empty() { 0x484a4a } else { 0x385570 })
+                                (
+                                    top,
+                                    bottom,
+                                    if b.is_empty() {
+                                        DiffColors::current(cx).deleted
+                                    } else {
+                                        DiffColors::current(cx).modified
+                                    },
+                                )
                             })
                     })
                     .collect::<Vec<_>>();
@@ -844,7 +863,7 @@ impl EditableDiff {
                             &[TextRun {
                                 len: text.len(),
                                 font: font.clone(),
-                                color: rgb(0x6f737a).into(),
+                                color: rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c)).into(),
                                 background_color: None,
                                 underline: None,
                                 strikethrough: None,
@@ -906,11 +925,11 @@ impl EditableDiff {
                         continue;
                     }
                     let color = if a.is_empty() {
-                        0x294436
+                        DiffColors::current(cx).inserted
                     } else if b.is_empty() {
-                        0x484a4a
+                        DiffColors::current(cx).deleted
                     } else {
-                        0x385570
+                        DiffColors::current(cx).modified
                     };
                     let arrow = Bounds::new(
                         point(
@@ -939,7 +958,7 @@ impl EditableDiff {
                             point(x - px(24.), bounds.top()),
                             size(px(48.), bounds.size.height),
                         ),
-                        rgb(0x181a1b),
+                        rgb(crate::ui_theme::color(cx, 0x181a1b, 0xffffff)),
                     ));
                     for (_, a, z, b, y, color, arrow, hitbox) in &blocks {
                         let mut path = PathBuilder::fill();
@@ -999,7 +1018,7 @@ impl EditableDiff {
                                 .into(),
                                 None,
                                 TransformationMatrix::unit(),
-                                rgb(0xced0d6).into(),
+                                rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)).into(),
                                 cx,
                             );
                         }
@@ -1070,6 +1089,7 @@ impl EditableDiff {
         let path = self.path.clone();
         let modified = self.working.as_ref().unwrap().read(cx).comparison_text(cx);
         let unit = crate::diff_settings::inline_unit(self.appearance.unwrap_or_default().emphasis);
+        let colors = DiffColors::current(cx);
         let partial = self.commit_scope.is_some();
         let working_left = self.working_left;
         self.task = cx.spawn(async move |this, cx| {
@@ -1088,8 +1108,8 @@ impl EditableDiff {
                     let eol_only = original.as_ref() != modified
                         && file.source(DiffSide::Original) == file.source(DiffSide::Modified);
                     let marks = [
-                        file.editor_change_highlights_with_unit(DiffSide::Original, unit),
-                        file.editor_change_highlights_with_unit(DiffSide::Modified, unit),
+                        file.editor_highlights_with_colors(DiffSide::Original, unit, false, colors),
+                        file.editor_highlights_with_colors(DiffSide::Modified, unit, false, colors),
                     ];
                     let selection = partial.then(|| {
                         plico::partial_selection::Selection::new(
@@ -1120,7 +1140,15 @@ impl EditableDiff {
                     s.changes = file.change_starts();
                     s.line_ranges = file.change_line_ranges();
                     s.realign(cx);
-                    let [old, new] = marks;
+                    let current_colors = DiffColors::current(cx);
+                    let [old, new] = if colors == current_colors {
+                        marks
+                    } else {
+                        [DiffSide::Original, DiffSide::Modified].map(|side| {
+                            file.editor_highlights_with_colors(side, unit, false, current_colors)
+                        })
+                    };
+                    s.mark_colors = current_colors;
                     s.original_marks.set(
                         old.into_iter()
                             .map(|(r, s, whole)| {
@@ -1148,6 +1176,36 @@ impl EditableDiff {
 }
 impl Render for EditableDiff {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = DiffColors::current(cx);
+        if self.mark_colors != colors {
+            self.mark_colors = colors;
+            // Decoration-only refresh: retain editors, Undo, selections and scroll.
+            // If an edit is awaiting comparison, its accepted result uses current colors.
+            if let Some(file) = &self.last_file {
+                let unit =
+                    crate::diff_settings::inline_unit(self.appearance.unwrap_or_default().emphasis);
+                for (side, editor, collection) in [
+                    (DiffSide::Original, &self.original, &self.original_marks),
+                    (DiffSide::Modified, &self.modified, &self.working_marks),
+                ] {
+                    if editor.read(cx).text().to_string() == file.source(side) {
+                        collection.set(
+                            file.editor_highlights_with_colors(side, unit, false, colors)
+                                .into_iter()
+                                .map(|(range, style, whole)| {
+                                    let d = TextDecoration::new(range, style);
+                                    if whole { d.whole_line() } else { d }
+                                })
+                                .collect(),
+                            cx,
+                        );
+                    }
+                }
+            }
+            if let (Some(view), Some(file)) = (&self.unified, &self.last_file) {
+                view.refresh_colors(file, cx);
+            }
+        }
         self.reveal_pending(window, cx);
         if self.unified_mode {
             return if let Some(view) = &self.unified {
@@ -1281,6 +1339,57 @@ mod lifecycle_tests {
         ParentElement as _, Render, Styled as _, Window, div, point, px,
     };
     struct Source(Entity<EditorState>);
+    #[gpui::test]
+    fn theme_switch_preserves_open_diff_editors_and_selection(cx: &mut gpui::TestAppContext) {
+        use gpui::component::{
+            Theme, ThemeMode,
+            diff::{DiffColors, DiffFile},
+        };
+        cx.update(gpui::component::init);
+        let mut diff = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let file =
+                DiffFile::from_editor_sources(Some(("a.txt", "old\n")), Some(("a.txt", "new\n")))
+                    .unwrap();
+            let view = cx
+                .new(|cx| EditableDiff::snapshot(&file, std::path::Path::new("a.txt"), window, cx));
+            diff = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let diff = diff.unwrap();
+        for unified in [false, true] {
+            cx.update(|window, cx| diff.update(cx, |v, cx| v.set_unified(unified, window, cx)));
+            for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::Dark] {
+                cx.update(|window, cx| {
+                    let editor = {
+                        let v = diff.read(cx);
+                        if unified {
+                            v.unified.as_ref().unwrap().editor.clone()
+                        } else {
+                            v.modified.clone()
+                        }
+                    };
+                    editor.update(cx, |e, cx| e.set_selected_range(1..2, cx));
+                    let text = editor.read(cx).text().to_string();
+                    let offset = editor.read(cx).scroll_offset();
+                    Theme::change(mode, Some(window), cx);
+                    diff.update(cx, |_, cx| cx.notify());
+                    let _ = window.draw(cx);
+                    let v = diff.read(cx);
+                    let current = if unified {
+                        &v.unified.as_ref().unwrap().editor
+                    } else {
+                        &v.modified
+                    };
+                    assert_eq!(current.entity_id(), editor.entity_id());
+                    assert_eq!(current.read(cx).text().to_string(), text);
+                    assert_eq!(current.read(cx).selected_range(), 1..2);
+                    assert_eq!(current.read(cx).scroll_offset(), offset);
+                    assert_eq!(v.mark_colors, DiffColors::current(cx));
+                });
+            }
+        }
+    }
     impl Render for Source {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             div().size_full().child(

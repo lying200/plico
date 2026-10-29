@@ -107,7 +107,7 @@ impl Render for Browser {
                 cx.stop_propagation();
             }))
             .size_full()
-            .bg(rgb(BG))
+            .bg(rgb(crate::ui_theme::palette(cx).background))
             .rounded(px(10.))
             .overflow_hidden()
             .child(
@@ -116,7 +116,7 @@ impl Render for Browser {
                     .w_full()
                     .flex_shrink_0()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .px_3()
                     .gap(px(24.))
                     .child(
@@ -134,8 +134,8 @@ impl Render for Browser {
                             .items_center()
                             .gap_2()
                             .border_1()
-                            .border_color(rgb(0x37598b))
-                            .bg(rgb(0x2e4773))
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x37598b, 0xa0bdf8)))
+                            .bg(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)))
                             .rounded(px(4.))
                             .child(t("Worktrees"))
                             .child(
@@ -260,7 +260,9 @@ impl Render for Browser {
                                                     .w_full()
                                                     .overflow_hidden()
                                                     .when(s.selected.as_ref() == Some(&path), |v| {
-                                                        v.bg(rgb(0x2e4773))
+                                                        v.bg(rgb(crate::ui_theme::color(
+                                                            cx, 0x2e4773, 0xd0dffe,
+                                                        )))
                                                     })
                                                     .child(div().w(px(14.)).flex_shrink_0().child(
                                                         if tree.current { "✓" } else { "" },
@@ -283,7 +285,9 @@ impl Render for Browser {
                                                         div()
                                                             .flex_shrink_0()
                                                             .truncate()
-                                                            .text_color(rgb(MUTED))
+                                                            .text_color(rgb(
+                                                                crate::ui_theme::palette(cx).muted,
+                                                            ))
                                                             .child(
                                                                 tree.branch
                                                                     .as_deref()
@@ -306,7 +310,9 @@ impl Render for Browser {
                                                             .flex_1()
                                                             .min_w_0()
                                                             .truncate()
-                                                            .text_color(rgb(MUTED))
+                                                            .text_color(rgb(
+                                                                crate::ui_theme::palette(cx).muted,
+                                                            ))
                                                             .child(project_display_path(&path)),
                                                     )
                                                     .when(tree.locked, |v| v.child(t("Locked")))
@@ -342,7 +348,14 @@ impl Render for Browser {
                                 v.child(t("Loading…"))
                             })
                             .when_some(self.error.clone(), |v, e| {
-                                v.child(div().px_2().text_color(rgb(0xf2a6a6)).child(e))
+                                v.child(
+                                    div()
+                                        .px_2()
+                                        .text_color(rgb(crate::ui_theme::color(
+                                            cx, 0xf2a6a6, 0xc54e58,
+                                        )))
+                                        .child(e),
+                                )
                             }),
                     ),
             )

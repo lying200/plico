@@ -485,7 +485,7 @@ fn icon(path: &'static str) -> Icon {
 }
 impl Render for LocalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selection_color = crate::ui_style::row_selection(&self.focus, window);
+        let selection_color = crate::ui_style::row_selection(&self.focus, window, cx);
         let row_height = crate::ui_style::tree_row_height(cx);
         let chinese = plico::i18n::is_chinese();
         if self.ui_chinese != chinese {
@@ -494,7 +494,7 @@ impl Render for LocalView {
                 input.set_placeholder(t("Commit message"), window, cx)
             });
         }
-        v_flex().size_full().rounded(px(10.)).overflow_hidden().bg(rgb(0x18191a)).key_context("LocalChanges").track_focus(&self.focus)
+        v_flex().size_full().rounded(px(10.)).overflow_hidden().bg(rgb(crate::ui_theme::color(cx, 0x18191a, 0xffffff))).key_context("LocalChanges").track_focus(&self.focus)
 
             .on_action(cx.listener(|s,_:&ShowDiff,_,cx|s.show_diff(cx)))
             .on_action(cx.listener(|s,_:&NextFile,_,cx|s.step(true,cx)))
@@ -511,14 +511,14 @@ impl Render for LocalView {
                 .child(Button::new("local-diff").ghost().small().icon(icon("jb/diff_dark.svg")).tooltip(t("Show Diff · Ctrl+D"))
                     .disabled(self.refresh.read(cx).busy() || self.error.is_some() || self.model.selected().is_none() || self.model.selected().is_some_and(|i|self.model.files()[i].area==plico::git::Area::Ignored)).on_click(cx.listener(|s,_,_,cx|s.show_diff(cx))))
                 .child(self.view_options(cx))
-                .child(div().w(px(1.)).h(px(20.)).bg(rgb(0x393b40)))
+                .child(div().w(px(1.)).h(px(20.)).bg(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4))))
                 .child(Button::new("local-locate").ghost().small().icon(icon("jb/locate_dark.svg")).tooltip(t("Show selected change")).disabled(self.model.selected().is_none()).on_click(cx.listener(|s,_,_,cx|{if let Some(c)=s.model.selected().and_then(|i|s.model.files().get(i)).cloned(){if let Some(row)=s.model.reveal(&c){s.scroll.scroll_to_item(row,ScrollStrategy::Top);cx.notify();}} })))
                 .child(Button::new("local-expand").ghost().small().icon(icon("jb/expandAll_dark.svg")).tooltip(t("Expand All"))
                     .on_click(cx.listener(|s,_,_,cx|{s.model.expand_all();cx.notify();})))
                 .child(Button::new("local-collapse").ghost().small().icon(icon("jb/collapseAll_dark.svg")).tooltip(t("Collapse All"))
                     .on_click(cx.listener(|s,_,_,cx|{s.model.collapse_all();cx.notify();})))
                 .when(self.refresh.read(cx).feedback() && self.model.files().is_empty(), |v| v.child(
-                    div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("Loading local changes…")))))
+                    div().truncate().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("Loading local changes…")))))
             .when_some(self.error.clone(),|v,e|v.child({
                 let owner=cx.entity().downgrade();
                 crate::error_ui::notice("commit-read-error","Could not load local changes",e,self.refresh.read(cx).busy(),move|_,_,cx|{let _=owner.update(cx,|s,cx|s.refresh(cx));})
@@ -534,11 +534,11 @@ impl Render for LocalView {
                     let (included,total)=s.scope.read(cx).counts(&ids);
                     let branch=!matches!(&item, Row::Entry{row:file_tree::Row::File{..},..});
                     let (label,depth,asset,selected,color)=match item {
-                        Row::Group{area,expanded,..}=>(t(if area==plico::git::Area::Untracked {"Unversioned Files"} else {area.label()}).to_owned(),0,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
-                        Row::Entry{row:file_tree::Row::Folder{ref label,depth,expanded,..},..}=>(label.to_string_lossy().into_owned(),depth+1,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,0xbcbec4),
+                        Row::Group{area,expanded,..}=>(t(if area==plico::git::Area::Untracked {"Unversioned Files"} else {area.label()}).to_owned(),0,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,crate::ui_theme::palette(cx).foreground),
+                        Row::Entry{row:file_tree::Row::Folder{ref label,depth,expanded,..},..}=>(label.to_string_lossy().into_owned(),depth+1,if expanded{"jb/chevronDown_dark.svg"}else{"jb/chevronRight_dark.svg"},false,crate::ui_theme::palette(cx).foreground),
                         Row::Entry{row:file_tree::Row::File{index,depth},..}=>{
                             let f=&s.model.files()[index];
-                            (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui_style::file_icon(&f.path),s.model.selected()==Some(index),if f.area==plico::git::Area::Ignored{0x72757a}else{crate::ui_style::change_color(f)})
+                            (f.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),depth+2,crate::ui_style::file_icon(&f.path, cx),s.model.selected()==Some(index),if f.area==plico::git::Area::Ignored{0x72757a}else{crate::ui_style::change_color(f, cx)})
                         }
                     };
                     let group = matches!(item, Row::Group { .. });
@@ -557,21 +557,21 @@ impl Render for LocalView {
                     if let Some(count) = count { row_text.push_str("  "); row_text.push_str(&crate::ui_style::file_count(count)); }
                     let text_end = row_text.len();
                     let row_text = StyledText::new(row_text).with_highlights([(name_end..text_end, HighlightStyle {
-                        color: Some(rgb(crate::ui_style::MUTED).into()), font_weight: Some(FontWeight::NORMAL), ..Default::default()
+                        color: Some(rgb(crate::ui_theme::palette(cx).muted).into()), font_weight: Some(FontWeight::NORMAL), ..Default::default()
                     })]);
                     h_flex().id(("local-row",row)).relative().w_full().h(row_height).pl(px(crate::ui_style::TREE_INSET+depth as f32*crate::ui_style::TREE_INDENT)).pr(px(crate::ui_style::TREE_INSET)).gap(px(4.))
                         .when(selected,|v|v.child(crate::ui_style::tree_selection(selection_color)))
                         .when(branch, |v|v.child(icon(asset)))
-                        .when(area!=plico::git::Area::Ignored,|v|v.child(crate::ui_style::checkbox(("commit-file",row)).checked(total>0 && included==total)
+                        .when(area!=plico::git::Area::Ignored,|v|v.child(crate::ui_style::checkbox(("commit-file",row), cx).checked(total>0 && included==total)
                             .indeterminate(included>0 && included<total)
                             .accessibility_label(label.clone())
                             .tooltip(t("Commit entire file, including unstaged changes"))
                             .disabled(s.refresh.read(cx).busy() || s.error.is_some() || s.write_token.is_some() || total==0)
                             .on_click(cx.listener(move|s,checked:&bool,_,cx|{s.scope.update(cx,|q,cx|q.set_scope(&ids,*checked,cx));cx.stop_propagation();cx.notify();}))))
-                        .when(directory, |v|v.child(img("jb/folder_dark_4x.svg").size(px(16.)).flex_shrink_0()))
+                        .when(directory, |v|v.child(img(crate::ui_style::themed_asset("jb/folder_dark_4x.svg", cx)).size(px(16.)).flex_shrink_0()))
                         .when(!branch, |v|v.child(img(asset).size(px(16.)).flex_shrink_0()))
                         .child(div().truncate().text_color(rgb(color)).when(group && area!=plico::git::Area::Untracked,|v|v.font_weight(FontWeight::SEMIBOLD)).child(row_text))
-                        .when(updating, |v| v.child(div().truncate().text_color(rgb(crate::ui_style::MUTED)).child(t("updating…"))))
+                        .when(updating, |v| v.child(div().truncate().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("updating…"))))
                         .on_mouse_down(MouseButton::Right,cx.listener(move|s,_,w,cx|{s.rollback_scope=Some((area,rollback_paths.clone()));s.focus.focus(w,cx);cx.notify();}))
                         .on_click(cx.listener(move |s,e:&ClickEvent,w,cx|{s.focus.focus(w,cx);
                             s.rollback_scope=s.model.rows().get(row).map(|r|(match r{Row::Group{area,..}|Row::Entry{area,..}=>*area},s.model.inclusion_paths(row)));
@@ -588,8 +588,8 @@ impl Render for LocalView {
                 tree
             })).when(self.refresh.read(cx).loaded() && self.error.is_none() && self.model.files().is_empty(), |v| v.child(
                 div().absolute().top_0().left_0().p_3().child(t("No changes to commit.")))))
-            .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(0x2c2d30))
-                .child(h_flex().min_w_0().flex_wrap().gap_2().child(crate::ui_style::checkbox("commit-amend").max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
+            .child(v_flex().flex_shrink_0().p_3().gap_2().border_t_1().border_color(rgb(crate::ui_theme::color(cx, 0x2c2d30, 0xe9eaee)))
+                .child(h_flex().min_w_0().flex_wrap().gap_2().child(crate::ui_style::checkbox("commit-amend", cx).max_w(relative(0.8)).flex_shrink_0().label(t("Amend last commit")).checked(!matches!(self.draft.amend(),Amend::Off))
                     .disabled(self.write_token.is_some() || self.refresh.read(cx).busy() || self.head.is_none() || self.recovery)
                     .on_click(cx.listener(|s,checked:&bool,w,cx|s.toggle_amend(*checked,w,cx)))).child(status::selection_status(self.scope.read(cx).inclusion.summary(), window, cx)))
                 .when(matches!(self.draft.amend(),Amend::Loading(_)),|v|v.child(t("Loading commit message…")))

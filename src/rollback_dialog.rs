@@ -56,7 +56,7 @@ impl Render for Options {
         )
         .h(px(280.))
         .border_1()
-        .border_color(rgb(0x393b40));
+        .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)));
         v_flex()
             .gap_3()
             .child(
@@ -91,7 +91,11 @@ impl Render for Options {
                     })),
             )
             .when_some(self.error.clone(), |v, e| {
-                v.child(div().text_color(rgb(0xf2a6a6)).child(e))
+                v.child(
+                    div()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(e),
+                )
             })
     }
 }

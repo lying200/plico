@@ -172,7 +172,7 @@ fn t_error(error: &str) -> String {
     }
 }
 impl Render for Form {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_3()
             .child(
@@ -209,7 +209,7 @@ impl Render for Form {
                 v.child(
                     div()
                         .whitespace_normal()
-                        .text_color(rgb(0xf2a6a6))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                         .child(error),
                 )
             })

@@ -188,7 +188,7 @@ impl Review {
                                             div()
                                                 .text_size(px(12.))
                                                 .line_height(px(16.))
-                                                .text_color(rgb(MUTED))
+                                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                                 .truncate()
                                                 .child(project_display_path(&item_path)),
                                         ),
@@ -217,7 +217,7 @@ impl Review {
             .w_full()
             .pr_3()
             .gap_2()
-            .bg(rgb(SHELL))
+            .bg(rgb(crate::ui_theme::palette(cx).shell))
             .child(
                 div()
                     .w(px(48.))
@@ -407,7 +407,7 @@ impl Review {
         v_flex()
             .size_full()
             .min_h_0()
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .child(
                 h_flex()
                     .h(tab_height(cx) + px(8.))
@@ -415,7 +415,7 @@ impl Review {
                     .px_2()
                     .gap_1()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .child(
                         islands_tab("commit-content-tab", self.local_visible, cx)
                             .child(t("Commit"))
@@ -460,10 +460,10 @@ impl Review {
             .flex_shrink_0()
             .px(px(11.))
             .gap(px(8.))
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .rounded_t(px(10.))
             .border_b_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .child(
                 islands_tab(
                     "log-tab",
@@ -524,7 +524,7 @@ impl Review {
                             cx,
                         )
                         .child(
-                            img(file_icon(&tab.read(cx).path))
+                            img(file_icon(&tab.read(cx).path, cx))
                                 .size(px(16.))
                                 .flex_shrink_0(),
                         )

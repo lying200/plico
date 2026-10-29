@@ -151,12 +151,20 @@ impl Render for MarkdownPreview {
                     .style(
                         TextViewStyle::default()
                             .with_dark(true)
-                            .with_foreground(rgb(0xbcbec4).into())
-                            .with_muted_foreground(rgb(0x868a91).into())
-                            .with_link(rgb(0x6daaf5).into())
-                            .with_code_background(rgb(0x26282b).into())
-                            .with_border(rgb(0x393b40).into())
-                            .with_selection(rgb(0x2f4d7b).into()),
+                            .with_foreground(
+                                rgb(crate::ui_theme::color(cx, 0xbcbec4, 0x080808)).into(),
+                            )
+                            .with_muted_foreground(
+                                rgb(crate::ui_theme::color(cx, 0x868a91, 0x73767c)).into(),
+                            )
+                            .with_link(rgb(crate::ui_theme::color(cx, 0x6daaf5, 0x2f5eb9)).into())
+                            .with_code_background(
+                                rgb(crate::ui_theme::color(cx, 0x26282b, 0xf7f8f9)).into(),
+                            )
+                            .with_border(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)).into())
+                            .with_selection(
+                                rgb(crate::ui_theme::color(cx, 0x2f4d7b, 0xd0dffe)).into(),
+                            ),
                     )
                     .image_source(move |uri| {
                         let value = uri.to_string();

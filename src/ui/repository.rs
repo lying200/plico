@@ -116,7 +116,7 @@ impl Review {
         }
         let owner = cx.entity().downgrade();
         let limit = self.limit;
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             let current = owner.clone();
             let new_owner = owner.clone();
             let current_path = path.clone();
@@ -128,7 +128,7 @@ impl Review {
                 .child(div().child(t("Where would you like to open the project?")))
                 .child(
                     div()
-                        .text_color(rgb(MUTED))
+                        .text_color(rgb(crate::ui_theme::palette(cx).muted))
                         .truncate()
                         .child(project_display_path(&path)),
                 )

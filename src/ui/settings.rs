@@ -344,7 +344,9 @@ impl Review {
                             .child(t(label)),
                     )
                     .selected(draft.section == section)
-                    .when(draft.section == section, |b| b.bg(rgb(0x2d466f)))
+                    .when(draft.section == section, |b| {
+                        b.bg(rgb(crate::ui_theme::palette(cx).selection))
+                    })
                     .on_click(cx.listener(move |s, _, w, cx| {
                         if let Some(draft) = &mut s.settings_draft {
                             draft.section = section;
@@ -393,6 +395,39 @@ impl Review {
                 };
                 let owner = cx.entity().downgrade();
                 let sizes_owner = owner.clone();
+                if !editor {
+                    let theme_owner = owner.clone();
+                    content = content.child(
+                        h_flex().gap_3().items_center().child(t("Theme:")).child(
+                            Button::new("appearance-theme")
+                                .w(px(260.))
+                                .label(crate::ui_theme::current(cx).label())
+                                .dropdown_caret(true)
+                                .dropdown_menu(move |mut menu, _, cx| {
+                                    use layout_preferences::IslandsTheme;
+                                    for theme in [IslandsTheme::Dark, IslandsTheme::Light] {
+                                        let owner = theme_owner.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(theme.label())
+                                                .checked(crate::ui_theme::current(cx) == theme)
+                                                .on_click(move |_, _, cx| {
+                                                    let result = crate::ui_theme::select(theme, cx);
+                                                    let _ = owner.update(cx, |s, cx| {
+                                                        if let Some(draft) = &mut s.settings_draft {
+                                                            draft.error = result.err().map(|error| {
+                                                                format!("{}: {error}", t("Settings could not be saved"))
+                                                            });
+                                                        }
+                                                        cx.notify();
+                                                    });
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                }),
+                        ),
+                    );
+                }
                 content
                     .child(
                         h_flex().gap_3().items_center().child(t("Font:")).child(
@@ -461,12 +496,12 @@ impl Review {
                                 }),
                         ),
                     )
-                    .child(div().text_color(rgb(MUTED)).child(t("Preview")))
+                    .child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("Preview")))
                     .child(
                         div()
                             .p_3()
                             .border_1()
-                            .border_color(rgb(BORDER))
+                            .border_color(rgb(crate::ui_theme::palette(cx).border))
                             .rounded(px(4.))
                             .font_family(family.clone())
                             .text_size(px(size as f32))
@@ -507,7 +542,7 @@ impl Review {
                             cx.notify();
                         })),
                 )
-                .child(div().text_color(rgb(MUTED)).child(t(
+                .child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t(
                     "Select a file to preview it. Double-click or press Enter to keep it open.",
                 ))),
             Page::Git => {
@@ -549,18 +584,23 @@ impl Review {
         };
         v_flex()
             .size_full()
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .child(
                 h_flex()
                     .flex_1()
                     .min_h_0()
                     .items_stretch()
                     .child(navigation)
-                    .child(div().w(px(1.)).bg(rgb(BORDER)))
+                    .child(div().w(px(1.)).bg(rgb(crate::ui_theme::palette(cx).border)))
                     .child(content),
             )
             .when_some(draft.error.clone(), |v, error| {
-                v.child(div().px_4().text_color(rgb(0xf2a6a6)).child(error))
+                v.child(
+                    div()
+                        .px_4()
+                        .text_color(rgb(crate::ui_theme::palette(cx).error))
+                        .child(error),
+                )
             })
             .child(
                 h_flex()
@@ -570,7 +610,7 @@ impl Review {
                     .items_center()
                     .justify_end()
                     .border_t_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .child(
                         Button::new("settings-ok")
                             .primary()

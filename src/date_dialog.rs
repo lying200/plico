@@ -207,7 +207,11 @@ impl Render for DateDialog {
                     ),
             )
             .when_some(self.error.clone(), |view, error| {
-                view.child(div().text_color(rgb(0xf2a6a6)).child(error))
+                view.child(
+                    div()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(error),
+                )
             })
     }
 }

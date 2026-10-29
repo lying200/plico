@@ -1,7 +1,7 @@
 //! Plan-table interaction adapted from Rebased 4aec352 GitInteractiveRebaseDialog,
 //! ChangeEntryStateActions and MoveTableItemRunnable (JetBrains, Apache-2.0).
 //! Git/editor ownership stays in the operation; this view owns only its draft.
-use crate::ui_style::{BG, BORDER, FG, MUTED, SELECT};
+
 use gpui_kit::component::{
     Disableable as _, Icon, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},

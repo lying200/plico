@@ -234,7 +234,12 @@ impl Render for PlanDialog {
             )
             .when(self.table.is_none(), |v| v.child(t(NOOP)))
             .when_some(self.error.clone(), |v, e| {
-                v.child(div().w_full().text_color(rgb(0xf2a6a6)).child(e))
+                v.child(
+                    div()
+                        .w_full()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(e),
+                )
             })
     }
 }

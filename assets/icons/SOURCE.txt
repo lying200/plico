@@ -166,3 +166,17 @@ magicResolve_dark.svg: detachhead/rebased 4aec35256d765c217aa0d662b82ac4e860c396
 
 pause_dark.svg: Rebased 4aec35256d765c217aa0d662b82ac4e860c396fd,
 platform/icons/src/expui/run/pause_dark.svg (unmodified, JetBrains Apache-2.0).
+
+Light checkbox variants (assets/icons/light/checkBox*.svg): same original geometry,
+colors resolved by the SVG element IDs using ManyIslandsLight.theme.json icons.ColorPalette
+at detachhead/rebased 245042348669114adb8e24e5b0fc0ce73763f3c4.
+Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+
+Light file/folder variants (2026-10-29): detachhead/rebased commit
+245042348669114adb8e24e5b0fc0ce73763f3c4, JetBrains contributors, Apache-2.0.
+light/file-{anyType,text,config,json,markdown,java,javaScript,typeScript,xml,yaml,c,cpp,shell}_4x.svg:
+platform/icons/src/expui/fileTypes/{name}.svg.
+light/file-{rust,python}_4x.svg: platform/icons/src/language/{name}.svg.
+light/folder_4x.svg: platform/icons/src/expui/nodes/folder.svg.
+Only root SVG intrinsic width/height increased from 16 to 64 for HiDPI rasterization;
+viewBox, geometry, colors and upstream copyright comments preserved.

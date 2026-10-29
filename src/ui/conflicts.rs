@@ -277,7 +277,9 @@ impl Render for ConflictList {
                     .h(px(28.))
                     .min_w_0()
                     .cursor_pointer()
-                    .when(self.selected == Some(i), |row| row.bg(rgb(0x2e4369)))
+                    .when(self.selected == Some(i), |row| {
+                        row.bg(rgb(crate::ui_theme::color(cx, 0x2e4369, 0xd0dffe)))
+                    })
                     .child(
                         h_flex()
                             .flex_1()
@@ -311,7 +313,7 @@ impl Render for ConflictList {
                                             .ml_2()
                                             .px_1()
                                             .rounded(px(8.))
-                                            .bg(rgb(0x2e4369))
+                                            .bg(rgb(crate::ui_theme::color(cx, 0x2e4369, 0xd0dffe)))
                                             .child(format!("{done}/{total}")),
                                     )
                                 },
@@ -461,7 +463,7 @@ impl Render for ConflictList {
                         .id("conflict-error")
                         .overflow_y_scroll()
                         .whitespace_normal()
-                        .text_color(rgb(0xe57373))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xe57373, 0xc54e58)))
                         .child(error),
                 )
                 .child(

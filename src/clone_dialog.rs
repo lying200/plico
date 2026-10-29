@@ -154,7 +154,7 @@ impl Form {
                     .items_center()
                     .flex_wrap()
                     .child(
-                        crate::ui_style::checkbox("clone-shallow")
+                        crate::ui_style::checkbox("clone-shallow", cx)
                             .label(t("Shallow clone with a history truncated to"))
                             .checked(self.shallow)
                             .disabled(self.busy)
@@ -173,7 +173,7 @@ impl Form {
                     .child(t("commits")),
             )
             .child(
-                crate::ui_style::checkbox("clone-submodules")
+                crate::ui_style::checkbox("clone-submodules", cx)
                     .label(t("Clone submodules"))
                     .checked(self.recurse)
                     .disabled(self.busy)
@@ -202,7 +202,12 @@ impl Form {
                 )
             })
             .when_some(self.error.clone(), |v, e| {
-                v.child(div().whitespace_normal().text_color(rgb(0xf2a6a6)).child(e))
+                v.child(
+                    div()
+                        .whitespace_normal()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(e),
+                )
             })
     }
 }
@@ -213,7 +218,7 @@ impl Render for Form {
             .flex_shrink_0()
             .h_full()
             .border_r_1()
-            .border_color(rgb(crate::ui_style::BORDER));
+            .border_color(rgb(crate::ui_theme::palette(cx).border));
         for (page, label) in [(0, "Repository URL"), (1, "GitHub"), (2, "GitLab")] {
             sidebar = sidebar.child(
                 div()
@@ -221,7 +226,9 @@ impl Render for Form {
                     .px_3()
                     .py_3()
                     .cursor_pointer()
-                    .when(self.page == page, |v| v.bg(rgb(crate::ui_style::SELECT)))
+                    .when(self.page == page, |v| {
+                        v.bg(rgb(crate::ui_theme::palette(cx).selection))
+                    })
                     .child(
                         h_flex()
                             .gap_3()
@@ -239,13 +246,15 @@ impl Render for Form {
                                     .child(div().font_weight(FontWeight::SEMIBOLD).child(t(label)))
                                     .when(page > 0, |v| {
                                         v.child(
-                                            div().text_color(rgb(crate::ui_style::MUTED)).child(
-                                                self.host.read(cx).account_label(if page == 1 {
-                                                    plico::hosting::Provider::GitHub
-                                                } else {
-                                                    plico::hosting::Provider::GitLab
-                                                }),
-                                            ),
+                                            div()
+                                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                                                .child(self.host.read(cx).account_label(
+                                                    if page == 1 {
+                                                        plico::hosting::Provider::GitHub
+                                                    } else {
+                                                        plico::hosting::Provider::GitLab
+                                                    },
+                                                )),
                                         )
                                     }),
                             ),

@@ -184,6 +184,49 @@ mod tests {
 mod diff_palette_tests {
     use gpui_kit::component::diff::{DiffFile, DiffSide};
     #[test]
+    fn light_diff_colors_preserve_ranges_and_unified_side_semantics() {
+        use gpui_kit::component::diff::{DiffColors, DiffInlineUnit};
+        let file = DiffFile::from_editor_sources(
+            Some(("test.rs", "let 中文 = old;\n")),
+            Some(("test.rs", "let 中文 = new;\n")),
+        )
+        .unwrap();
+        for unified in [false, true] {
+            for side in [DiffSide::Original, DiffSide::Modified] {
+                let highlights = |colors| {
+                    file.editor_highlights_with_colors(
+                        side,
+                        Some(DiffInlineUnit::Word),
+                        unified,
+                        colors,
+                    )
+                };
+                let dark = highlights(DiffColors::DARK);
+                let light = highlights(DiffColors::LIGHT);
+                assert_eq!(dark.len(), light.len());
+                let expected = if !unified {
+                    0xc2d8f2
+                } else if side == DiffSide::Original {
+                    0xd6d6d6
+                } else {
+                    0xbee6be
+                };
+                for ((range, style, whole), (dark_range, dark_style, dark_whole)) in
+                    light.iter().zip(&dark)
+                {
+                    assert_eq!(range, dark_range);
+                    assert_eq!(whole, dark_whole);
+                    assert!(file.source(side).get(range.clone()).is_some());
+                    let color = style.background_color.unwrap();
+                    assert_eq!(color.a, dark_style.background_color.unwrap().a);
+                    let mut expected: gpui_kit::Hsla = gpui_kit::rgb(expected).into();
+                    expected.a = color.a;
+                    assert_eq!(color, expected);
+                }
+            }
+        }
+    }
+    #[test]
     fn replacement_has_blue_inline_emphasis_and_utf8_boundaries() {
         let file = DiffFile::from_editor_sources(
             Some(("test.rs", "let 中文 = old;\n")),

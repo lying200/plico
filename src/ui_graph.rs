@@ -1,5 +1,5 @@
 //! Log graph drawing and hit testing. Callers own navigation and async state.
-use crate::ui_style::FG;
+
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{prelude::FluentBuilder as _, *};
 use plico::{
@@ -121,7 +121,7 @@ pub(crate) fn graph_cell(
         .child(
             canvas(
                 |_, _, _| {},
-                move |bounds, _, window, _| {
+                move |bounds, _, window, cx| {
                     let visible = bounds.intersect(&window.content_mask().bounds);
                     // FromPrintElement selects this exact row/segment. Like
                     // SimpleGraphCellPainter, paint it last: themed outline,
@@ -146,7 +146,7 @@ pub(crate) fn graph_cell(
                             1.5
                         };
                         let ink = if outline {
-                            FG
+                            crate::ui_theme::palette(cx).foreground
                         } else {
                             COLORS[edge.color % COLORS.len()]
                         };

@@ -522,7 +522,9 @@ impl Render for StashView {
                                             )
                                             .child(
                                                 div()
-                                                    .text_color(rgb(0x8b8e95))
+                                                    .text_color(rgb(crate::ui_theme::color(
+                                                        cx, 0x8b8e95, 0x73767c,
+                                                    )))
                                                     .child(count.to_string()),
                                             )
                                             .on_click(cx.listener(move |s, _, _, cx| {
@@ -539,7 +541,9 @@ impl Render for StashView {
                                             .h(px(32.))
                                             .px_3()
                                             .truncate()
-                                            .text_color(rgb(0xf2a6a6))
+                                            .text_color(rgb(crate::ui_theme::color(
+                                                cx, 0xf2a6a6, 0xc54e58,
+                                            )))
                                             .child(format!("{}: {}", path.display(), error))
                                             .into_any_element();
                                     }
@@ -558,10 +562,14 @@ impl Render for StashView {
                                     .items_center()
                                     .gap_2()
                                     .rounded(px(4.))
-                                    .when(s.selected == Some(index), |d| d.bg(rgb(0x2e436e)))
+                                    .when(s.selected == Some(index), |d| {
+                                        d.bg(rgb(crate::ui_theme::color(cx, 0x2e436e, 0xd0dffe)))
+                                    })
                                     .child(
                                         div()
-                                            .text_color(rgb(0x8b8e95))
+                                            .text_color(rgb(crate::ui_theme::color(
+                                                cx, 0x8b8e95, 0x73767c,
+                                            )))
                                             .child(entry.selector.clone()),
                                     )
                                     .child(div().flex_1().truncate().child(entry.message.clone()))
@@ -642,7 +650,7 @@ impl Render for StashView {
                     .h(px(36.))
                     .px_2()
                     .border_b_1()
-                    .border_color(rgb(0x2b2d30))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9)))
                     .child(
                         Button::new("stash-show-diff")
                             .ghost()
@@ -677,7 +685,9 @@ impl Render for StashView {
                                         .px_3()
                                         .flex()
                                         .items_center()
-                                        .text_color(rgb(0x8b8e95))
+                                        .text_color(rgb(crate::ui_theme::color(
+                                            cx, 0x8b8e95, 0x73767c,
+                                        )))
                                         .child(t(label))
                                         .into_any_element(),
                                     Row::File { group, index } => {
@@ -698,10 +708,12 @@ impl Render for StashView {
                                             .gap_2()
                                             .rounded(px(4.))
                                             .when(s.selected_file == Some(row), |v| {
-                                                v.bg(rgb(0x2e436e))
+                                                v.bg(rgb(crate::ui_theme::color(
+                                                    cx, 0x2e436e, 0xd0dffe,
+                                                )))
                                             })
                                             .child(
-                                                img(crate::ui_style::file_icon(&file.path))
+                                                img(crate::ui_style::file_icon(&file.path, cx))
                                                     .size(px(16.))
                                                     .flex_shrink_0(),
                                             )
@@ -709,7 +721,7 @@ impl Render for StashView {
                                                 div()
                                                     .truncate()
                                                     .text_color(rgb(crate::ui_style::change_color(
-                                                        file,
+                                                        file, cx,
                                                     )))
                                                     .child(file.label()),
                                             )
@@ -753,7 +765,7 @@ impl Render for StashView {
                     .gap_2()
                     .p_2()
                     .border_t_1()
-                    .border_color(rgb(0x2b2d30))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9)))
                     .child(
                         Button::new("stash-apply")
                             .primary()
@@ -792,7 +804,7 @@ impl Render for StashView {
         v_flex()
             .size_full()
             .min_h_0()
-            .bg(rgb(0x191a1c))
+            .bg(rgb(crate::ui_theme::color(cx, 0x191a1c, 0xffffff)))
             .when_some(self.recovery.clone(), |v, pending| {
                 v.child(
                     v_flex()

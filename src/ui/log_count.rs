@@ -109,9 +109,9 @@ impl Review {
             .px_3()
             .gap_2()
             .border_t_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .text_size(px(12.))
-            .text_color(rgb(MUTED))
+            .text_color(rgb(crate::ui_theme::palette(cx).muted))
             .child(div().min_w_0().truncate().child(label))
             .when(counting, |v| {
                 v.child(gpui_kit::component::spinner::Spinner::new().small())

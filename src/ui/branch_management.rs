@@ -122,7 +122,7 @@ impl Render for NewBranch {
                 v.child(
                     div()
                         .whitespace_normal()
-                        .text_color(rgb(0xf2a6a6))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                         .child(error),
                 )
             })
@@ -579,13 +579,13 @@ impl Review {
     ) {
         let owner = cx.entity().downgrade();
         let path = self.repo.path.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             let confirm = prepared.clone(); let owner = owner.clone(); let path = path.clone();
             let unmerged = !prepared.unmerged.is_empty();
             dialog.title(t(if unmerged { "Branch Is Not Fully Merged" } else { "Delete Branch" }))
                 .w(px(560.)).centered(true).overlay_closable(false)
                 .child(div().whitespace_normal().child(format!("{} ‘{}’", t("Delete branch"), prepared.name)))
-                .when(prepared.repository().path != path, |d| d.child(div().text_color(rgb(crate::ui_style::MUTED)).child(prepared.repository().path.display().to_string())))
+                .when(prepared.repository().path != path, |d| d.child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(prepared.repository().path.display().to_string())))
                 .when(unmerged, |d| d.child(div().whitespace_normal().child(t("These commits are not merged into the upstream branch (or HEAD when no upstream is available). Delete the branch anyway?")))
                     .child(v_flex().id("unmerged-branch-commits").max_h(px(240.)).overflow_y_scroll()
                         .children(prepared.unmerged.iter().take(100).map(|commit| div().truncate().child(commit.clone())))

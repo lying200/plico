@@ -135,7 +135,7 @@ impl Render for Files {
                                 .child(label.display().to_string())
                                 .child(
                                     div()
-                                        .text_color(rgb(MUTED))
+                                        .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                         .child(crate::ui_style::file_count(count)),
                                 )
                                 .on_click(cx.listener(move |s, _, _, cx| {
@@ -153,10 +153,12 @@ impl Render for Files {
                                     .h(px(28.))
                                     .gap_1()
                                     .pl(px(16. + depth as f32 * 16.))
-                                    .when(self.selected == Some(index), |v| v.bg(rgb(0x33353b)))
+                                    .when(self.selected == Some(index), |v| {
+                                        v.bg(rgb(crate::ui_theme::color(cx, 0x33353b, 0xe9eaee)))
+                                    })
                                     .child(
                                         gpui_kit::component::Icon::default()
-                                            .path(crate::ui_style::file_icon(path))
+                                            .path(crate::ui_style::file_icon(path, cx))
                                             .size(px(16.)),
                                     )
                                     .child(
@@ -197,7 +199,7 @@ impl Render for Files {
                     .id("tag-details-message")
                     .h(px(100.))
                     .border_t_1()
-                    .border_color(rgb(0x393b40))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                     .overflow_y_scroll()
                     .whitespace_normal()
                     .child(self.preview.message.clone()),

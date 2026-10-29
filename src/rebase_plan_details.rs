@@ -1,6 +1,5 @@
 //! FullCommitDetailsListPanel layout: changes above metadata (0.67 split).
 //! Each selection owns cancellation and generation; late results cannot repaint it.
-use crate::ui_style::{BG, BORDER, FG, MUTED, SELECT};
 use gpui_kit::component::{
     Disableable as _, Icon, WindowExt as _,
     button::{Button, ButtonVariants as _},

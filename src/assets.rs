@@ -4,6 +4,66 @@ pub struct Assets;
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         let data: Option<&'static [u8]> = match path {
+            "jb/light/file-anyType_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-anyType_4x.svg"))
+            }
+            "jb/light/file-text_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-text_4x.svg"))
+            }
+            "jb/light/file-config_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-config_4x.svg"))
+            }
+            "jb/light/file-json_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-json_4x.svg"))
+            }
+            "jb/light/file-markdown_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-markdown_4x.svg"))
+            }
+            "jb/light/file-java_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-java_4x.svg"))
+            }
+            "jb/light/file-javaScript_4x.svg" => Some(include_bytes!(
+                "../assets/icons/light/file-javaScript_4x.svg"
+            )),
+            "jb/light/file-typeScript_4x.svg" => Some(include_bytes!(
+                "../assets/icons/light/file-typeScript_4x.svg"
+            )),
+            "jb/light/file-xml_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-xml_4x.svg"))
+            }
+            "jb/light/file-yaml_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-yaml_4x.svg"))
+            }
+            "jb/light/file-c_4x.svg" => Some(include_bytes!("../assets/icons/light/file-c_4x.svg")),
+            "jb/light/file-cpp_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-cpp_4x.svg"))
+            }
+            "jb/light/file-shell_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-shell_4x.svg"))
+            }
+            "jb/light/file-python_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-python_4x.svg"))
+            }
+            "jb/light/file-rust_4x.svg" => {
+                Some(include_bytes!("../assets/icons/light/file-rust_4x.svg"))
+            }
+            "jb/light/folder_4x.svg" => Some(include_bytes!("../assets/icons/light/folder_4x.svg")),
+            "jb/light/checkBox.svg" => Some(include_bytes!("../assets/icons/light/checkBox.svg")),
+            "jb/light/checkBoxDisabled.svg" => {
+                Some(include_bytes!("../assets/icons/light/checkBoxDisabled.svg"))
+            }
+            "jb/light/checkBoxIndeterminateSelected.svg" => Some(include_bytes!(
+                "../assets/icons/light/checkBoxIndeterminateSelected.svg"
+            )),
+            "jb/light/checkBoxIndeterminateSelectedDisabled.svg" => Some(include_bytes!(
+                "../assets/icons/light/checkBoxIndeterminateSelectedDisabled.svg"
+            )),
+            "jb/light/checkBoxSelected.svg" => {
+                Some(include_bytes!("../assets/icons/light/checkBoxSelected.svg"))
+            }
+            "jb/light/checkBoxSelectedDisabled.svg" => Some(include_bytes!(
+                "../assets/icons/light/checkBoxSelectedDisabled.svg"
+            )),
             "jb/cherryPick_dark.svg" => Some(include_bytes!("../assets/icons/cherryPick_dark.svg")),
             "jb/download_dark.svg" => Some(include_bytes!("../assets/icons/download_dark.svg")),
             "jb/layoutEditorOnly_dark.svg" => {

@@ -136,8 +136,8 @@ impl Render for Form {
                 .child(
                     Input::new(input)
                         .external_focus_ring(false)
-                        .bg(rgb(BG))
-                        .border_color(rgb(0x393b40))
+                        .bg(rgb(crate::ui_theme::palette(cx).background))
+                        .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                         .rounded(px(4.))
                         .w_full()
                         .disabled(busy),
@@ -191,14 +191,16 @@ impl Render for Form {
                                     let icon = source_icon(&r, &occupied);
                                     menu =
                                         menu.item(
-                                            PopupMenuItem::element(move |_, _| {
+                                            PopupMenuItem::element(move |_, cx| {
                                                 h_flex()
                                                     .gap_3()
                                                     .child(jb_icon(icon))
                                                     .child(name.clone())
                                                     .child(
                                                         div()
-                                                            .text_color(rgb(MUTED))
+                                                            .text_color(rgb(
+                                                                crate::ui_theme::palette(cx).muted,
+                                                            ))
                                                             .child(path.clone()),
                                                     )
                                             })
@@ -216,7 +218,7 @@ impl Render for Form {
                     ),
             )
             .when(self.occupied(), |v| {
-                v.child(div().pl(px(112.)).text_color(rgb(0xd5a454)).child(t(
+                v.child(div().pl(px(112.)).text_color(rgb(crate::ui_theme::color(cx, 0xd5a454, 0xa56906))).child(t(
                     "Selected branch is checked out; create a new branch or open its worktree.",
                 )))
             })
@@ -225,7 +227,7 @@ impl Render for Form {
                     .gap_3()
                     .child(
                         div().w(px(100.)).flex_shrink_0().child(
-                            crate::ui_style::checkbox("worktree-new-branch")
+                            crate::ui_style::checkbox("worktree-new-branch", cx)
                                 .label(t("New branch:"))
                                 .checked(self.new_branch)
                                 .disabled(busy)
@@ -239,8 +241,8 @@ impl Render for Form {
                     .child(
                         Input::new(&self.branch)
                             .external_focus_ring(false)
-                            .bg(rgb(BG))
-                            .border_color(rgb(0x393b40))
+                            .bg(rgb(crate::ui_theme::palette(cx).background))
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                             .rounded(px(4.))
                             .w_full()
                             .disabled(busy),
@@ -255,8 +257,8 @@ impl Render for Form {
                     .child(
                         Input::new(&self.location)
                             .external_focus_ring(false)
-                            .bg(rgb(BG))
-                            .border_color(rgb(0x393b40))
+                            .bg(rgb(crate::ui_theme::palette(cx).background))
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                             .rounded(px(4.))
                             .flex_1()
                             .disabled(busy)
@@ -273,7 +275,7 @@ impl Render for Form {
             .child(
                 div()
                     .pl(px(112.))
-                    .text_color(rgb(MUTED))
+                    .text_color(rgb(crate::ui_theme::palette(cx).muted))
                     .whitespace_normal()
                     .child(format!(
                         "{}\n{}",
@@ -286,7 +288,7 @@ impl Render for Form {
             .when_some(self.error.clone(), |v, e| {
                 v.child(
                     div()
-                        .text_color(rgb(0xf2a6a6))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                         .whitespace_normal()
                         .child(validation_message(&e)),
                 )

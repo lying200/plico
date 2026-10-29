@@ -78,7 +78,7 @@ impl Review {
                 .h(px(1.))
                 .my_1()
                 .w_full()
-                .bg(rgb(POPUP_BORDER))
+                .bg(rgb(crate::ui_theme::palette(cx).popup_border))
                 .into_any_element(),
         ];
         let refreshing = self.repository_roots_updating(cx);
@@ -119,7 +119,10 @@ impl Review {
                     "repository-root:{}",
                     repository.path.display()
                 )))
-                .custom(ButtonCustomVariant::new(cx).active(rgb(0x2e4773).into()))
+                .custom(
+                    ButtonCustomVariant::new(cx)
+                        .active(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)).into()),
+                )
                 .selected(selected)
                 .on_mouse_move(cx.listener(move |s, e, w, cx| {
                     s.repository_pointer_selection(e, hover.clone(), w, cx)
@@ -143,7 +146,11 @@ impl Review {
                             None => jb_icon("folder_dark.svg").size(px(14.)).into_any_element(),
                         })
                         .child(div().flex_1().min_w_0().truncate().child(label))
-                        .child(div().text_color(rgb(MUTED)).child(branch))
+                        .child(
+                            div()
+                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                                .child(branch),
+                        )
                         .child(jb_icon("chevronRight_dark.svg")),
                 )
                 .dropdown_menu_with_anchor(Anchor::LeftCenter, move |menu, window, cx| {
@@ -344,7 +351,7 @@ impl Review {
                     Some(jb_icon(icon).text_color(rgb(if reference.current {
                         0xf4af3d
                     } else {
-                        FG
+                        crate::ui_theme::palette(cx).foreground
                     }))),
                     label.to_owned(),
                     snapshot

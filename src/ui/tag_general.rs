@@ -134,7 +134,12 @@ impl Render for Draft {
                     .h(px(110.)),
             ))
             .when_some(error, |v, e| {
-                v.child(div().whitespace_normal().text_color(rgb(0xf2a6a6)).child(e))
+                v.child(
+                    div()
+                        .whitespace_normal()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(e),
+                )
             })
     }
 }

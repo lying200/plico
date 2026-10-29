@@ -476,13 +476,13 @@ impl ProjectView {
 impl Render for ProjectView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.schedule_follow(window, cx);
-        let selection_color = crate::ui_style::row_selection(&self.focus, window);
+        let selection_color = crate::ui_style::row_selection(&self.focus, window, cx);
         let row_height = crate::ui_style::tree_row_height(cx);
         let owner = cx.entity().downgrade();
         let follow = self.auto_follow;
         v_flex()
             .size_full()
-            .bg(rgb(0x18191a))
+            .bg(rgb(crate::ui_theme::color(cx, 0x18191a, 0xffffff)))
             .rounded(px(10.))
             .overflow_hidden()
             .key_context("ProjectBrowser")
@@ -661,9 +661,12 @@ impl Render for ProjectView {
                                     .when(!more, |row| {
                                         row.child(
                                             img(if entry.kind == Kind::Directory {
-                                                "jb/folder_dark_4x.svg"
+                                                crate::ui_style::themed_asset(
+                                                    "jb/folder_dark_4x.svg",
+                                                    cx,
+                                                )
                                             } else {
-                                                crate::ui_style::file_icon(&entry.path)
+                                                crate::ui_style::file_icon(&entry.path, cx)
                                             })
                                             .size(px(16.))
                                             .flex_shrink_0(),
@@ -784,13 +787,15 @@ impl Render for ProjectView {
                         .px_3()
                         .py_2()
                         .gap_1()
-                        .child(div().text_color(rgb(0xf2a6a6)).child(
-                            if matches!(error, Notice::Io(_)) {
-                                t("Could not read project folder").to_owned()
-                            } else {
-                                error.text()
-                            },
-                        ))
+                        .child(
+                            div()
+                                .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                                .child(if matches!(error, Notice::Io(_)) {
+                                    t("Could not read project folder").to_owned()
+                                } else {
+                                    error.text()
+                                }),
+                        )
                         .when(error.retryable(), |v| {
                             v.child(
                                 Button::new("retry-project-tree")
@@ -1320,7 +1325,7 @@ impl Render for FileTab {
         v_flex()
             .key_context("ProjectFileTab")
             .size_full()
-            .bg(rgb(0x18191a))
+            .bg(rgb(crate::ui_theme::color(cx, 0x18191a, 0xffffff)))
             .on_action(cx.listener(|s, _: &SaveFile, _, cx| s.save(cx)))
             .on_action(cx.listener(|s, _: &ShowFileHistory, _, cx| s.history_requested(false, cx)))
             .on_action(

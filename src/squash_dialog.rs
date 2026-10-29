@@ -91,7 +91,7 @@ impl Drop for Message {
     }
 }
 impl Render for Message {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_3()
             .child(t("Message for the squashed commit:"))
@@ -103,7 +103,12 @@ impl Render for Message {
                     .aria_label(t("Commit message")),
             )
             .when_some(self.error.clone(), |v, error| {
-                v.child(div().pt(px(4.)).text_color(rgb(0xf2a6a6)).child(error))
+                v.child(
+                    div()
+                        .pt(px(4.))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(error),
+                )
             })
     }
 }

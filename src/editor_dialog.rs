@@ -73,9 +73,13 @@ impl Render for Editor {
                     })),
             )
             .when(self.error, |v| {
-                v.child(div().text_color(rgb(0xf2a6a6)).child(t(
-                    "Could not save. The file may have changed or the operation has ended.",
-                )))
+                v.child(
+                    div()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(t(
+                            "Could not save. The file may have changed or the operation has ended.",
+                        )),
+                )
             })
             .capture_key_down(cx.listener(|s, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "enter" && event.keystroke.modifiers.control {

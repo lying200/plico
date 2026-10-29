@@ -6,7 +6,205 @@
 
 下文既有实现记录默认参考 `4aec35256d765c217aa0d662b82ac4e860c396fd`，除非章节另有说明；不能将旧记录追溯改成新快照。旧临时路径 `/tmp/gitui-rebased-reference` 不再作为长期入口。源码快照不代表宿主机安装版本；本轮未核对已安装 Rebased 版本，也不声称完成原生 UI 验收。
 
-## 本轮交付边界（2026-10-28）
+## Islands Light 与主题切换（2026-10-29）
+
+交付状态：双主题功能已完成，设置 → 外观 → 主题即时切换；保留字体、已有编辑器
+内容与选区，同步刷新窗口，保存失败不发布选择，重启恢复偏好。以下为按时间顺序的
+实机、源码、实现与回归记录；过程中的“待实现”不代表最终状态。最终完整回归结果
+见本节末尾。尚未完成全界面逐像素验收，保留差异已明确列出。代码尚未提交或推送。
+
+本轮源码参考 `245042348669114adb8e24e5b0fc0ce73763f3c4`；安装版为 Rebased
+1.1.22 / `262.10968.SNAPSHOT`（安装目录 `product-info.json` 与欢迎页核对）。
+安装版不能视为与该 commit 完全相同，以下分别记录实机和源码证据。
+
+实现前实机：独立仓库 `%TEMP%/plico-islands-reference-20261029`，`main` 分支，
+一个根提交 `a5fcd49`，`example.rs` 有未提交修改，无远端；本次仅操作主题，不做 Git 写操作。
+打开时先选择 Safe Mode；随后用户明确授权由代理信任该测试仓库，已通过
+Find Action → Trust Project → Trust Project 完成，仅针对当前项目。
+信任后 Git 历史和工作区 Diff 可用；文件树的旧 `[untrusted]` 标签未即时刷新，
+不能据该缓存标签判断操作失败。
+未操作用户已有项目，未关闭 Rebased 进程。
+
+操作：欢迎页 Open → 临时仓库 → Ctrl+Alt+S → Appearance & Behavior / Appearance →
+Theme 下拉 → Islands Light（Down、Enter）→ Cancel。
+主题选择在 Appearance 页顶部，编辑器配色在下一行，字体等选项位于下方。
+选择后主窗口、设置、文件树、标题栏立即更新；编辑器方案显示 Light / Theme default；
+无需 Apply，Apply 按钮仍禁用。Cancel 关闭设置后浅色保留。
+切换动画中的短暂混合颜色不作为稳定配色依据。
+浅色主窗口为浅灰外壳、白色岛状内容区；选中行为浅蓝，非焦点选中为灰色；
+设置窗口为更浅灰底，输入控件为白底，主题下拉保留蓝色焦点环。
+
+截图均在 `artifacts/islands-light-20261029/`：
+- `rebased-dark-main.png`：打开独立仓库的深色基线。
+- `rebased-dark-settings.png`：入口、布局、当前主题与禁用 Apply。
+- `rebased-theme-list.png`：当前选项和 Islands Light 位置。
+- `rebased-light-settings.png`：浅色稳定状态、编辑器方案联动。
+- `rebased-light-after-cancel.png`：Cancel 后主题保留。
+- `rebased-light-log.png`：信任后读取根提交，浅灰历史内容区、浅蓝选中行。
+- `rebased-light-changes.png`：Alt+0 打开变更列表，白色岛状面板、复选框和选中态。
+- `rebased-light-diff.png`：双击 example.rs 打开左右对比，白色编辑器、浅灰工具栏、
+  浅蓝修改块与更强的绿色行内差异，行号/分隔线保持低对比；未执行包含、回滚或提交。
+
+已读源码依据与本地映射：
+- `platform/platform-impl/src/com/intellij/ide/ui/AppearanceConfigurable.kt`：
+  `lafProperty.afterChange` 调用 `QuickChangeLookAndFeel.switchLafAndUpdateUI`，即时切换；
+  Plico 映射为外观页主题下拉及应用级主题入口，独立于其他设置草稿的 OK/Cancel。
+- 同目录 `laf/LafManagerImpl.kt`：应用级当前主题、主题/编辑器方案关联、偏好加载；
+  Plico 用小型偏好文件保存两个固定主题，不引入插件主题或系统自动切换。
+- `platform/platform-impl/src/com/intellij/ide/actions/QuickChangeLookAndFeel.java`：
+  相同主题直接返回；设置当前主题后统一 updateUI，避免重复更新；
+  Plico 使用组件库 Theme 更新并刷新所有窗口，打开新窗口不能重置用户选择。
+- `platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json`：
+  `dark=false`，继承 `ExperimentalLightWithLightHeader`，引用 `Light` 编辑器方案；
+  layer-0/1/2 分别为 #E9EAEE/#F7F8F9/#FFFFFF；active selection 为 #D0DFFE；
+  语义颜色映射到本地共享样式，项目身份色不做机械反转。
+- `platform/platform-resources/src/themes/Light.xml`：继承 Default 的编辑器颜色方案；
+  尚需继续解析继承后的语法与 Diff 色，不能将该文件未覆盖的默认值视为已核对。
+
+待实现/验收：双主题语义颜色、图标和编辑器/Diff 配色迁移；主题保存失败处理；
+多窗口/重启恢复；Plico 同场景截图和桌面回归。当前未声称浅色主题完成。
+
+基础实现进度：`src/ui_theme.rs` 集中原有深色初始化，在同一 App 中只执行一次；
+`Review::new` 再次调用不会覆盖当前主题或字体。`layout_preferences::IslandsTheme`
+增加两种稳定主题标识和有界偏好读取，缺失/损坏/未知值回退 Dark，保存错误向调用者返回。
+目前尚未把浅色配色或主题下拉接入 UI；这些基础改动不能视为双主题已经可用。
+`cargo check --locked --bin plico` 通过（将已安装 LLVM/bin 加入本次命令 PATH），
+偏好读写/损坏回退/保存失败定向测试通过；隔离入口
+`desktop -E 'test(ui_theme::tests)'` 1 项通过、184 项按范围过滤，记录在
+`artifacts/test-runs/195c-18e2dc7030e7741c-0/`，仅证明重复初始化保留当前主题和字体，
+不代表全量桌面或真实多窗口已验收。格式与差异检查通过。
+
+第二步已接入：外观页顶部 Theme 下拉（中英文标签），选项即时保存并应用；失败显示设置错误，
+不发布失败的选择。启动读取保存值，重复创建窗口保留当前主题；切换保留 UI/编辑器字体。
+`ui_theme::Palette` 提供双主题背景/外壳/内容区/边框/文字/选择/提示语义颜色，
+共享样式使用当前 App 的主题；延迟列表/弹窗从自己的渲染上下文读取，避免捕获旧上下文。
+Tab、树/历史焦点选择、设置导航与主窗口错误状态已迁移。`islands-light-syntax.json`
+按 `Light.xml` 中 DEFAULT_* 的明确覆盖值映射，来源及 capture 合并限制见 SOURCE.txt。
+尚有旧常量调用、独立硬编码颜色、图标和 Diff 高亮未迁移，因此当前仍是进行中的实现。
+
+第三步：已移除 BG/FG/PANEL/SELECT 等旧共享常量，图形背景、引用图标遮罩和仓库列
+通过调用上下文读取当前配色；保留项目身份色。文件状态色核对
+`DefaultColorSchemesManager.xml` 的 Default / FILESTATUS_*：新增 #0A7700、
+修改 #0032A0、重命名 #007C7C、删除 #616161、未知 #993300、冲突 #FF0000；
+Light.xml 未覆盖这些项。既有深色文件状态色保留。
+重复的弹窗、Markdown、列表、历史与预览背景/文字/边框使用显式浅深色配对，
+保持原有深色细微差异；延迟渲染重新读取 App 主题。当前编译通过，
+尚需继续迁移图标、Diff 的持久高亮及剩余专用颜色，并进行原生验收。
+
+首次 Plico 原生检查：`cargo build --locked --bin plico` 通过；使用相同临时仓库，
+LOCALAPPDATA 指向 `artifacts/islands-light-20261029/plico-settings/`，不修改用户偏好。
+通过设置齿轮 → 外观 → Theme → Islands Light 实际切换成功；主窗口/设置一起更新，
+Cancel 后保持 Light，隔离目录 `GitReview/theme` 内容为 `islands-light`。
+截图：`plico-dark-main-initial.png`、`plico-light-settings-initial.png`、
+`plico-light-main-initial.png`、`plico-light-changes-initial.png`、`plico-light-diff-initial.png`。
+这些是中间状态：可见深色复选框、浅色引用标签对比不足、Diff 模式按钮深色块、
+历史行尾深色边缘；Diff 的绿色/灰色高亮仍为深色，明确尚未通过验收。
+
+随后源码修正（待重建实机复验）：复选框保留既有 SVG 几何，按
+ManyIslandsLight.theme.json `icons.ColorPalette` 的 Checkbox.* 元素 ID 生成浅色资源，
+选择独立资源路径避免图像缓存混用；Diff 模式控件使用浅色选择/边框；变更组标题修正。
+读取 `plugins/git4idea/backend/src/log/GitRefManager.kt` 的 namedColor 映射，并按主题
+`VersionControl.GitLog` 覆盖值设置 HEAD #FFAF0F、本地 #369650、远端 #834DF0、标签 #6C707E。
+其他图标和 Diff 高亮生命周期继续待办；尚未检查多窗口、重启或保存失败的原生表现。
+
+Diff 配色迁移：本轮进一步读取同一参考 commit 的
+`platform/diff-impl/src/com/intellij/diff/util/TextDiffTypeFactory.java`：颜色取当前编辑器方案，
+忽略区域取前景/背景 0.6 混色；`TextDiffType.java` 分离 inserted/deleted/modified/conflict。
+按 Light.xml / DefaultColorSchemesManager.xml 的继承结果，浅色新增 #BEE6BE、
+删除 #D6D6D6、修改 #C2D8F2。保留既有深色值及 0.4 alpha 行级强调。
+本地 `DiffColors` 显式传入装饰生成；`EditableDiff` 切换时更新已有编辑器装饰，
+异步比较接纳时重新核对当前配色，避免任务期间切换后回写旧颜色。
+统一对比保持增删语义，刷新仍保留投影编辑器、选择和滚动位置；左右对比连接区、
+行号背景及只读 Diff 使用同一配色。该修改不重建工作文档、不触发 Git 写操作。
+配色/字体定向测试 4 项通过，结果 `artifacts/test-runs/488-18e2de0523bc2008-0/`；
+完整桌面回归和更新后的原生截图尚在验证，不能据此宣称主题交付完成。
+
+新增 `theme_switch_preserves_open_diff_editors_and_selection` 回归首次发现：统一对比
+选择删除行后，主题刷新通过文本投影重建把选区从 1..2 移到了 5..6。
+已改为 `UnifiedEditing::refresh_colors` 只替换装饰，避免重新映射选择；修正待复测。
+原生重建后（隔离偏好目录不变）确认启动恢复 Light，统一对比浅灰删除/浅绿新增可读，
+浅色复选框和模式控件已生效；新增截图 `plico-light-restart.png`、
+`plico-light-unified-diff.png`。左右对比及往返切换截图待完整桌面套件结束后补齐，
+避免测试临时窗口覆盖截图。历史选中行尾深色边缘仍存在。
+
+修复验证：完整桌面初次运行 `151c-18e2de1513ede2c8-0` 为 187 通过、1 失败
+（上述新增选区回归），无跳过；修正后的定向运行 `3510-18e2ded710a9cc68-0`
+为 5 通过、183 按范围过滤，覆盖双模式往返切换保留编辑器/选区/滚动位置、
+浅色高亮范围和字体/初始化。不能将两次结果合称最新版本全量通过。
+途中 `355c-18e2de2dfebdd6ec-0` 链接失败是旧套件仍占用 Windows 测试 exe，
+后续改为等待套件结束再串行复测，未更改隔离配置或跳过用例。
+
+原生 Diff 往返验收（同一测试仓库、无文档编辑或 Git 写入）：浅色左右对比 →
+设置外观选 Dark → Cancel → 再选 Light → Cancel；已打开的 Diff、连接区、
+语法和复选框同步更新，文件与布局保留。截图新增
+`plico-light-split-diff.png`、`plico-dark-split-after-switch.png`、
+`plico-light-split-after-roundtrip.png`。后续对远端列表、引用输入、通知、菜单、
+历史/分支比较图形及文件状态文字的配色补漏已通过编译，尚待新构建复验。
+尚未完成：冲突合并编辑器配色、多窗口与保存失败的原生验证、剩余图标对照、
+历史行尾深色残留，以及最终完整桌面/导航回归。
+
+合并配色实现前验证：另建 `%TEMP%/plico-islands-merge-20261029`，base `bb7426d`、
+main `d0dc1bc`、incoming `05dae01`，同一行 Local/Incoming 冲突，`example.rs` 为 UU；
+remote 仅为同级临时 bare 仓库。依照 `MergeApplication.kt` 的命令参数顺序，
+使用副本 `merge left.rs right.rs base.rs output.rs` 打开安装版三方合并窗口。
+左/中/右为 Your version / Result / Changes from server；浅红冲突背景及连接区，
+操作入口位于两条分隔区。采用左侧后左侧去背景、留虚线，中间文字变 Local，
+右侧仍红；再忽略右侧后所有背景消失，顶部显示 All conflicts resolved。
+随后 Cancel 并丢弃本次临时预览，未应用到真实冲突仓库。
+截图：`rebased-light-merge-conflict.png`、`rebased-light-merge-left-applied.png`、
+`rebased-light-merge-resolved.png`。未验证执行失败状态，主题改动不涉及执行流程。
+源码核对同一参考 commit 的 `DiffViewerHighlighters.kt`、`DiffDrawUtil.java`：
+resolved 侧跳过行内高亮并用 NONE 背景/DOTTED 边线；颜色由当前编辑器方案提供。
+本地保留既有整行强调（尚无词级强调）的差异；计划将 `text_merge::gutter::color`
+与持久装饰一起切换，保留 Merge 决策、编辑器实体、Undo 和焦点。
+
+合并配色实现后：`MergeEditor` 检测当前主题并只重建装饰；连接区/虚线按帧读取同一
+语义配色。浅色冲突 #FFD5CC，增删改复用已核对的 Diff 值。新构建打开真实冲突仓库，
+完成采用左侧、忽略右侧检查，截图 `plico-light-merge-entry.png`、
+`plico-light-merge-conflict.png`、`plico-light-merge-left-applied.png`、
+`plico-light-merge-resolved.png`。对应侧的背景去除和虚线通过；既有差异为 Plico
+整行等强度背景、顶部未解决数在编辑时未同步更新（关闭后列表正确显示已解决）。
+本轮不调整既有合并流程；Plico 的关闭操作保存结果草稿，未执行完成合并提交。
+历史行尾深色残留确认来自已包含提交的旧底色，修正该配色后新构建未再出现。
+
+文件图标：读取同一参考 commit 的 expui/fileTypes、language/{rust,python}、
+expui/nodes/folder 浅色 SVG，保留版权、几何和颜色，只放大根 SVG intrinsic size；
+来源见 assets/icons/SOURCE.txt。`file_icon(path,cx)` 和 `themed_asset` 在渲染时选择
+独立资源路径，原深色资源保留；单色 Icon 仍随文字颜色着色，品牌图标保留品牌色。
+
+本轮原生收尾：最新构建的 `plico-light-main-final.png` 确认浅色文件图标和历史行尾
+修正。隔离偏好文件临时替换为同名目录，选择 Dark 时显示写入错误并保持 Light；
+证据 `plico-theme-save-failure.png`。随后恢复偏好文件，正常保存恢复可用；空测试目录
+保留为 `theme.failure-test-blocker`，不涉及用户配置。
+通过项目菜单在同一进程打开第二个窗口并保持三方合并编辑器打开，在第一窗口往返
+切换 Dark/Light，第二窗口的背景、语法、冲突装饰和连接区同步更新，Local/Base/Incoming
+内容保留。证据 `plico-multiwindow-dark-merge.png`、`plico-multiwindow-light-merge.png`。
+至此双主题入口、即时保存及取消行为、重启恢复、多窗口、保存失败保护和主要 Diff/
+Merge 场景已通过原生检查；此前各段待办是过程记录，以此收尾状态为准。
+精确像素还原、全部弹窗状态的逐项视觉验收及上述既有 Merge 差异仍保留；最终全量
+回归正在执行，尚不宣称测试全绿。
+
+收尾静态检查：`cargo fmt --package plico -- --check`、`git diff --check` 通过；
+`cargo test --locked --no-default-features --doc` 通过（0 用例）；
+`cargo clippy --locked --no-default-features --all-targets` 退出 0，仍有项目警告，
+未全局抑制警告，也未将其称为零警告检查。全量隔离运行记录目录为
+`artifacts/test-runs/1278-18e2e053c281008c-0/`。其中 core 已结束：947 通过、0 跳过，
+耗时 1089.414 秒；desktop 为 188 通过、0 跳过，耗时 779.148 秒，包含新增的
+主题往返切换、字体保留、Diff 配色及选区回归。
+
+最终全量隔离命令 `cargo run --locked --manifest-path tools/test-runner/Cargo.toml -- all`
+退出 0，三个阶段状态文件均为 `exit code: 0`：
+
+| 套件 | 结果 | 范围 |
+| --- | --- | --- |
+| core | 947 通过，0 跳过 | 完整核心套件 |
+| desktop | 188 通过，0 跳过 | 完整桌面套件，包含主题与编辑器生命周期回归 |
+| navigation | 10 通过，178 按预定范围过滤 | 单独关闭 debug assertions 的导航配置 |
+
+共 1,145 次用例执行通过，导航与完整桌面套件存在重叠，不称为独立用例总数。
+本次仅证明当前 Windows 环境的本地运行，未提交、推送或启动 CI。
+
+## 文本校对交付记录（2026-10-28）
 
 按用户“不要无止境做下去”的要求，本轮止于第二十二批，不再自动新增校对范围。此前记录中的“下一步”仅作为后续候选，不表示本轮继续执行。尚未完成全项目文本逐项验收；未完成项保留为待办，不以无限扩展替代交付。
 

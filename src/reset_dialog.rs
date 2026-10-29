@@ -37,14 +37,18 @@ impl Render for Options {
                             .pl(rems(2.))
                             .text_size(rems(1.))
                             .line_height(relative(1.5))
-                            .text_color(rgb(0x92949a))
+                            .text_color(rgb(crate::ui_theme::color(cx, 0x92949a, 0x73767c)))
                             .whitespace_normal()
                             .child(t(mode.description())),
                     ),
             );
         }
         choices.when_some(self.error.clone(), |v, e| {
-            v.child(div().text_color(rgb(0xf2a6a6)).child(e))
+            v.child(
+                div()
+                    .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                    .child(e),
+            )
         })
     }
 }

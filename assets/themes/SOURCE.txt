@@ -8,3 +8,13 @@ Popup/control border: ManyIslandsDark.theme.json at the same Rebased commit.
 Menu.separatorColor / Menu.borderColor / Popup.borderColor resolve popup-border
 -> layer-1-border -> gray-40 (#33353B). App panel seams remain separate.
 DarculaMenuSeparatorUI.java uses PopupMenuSeparator.stripeWidth default 1.
+
+Islands Light palette added from Rebased commit
+245042348669114adb8e24e5b0fc0ce73763f3c4:
+platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json
+platform/platform-resources/src/themes/Light.xml
+platform/platform-resources/src/DefaultColorSchemesManager.xml
+Light.xml overrides Default; foreground values map to the same Tree-sitter
+captures as the dark palette. Function uses DEFAULT_FUNCTION_DECLARATION;
+attribute uses DEFAULT_METADATA. Plain text is #080808. Font styles are not
+imported; semantic distinctions unavailable to the shared captures stay shared.

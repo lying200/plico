@@ -20,6 +20,7 @@ struct MergeEditor {
     inputs: [Entity<EditorState>; 3],
     model: Rc<RefCell<Merge>>,
     marks: [TextDecorationCollection; 3],
+    theme: plico::layout_preferences::IslandsTheme,
     selected: usize,
     initial: String,
     initial_decisions: plico::text_merge::State,
@@ -111,6 +112,7 @@ impl MergeEditor {
             applying: false,
             model,
             marks,
+            theme: crate::ui_theme::current(cx),
             selected: 0,
             _subscription: subscription,
         };
@@ -142,7 +144,7 @@ impl MergeEditor {
                     if resolved || range.is_empty() {
                         return None;
                     }
-                    let color = gutter::color(c.kind());
+                    let color = gutter::color(c.kind(), cx);
                     Some(
                         TextDecoration::new(
                             range,
@@ -335,6 +337,11 @@ impl MergeEditor {
 }
 impl Render for MergeEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = crate::ui_theme::current(cx);
+        if self.theme != theme {
+            self.theme = theme;
+            self.highlight(cx);
+        }
         let has_selected = self.model.borrow().changes.get(self.selected).is_some();
         v_flex()
             .capture_key_down(cx.listener(|s, event: &KeyDownEvent, _, cx| {

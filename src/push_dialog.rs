@@ -440,7 +440,7 @@ impl Render for PushDialog {
             .flex_shrink_0()
             .gap_1()
             .when(self.selected.is_none() && !self.editing, |v| {
-                v.bg(rgb(0x2a4371))
+                v.bg(rgb(crate::ui_theme::color(cx, 0x2a4371, 0xd0dffe)))
             })
             .on_action(cx.listener(|s, action: &Enter, _, cx| {
                 if s.editing {
@@ -592,7 +592,9 @@ impl Render for PushDialog {
                     .pl(px(24.))
                     .pr_2()
                     .truncate()
-                    .when(self.selected == Some(i), |v| v.bg(rgb(0x2a4371)))
+                    .when(self.selected == Some(i), |v| {
+                        v.bg(rgb(crate::ui_theme::color(cx, 0x2a4371, 0xd0dffe)))
+                    })
                     .child(commit.subject.clone())
                     .on_mouse_down(
                         MouseButton::Left,
@@ -634,7 +636,7 @@ impl Render for PushDialog {
             .min_w_0()
             .h_full()
             .border_l_1()
-            .border_color(rgb(0x393b40));
+            .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)));
         if !self.busy && !self.editing && self.aggregate.is_some() {
             let file_rows = plico::file_tree::rows(
                 self.files.iter().enumerate().filter_map(|(i, f)| {
@@ -762,7 +764,7 @@ impl Render for PushDialog {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .text_color(rgb(0x6f737a))
+                                    .text_color(rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c)))
                                     .child(t(if self.commits.is_empty() {
                                         "No commits selected"
                                     } else {
@@ -803,13 +805,18 @@ impl Render for PushDialog {
                                     )
                                     .child(
                                         gpui_kit::component::Icon::default()
-                                            .path("jb/folder_dark_4x.svg")
+                                            .path(crate::ui_style::themed_asset(
+                                                "jb/folder_dark_4x.svg",
+                                                cx,
+                                            ))
                                             .size(px(16.)),
                                     )
                                     .child(name)
                                     .child(
                                         div()
-                                            .text_color(rgb(0x6f737a))
+                                            .text_color(rgb(crate::ui_theme::color(
+                                                cx, 0x6f737a, 0x73767c,
+                                            )))
                                             .child(crate::ui_style::file_count(count)),
                                     )
                                     .on_mouse_down(
@@ -828,11 +835,11 @@ impl Render for PushDialog {
                                 let path =
                                     &file.after.as_ref().or(file.before.as_ref()).unwrap().path;
                                 let color = if file.before.is_none() {
-                                    0x6aab73
+                                    crate::ui_theme::color(cx, 0x6aab73, 0x0a7700)
                                 } else if file.after.is_none() {
-                                    0xcf8e6d
+                                    crate::ui_theme::color(cx, 0xcf8e6d, 0x616161)
                                 } else {
-                                    0x6897bb
+                                    crate::ui_theme::color(cx, 0x6897bb, 0x0032a0)
                                 };
                                 h_flex()
                                     .id(("push-file", i))
@@ -841,10 +848,12 @@ impl Render for PushDialog {
                                     .gap_1()
                                     .pl(px(22. + depth as f32 * 16.))
                                     .pr_2()
-                                    .when(self.selected_file == Some(i), |v| v.bg(rgb(0x33353b)))
+                                    .when(self.selected_file == Some(i), |v| {
+                                        v.bg(rgb(crate::ui_theme::color(cx, 0x33353b, 0xe9eaee)))
+                                    })
                                     .child(
                                         gpui_kit::component::Icon::default()
-                                            .path(crate::ui_style::file_icon(path))
+                                            .path(crate::ui_style::file_icon(path, cx))
                                             .size(px(16.)),
                                     )
                                     .child(
@@ -877,7 +886,7 @@ impl Render for PushDialog {
                         .h(px(130.))
                         .overflow_y_scroll()
                         .border_t_1()
-                        .border_color(rgb(0x393b40))
+                        .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                         .child(details.message.clone())
                         .child(div().child(details.author.clone())),
                 );
@@ -899,7 +908,7 @@ impl Render for PushDialog {
                         div()
                             .px_2()
                             .py_1()
-                            .text_color(rgb(0x6f737a))
+                            .text_color(rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c)))
                             .child(t("No outgoing commits")),
                     )
                 },
@@ -908,7 +917,11 @@ impl Render for PushDialog {
                 v.child(t("New branch preview is limited to 1,000 commits"))
             })
             .when_some(self.error, |v, error| {
-                v.child(div().text_color(rgb(0xf2a6a6)).child(t(error)))
+                v.child(
+                    div()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(t(error)),
+                )
             })
     }
 }

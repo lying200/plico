@@ -108,7 +108,7 @@ impl PullDialog {
                     let owner = owner.clone();
                     let menu_owner = menu_owner.clone();
                     menu = menu.item(
-                        PopupMenuItem::element(move |_, _| {
+                        PopupMenuItem::element(move |_, cx| {
                             h_flex()
                                 .w_full()
                                 .gap(px(50.))
@@ -117,7 +117,9 @@ impl PullDialog {
                                     div()
                                         .w(px(100.))
                                         .flex_shrink_0()
-                                        .text_color(rgb(0x9fa2a8))
+                                        .text_color(rgb(crate::ui_theme::color(
+                                            cx, 0x9fa2a8, 0x5f6269,
+                                        )))
                                         .child(flag.argument()),
                                 )
                         })
@@ -252,9 +254,13 @@ impl Render for PullDialog {
                                 .gap_1()
                                 .pl_2()
                                 .rounded(px(4.))
-                                .bg(rgb(0x35363a))
+                                .bg(rgb(crate::ui_theme::color(cx, 0x35363a, 0xf7f8f9)))
                                 .border_1()
-                                .border_color(rgb(if focused { 0x6b9bfa } else { 0x35363a }))
+                                .border_color(rgb(if focused {
+                                    crate::ui_theme::color(cx, 0x6b9bfa, 0x3871e1)
+                                } else {
+                                    crate::ui_theme::color(cx, 0x35363a, 0xdddfe4)
+                                }))
                                 .on_mouse_down(MouseButton::Left, move |_, w, cx| {
                                     click_focus.focus(w, cx)
                                 })
@@ -288,7 +294,7 @@ impl Render for PullDialog {
             .when(self.selection(cx).is_none(), |v| {
                 v.child(
                     div()
-                        .text_color(rgb(0xf2a6a6))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                         .child(t("Select an existing remote branch")),
                 )
             })

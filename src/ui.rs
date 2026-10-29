@@ -63,8 +63,7 @@ use crate::{ui_actions::*, ui_graph::*, ui_style::*};
 use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::{
-    Disableable as _, FocusableExt as _, Selectable as _, Sizable as _, Theme, ThemeMode, TitleBar,
-    WindowExt as _,
+    Disableable as _, FocusableExt as _, Selectable as _, Sizable as _, TitleBar, WindowExt as _,
     button::{Button, ButtonCustomVariant, ButtonVariants as _, DropdownButton},
     dialog::{DialogAction, DialogFooter},
     h_flex,
@@ -361,37 +360,7 @@ impl Review {
                 path.file_name().unwrap_or_default().to_string_lossy()
             )
         });
-        Theme::change(ThemeMode::Dark, Some(window), cx);
-        Theme::update(cx, |t| {
-            t.background = rgb(BG).into();
-            t.foreground = rgb(FG).into();
-            t.border = rgb(POPUP_BORDER).into();
-            t.popover = rgb(SHELL).into();
-            t.popover_foreground = rgb(FG).into();
-            t.accent = rgb(0x2a4371).into();
-            t.primary = rgb(0x3574f0).into();
-            t.primary_foreground = rgb(0xffffff).into();
-            t.button_primary = rgb(0x3574f0).into();
-            t.button_primary_foreground = rgb(0xffffff).into();
-            t.button_primary_hover = rgb(0x467ff2).into();
-            // Islands split-button pressed surface must retain the brand color.
-            t.button_primary_active = rgb(0x315fbd).into();
-            t.ring = rgb(0x3574f0).into();
-            let fonts = crate::ui_font::Preferences::load();
-            t.font_family = fonts.ui_family.into();
-            t.font_size = px(fonts.ui_size as f32);
-            t.mono_font_family = fonts.editor_family.into();
-            t.mono_font_size = px(fonts.editor_size as f32);
-            // Palette provenance and capture-mapping limits: assets/themes/SOURCE.txt.
-            let highlight = Arc::make_mut(&mut t.highlight_theme);
-            highlight.name = "Islands Dark".into();
-            highlight.style.editor_background = Some(rgb(0x191a1c).into());
-            highlight.style.editor_foreground = Some(rgb(0xbcbec4).into());
-            highlight.style.editor_line_number = Some(rgb(0x4b5059).into());
-            highlight.style.syntax =
-                serde_json::from_str(include_str!("../assets/themes/islands-syntax.json"))
-                    .expect("Bundled Islands syntax palette");
-        });
+        crate::ui_theme::ensure_initialized(cx);
         let focus = cx.focus_handle();
         let history_focus = cx.focus_handle().tab_stop(true);
         let initial_focus = focus.clone();
@@ -766,40 +735,40 @@ impl Render for Review {
         if self.welcome {
             return v_flex()
                 .size_full()
-                .bg(rgb(PANEL))
+                .bg(rgb(crate::ui_theme::palette(cx).panel))
                 .when_some(self.startup_frame(), |v, (probe, frame)| v.on_prepaint(move |_, _, _| probe.record(frame)))
-                .text_color(rgb(FG)).text_size(cx.theme().font_size).font_family(cx.theme().font_family.clone())
+                .text_color(rgb(crate::ui_theme::palette(cx).foreground)).text_size(cx.theme().font_size).font_family(cx.theme().font_family.clone())
                 .track_focus(&self.focus)
                 .key_context("Review")
                 .on_action(cx.listener(|s, _: &Open, w, cx| s.open(w, cx)))
                 .on_action(cx.listener(|s, _: &OpenSettings, w, cx| s.open_settings(w, cx)))
             .on_action(cx.listener(|s, _: &CreateBranch, w, cx| s.new_branch_dialog("HEAD".into(),w,cx)))
                 .on_action(cx.listener(|s, _: &Back, _, cx| { s.close_settings(cx); cx.notify(); }))
-                .child(TitleBar::new().bg(rgb(PANEL)).border_color(rgb(PANEL)).child(
+                .child(TitleBar::new().bg(rgb(crate::ui_theme::palette(cx).panel)).border_color(rgb(crate::ui_theme::palette(cx).panel)).child(
                     h_flex().w_full().px_2().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(20.))).child("Plico").child(div().flex_1())
                         .child(titlebar_button("welcome-settings").ghost().small().icon(jb_icon("settings_dark.svg").size(px(14.))).icon_size(px(14.))
                             .tooltip(format!("{} (Ctrl+Alt+S)", t("Settings"))).accessibility_label(t("Settings"))
                             .on_click(cx.listener(|s, _, w, cx| { s.open_settings(w, cx); })))))
                 .child(h_flex().flex_1().min_h_0().items_stretch()
-                    .child(v_flex().w(px(220.)).h_full().p_4().gap_4().border_r_1().border_color(rgb(BORDER))
+                    .child(v_flex().w(px(220.)).h_full().p_4().gap_4().border_r_1().border_color(rgb(crate::ui_theme::palette(cx).border))
                         .child(h_flex().gap_2().items_center().child(gpui_kit::img("branding/plico.svg").size(px(32.))).child(div().text_size(px(16.)).child("Plico")))
-                        .child(div().text_color(rgb(MUTED)).child("0.1.0"))
-                        .child(div().px_3().py_2().rounded(px(6.)).bg(rgb(SELECT)).child(t("Projects"))))
+                        .child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child("0.1.0"))
+                        .child(div().px_3().py_2().rounded(px(6.)).bg(rgb(crate::ui_theme::palette(cx).selection)).child(t("Projects"))))
                     .child(v_flex().flex_1().h_full().min_w_0().p_4().gap_3()
-                        .child(h_flex().h(px(40.)).gap_2().flex_shrink_0().border_b_1().border_color(rgb(BORDER)).child(div().flex_1().child(t("Recent Projects")))
+                        .child(h_flex().h(px(40.)).gap_2().flex_shrink_0().border_b_1().border_color(rgb(crate::ui_theme::palette(cx).border)).child(div().flex_1().child(t("Recent Projects")))
                             .child(Button::new("init-repository").label(t("Create Git Repository…")).disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.open_init(w,cx))))
                             .child(Button::new("clone-repository").label(t("Clone Repository…")).disabled(self.operation.busy()).on_click(cx.listener(|s,_,w,cx|s.open_clone(w,cx))))
                             .child(Button::new("open-repository").label(t("Open Repository…")).on_click(cx.listener(|s, _, w, cx| s.open(w, cx)))))
-                        .when(self.recent_projects.is_empty(), |v| v.child(div().text_color(rgb(MUTED)).child(t("Browse history. Review changes."))))
-                        .when_some(self.error.clone().or_else(|| self.update_diagnostic.clone()).or_else(|| self.sequence_diagnostic.clone()), |v, error| v.child(div().text_color(rgb(0xf2a6a6)).child(error)))
+                        .when(self.recent_projects.is_empty(), |v| v.child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("Browse history. Review changes."))))
+                        .when_some(self.error.clone().or_else(|| self.update_diagnostic.clone()).or_else(|| self.sequence_diagnostic.clone()), |v, error| v.child(div().text_color(rgb(crate::ui_theme::palette(cx).error)).child(error)))
                         .child(v_flex().id("recent-projects-list").flex_1().min_h_0().overflow_y_scroll().children(self.recent_projects.iter().enumerate().map(|(i, path)| {
                             let open = path.clone(); let remove = path.clone();
-                            h_flex().id(("recent-project", i)).w_full().min_w_0().p_3().gap_3().rounded(px(6.)).hover(|s| s.bg(rgb(0x2b2d30)))
+                            h_flex().id(("recent-project", i)).w_full().min_w_0().p_3().gap_3().rounded(px(6.)).hover(|s| s.bg(rgb(crate::ui_theme::palette(cx).hover)))
                                 .child(project_avatar(path, 24.))
                                 .child(Button::new(("open-recent", i)).ghost().flex_1().min_w_0().h(px(50.))
                                     .child(v_flex().w_full().items_start().min_w_0()
                                         .child(div().truncate().child(path.file_name().unwrap_or_default().to_string_lossy().into_owned()))
-                                        .child(div().text_size(px(12.)).text_color(rgb(MUTED)).truncate().child(path.to_string_lossy().trim_start_matches("\\\\?\\").to_owned())))
+                                        .child(div().text_size(px(12.)).text_color(rgb(crate::ui_theme::palette(cx).muted)).truncate().child(path.to_string_lossy().trim_start_matches("\\\\?\\").to_owned())))
                                     .on_click(cx.listener(move |s, _, w, cx| s.choose_project_window(open.clone(), w, cx))))
                                 .child(Button::new(("remove-recent", i)).ghost().small().icon(jb_icon("closeSmall.svg")).tooltip(t("Remove from Recent Projects"))
                                     .on_click(cx.listener(move |s, _, _, cx| {
@@ -813,9 +782,9 @@ impl Render for Review {
         v_flex()
             .size_full()
             .text_size(cx.theme().font_size)
-            .text_color(rgb(FG))
+            .text_color(rgb(crate::ui_theme::palette(cx).foreground))
             .font_family(cx.theme().font_family.clone())
-            .bg(rgb(SHELL))
+            .bg(rgb(crate::ui_theme::palette(cx).shell))
             .track_focus(&self.focus)
             .key_context("Review")
             .capture_key_down(cx.listener(|s, event: &KeyDownEvent, w, cx| {
@@ -892,7 +861,7 @@ impl Render for Review {
                 selected.reverse();
                 if !selected.is_empty() { cx.write_to_clipboard(ClipboardItem::new_string(selected.iter().map(|id| id.hash.as_str()).collect::<Vec<_>>().join(" "))); }
             }))
-            .child(TitleBar::new().pl_0().h(px(40.)).bg(rgb(SHELL)).border_color(rgb(SHELL)).child(self.toolbar(cx)))
+            .child(TitleBar::new().pl_0().h(px(40.)).bg(rgb(crate::ui_theme::palette(cx).shell)).border_color(rgb(crate::ui_theme::palette(cx).shell)).child(self.toolbar(cx)))
 
 
             .when_some(self.navigation_loading.clone(), |layout, name| layout.child(
@@ -907,19 +876,19 @@ impl Render for Review {
                         .on_click(cx.listener(|s, _, _, cx| { s.navigation_notice = None; cx.notify(); })))
             ))
             .child(
-                h_flex().flex_1().min_h_0().items_stretch().px(px(8.)).gap(px(6.)).bg(rgb(SHELL))
+                h_flex().flex_1().min_h_0().items_stretch().px(px(8.)).gap(px(6.)).bg(rgb(crate::ui_theme::palette(cx).shell))
                     .child(self.tool_rail(cx))
                     .child(div().flex_1().min_w_0().h_full().child(v_resizable("git-tool-window-height").with_state(&self.git_tool_split)
                     .child(resizable_panel().size_range(px(160.)..px(4000.)).child(h_resizable("tool-windows-width").with_state(&self.tool_windows_width)
                     .child(resizable_panel().visible(self.local_visible || self.project_visible || self.stash_open || self.comparison_visible).flex_none().size(px(300.)).size_range(px(240.)..px(700.))
-                        .child(div().size_full().pr(px(6.)).child(div().relative().size_full().overflow_hidden().child(self.left_tool_windows(cx)).children(island_corners(true)))))
+                        .child(div().size_full().pr(px(6.)).child(div().relative().size_full().overflow_hidden().child(self.left_tool_windows(cx)).children(island_corners(true, cx)))))
                     .child(resizable_panel().child(v_flex().flex_1().min_w_0().h_full().child(self.git_toolbar(cx))
                     .child(div().flex_1().min_h_0().child(if let Some(tab) = self.active_file_index().and_then(|i| self.file_tabs.get(i)) {
-                        div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(tab.clone()).children(island_corners(false)).into_any_element()
+                        div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(crate::ui_theme::palette(cx).background)).child(tab.clone()).children(island_corners(false, cx)).into_any_element()
                     } else if let Some(tab) = self.active_diff_index().and_then(|i| self.tabs.get(i)) {
-                        div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(BG)).child(tab.clone()).children(island_corners(false)).into_any_element()
+                        div().relative().size_full().rounded_b(px(10.)).overflow_hidden().bg(rgb(crate::ui_theme::palette(cx).background)).child(tab.clone()).children(island_corners(false, cx)).into_any_element()
                     } else if let Some(tab) = self.active_branch_compare_index().and_then(|i| self.branch_compare_tabs.get(i)) {
-                        div().size_full().overflow_hidden().bg(rgb(BG)).child(tab.clone()).into_any_element()
+                        div().size_full().overflow_hidden().bg(rgb(crate::ui_theme::palette(cx).background)).child(tab.clone()).into_any_element()
                     } else {
                         v_resizable("vertical").with_state(&self.preview_split)
                             .on_resize(cx.listener(|s, state: &Entity<ResizableState>, _, cx| {
@@ -942,7 +911,7 @@ impl Render for Review {
                                             .relative().size_full()
                                             .when(!self.bottom_preview, |pane| pane.rounded_b(px(10.)))
                                             .overflow_hidden()
-                                            .bg(rgb(BG))
+                                            .bg(rgb(crate::ui_theme::palette(cx).background))
                                             .child(
                                                 h_flex().flex_1().min_h_0()
                                                     .when(!self.local, |row| row.child(self.branches_rail(cx)))
@@ -990,7 +959,7 @@ impl Render for Review {
                                                     ),
                                                 )),
                                             )
-                                            .when(!self.bottom_preview, |pane| pane.children(island_corners(false))),
+                                            .when(!self.bottom_preview, |pane| pane.children(island_corners(false, cx))),
                                     ),
                             )
                             .when(self.bottom_preview && !(self.log.commits().is_empty() && self.error.is_some() && !self.local_visible && !self.stash_open), |layout| layout.child(
@@ -1004,7 +973,7 @@ impl Render for Review {
                                                 div().size_full().children(self.local_preview.clone())
                                                     .when(self.local_preview.is_none(), |v| v.child(div().p_3().child(t("Select a file to view its diff")))).into_any_element()
                                             } else { self.diff_panel(cx).into_any_element() })
-                                            .children(island_corners(false)),
+                                            .children(island_corners(false, cx)),
                                     ),
                                 ),
                             ))
@@ -1018,9 +987,9 @@ impl Render for Review {
                 h_flex()
                     .h(px(20.))
                     .px_3()
-                    .bg(rgb(SHELL))
+                    .bg(rgb(crate::ui_theme::palette(cx).shell))
                     .text_size(px(12.)).line_height(px(16.))
-                    .text_color(rgb(MUTED))
+                    .text_color(rgb(crate::ui_theme::palette(cx).muted))
                     .flex_shrink_0()
                     .items_center()
                     .gap_2()
@@ -1028,12 +997,12 @@ impl Render for Review {
                         div().min_w_0().truncate().child(t("Shallow repository · totals cover available history"))))
                     .child(div().flex_1())
             .when_some(self.error.clone().or_else(|| self.update_diagnostic.clone()).or_else(|| self.sequence_diagnostic.clone()), |v, error| v.child(h_flex().gap_2().min_w_0()
-                .child(div().text_color(rgb(if self.error.is_none() && self.update_diagnostic.is_some() && self.update_diagnostic_warning { 0xd5b778 } else { 0xf2a6a6 })).child(t(if plico::git_error::is_ownership_error(&error) { "Repository access blocked" } else if self.error.is_none() && self.update_diagnostic.is_some() && self.update_diagnostic_warning { "Repositories skipped" } else { "Operation failed" })))
+                .child(div().text_color(rgb(if self.error.is_none() && self.update_diagnostic.is_some() && self.update_diagnostic_warning { crate::ui_theme::palette(cx).warning } else { crate::ui_theme::palette(cx).error })).child(t(if plico::git_error::is_ownership_error(&error) { "Repository access blocked" } else if self.error.is_none() && self.update_diagnostic.is_some() && self.update_diagnostic_warning { "Repositories skipped" } else { "Operation failed" })))
                 .child(Button::new("copy-operation-error").link().xsmall().label(t("Details"))
                     .on_click(cx.listener(|s, _, w, cx| s.show_error_details(w, cx))))
                 .child(Button::new("dismiss-operation-error").ghost().xsmall().label(t("Dismiss"))
                     .on_click(cx.listener(|s, _, _, cx| { s.error = None; s.update_diagnostic = None; s.sequence_diagnostic = None; cx.notify(); })))))
-            .when(self.operation.busy() || self.log_query.busy() || self.log_query.history_loading(), |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(MUTED).into()))))
+            .when(self.operation.busy() || self.log_query.busy() || self.log_query.history_loading(), |v| v.child(div().size(px(16.)).flex_shrink_0().child(gpui_kit::component::spinner::Spinner::new().small().color(rgb(crate::ui_theme::palette(cx).muted).into()))))
             .when_some(self.status_message.clone(), |v, text| v.child(div().max_w_full().min_w_0().truncate().child(text)))
             .when_some(self.merged_branch.as_ref(), |v, merged| v.child(
                 Button::new("delete-merged-branch").link().xsmall()

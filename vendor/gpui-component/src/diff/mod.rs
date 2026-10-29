@@ -18,6 +18,21 @@ pub use conflict::{DiffConflict, DiffConflictResolution};
 pub use document::{DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide};
 pub use parser::DiffParseError;
 pub use presentation::DiffInlineUnit;
+
+/// Editor-scheme colors, supplied explicitly to background decoration work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiffColors {
+    pub inserted: u32,
+    pub deleted: u32,
+    pub modified: u32,
+}
+impl DiffColors {
+    pub const DARK: Self = Self { inserted: 0x294436, deleted: 0x484a4a, modified: 0x385570 };
+    pub const LIGHT: Self = Self { inserted: 0xbee6be, deleted: 0xd6d6d6, modified: 0xc2d8f2 };
+    pub fn current(cx: &App) -> Self {
+        if cx.theme().is_dark() { Self::DARK } else { Self::LIGHT }
+    }
+}
 pub use state::{DiffEvent, DiffState};
 pub use three_way::{DiffTint, ThreeWayRow, ThreeWayInner};
 
@@ -945,7 +960,7 @@ fn render_row(
                         window,
                         cx,
                     ))
-                    .child(render_connector(*file, *original, *modified, *changed, &code))
+                    .child(render_connector(*file, *original, *modified, *changed, &code, cx))
                     .child(render_cell(
                         *file,
                         DiffSide::Modified,
@@ -1408,8 +1423,8 @@ fn side_label(side: DiffSide) -> std::borrow::Cow<'static, str> {
 
 /// Each virtual row paints its slice of a block connector. Equal extents
 /// degenerate to a straight band; pure insertion/deletion tapers to the marker.
-fn render_connector(file: usize, original: Option<usize>, modified: Option<usize>, changed: bool, code: &CodePresentation) -> AnyElement {
-    let tint = if original.is_some() && modified.is_some() {0x385570} else if original.is_some() {0x484a4a} else {0x294436};
+fn render_connector(file: usize, original: Option<usize>, modified: Option<usize>, changed: bool, code: &CodePresentation, cx: &App) -> AnyElement {
+    let tint = if original.is_some() && modified.is_some() {DiffColors::current(cx).modified} else if original.is_some() {DiffColors::current(cx).deleted} else {DiffColors::current(cx).inserted};
     let block = code.change_ranges[file].iter().find_map(|(a,b)| {
         if a.is_empty() && modified.is_some_and(|ix| b.contains(&ix)) {
             Some((true, modified.unwrap()-b.start, b.len()))
@@ -1476,7 +1491,7 @@ fn render_cell(
             let (own, peer) = if side == DiffSide::Original {(a,b)} else {(b,a)};
             own.is_empty() && peer.start == other
         }));
-        return cell.when(first_empty && code.change_background, |v| v.child(div().absolute().top_0().w_full().h(px(1.)).bg(gpui::rgb(if side == DiffSide::Original {0x294436} else {0x484a4a})))).into_any_element();
+        return cell.when(first_empty && code.change_background, |v| v.child(div().absolute().top_0().w_full().h(px(1.)).bg(gpui::rgb(if side == DiffSide::Original {DiffColors::current(cx).inserted} else {DiffColors::current(cx).deleted})))).into_any_element();
     };
     let content = v_flex()
     .w(if code.soft_wrap { column_width-gutter } else { (code.content_width / code.columns as f32).max(column_width)-gutter })
@@ -1505,7 +1520,7 @@ fn render_cell(
         HorizontalOffset::new(content, code.horizontal.clone()).into_any_element()
     };
     if mirrored {
-        let tint = if changed { Some(if code.files[file].lines(side)[ix].counterpart().is_some() {0x385570} else {0x484a4a}) } else { None };
+        let tint = if changed { Some(if code.files[file].lines(side)[ix].counterpart().is_some() {DiffColors::current(cx).modified} else {DiffColors::current(cx).deleted}) } else { None };
         cell.child(div().w(column_width-gutter).min_w_0().overflow_hidden().child(content))
             .child(div().self_stretch().when_some(tint.filter(|_|code.change_background), |v,c|v.bg(gpui::rgb(c)))
                 .child(render_gutter(file,side,Some(ix),&code,cx))).into_any_element()
@@ -1707,11 +1722,11 @@ fn code_line(
     } else if conflict_part.is_some() {
         conflict_tint(conflict_part, cx)
     } else if line.counterpart().is_some() && changed {
-        gpui::rgb(0x385570).into()
+        gpui::rgb(DiffColors::current(cx).modified).into()
     } else if side == DiffSide::Original {
-        gpui::rgb(0x484a4a).into()
+        gpui::rgb(DiffColors::current(cx).deleted).into()
     } else {
-        gpui::rgb(0x294436).into()
+        gpui::rgb(DiffColors::current(cx).inserted).into()
     };
     let selected = code.is_selected(file, side, ix)
         || (code.mode == DiffMode::Unified

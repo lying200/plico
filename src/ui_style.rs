@@ -7,7 +7,7 @@ use plico::{
 };
 
 // Cover opaque child paint at island corners. GPUI overflow clips to a rectangle.
-pub(crate) fn island_corners(top: bool) -> Vec<AnyElement> {
+pub(crate) fn island_corners(top: bool, cx: &App) -> Vec<AnyElement> {
     [
         ("ui/corner-bl.svg", false, false),
         ("ui/corner-br.svg", false, true),
@@ -21,7 +21,7 @@ pub(crate) fn island_corners(top: bool) -> Vec<AnyElement> {
             .path(path)
             .absolute()
             .size(px(10.))
-            .text_color(rgb(SHELL))
+            .text_color(rgb(crate::ui_theme::palette(cx).shell))
             .when(upper, |corner| corner.top_0())
             .when(!upper, |corner| corner.bottom_0())
             .when(right, |corner| corner.right_0())
@@ -30,16 +30,6 @@ pub(crate) fn island_corners(top: bool) -> Vec<AnyElement> {
     })
     .collect()
 }
-pub(crate) const BG: u32 = 0x191a1c;
-pub(crate) const SHELL: u32 = 0x26282c;
-pub(crate) const PANEL: u32 = 0x191a1c;
-pub(crate) const BORDER: u32 = 0x26282c;
-// Islands popup-border: layer-1-border -> gray-40. Keep panel seams separate.
-pub(crate) const POPUP_BORDER: u32 = 0x33353b;
-pub(crate) const FG: u32 = 0xd1d3d9;
-pub(crate) const MUTED: u32 = 0x9fa2a8;
-pub(crate) const SELECT: u32 = 0x2e4d89;
-pub(crate) const TOOL_DROP_BORDER: u32 = 0x5374a6;
 pub(crate) fn project_path_text(path: &std::path::Path) -> String {
     let text = path.to_string_lossy();
     if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
@@ -150,11 +140,15 @@ pub(crate) fn project_avatar(path: &std::path::Path, size: f32) -> impl IntoElem
         .child(initials)
 }
 
-pub(crate) fn row_selection(focus: &FocusHandle, window: &Window) -> u32 {
+pub(crate) fn row_selection(focus: &FocusHandle, window: &Window, cx: &App) -> u32 {
     if window.is_window_active() && focus.is_focused(window) {
-        0x2a4371
+        if crate::ui_theme::current(cx) == plico::layout_preferences::IslandsTheme::Dark {
+            0x2a4371
+        } else {
+            crate::ui_theme::palette(cx).selection
+        }
     } else {
-        0x33353b
+        crate::ui_theme::palette(cx).inactive_selection
     }
 }
 // Islands Tree.rowHeight and ClassicPainter's 16px control:
@@ -189,28 +183,75 @@ pub(crate) fn tree_selection(color: u32) -> impl IntoElement {
 pub(crate) const LOG_TOOLBAR_HEIGHT: f32 = 36.;
 
 // IntelliJ IDEA Islands Dark: themes/islands/IslandSchemeDark.xml.
-pub(crate) fn change_color(change: &Change) -> u32 {
+pub(crate) fn change_color(change: &Change, cx: &App) -> u32 {
+    let dark = crate::ui_theme::current(cx) == plico::layout_preferences::IslandsTheme::Dark;
     if change.area == Area::Conflict {
-        return 0xde6a66;
+        return if dark { 0xde6a66 } else { 0xff0000 };
     }
     if change.area == Area::Untracked {
-        return 0xe88f89;
+        return if dark { 0xe88f89 } else { 0x993300 };
     }
     match change.status.as_bytes().first() {
-        Some(b'A' | b'C') => 0x73bd79,
-        Some(b'M' | b'R' | b'T') => 0x70aeff,
-        Some(b'D') => 0x6f737a,
-        _ => FG,
+        Some(b'A' | b'C') => {
+            if dark {
+                0x73bd79
+            } else {
+                0x0a7700
+            }
+        }
+        Some(b'R') => {
+            if dark {
+                0x70aeff
+            } else {
+                0x007c7c
+            }
+        }
+        Some(b'M' | b'T') => {
+            if dark {
+                0x70aeff
+            } else {
+                0x0032a0
+            }
+        }
+        Some(b'D') => {
+            if dark {
+                0x6f737a
+            } else {
+                0x616161
+            }
+        }
+        _ => crate::ui_theme::palette(cx).foreground,
     }
 }
 pub(crate) fn jb_icon(name: &'static str) -> Icon {
-    Icon::default()
-        .path(format!("jb/{name}"))
-        .size(px(16.))
-        .text_color(rgb(FG))
+    Icon::default().path(format!("jb/{name}")).size(px(16.))
 }
-pub(crate) fn file_icon(path: &std::path::Path) -> &'static str {
-    match path
+pub(crate) fn themed_asset(asset: &'static str, cx: &App) -> &'static str {
+    if crate::ui_theme::current(cx) == plico::layout_preferences::IslandsTheme::Dark {
+        return asset;
+    }
+    match asset {
+        "jb/file-anyType_dark_4x.svg" => "jb/light/file-anyType_4x.svg",
+        "jb/file-text_dark_4x.svg" => "jb/light/file-text_4x.svg",
+        "jb/file-config_dark_4x.svg" => "jb/light/file-config_4x.svg",
+        "jb/file-json_dark_4x.svg" => "jb/light/file-json_4x.svg",
+        "jb/file-markdown_dark_4x.svg" => "jb/light/file-markdown_4x.svg",
+        "jb/file-java_dark_4x.svg" => "jb/light/file-java_4x.svg",
+        "jb/file-javaScript_dark_4x.svg" => "jb/light/file-javaScript_4x.svg",
+        "jb/file-typeScript_dark_4x.svg" => "jb/light/file-typeScript_4x.svg",
+        "jb/file-xml_dark_4x.svg" => "jb/light/file-xml_4x.svg",
+        "jb/file-yaml_dark_4x.svg" => "jb/light/file-yaml_4x.svg",
+        "jb/file-c_dark_4x.svg" => "jb/light/file-c_4x.svg",
+        "jb/file-cpp_dark_4x.svg" => "jb/light/file-cpp_4x.svg",
+        "jb/file-shell_dark_4x.svg" => "jb/light/file-shell_4x.svg",
+        "jb/file-python_dark_4x.svg" => "jb/light/file-python_4x.svg",
+        "jb/file-rust_dark_4x.svg" => "jb/light/file-rust_4x.svg",
+        "jb/folder_dark.svg" | "jb/folder_dark_4x.svg" => "jb/light/folder_4x.svg",
+        _ => asset,
+    }
+}
+pub(crate) fn file_icon(path: &std::path::Path, cx: &App) -> &'static str {
+    let asset = match path
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or_default()
@@ -232,16 +273,17 @@ pub(crate) fn file_icon(path: &std::path::Path) -> &'static str {
         "ts" | "tsx" => "jb/file-typeScript_dark_4x.svg",
         "xml" | "svg" => "jb/file-xml_dark_4x.svg",
         _ => "jb/file-anyType_dark_4x.svg",
-    }
+    };
+    themed_asset(asset, cx)
 }
 // Copyright 2000-2023 JetBrains s.r.o. and contributors.
 // Geometry and layering adapted from Rebased LabelIcon / TagPainter (Apache-2.0).
-pub(crate) fn ref_color(kind: git::RefKind) -> u32 {
+pub(crate) fn ref_color(kind: git::RefKind, cx: &App) -> u32 {
     match kind {
-        git::RefKind::Head => 0xf5d273,
-        git::RefKind::Local => 0x5fad65,
-        git::RefKind::Remote => 0xb589ec,
-        git::RefKind::Tag => 0x868a91,
+        git::RefKind::Head => crate::ui_theme::color(cx, 0xf5d273, 0xffaf0f),
+        git::RefKind::Local => crate::ui_theme::color(cx, 0x5fad65, 0x369650),
+        git::RefKind::Remote => crate::ui_theme::color(cx, 0xb589ec, 0x834df0),
+        git::RefKind::Tag => crate::ui_theme::color(cx, 0x868a91, 0x6c707e),
     }
 }
 pub(crate) fn reference_icon(colors: Vec<u32>, background: u32) -> impl IntoElement {
@@ -291,7 +333,7 @@ pub(crate) fn reference_icon(colors: Vec<u32>, background: u32) -> impl IntoElem
         .children(layers)
 }
 
-pub(crate) fn commit_refs(references: &[git::RefLabel]) -> AnyElement {
+pub(crate) fn commit_refs(references: &[git::RefLabel], cx: &App) -> AnyElement {
     v_flex()
         .flex_shrink_0()
         .gap_0()
@@ -333,8 +375,8 @@ pub(crate) fn commit_refs(references: &[git::RefLabel]) -> AnyElement {
                                     .min_w_0()
                                     .when(index == 0, |d| {
                                         d.child(reference_icon(
-                                            vec![ref_color(kind); group.len().min(2)],
-                                            PANEL,
+                                            vec![ref_color(kind, cx); group.len().min(2)],
+                                            crate::ui_theme::palette(cx).panel,
                                         ))
                                     })
                                     .child(
@@ -393,16 +435,29 @@ pub(crate) fn islands_tab(id: impl Into<ElementId>, selected: bool, cx: &App) ->
         .border_1()
         .border_color(transparent_black())
         .cursor_pointer()
-        .text_color(rgb(FG))
+        .text_color(rgb(crate::ui_theme::palette(cx).foreground))
         .when(selected, |tab| {
-            tab.bg(rgb(0x233558)).border_color(rgb(0x2e4d89))
+            tab.bg(rgb(
+                if crate::ui_theme::current(cx) == plico::layout_preferences::IslandsTheme::Dark {
+                    0x233558
+                } else {
+                    0xe3ebfe
+                },
+            ))
+            .border_color(rgb(crate::ui_theme::palette(cx).selection))
         })
-        .when(!selected, |tab| tab.hover(|style| style.bg(rgb(0x26282c))))
+        .when(!selected, |tab| {
+            tab.hover(|style| style.bg(rgb(crate::ui_theme::palette(cx).shell)))
+        })
 }
 
 /// Application presentation over the shared checkbox's controlled state and events.
-pub(crate) fn checkbox(id: impl Into<ElementId>) -> gpui_kit::component::checkbox::Checkbox {
-    gpui_kit::component::checkbox::Checkbox::new(id).indicator(|checked, mixed, disabled| {
+pub(crate) fn checkbox(
+    id: impl Into<ElementId>,
+    cx: &App,
+) -> gpui_kit::component::checkbox::Checkbox {
+    let light = crate::ui_theme::current(cx) == plico::layout_preferences::IslandsTheme::Light;
+    gpui_kit::component::checkbox::Checkbox::new(id).indicator(move |checked, mixed, disabled| {
         let asset = match (checked, mixed, disabled) {
             (_, true, true) => "jb/checkBoxIndeterminateSelectedDisabled.svg",
             (_, true, false) => "jb/checkBoxIndeterminateSelected.svg",
@@ -411,7 +466,14 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> gpui_kit::component::checkbo
             (false, false, true) => "jb/checkBoxDisabled.svg",
             (false, false, false) => "jb/checkBox.svg",
         };
-        img(asset).size(px(16.)).into_any_element()
+        let asset = if light {
+            asset.replacen("jb/", "jb/light/", 1)
+        } else {
+            asset.to_owned()
+        };
+        img(SharedString::from(asset))
+            .size(px(16.))
+            .into_any_element()
     })
 }
 

@@ -255,25 +255,28 @@ impl Render for Login {
             }
             return v_flex()
                 .gap_3()
-                .child(v_flex().border_1().border_color(rgb(0x34363a)).children(
-                    self.accounts.iter().enumerate().map(|(index, account)| {
-                        Button::new(("git-account", index))
-                            .ghost()
-                            .w_full()
-                            .selected(index == self.selected_account)
-                            .label(account.login.clone())
-                            .disabled(self.busy)
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                s.selected_account = index;
-                                cx.notify();
-                            }))
-                    }),
-                ))
+                .child(
+                    v_flex()
+                        .border_1()
+                        .border_color(rgb(crate::ui_theme::color(cx, 0x34363a, 0xdddfe4)))
+                        .children(self.accounts.iter().enumerate().map(|(index, account)| {
+                            Button::new(("git-account", index))
+                                .ghost()
+                                .w_full()
+                                .selected(index == self.selected_account)
+                                .label(account.login.clone())
+                                .disabled(self.busy)
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    s.selected_account = index;
+                                    cx.notify();
+                                }))
+                        })),
+                )
                 .when(
                     self.pending.as_ref().is_some_and(|p| p.project().is_some()),
                     |v| {
                         v.child(
-                            crate::ui_style::checkbox("git-default-account")
+                            crate::ui_style::checkbox("git-default-account", cx)
                                 .label(t("Set as default account for current project"))
                                 .checked(self.project_default)
                                 .disabled(self.busy)
@@ -301,7 +304,7 @@ impl Render for Login {
             return v_flex().gap_3().min_w_0()
                 .child(div().whitespace_normal().child(prompt.message()))
                 .when(!prompt.confirmation(), |v| v.child(Input::new(&self.password).external_focus_ring(false).content_type(InputContentType::Password)))
-                .when(prompt.rememberable(), |v| v.child(crate::ui_style::checkbox("ssh-remember")
+                .when(prompt.rememberable(), |v| v.child(crate::ui_style::checkbox("ssh-remember", cx)
                     .label(t(if cfg!(windows) { "Remember" } else { "Remember for this session" })).checked(self.remember)
                     .on_click(cx.listener(|s, checked, _, cx| { s.remember = *checked; cx.notify(); }))))
                 .when(self.storage_error, |v| v.child(t("Credential storage is unavailable. Clear Remember to continue without saving.")))
@@ -326,7 +329,11 @@ impl Render for Login {
                         .gap_1()
                         .child(input)
                         .when(error, |v| {
-                            v.child(div().text_color(rgb(0xf2a6a6)).child(t(message)))
+                            v.child(
+                                div()
+                                    .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                                    .child(t(message)),
+                            )
                         }),
                 )
         };
@@ -381,7 +388,7 @@ impl Render for Login {
             ))
             .child(
                 div().pl(px(LABEL_WIDTH + 12.)).child(
-                    crate::ui_style::checkbox("auth-remember")
+                    crate::ui_style::checkbox("auth-remember", cx)
                         .label(t(if cfg!(windows) {
                             "Remember"
                         } else {
@@ -407,7 +414,7 @@ impl Render for Login {
                 )
             })
             .when(self.storage_error, |v| {
-                v.child(div().text_color(rgb(0xf2a6a6)).child(t(
+                v.child(div().text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58))).child(t(
                     "Credential storage is unavailable. Clear Remember to continue without saving the password or token.",
                 )))
             })

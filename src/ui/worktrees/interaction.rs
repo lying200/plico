@@ -73,13 +73,17 @@ impl Browser {
         let remove_owner = owner.clone();
         let remove_path = path.to_owned();
         menu.item(
-            PopupMenuItem::element(move |_, _| {
+            PopupMenuItem::element(move |_, cx| {
                 h_flex()
                     .w_full()
                     .gap_6()
                     .child(t("Open as a Project"))
                     .child(div().flex_1())
-                    .child(div().text_color(rgb(MUTED)).child(t("Double Click")))
+                    .child(
+                        div()
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                            .child(t("Double Click")),
+                    )
             })
             .disabled(!enabled.0)
             .on_click(move |_, w, cx| {
@@ -93,13 +97,17 @@ impl Browser {
         )
         .separator()
         .item(
-            PopupMenuItem::element(move |_, _| {
+            PopupMenuItem::element(move |_, cx| {
                 h_flex()
                     .w_full()
                     .gap_6()
                     .child(t("Delete…"))
                     .child(div().flex_1())
-                    .child(div().text_color(rgb(MUTED)).child("Delete"))
+                    .child(
+                        div()
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                            .child("Delete"),
+                    )
             })
             .icon(jb_icon("delete_dark.svg"))
             .disabled(!enabled.1)

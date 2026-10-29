@@ -70,9 +70,13 @@ impl Render for Browser {
         v_flex()
             .gap_2()
             .w_full()
-            .child(div().text_color(rgb(MUTED)).child(t(
-                "Select a reflog entry to recover its commit as a branch.",
-            )))
+            .child(
+                div()
+                    .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                    .child(t(
+                        "Select a reflog entry to recover its commit as a branch.",
+                    )),
+            )
             .child(
                 h_flex()
                     .gap_2()
@@ -117,14 +121,16 @@ impl Render for Browser {
                                     .px_2()
                                     .w_full()
                                     .overflow_hidden()
-                                    .when(s.selected == Some(i), |row| row.bg(rgb(0x2e4773)))
+                                    .when(s.selected == Some(i), |row| {
+                                        row.bg(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)))
+                                    })
                                     .child(
                                         div().flex_shrink_0().child(entry.commit[..8].to_owned()),
                                     )
                                     .child(
                                         div()
                                             .flex_shrink_0()
-                                            .text_color(rgb(MUTED))
+                                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                             .child(entry.reference.clone()),
                                     )
                                     .child(
@@ -137,7 +143,7 @@ impl Render for Browser {
                                     .child(
                                         div()
                                             .flex_shrink_0()
-                                            .text_color(rgb(MUTED))
+                                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                             .child(plico::commit_date::timestamp(entry.timestamp)),
                                     )
                                     .on_click(cx.listener(move |s, _, _, cx| {
@@ -160,7 +166,7 @@ impl Render for Browser {
                 v.child(
                     div()
                         .whitespace_normal()
-                        .text_color(rgb(0xf2a6a6))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                         .child(error),
                 )
             })

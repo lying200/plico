@@ -32,14 +32,14 @@ fn label(tool: Tool) -> &'static str {
     }
 }
 impl Render for DragPreview {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size(px(32.))
             .flex()
             .items_center()
             .justify_center()
             .rounded(px(6.))
-            .bg(rgb(SELECT))
+            .bg(rgb(crate::ui_theme::palette(cx).selection))
             .child(jb_icon(icon(self.0.tool)).size(px(20.)))
     }
 }
@@ -72,9 +72,9 @@ impl Review {
                         .h(px(32.))
                         .flex_shrink_0()
                         .rounded(px(6.))
-                        .bg(rgb(SELECT))
+                        .bg(rgb(crate::ui_theme::palette(cx).selection))
                         .border_1()
-                        .border_color(rgb(TOOL_DROP_BORDER))
+                        .border_color(rgb(crate::ui_theme::palette(cx).drop_border))
                         .into_any_element(),
                 );
             }

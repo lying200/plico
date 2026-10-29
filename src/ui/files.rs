@@ -364,7 +364,7 @@ impl Review {
             .px(px(4.))
             .gap(px(2.))
             .border_b_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .child(
                 Button::new("files-show-diff")
                     .ghost()
@@ -402,7 +402,7 @@ impl Review {
             )
     }
     pub(super) fn files(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selection_color = row_selection(&self.files_focus, window);
+        let selection_color = row_selection(&self.files_focus, window, cx);
         let row_height = tree_row_height(cx);
         let files = self.files.clone();
         let flat = !self.local && !self.log_files_options.directory;
@@ -412,7 +412,7 @@ impl Review {
         let file_list = v_flex()
             .size_full()
             .min_h_0()
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .child(self.files_toolbar(cx))
             .child(
                 div()
@@ -429,7 +429,7 @@ impl Review {
                         cx.listener(|s, _, w, cx| s.files_focus.focus(w, cx)),
                     )
                     .child(
-                        uniform_list("files", rows.len(), move |range, _, _| {
+                        uniform_list("files", rows.len(), move |range, _, cx| {
                             range
                                 .map(|row| {
                                     let (i, depth) = match &rows[row] {
@@ -461,19 +461,30 @@ impl Review {
                                                 } else {
                                                     "chevronRight_dark.svg"
                                                 }))
-                                                .child(img("jb/folder_dark_4x.svg").size(px(16.)))
+                                                .child(
+                                                    img(crate::ui_style::themed_asset(
+                                                        "jb/folder_dark_4x.svg",
+                                                        cx,
+                                                    ))
+                                                    .size(px(16.)),
+                                                )
                                                 .child(
                                                     div().truncate().child(
                                                         label.to_string_lossy().into_owned(),
                                                     ),
                                                 )
-                                                .child(div().text_color(rgb(MUTED)).child(
-                                                    if path.as_os_str().is_empty() {
-                                                        log_file_count(*count)
-                                                    } else {
-                                                        count.to_string()
-                                                    },
-                                                ))
+                                                .child(
+                                                    div()
+                                                        .text_color(rgb(crate::ui_theme::palette(
+                                                            cx,
+                                                        )
+                                                        .muted))
+                                                        .child(if path.as_os_str().is_empty() {
+                                                            log_file_count(*count)
+                                                        } else {
+                                                            count.to_string()
+                                                        }),
+                                                )
                                                 .on_click(move |_, _, cx| {
                                                     let _ = owner.update(cx, |s, cx| {
                                                         let key =
@@ -508,7 +519,10 @@ impl Review {
                                                 .child(area.label())
                                                 .child(
                                                     div()
-                                                        .text_color(rgb(MUTED))
+                                                        .text_color(rgb(crate::ui_theme::palette(
+                                                            cx,
+                                                        )
+                                                        .muted))
                                                         .child(count.to_string()),
                                                 )
                                                 .on_click(move |_, _, cx| {
@@ -554,7 +568,9 @@ impl Review {
                                             }
                                         })
                                         .child(
-                                            img(file_icon(&f.path)).size(px(16.)).flex_shrink_0(),
+                                            img(file_icon(&f.path, cx))
+                                                .size(px(16.))
+                                                .flex_shrink_0(),
                                         )
                                         .child({
                                             let mut text = f
@@ -579,14 +595,20 @@ impl Review {
                                                 .min_w_0()
                                                 .flex_1()
                                                 .truncate()
-                                                .text_color(rgb(change_color(f)))
-                                                .child(StyledText::new(text).with_highlights([(
-                                                    name_end..end,
-                                                    HighlightStyle {
-                                                        color: Some(rgb(MUTED).into()),
-                                                        ..Default::default()
-                                                    },
-                                                )]))
+                                                .text_color(rgb(change_color(f, cx)))
+                                                .child(
+                                                    StyledText::new(text).with_highlights([(
+                                                        name_end..end,
+                                                        HighlightStyle {
+                                                            color: Some(
+                                                                rgb(crate::ui_theme::palette(cx)
+                                                                    .muted)
+                                                                .into(),
+                                                            ),
+                                                            ..Default::default()
+                                                        },
+                                                    )]),
+                                                )
                                         })
                                         .on_click(move |event, window, cx| {
                                             let _ = owner.update(cx, |s, cx| {
@@ -617,7 +639,7 @@ impl Review {
                                     .justify_center()
                                     .p_4()
                                     .overflow_hidden()
-                                    .text_color(rgb(MUTED))
+                                    .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                     .child(
                                         div()
                                             .w_full()
@@ -637,8 +659,8 @@ impl Review {
                                 .absolute()
                                 .inset_0()
                                 .p_4()
-                                .bg(rgb(PANEL))
-                                .text_color(rgb(MUTED))
+                                .bg(rgb(crate::ui_theme::palette(cx).panel))
+                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                 .child(t("Reading Git data…")),
                         )
                     }),
@@ -653,12 +675,12 @@ impl Review {
         let details = v_flex()
             .relative()
             .overflow_hidden()
-            .bg(rgb(PANEL))
+            .bg(rgb(crate::ui_theme::palette(cx).panel))
             .size_full()
             .min_h_0()
             .min_w_0()
             .border_t_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .child(
                 v_flex()
                     .id(("commit-details", self.selected.unwrap_or_default()))
@@ -681,7 +703,7 @@ impl Review {
                                 .pb_3()
                                 .mb_3()
                                 .border_b_1()
-                                .border_color(rgb(BORDER))
+                                .border_color(rgb(crate::ui_theme::palette(cx).border))
                                 .child(
                                     TextView::html(
                                         format!("multi-message-{i}"),
@@ -699,13 +721,20 @@ impl Review {
                                     .text_size(cx.theme().font_size)
                                     .style(
                                         gpui_kit::base::TextViewStyle::default()
-                                            .with_foreground(rgb(FG).into())
-                                            .with_link(rgb(0x71a1fe).into())
-                                            .with_selection(rgb(SELECT).into()),
+                                            .with_foreground(
+                                                rgb(crate::ui_theme::palette(cx).foreground).into(),
+                                            )
+                                            .with_link(
+                                                rgb(crate::ui_theme::color(cx, 0x71a1fe, 0x2f5eb9))
+                                                    .into(),
+                                            )
+                                            .with_selection(
+                                                rgb(crate::ui_theme::palette(cx).selection).into(),
+                                            ),
                                     )
                                     .selectable(true),
                                 )
-                                .child(commit_refs(refs))
+                                .child(commit_refs(refs, cx))
                                 .child(branches.clone())
                         },
                     ))
@@ -735,9 +764,13 @@ impl Review {
                         .text_size(cx.theme().font_size)
                         .style(
                             gpui_kit::base::TextViewStyle::default()
-                                .with_foreground(rgb(FG).into())
-                                .with_link(rgb(0x71a1fe).into())
-                                .with_selection(rgb(SELECT).into())
+                                .with_foreground(
+                                    rgb(crate::ui_theme::palette(cx).foreground).into(),
+                                )
+                                .with_link(
+                                    rgb(crate::ui_theme::color(cx, 0x71a1fe, 0x2f5eb9)).into(),
+                                )
+                                .with_selection(rgb(crate::ui_theme::palette(cx).selection).into())
                                 .with_paragraph_gap(rems(0.)),
                         )
                         .selectable(true),
@@ -745,7 +778,7 @@ impl Review {
                     .children(
                         detail_commit
                             .as_ref()
-                            .map(|commit| commit_refs(&commit.refs)),
+                            .map(|commit| commit_refs(&commit.refs, cx)),
                     )
                     .children(self.containing_branches.clone())
                     .context_menu(move |mut menu, _, _| {
@@ -791,7 +824,7 @@ impl Review {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                             .child(t("Commit details")),
                     )
                 },

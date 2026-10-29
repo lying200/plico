@@ -47,7 +47,7 @@ fn chunks(summary: Summary, compact: bool) -> Vec<(String, u32)> {
     }
     chunks
 }
-fn text_and_runs(chunks: &[(String, u32)], font: &Font) -> (String, Vec<TextRun>) {
+fn text_and_runs(chunks: &[(String, u32)], font: &Font, cx: &App) -> (String, Vec<TextRun>) {
     let mut text = String::new();
     let mut runs = Vec::new();
     for (label, color) in chunks {
@@ -59,7 +59,16 @@ fn text_and_runs(chunks: &[(String, u32)], font: &Font) -> (String, Vec<TextRun>
         runs.push(TextRun {
             len: part.len(),
             font: font.clone(),
-            color: rgb(*color).into(),
+            color: rgb(crate::ui_theme::color(
+                cx,
+                *color,
+                match *color {
+                    0x73bd79 => 0x0a7700,
+                    0x70aeff => 0x0032a0,
+                    _ => 0x616161,
+                },
+            ))
+            .into(),
             background_color: None,
             underline: None,
             strikethrough: None,
@@ -72,7 +81,7 @@ pub(super) fn selection_status(summary: Summary, window: &Window, cx: &App) -> i
     let full = chunks(summary, false);
     let compact = chunks(summary, true);
     let font = font(cx.theme().font_family.clone());
-    let (compact_text, compact_runs) = text_and_runs(&compact, &font);
+    let (compact_text, compact_runs) = text_and_runs(&compact, &font, cx);
     let min_width = if compact_text.is_empty() {
         px(0.)
     } else {
@@ -101,14 +110,14 @@ pub(super) fn selection_status(summary: Summary, window: &Window, cx: &App) -> i
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .child(
             canvas(
-                move |bounds, window, _| {
+                move |bounds, window, cx| {
                     if full.is_empty() {
                         return None;
                     }
                     let style = window.text_style();
                     let size = style.font_size.to_pixels(window.rem_size());
                     let shape = |chunks: &[(String, u32)]| {
-                        let (text, runs) = text_and_runs(chunks, &style.font());
+                        let (text, runs) = text_and_runs(chunks, &style.font(), cx);
                         window
                             .text_system()
                             .shape_line(text.into(), size, &runs, None)

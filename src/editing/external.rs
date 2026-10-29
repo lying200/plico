@@ -70,7 +70,7 @@ impl Editing {
         let disabled = documents.locked() || document.read(cx).saving();
         let documents = documents.clone();
         Some(v_flex().flex_shrink_0().px_3().py_2().gap_1()
-            .child(div().text_color(rgb(0xf2a6a6)).child(error))
+            .child(div().text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58))).child(error))
             .child(h_flex().gap_3()
                 .child(Button::new("copy-draft").link().small().label(t("Copy editor content"))
                     .on_click(move |_, _, cx| { if let Some(d) = copy.upgrade() {

@@ -88,10 +88,10 @@ impl ListDelegate for FilePicker {
                     h_flex()
                         .gap_2()
                         .pl(px(16.))
-                        .child(img(crate::ui_style::file_icon(&change.path)).size(px(16.)))
+                        .child(img(crate::ui_style::file_icon(&change.path, cx)).size(px(16.)))
                         .child(
                             div()
-                                .text_color(rgb(crate::ui_style::change_color(change)))
+                                .text_color(rgb(crate::ui_style::change_color(change, cx)))
                                 .child(label),
                         ),
                     *depth,
@@ -141,11 +141,14 @@ impl ListDelegate for FilePicker {
                                     cx.notify();
                                 })),
                         )
-                        .child(img("jb/folder_dark_4x.svg").size(px(16.)))
+                        .child(
+                            img(crate::ui_style::themed_asset("jb/folder_dark_4x.svg", cx))
+                                .size(px(16.)),
+                        )
                         .child(label)
                         .child(
                             div()
-                                .text_color(rgb(0x9fa2a8))
+                                .text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                                 .child(crate::ui_style::file_count(*count)),
                         ),
                     *depth,

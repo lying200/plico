@@ -41,15 +41,15 @@ impl Review {
                                     let force_owner = owner.clone(); let force_draft = draft.clone(); let force_path = path.clone();
                                     let can_force = draft.read(cx).spec().is_some_and(|s| plico::push::force_allowed(&s.target));
                                     let tags_draft = draft.clone(); let mode_draft = draft.clone();
-                                    DialogFooter::new().items_center().flex_wrap().gap(px(12.)).mx(px(-16.)).px(px(12.)).py(px(8.)).border_t_1().border_color(rgb(0x26282c))
-                                        .child(Button::new("push-help").ghost().label("?").accessibility_label(t("Push help")).size(control_height).with_size(control_height).p_0().rounded(control_height / 2.).border_1().border_color(rgb(0x40434a)).mr(px(8.)).on_click(|_,w,cx| {
+                                    DialogFooter::new().items_center().flex_wrap().gap(px(12.)).mx(px(-16.)).px(px(12.)).py(px(8.)).border_t_1().border_color(rgb(crate::ui_theme::color(cx, 0x26282c, 0xe9eaee)))
+                                        .child(Button::new("push-help").ghost().label("?").accessibility_label(t("Push help")).size(control_height).with_size(control_height).p_0().rounded(control_height / 2.).border_1().border_color(rgb(crate::ui_theme::color(cx, 0x40434a, 0xdddfe4))).mr(px(8.)).on_click(|_,w,cx| {
                                             w.open_dialog(cx,|d,_,_|d.title(t("Push")).w(px(460.)).child(t("Push the current branch to the target branch. Enable Push tags to include tags. Force Push checks the last known remote revision before replacing history.")).footer(DialogFooter::new().child(gpui_kit::component::dialog::DialogClose::new().trigger(|b|b.label(t("Close"))))));
                                         }))
                                         .child(h_flex().items_center().gap(px(8.))
                                         .child(gpui_kit::component::checkbox::Checkbox::new("push-tags").label(t("Push tags:"))
                                             .checked(draft.read(cx).push_tags).on_click(move|checked,_,cx|tags_draft.update(cx,|d,cx|{d.push_tags=*checked;cx.notify();})))
                                         .child(Button::new("push-tags-mode").w(rems(11.)).h(control_height).with_size(control_height).dropdown_caret(true).rounded(px(4.)).label(t(match draft.read(cx).tag_mode { plico::push::TagMode::All=>"All",plico::push::TagMode::CurrentBranch=>"Current Branch" }))
-                                            .border_color(rgb(if draft.read(cx).push_tags {0x40434a}else{0x33353b})).bg(rgb(if draft.read(cx).push_tags {0x26282c}else{0x191a1c})).text_color(rgb(if draft.read(cx).push_tags {FG}else{0x4c4f56})).disabled(!draft.read(cx).push_tags).dropdown_menu(move|mut menu,_,_|{
+                                            .border_color(rgb(if draft.read(cx).push_tags {0x40434a}else{0x33353b})).bg(rgb(if draft.read(cx).push_tags {0x26282c}else{0x191a1c})).text_color(rgb(if draft.read(cx).push_tags {crate::ui_theme::palette(cx).foreground}else{0x4c4f56})).disabled(!draft.read(cx).push_tags).dropdown_menu(move|mut menu,_,_|{
                                                 for (mode,label) in [(plico::push::TagMode::All,"All"),(plico::push::TagMode::CurrentBranch,"Current Branch")] {
                                                     let draft=mode_draft.clone();menu=menu.item(PopupMenuItem::new(t(label)).on_click(move|_,_,cx|draft.update(cx,|d,cx|{d.tag_mode=mode;cx.notify();})));
                                                 }menu
@@ -453,7 +453,7 @@ impl Review {
             };
             let checked=remember.clone(); let saved=remember.clone();
             dialog.title(h_flex().gap_3().items_center().child(gpui_kit::img("jb/warning_dark.svg").size(px(32.))).child(t("Force Push")))
-                .bg(rgb(0x26282b)).w(px(520.)).centered(true).overlay_closable(false)
+                .bg(rgb(crate::ui_theme::color(cx, 0x26282b, 0xf7f8f9))).w(px(520.)).centered(true).overlay_closable(false)
                 .child(v_flex().pl(px(44.)).gap_4().min_w_0()
                     .child(format!("{} '{}'. {}",t("You're going to force push to"),spec.target.branch,
                         t("It may overwrite commits at the remote. Are you sure you want to proceed?")))

@@ -182,8 +182,8 @@ impl Render for Settings {
         let owner = cx.entity().downgrade();
         let selected = self.selected.clone();
         v_flex().gap_3().w_full()
-            .child(v_flex().border_1().border_color(rgb(0x34363a)).min_h(px(260.))
-                .child(h_flex().gap_1().p_1().border_b_1().border_color(rgb(0x34363a))
+            .child(v_flex().border_1().border_color(rgb(crate::ui_theme::color(cx, 0x34363a, 0xdddfe4))).min_h(px(260.))
+                .child(h_flex().gap_1().p_1().border_b_1().border_color(rgb(crate::ui_theme::color(cx, 0x34363a, 0xdddfe4)))
                     .child(Button::new("accounts-add").ghost().small().icon(jb_icon("add_dark.svg")).disabled(!self.loaded).tooltip(t("Add account…"))
                         .dropdown_menu(move |menu, _, _| {
                             let browser = owner.clone(); let token = owner.clone();
@@ -197,21 +197,21 @@ impl Render for Settings {
                     .child(Button::new("accounts-login-again").ghost().small().icon(jb_icon("edit_dark.svg")).disabled(selected.is_none()).tooltip(t("Log in again"))
                         .on_click(cx.listener(|s, _, w, cx| s.begin_login(false, s.selected.clone(), w, cx)))))
                 .when(self.accounts.is_empty(), |v| v.child(v_flex().h(px(220.)).items_center().justify_center().gap_2()
-                    .child(div().text_color(rgb(crate::ui_style::MUTED)).child(t("No accounts added")))
+                    .child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("No accounts added")))
                     .child(Button::new("empty-add-account").ghost().label(t("Add account…")).disabled(!self.loaded).on_click(cx.listener(|s, _, w, cx| s.begin_login(false, None, w, cx))))))
                 .child(v_flex().id("settings-accounts-list").max_h(px(220.)).overflow_y_scroll()
                 .children(self.accounts.iter().map(|account| {
                     let value = account.clone();
                     Button::new(SharedString::from(format!("settings-account:{}", account.id()))).ghost().w_full().h(px(48.)).selected(selected.as_ref() == Some(account))
-                        .child(v_flex().w_full().child(format!("{}{}", if self.default.as_deref() == Some(account.id().as_str()) { "✓ " } else { "" }, account.login)).child(div().text_color(rgb(crate::ui_style::MUTED)).child(account.server.trim_start_matches("https://").to_owned())))
+                        .child(v_flex().w_full().child(format!("{}{}", if self.default.as_deref() == Some(account.id().as_str()) { "✓ " } else { "" }, account.login)).child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(account.server.trim_start_matches("https://").to_owned())))
                         .on_click(cx.listener(move |s, _, _, cx| { s.selected = Some(value.clone()); cx.notify(); }))
                 }))))
             .when(self.provider == Provider::GitLab, |v| v
                 .child(Button::new("custom-oauth-expand").ghost().label(t("Custom server OAuth applications")).on_click(cx.listener(|s, _, _, cx| { s.show_oauth = !s.show_oauth; cx.notify(); })))
                 .when(self.show_oauth, |v| v.child(Textarea::new(&self.oauth).external_focus_ring(false).h(px(90.)))
-                    .child(div().text_color(rgb(crate::ui_style::MUTED)).child(t("Use one server URL = client ID per line")))))
-            .when(plico::http_auth::use_credential_helper(), |v| v.child(div().whitespace_normal().text_color(rgb(crate::ui_style::MUTED)).child(t("Git credential helper is enabled; configured accounts are not used for Git operations."))))
-            .when_some(self.error.clone(), |v, e| v.child(div().whitespace_normal().text_color(rgb(0xf2a6a6)).child(e)))
+                    .child(div().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("Use one server URL = client ID per line")))))
+            .when(plico::http_auth::use_credential_helper(), |v| v.child(div().whitespace_normal().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("Git credential helper is enabled; configured accounts are not used for Git operations."))))
+            .when_some(self.error.clone(), |v, e| v.child(div().whitespace_normal().text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58))).child(e)))
             .into_any_element()
     }
 }

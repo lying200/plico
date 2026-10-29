@@ -92,7 +92,7 @@ impl Review {
                         .delivery(NotificationDelivery::InApp)
                         .placement(Anchor::BottomRight)
                         .autohide(false)
-                        .content(move |_, _, _| {
+                        .content(move |_, _, cx| {
                             let owner = owner.clone();
                             let repo = repository.clone();
                             h_flex()
@@ -100,7 +100,9 @@ impl Review {
                                 .child(
                                     Button::new("unshallow-startup-action")
                                         .ghost()
-                                        .text_color(rgb(0x589df6))
+                                        .text_color(rgb(crate::ui_theme::color(
+                                            cx, 0x589df6, 0x2f5eb9,
+                                        )))
                                         .text_sm()
                                         .p_0()
                                         .h(px(24.))

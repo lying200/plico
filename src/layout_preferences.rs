@@ -6,6 +6,63 @@ use std::{
 
 pub const DEFAULT_FILES_FRACTION: f32 = 0.7;
 
+/// Application-wide theme, independent of repository and operating-system theme.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum IslandsTheme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl IslandsTheme {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "Islands Dark",
+            Self::Light => "Islands Light",
+        }
+    }
+
+    fn read(path: &Path) -> Self {
+        let mut text = String::new();
+        if std::fs::File::open(path)
+            .and_then(|file| file.take(65).read_to_string(&mut text))
+            .is_err()
+            || text.len() > 64
+        {
+            return Self::default();
+        }
+        match text.trim() {
+            "islands-light" => Self::Light,
+            _ => Self::Dark,
+        }
+    }
+
+    fn write(self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(
+            path,
+            match self {
+                Self::Dark => "islands-dark\n",
+                Self::Light => "islands-light\n",
+            },
+        )
+    }
+
+    pub fn load() -> Self {
+        settings_path()
+            .map(|path| Self::read(&path.with_file_name("theme")))
+            .unwrap_or_default()
+    }
+
+    pub fn save(self) -> std::io::Result<()> {
+        let path = settings_path()
+            .ok_or_else(|| std::io::Error::other("User settings directory is unavailable"))?;
+        self.write(&path.with_file_name("theme"))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LogFilesOptions {
     pub directory: bool,
@@ -176,6 +233,27 @@ pub fn save_files_fraction(value: f32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn islands_theme_roundtrip_fallback_and_save_failure() {
+        let root = std::env::temp_dir().join(format!("plico-theme-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("theme");
+        assert_eq!(IslandsTheme::read(&path), IslandsTheme::Dark);
+        for theme in [IslandsTheme::Light, IslandsTheme::Dark, IslandsTheme::Light] {
+            theme.write(&path).unwrap();
+            assert_eq!(IslandsTheme::read(&path), theme);
+        }
+        for invalid in ["unknown".to_owned(), "islands-light".repeat(10)] {
+            std::fs::write(&path, invalid).unwrap();
+            assert_eq!(IslandsTheme::read(&path), IslandsTheme::Dark);
+        }
+        std::fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert_eq!(IslandsTheme::read(&path), IslandsTheme::Dark);
+        // A file in place of the parent directory must report failure to the UI.
+        assert!(IslandsTheme::Light.write(&path.join("theme")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn rebase_grouping_roundtrips_without_crossing_project_identity() {
         let root =

@@ -87,13 +87,13 @@ impl Review {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
-            .bg(rgb(BG))
+            .bg(rgb(crate::ui_theme::palette(cx).background))
             .child(
                 div()
                     .h(px(LOG_TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .border_b_1()
-                    .border_color(rgb(BORDER)),
+                    .border_color(rgb(crate::ui_theme::palette(cx).border)),
             )
             .child(
                 v_flex()
@@ -106,7 +106,7 @@ impl Review {
                     .justify_center()
                     .gap_2()
                     .p_4()
-                    .text_color(rgb(MUTED))
+                    .text_color(rgb(crate::ui_theme::palette(cx).muted))
                     .child(
                         div()
                             .w_full()

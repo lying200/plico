@@ -339,7 +339,9 @@ impl Render for PathChooser {
                                     .whitespace_nowrap()
                                     .pl(px(depth as f32 * 16.))
                                     .gap_1()
-                                    .when(i == s.active, |row| row.bg(rgb(0x2e4d89)))
+                                    .when(i == s.active, |row| {
+                                        row.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
+                                    })
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(move |s, _, w, cx| {
@@ -387,11 +389,15 @@ impl Render for PathChooser {
                                     )
                                     .child(
                                         img(if node.directory {
-                                            "jb/folder_dark_4x.svg"
+                                            crate::ui_style::themed_asset(
+                                                "jb/folder_dark_4x.svg",
+                                                cx,
+                                            )
                                         } else {
-                                            crate::ui_style::file_icon(std::path::Path::new(
-                                                &node.path,
-                                            ))
+                                            crate::ui_style::file_icon(
+                                                std::path::Path::new(&node.path),
+                                                cx,
+                                            )
                                         })
                                         .size(px(16.))
                                         .flex_shrink_0(),
@@ -404,7 +410,9 @@ impl Render for PathChooser {
                                                 .min_w_0()
                                                 .overflow_hidden()
                                                 .whitespace_nowrap()
-                                                .text_color(rgb(0x6f737a))
+                                                .text_color(rgb(crate::ui_theme::color(
+                                                    cx, 0x6f737a, 0x73767c,
+                                                )))
                                                 .child(format!("({root_path})")),
                                         )
                                     })
@@ -435,7 +443,12 @@ impl Render for PathChooser {
                     }
                     _ => error,
                 };
-                view.child(div().text_sm().text_color(rgb(0xf75464)).child(error))
+                view.child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf75464, 0xc54e58)))
+                        .child(error),
+                )
             })
     }
 }

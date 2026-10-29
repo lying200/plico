@@ -276,18 +276,14 @@ impl Review {
                                     .child(label),
                             )
                             .when(incoming > 0 || unfetched, |v| {
-                                v.child(
-                                    jb_icon("incoming_dark.svg")
-                                        .size(px(12.))
-                                        .text_color(rgb(0x548af7)),
-                                )
+                                v.child(jb_icon("incoming_dark.svg").size(px(12.)).text_color(rgb(
+                                    crate::ui_theme::color(cx, 0x548af7, 0x3574f0),
+                                )))
                             })
                             .when(outgoing > 0, |v| {
-                                v.child(
-                                    jb_icon("outgoing_dark.svg")
-                                        .size(px(12.))
-                                        .text_color(rgb(0x57965c)),
-                                )
+                                v.child(jb_icon("outgoing_dark.svg").size(px(12.)).text_color(rgb(
+                                    crate::ui_theme::color(cx, 0x57965c, 0x369650),
+                                )))
                             })
                             .child(jb_icon("chevronDown_dark.svg")),
                     ),
@@ -633,7 +629,7 @@ impl Review {
             .capture_action(cx.listener(|s, _: &gpui_kit::component::input::MoveEnd, w, cx| {
                 if s.branch_popup.search_editing { cx.propagate(); } else { s.repository_search_move(plico::branch_navigation::Move::Last,w,cx); }
             }))
-            .w(px(360.)).p_2().gap_1().bg(rgb(0x25262a)).border_1().border_color(rgb(POPUP_BORDER)).rounded(px(8.))
+            .w(px(360.)).p_2().gap_1().bg(rgb(crate::ui_theme::color(cx, 0x25262a, 0xf7f8f9))).border_1().border_color(rgb(crate::ui_theme::palette(cx).popup_border)).rounded(px(8.))
             .on_mouse_down_out(cx.listener(|s,event: &MouseDownEvent,_,cx| {
                 let in_child=s.branch_popup.child_menu.as_ref().and_then(|menu|menu.upgrade())
                     .is_some_and(|menu|menu.read(cx).contains_menu_position(&event.position, cx));
@@ -656,19 +652,19 @@ impl Review {
                 v_flex().w_full()
                     .child(Button::new(SharedString::from(format!("repository-action:{id}")))
                         .on_mouse_move(cx.listener(move |s,e,w,cx| s.repository_pointer_selection(e,plico::branch_search::Selection::Action(hovered_action.clone()),w,cx)))
-                        .custom(ButtonCustomVariant::new(cx).active(rgb(0x2e4773).into()))
+                        .custom(ButtonCustomVariant::new(cx).active(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)).into()))
                         .h(px(28.)).w_full()
                         .selected(matches!(&self.branch_popup.selection,Some(plico::branch_search::Selection::Action(selected)) if selected == id))
                         .child(h_flex().w_full().gap_2()
                             .child(div().w(px(16.)).when(id == "commit", |v| v.child(jb_icon("tool-commit_dark.svg"))))
                             .child(self.repository_search_label(label)))
                         .on_click(cx.listener(move |s,_,w,cx| s.activate_repository_action(&action,w,cx))))
-                    .when(id == "commit", |v| v.child(div().h(px(1.)).my_1().w_full().bg(rgb(POPUP_BORDER))))
+                    .when(id == "commit", |v| v.child(div().h(px(1.)).my_1().w_full().bg(rgb(crate::ui_theme::palette(cx).popup_border))))
             }))
             .children(self.repository_project_rows(cx))
-            .when(self.branch_popup.favorites_failed(), |v| v.child(div().text_color(rgb(0xe08888)).child(t("Could not load or save favorites"))))
-            .when(count>0 && !self.branch_popup.actions.is_empty(), |v|v.child(div().h(px(1.)).w_full().bg(rgb(POPUP_BORDER))))
-            .when(count==0 && self.branch_popup.actions.is_empty(), |v| v.child(div().p_2().text_color(rgb(MUTED)).child(t("No matching branches or actions"))))
+            .when(self.branch_popup.favorites_failed(), |v| v.child(div().text_color(rgb(crate::ui_theme::color(cx, 0xe08888, 0xc54e58))).child(t("Could not load or save favorites"))))
+            .when(count>0 && !self.branch_popup.actions.is_empty(), |v|v.child(div().h(px(1.)).w_full().bg(rgb(crate::ui_theme::palette(cx).popup_border))))
+            .when(count==0 && self.branch_popup.actions.is_empty(), |v| v.child(div().p_2().text_color(rgb(crate::ui_theme::palette(cx).muted)).child(t("No matching branches or actions"))))
             .when(count>0, |v|v.child(uniform_list("repository-reference-tree", count, cx.processor(|s, range: std::ops::Range<usize>, _, cx| {
                 if s.snapshot.is_none() { return Vec::new(); }
                 let groups=s.repository_groups();
@@ -686,8 +682,8 @@ impl Review {
                         let selected=matches!(&s.branch_popup.selection,Some(plico::branch_search::Selection::Folder(other)) if other==&key);
                         return div().id(SharedString::from(format!("repository-folder:{:?}:{}", key.section, key.prefix))).h(px(28.)).w_full().pl(indent).flex().items_center().gap_1().cursor_pointer()
                             .on_mouse_move(cx.listener(move |s,e,w,cx|s.repository_pointer_selection(e,plico::branch_search::Selection::Folder(pointer_key.clone()),w,cx)))
-                            .when(selected,|d|d.bg(rgb(0x2e4773)))
-                            .hover(move |d| d.bg(rgb(if selected {0x2e4773} else {0x34363b})))
+                            .when(selected,|d|d.bg(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe))))
+                            .hover(|d| d.bg(rgb(if selected {crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)} else {crate::ui_theme::color(cx, 0x34363b, 0xf7f8f9)})))
                             .child(jb_icon(if row.expanded { "chevronDown_dark.svg" } else { "chevronRight_dark.svg" })).child(if key.prefix.is_empty() { div().child(label.clone()).into_any_element() } else { s.repository_search_label(&label) })
                             .on_click(cx.listener(move |s,_,_,cx| { s.dismiss_repository_child(cx); s.branch_popup.expansion.toggle(key.clone()); s.branch_popup.selection=Some(plico::branch_search::Selection::Folder(key.clone())); cx.notify(); })).into_any_element();
                     }
@@ -709,12 +705,12 @@ impl Review {
                     let star = Button::new(SharedString::from(format!("favorite:{:?}:{}",row.section,full_ref))).custom(ButtonCustomVariant::new(cx)).h(px(28.)).w(px(24.)).p_0().flex_shrink_0()
                         .disabled(!s.branch_popup.can_favorite())
                         .tooltip(t(if favorite { "Remove from Favorites" } else { "Add to Favorites" }))
-                        .child(jb_icon(icon).text_color(rgb(if favorite { 0xf4af3d } else { FG })))
+                        .child(jb_icon(icon).text_color(rgb(if favorite { 0xf4af3d } else { crate::ui_theme::palette(cx).foreground })))
                         .on_click(cx.listener(move |s,_,_,cx| s.toggle_repository_favorite(favorite_ref.clone(),cx)));
                     let selected=matches!(&s.branch_popup.selection,Some(plico::branch_search::Selection::Reference(section,name)) if *section==row.section && name==&full_ref);
                     h_flex().id(SharedString::from(format!("repository-row:{:?}:{}",row.section,full_ref)))
                         .on_mouse_move(cx.listener(move |s,e,w,cx|s.repository_pointer_selection(e,hover_identity.clone(),w,cx)))
-                        .h(px(28.)).w_full().pl(indent).when(selected,|v|v.bg(rgb(0x2e4773))).child(star).child(div().flex_1().child(Button::new(SharedString::from(format!("repository-reference:{:?}:{}", row.section, full_ref))).custom(ButtonCustomVariant::new(cx)).h(px(28.)).w_full()
+                        .h(px(28.)).w_full().pl(indent).when(selected,|v|v.bg(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)))).child(star).child(div().flex_1().child(Button::new(SharedString::from(format!("repository-reference:{:?}:{}", row.section, full_ref))).custom(ButtonCustomVariant::new(cx)).h(px(28.)).w_full()
                         .child(h_flex().w_full().gap_1().child(s.repository_search_label(label))
                             .child(div().flex_1()).child(jb_icon("chevronRight_dark.svg")))
                         .dropdown_menu_with_anchor(Anchor::LeftCenter, move |mut menu,w,menu_cx| {

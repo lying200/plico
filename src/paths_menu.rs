@@ -343,10 +343,10 @@ impl PathsMenu {
             div()
                 .mt_1()
                 .border_t_1()
-                .border_color(rgb(0x393b40))
+                .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                 .px_2()
                 .py_1()
-                .text_color(rgb(0x9fa2a8))
+                .text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                 .child(t("Roots")),
         );
         for (i, (path, color)) in self.roots.entries.iter().enumerate() {
@@ -365,7 +365,7 @@ impl PathsMenu {
                     .w_full()
                     .tooltip(path.display().to_string())
                     .when(self.menu_index == self.root_start() + i, |b| {
-                        b.bg(rgb(0x2e4d89))
+                        b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
                     })
                     .child(
                         h_flex()
@@ -401,17 +401,17 @@ impl PathsMenu {
                     .absolute()
                     .size_full(),
             )
-            .bg(rgb(0x26282c))
+            .bg(rgb(crate::ui_theme::color(cx, 0x26282c, 0xe9eaee)))
             .border_1()
-            .border_color(rgb(0x393b40))
+            .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
             .rounded(px(8.))
             .overflow_hidden()
             .text_size(rems(1.))
-            .text_color(rgb(0xd1d3d9));
+            .text_color(rgb(crate::ui_theme::color(cx, 0xd1d3d9, 0x000000)));
         if let Some(editor) = &self.editor {
             body = body.w(px(430.))
-                .child(div().bg(rgb(0x191a1c)).p(px(2.)).child(Textarea::new(editor).h(px(52.)).appearance(false)))
-                .child(div().border_t_1().border_color(rgb(0x393b40)).px_2().py_2().text_size(px(11.)).text_color(rgb(0x9fa2a8))
+                .child(div().bg(rgb(crate::ui_theme::color(cx, 0x191a1c, 0xffffff))).p(px(2.)).child(Textarea::new(editor).h(px(52.)).appearance(false)))
+                .child(div().border_t_1().border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4))).px_2().py_2().text_size(px(11.)).text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                     .child(t("Select one or more values separated with new lines, use Ctrl+Enter to finish")));
         } else {
             body = body
@@ -435,7 +435,9 @@ impl PathsMenu {
                         .h(px(26.))
                         .w_full()
                         .child(div().w_full().child(t("Select…")))
-                        .when(self.menu_index == 0, |b| b.bg(rgb(0x2e4d89)))
+                        .when(self.menu_index == 0, |b| {
+                            b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
+                        })
                         .on_click(cx.listener(|s, _, w, cx| s.edit(w, cx))),
                 );
             body = body.child(
@@ -445,7 +447,9 @@ impl PathsMenu {
                     .h(px(26.))
                     .w_full()
                     .child(div().w_full().child(t("Select in Tree…")))
-                    .when(self.menu_index == 1, |b| b.bg(rgb(0x2e4d89)))
+                    .when(self.menu_index == 1, |b| {
+                        b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
+                    })
                     .on_click(cx.listener(|s, _, w, cx| s.select_tree(w, cx))),
             );
             if self.root_count() <= 15 {
@@ -456,7 +460,7 @@ impl PathsMenu {
                     div()
                         .px_2()
                         .text_size(px(11.))
-                        .text_color(rgb(0x9fa2a8))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                         .child(t("Recent")),
                 );
                 for (i, paths) in self.recent.iter().enumerate() {
@@ -474,7 +478,7 @@ impl PathsMenu {
                                     .child(Self::caption(&self.displayed(&paths))),
                             )
                             .when(self.menu_index == i + self.recent_start(), |b| {
-                                b.bg(rgb(0x2e4d89))
+                                b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
                             })
                             .on_click(
                                 cx.listener(move |s, _, _, cx| s.set_paths(paths.clone(), cx)),
@@ -487,7 +491,12 @@ impl PathsMenu {
             body = body.child(self.root_items(cx));
         }
         if let Some(error) = self.error.as_ref().or(self.persistence_error.as_ref()) {
-            body = body.child(div().p_2().text_color(rgb(0xf75464)).child(error.clone()));
+            body = body.child(
+                div()
+                    .p_2()
+                    .text_color(rgb(crate::ui_theme::color(cx, 0xf75464, 0xc54e58)))
+                    .child(error.clone()),
+            );
         }
         body.capture_action(cx.listener(|s, action: &Enter, _, cx| {
             if action.secondary {

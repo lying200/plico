@@ -136,24 +136,6 @@ impl UnifiedEditing {
             .display_offset(source_selection.start)
             .zip(projection.display_offset(source_selection.end));
         let offset = self.editor.read(cx).scroll_offset();
-        let mut marks = Vec::new();
-        for side in [DiffSide::Original, DiffSide::Modified] {
-            for (range, style, whole) in file.unified_editor_highlights(side) {
-                let ranges = if side != self.working_side {
-                    projection.original_display_ranges(range)
-                } else {
-                    projection.display_ranges(range)
-                };
-                for shown in ranges {
-                    let decoration = TextDecoration::new(shown, style);
-                    marks.push(if whole {
-                        decoration.whole_line()
-                    } else {
-                        decoration
-                    });
-                }
-            }
-        }
         self.editor.update(cx, |e, cx| {
             if e.text().to_string() != projection.text() {
                 e.set_value(projection.text().to_owned(), window, cx);
@@ -169,6 +151,37 @@ impl UnifiedEditing {
             valid: true,
             composing: false,
         };
+        self.refresh_colors(file, cx);
+    }
+    pub fn refresh_colors(&self, file: &DiffFile, cx: &mut App) {
+        let mapping = self.mapping.borrow();
+        if !mapping.valid || mapping.source != file.source(self.working_side) {
+            return;
+        }
+        let projection = &mapping.projection;
+        let mut marks = Vec::new();
+        for side in [DiffSide::Original, DiffSide::Modified] {
+            for (range, style, whole) in file.editor_highlights_with_colors(
+                side,
+                Some(gpui_kit::component::diff::DiffInlineUnit::Word),
+                true,
+                gpui_kit::component::diff::DiffColors::current(cx),
+            ) {
+                let ranges = if side != self.working_side {
+                    projection.original_display_ranges(range)
+                } else {
+                    projection.display_ranges(range)
+                };
+                for shown in ranges {
+                    let decoration = TextDecoration::new(shown, style);
+                    marks.push(if whole {
+                        decoration.whole_line()
+                    } else {
+                        decoration
+                    });
+                }
+            }
+        }
         self.marks.set(marks, cx);
     }
     pub fn change_rows(&self) -> &[usize] {
@@ -223,7 +236,8 @@ impl UnifiedEditing {
                                 &[TextRun {
                                     len: text.len(),
                                     font: font.clone(),
-                                    color: rgb(0x6f737a).into(),
+                                    color: rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c))
+                                        .into(),
                                     background_color: None,
                                     underline: None,
                                     strikethrough: None,

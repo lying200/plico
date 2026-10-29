@@ -120,9 +120,9 @@ impl Render for RevisionInput {
                                 .left_0()
                                 .w_full()
                                 .occlude()
-                                .bg(rgb(0x25262a))
+                                .bg(rgb(crate::ui_theme::color(cx, 0x25262a, 0xf7f8f9)))
                                 .border_1()
-                                .border_color(rgb(0x393b40))
+                                .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                                 .rounded(px(6.))
                                 .child(
                                     uniform_list(
@@ -139,7 +139,9 @@ impl Render for RevisionInput {
                                                         .flex()
                                                         .items_center()
                                                         .when(i == s.selected, |v| {
-                                                            v.bg(rgb(0x2d4771))
+                                                            v.bg(rgb(crate::ui_theme::color(
+                                                                cx, 0x2d4771, 0xd0dffe,
+                                                            )))
                                                         })
                                                         .child(s.candidates[s.matches[i]].clone())
                                                         .on_click(cx.listener(
@@ -161,7 +163,7 @@ impl Render for RevisionInput {
             ))
             .child(
                 div()
-                    .text_color(rgb(0x9fa2a8))
+                    .text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                     .child(t("Checkout opens the revision in detached HEAD mode.")),
             )
             .capture_action(cx.listener(|s, _: &MoveDown, _, cx| s.move_selection(true, cx)))

@@ -55,7 +55,7 @@ impl Review {
                     Ok(prepared) if prepared.needs_confirmation() => {
                         let prepared = Arc::new(prepared);
                         let owner = cx.entity().downgrade();
-                        w.open_dialog(cx, move |dialog, _, _| {
+                        w.open_dialog(cx, move |dialog, _, cx| {
                             let prepared = prepared.clone();
                             let owner = owner.clone();
                             dialog
@@ -67,7 +67,7 @@ impl Review {
                                 )
                                 .child(
                                     div()
-                                        .text_color(rgb(MUTED))
+                                        .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                         .child(project_display_path(prepared.directory())),
                                 )
                                 .child(

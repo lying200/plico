@@ -222,7 +222,7 @@ impl EditableDiff {
                         icon.into(),
                         None,
                         TransformationMatrix::unit(),
-                        rgb(0xced0d6).into(),
+                        rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)).into(),
                         cx,
                     );
                     if let Some(hit) = hit {

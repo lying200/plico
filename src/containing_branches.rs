@@ -204,7 +204,7 @@ impl Render for ContainingBranches {
             .font_family(cx.theme().font_family.clone())
             .text_size(cx.theme().font_size)
             .line_height(relative(1.3))
-            .text_color(rgb(0xd1d3d9));
+            .text_color(rgb(crate::ui_theme::color(cx, 0xd1d3d9, 0x000000)));
         let owner = cx.entity().downgrade();
         let width = self.width;
         panel = panel.child(
@@ -240,7 +240,7 @@ impl Render for ContainingBranches {
                             family: cx.theme().font_family.clone(),
                             ..Default::default()
                         },
-                        color: rgb(0xd1d3d9).into(),
+                        color: rgb(crate::ui_theme::color(cx, 0xd1d3d9, 0x000000)).into(),
                         background_color: None,
                         underline: None,
                         strikethrough: None,
@@ -319,7 +319,7 @@ impl Render for ContainingBranches {
                                 }))
                                 .flex_shrink_0()
                                 .ml(px(4.))
-                                .text_color(rgb(0x71a1fe))
+                                .text_color(rgb(crate::ui_theme::color(cx, 0x71a1fe, 0x2f5eb9)))
                                 .cursor_pointer()
                                 .hover(|d| d.underline())
                                 .child(t(if self.expanded { "Hide" } else { "Show all" }))

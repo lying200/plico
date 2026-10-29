@@ -382,13 +382,13 @@ impl Render for Panel {
                                 });
                             }
                         }))))
-                    .child(div().ml(px(68.)).text_color(rgb(crate::ui_style::MUTED)).whitespace_normal().child(t(match self.provider {
+                    .child(div().ml(px(68.)).text_color(rgb(crate::ui_theme::palette(cx).muted)).whitespace_normal().child(t(match self.provider {
                         Provider::GitHub => "Token scopes requested by Generate: repo, read:user, read:org, workflow",
                         Provider::GitLab => "Token scopes requested by Generate: read_api, read_user, write_repository",
                     })))
                     .child(h_flex().ml(px(68.)).mt_2().gap_3()
                         .child(Button::new("host-login").label(t("Log In")).disabled(self.busy).on_click(cx.listener(|s, _, w, cx| s.login(false, w, cx))))
-                        .child(Button::new("host-back").ghost().text_color(rgb(0x6da1f7)).label(t("Back")).disabled(self.busy).on_click(cx.listener(|s, _, w, cx| s.back(w, cx)))));
+                        .child(Button::new("host-back").ghost().text_color(rgb(crate::ui_theme::color(cx, 0x6da1f7, 0x2f5eb9))).label(t("Back")).disabled(self.busy).on_click(cx.listener(|s, _, w, cx| s.back(w, cx)))));
             } else if !self.busy {
                 content = content.child(
                     h_flex()
@@ -446,7 +446,7 @@ impl Render for Panel {
                         .child(
                             Button::new("host-token-login")
                                 .ghost()
-                                .text_color(rgb(0x6da1f7))
+                                .text_color(rgb(crate::ui_theme::color(cx, 0x6da1f7, 0x2f5eb9)))
                                 .label(t("Use token…"))
                                 .disabled(self.busy)
                                 .on_click(cx.listener(|s, _, w, cx| {
@@ -466,7 +466,7 @@ impl Render for Panel {
                         h_flex().child(
                             Button::new("host-back")
                                 .ghost()
-                                .text_color(rgb(0x6da1f7))
+                                .text_color(rgb(crate::ui_theme::color(cx, 0x6da1f7, 0x2f5eb9)))
                                 .label(t("Back"))
                                 .disabled(self.busy)
                                 .on_click(cx.listener(|s, _, w, cx| s.back(w, cx))),
@@ -494,7 +494,12 @@ impl Render for Panel {
                     .gap_3()
                     .items_center()
                     .child(Input::new(&self.search).external_focus_ring(false).flex_1())
-                    .child(div().w(px(1.)).h(px(24.)).bg(rgb(crate::ui_style::BORDER)))
+                    .child(
+                        div()
+                            .w(px(1.))
+                            .h(px(24.))
+                            .bg(rgb(crate::ui_theme::palette(cx).border)),
+                    )
                     .child(
                         Button::new("host-accounts")
                             .ghost()
@@ -611,7 +616,7 @@ impl Render for Panel {
             let mut list = v_flex()
                 .id("host-repositories")
                 .border_1()
-                .border_color(rgb(crate::ui_style::BORDER))
+                .border_color(rgb(crate::ui_theme::palette(cx).border))
                 .h(px(0.))
                 .flex_1()
                 .min_h_0()
@@ -633,7 +638,9 @@ impl Render for Panel {
                         .px_2()
                         .py_1()
                         .cursor_pointer()
-                        .when(selected, |r| r.bg(rgb(crate::ui_style::SELECT)))
+                        .when(selected, |r| {
+                            r.bg(rgb(crate::ui_theme::palette(cx).selection))
+                        })
                         .child(repository_label(&repo.name, self.selected.as_ref()).to_owned())
                         .on_click(cx.listener(move |s, _, _, cx| {
                             if s.busy {
@@ -684,7 +691,7 @@ impl Render for Panel {
             content = content.child(
                 div()
                     .whitespace_normal()
-                    .text_color(rgb(0xf2a6a6))
+                    .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                     .child(error.clone()),
             );
             if !self.login_ui && !self.busy {

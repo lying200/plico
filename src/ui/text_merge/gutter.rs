@@ -121,7 +121,7 @@ impl MergeEditor {
                         let (a, b) = if side == 0 { (a, b) } else { (b, a) };
                         let left = edges[side] - px(32.);
                         let right = edges[side];
-                        let color = color(kind);
+                        let color = color(kind, cx);
                         if resolved {
                             dotted_curve(left, right, a.0, b.0, color, bounds, window);
                             dotted_curve(left, right, a.1, b.1, color, bounds, window);
@@ -177,11 +177,11 @@ impl MergeEditor {
                                 continue;
                             }
                             if resolved {
-                                dotted_curve(left, right, y, y, color(kind), bounds, window);
+                                dotted_curve(left, right, y, y, color(kind, cx), bounds, window);
                             } else {
                                 window.paint_quad(fill(
                                     Bounds::new(point(left, y), size(right - left, px(1.))),
-                                    color(kind),
+                                    color(kind, cx),
                                 ));
                             }
                         }
@@ -195,7 +195,8 @@ impl MergeEditor {
                                 &[TextRun {
                                     len: text.len(),
                                     font: font.clone(),
-                                    color: rgb(0x6f737a).into(),
+                                    color: rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c))
+                                        .into(),
                                     background_color: None,
                                     underline: None,
                                     strikethrough: None,
@@ -227,7 +228,7 @@ impl MergeEditor {
                             (*icon).into(),
                             None,
                             TransformationMatrix::unit(),
-                            rgb(0xced0d6).into(),
+                            rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)).into(),
                             cx,
                         );
                     }
@@ -267,13 +268,13 @@ impl MergeEditor {
 }
 
 // Same semantic colors in the editors, gutters and connecting bands.
-pub(super) fn color(kind: plico::text_merge::Kind) -> Rgba {
+pub(super) fn color(kind: plico::text_merge::Kind, cx: &App) -> Rgba {
     use plico::text_merge::Kind;
     rgb(match kind {
-        Kind::Added => 0x294436,
-        Kind::Deleted => 0x484a4a,
-        Kind::Modified => 0x385570,
-        Kind::Conflict => 0x49332e,
+        Kind::Added => crate::ui_theme::color(cx, 0x294436, 0xbee6be),
+        Kind::Deleted => crate::ui_theme::color(cx, 0x484a4a, 0xd6d6d6),
+        Kind::Modified => crate::ui_theme::color(cx, 0x385570, 0xc2d8f2),
+        Kind::Conflict => crate::ui_theme::color(cx, 0x49332e, 0xffd5cc),
     })
 }
 

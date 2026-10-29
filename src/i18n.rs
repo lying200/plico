@@ -1123,6 +1123,7 @@ fn translate(english: &'static str, chinese: bool) -> &'static str {
         "Main menu" => "主菜单",
         "Editor Font" => "编辑器字体",
         "Font:" => "字体：",
+        "Theme:" => "主题：",
         "Size:" => "字号：",
         "Preview" => "预览",
         "Editor only" => "仅编辑器",

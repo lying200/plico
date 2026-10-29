@@ -369,16 +369,16 @@ impl UserMenu {
                     .absolute()
                     .size_full(),
             )
-            .bg(rgb(0x26282c))
+            .bg(rgb(crate::ui_theme::color(cx, 0x26282c, 0xe9eaee)))
             .border_1()
-            .border_color(rgb(0x393b40))
+            .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
             .rounded(px(8.))
             .overflow_hidden()
             .text_size(rems(1.))
-            .text_color(rgb(0xd1d3d9));
+            .text_color(rgb(crate::ui_theme::color(cx, 0xd1d3d9, 0x000000)));
         if let Some(editor) = &self.editor {
-            body = body.w(px(430.)).child(div().bg(rgb(0x191a1c)).p(px(2.)).child(Textarea::new(editor).h(px(52.)).appearance(false)))
-                .child(div().border_t_1().border_color(rgb(0x393b40)).px_2().py_2().text_size(px(11.)).text_color(rgb(0x9fa2a8))
+            body = body.w(px(430.)).child(div().bg(rgb(crate::ui_theme::color(cx, 0x191a1c, 0xffffff))).p(px(2.)).child(Textarea::new(editor).h(px(52.)).appearance(false)))
+                .child(div().border_t_1().border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4))).px_2().py_2().text_size(px(11.)).text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                     .child(t("Select one or more values separated with | or new lines, use Ctrl+Enter to finish")));
             if !self.matches.is_empty() {
                 let list = uniform_list(
@@ -394,7 +394,9 @@ impl UserMenu {
                                     .px_2()
                                     .w_full()
                                     .overflow_hidden()
-                                    .when(i == s.completion_index, |row| row.bg(rgb(0x2e4d89)))
+                                    .when(i == s.completion_index, |row| {
+                                        row.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
+                                    })
                                     .child(name)
                                     .on_mouse_down(
                                         MouseButton::Left,
@@ -439,13 +441,17 @@ impl UserMenu {
                                         .occlude()
                                         .w(px(layout.width))
                                         .p_1()
-                                        .bg(rgb(0x26282c))
+                                        .bg(rgb(crate::ui_theme::color(cx, 0x26282c, 0xe9eaee)))
                                         .border_1()
-                                        .border_color(rgb(0x393b40))
+                                        .border_color(rgb(crate::ui_theme::color(
+                                            cx, 0x393b40, 0xdddfe4,
+                                        )))
                                         .rounded(px(8.))
                                         .shadow_lg()
                                         .text_size(rems(1.))
-                                        .text_color(rgb(0xd1d3d9))
+                                        .text_color(rgb(crate::ui_theme::color(
+                                            cx, 0xd1d3d9, 0x000000,
+                                        )))
                                         .child(
                                             canvas(
                                                 {
@@ -481,7 +487,7 @@ impl UserMenu {
                         .w_full()
                         .child(div().w_full().child(t("Select…")))
                         .when(self.menu_index == 0 && self.directory.is_some(), |b| {
-                            b.bg(rgb(0x2e4d89))
+                            b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
                         })
                         .disabled(self.loading || self.directory.is_none())
                         .on_click(cx.listener(|s, _, w, cx| s.edit(w, cx))),
@@ -495,7 +501,9 @@ impl UserMenu {
                             .h(px(26.))
                             .w_full()
                             .child(div().w_full().child(t("me")))
-                            .when(self.menu_index == 1, |b| b.bg(rgb(0x2e4d89)))
+                            .when(self.menu_index == 1, |b| {
+                                b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
+                            })
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.commit(Selection::parse("me").unwrap(), cx)
                             })),
@@ -506,7 +514,7 @@ impl UserMenu {
                     div()
                         .px_2()
                         .text_size(px(11.))
-                        .text_color(rgb(0x9fa2a8))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0x9fa2a8, 0x5f6269)))
                         .child(t("Recent")),
                 );
                 for (i, selection) in self.recent.iter().enumerate() {
@@ -519,7 +527,7 @@ impl UserMenu {
                             .w_full()
                             .child(div().w_full().child(selection.values().join("|")))
                             .when(self.menu_index == i + 1 + usize::from(self.has_me()), |b| {
-                                b.bg(rgb(0x2e4d89))
+                                b.bg(rgb(crate::ui_theme::color(cx, 0x2e4d89, 0xd0dffe)))
                             })
                             .on_click(
                                 cx.listener(move |s, _, _, cx| s.commit(selection.clone(), cx)),
@@ -532,7 +540,12 @@ impl UserMenu {
             body = body.child(div().p_2().child(t("Loading users…")));
         }
         if let Some(error) = &self.error {
-            body = body.child(div().p_2().text_color(rgb(0xf75464)).child(error.clone()));
+            body = body.child(
+                div()
+                    .p_2()
+                    .text_color(rgb(crate::ui_theme::color(cx, 0xf75464, 0xc54e58)))
+                    .child(error.clone()),
+            );
         }
         body.id("user-filter-body")
             .on_mouse_down_out(cx.listener(|s, event: &MouseDownEvent, _, cx| {

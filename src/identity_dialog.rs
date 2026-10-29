@@ -70,7 +70,7 @@ impl Render for Form {
                 v.child(
                     div()
                         .whitespace_normal()
-                        .text_color(rgb(0xf2a6a6))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
                         .child(error),
                 )
             })

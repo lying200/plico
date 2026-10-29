@@ -125,7 +125,11 @@ impl RenderOnce for ModeSelector {
                     .size_full()
                     .rounded(px(4.))
                     .border_1()
-                    .border_color(rgb(if focused { 0x3871e1 } else { 0x40434a })),
+                    .border_color(rgb(if focused {
+                        0x3871e1
+                    } else {
+                        crate::ui_theme::color(cx, 0x40434a, 0xc3c5cb)
+                    })),
             );
         for (id, mode, icon, tooltip) in [
             (
@@ -147,9 +151,27 @@ impl RenderOnce for ModeSelector {
             // Ghost installs its own accent hover during rendering, after caller
             // hover styles. Use the variant's state colors for these segments.
             let variant = ButtonCustomVariant::new(cx)
-                .foreground(rgb(0xced0d6).into())
-                .hover(rgba(0xffffff17).into())
-                .active(rgb(if focused { 0x2e4d89 } else { 0x26282c }).into());
+                .foreground(rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)).into())
+                .hover(
+                    rgba(
+                        if crate::ui_theme::current(cx)
+                            == plico::layout_preferences::IslandsTheme::Dark
+                        {
+                            0xffffff17
+                        } else {
+                            0x00000008
+                        },
+                    )
+                    .into(),
+                )
+                .active(
+                    rgb(if focused {
+                        crate::ui_theme::palette(cx).selection
+                    } else {
+                        crate::ui_theme::palette(cx).shell
+                    })
+                    .into(),
+                );
             group = group.child(
                 Button::new(id)
                     .custom(variant)
@@ -159,16 +181,26 @@ impl RenderOnce for ModeSelector {
                     .rounded(px(4.))
                     .border_1()
                     .border_color(if selected {
-                        rgb(if focused { 0x191a1c } else { 0x5f6269 }).into()
+                        rgb(if focused {
+                            crate::ui_theme::palette(cx).background
+                        } else {
+                            crate::ui_theme::color(cx, 0x5f6269, 0xa8adbd)
+                        })
+                        .into()
                     } else {
                         transparent_black()
                     })
                     .bg(if selected {
-                        rgb(if focused { 0x2e4d89 } else { 0x26282c }).into()
+                        rgb(if focused {
+                            crate::ui_theme::palette(cx).selection
+                        } else {
+                            crate::ui_theme::palette(cx).shell
+                        })
+                        .into()
                     } else {
                         transparent_black()
                     })
-                    .text_color(rgb(0xced0d6))
+                    .text_color(rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)))
                     .child(Icon::default().path(icon).size(px(16.)))
                     .tooltip(t(tooltip))
                     .selected(selected)

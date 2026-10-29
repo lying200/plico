@@ -23,7 +23,7 @@ impl Details {
                     .h(px(22.))
                     .when(
                         self.selection.contains(&super::navigation::Key::of(row)),
-                        |v| v.bg(rgb(SELECT)),
+                        |v| v.bg(rgb(crate::ui_theme::palette(cx).selection)),
                     )
                     .gap(px(4.))
                     .pl(px(6. + *depth as f32 * 19.))
@@ -53,11 +53,15 @@ impl Details {
                                 }),
                             ),
                     )
-                    .child(Icon::default().path("jb/folder_dark_4x.svg").size(px(16.)))
+                    .child(
+                        Icon::default()
+                            .path(crate::ui_style::themed_asset("jb/folder_dark_4x.svg", cx))
+                            .size(px(16.)),
+                    )
                     .when(!root, |v| v.child(label.to_string_lossy().into_owned()))
                     .child(
                         div()
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(crate::ui_theme::palette(cx).muted))
                             .child(crate::ui_style::file_count(*count)),
                     )
                     .on_mouse_down(
@@ -82,11 +86,11 @@ impl Details {
                 let file = &self.data.as_ref().unwrap().files[i];
                 let path = &file.after.as_ref().or(file.before.as_ref()).unwrap().path;
                 let color = if file.before.is_none() {
-                    0x6aab73
+                    crate::ui_theme::color(cx, 0x6aab73, 0x0a7700)
                 } else if file.after.is_none() {
-                    0xcf8e6d
+                    crate::ui_theme::color(cx, 0xcf8e6d, 0x616161)
                 } else {
-                    0x6897bb
+                    crate::ui_theme::color(cx, 0x6897bb, 0x0032a0)
                 };
                 h_flex()
                     .id(("plan-file", i))
@@ -98,11 +102,11 @@ impl Details {
                     .overflow_hidden()
                     .when(
                         self.selection.contains(&super::navigation::Key::File(i)),
-                        |v| v.bg(rgb(SELECT)),
+                        |v| v.bg(rgb(crate::ui_theme::palette(cx).selection)),
                     )
                     .child(
                         Icon::default()
-                            .path(crate::ui_style::file_icon(path))
+                            .path(crate::ui_style::file_icon(path, cx))
                             .size(px(16.))
                             .flex_shrink_0(),
                     )
@@ -116,12 +120,14 @@ impl Details {
                     )
                     .when(!self.grouped, |v| {
                         v.child(
-                            div().text_color(rgb(MUTED)).child(
-                                path.parent()
-                                    .unwrap_or(std::path::Path::new(""))
-                                    .to_string_lossy()
-                                    .into_owned(),
-                            ),
+                            div()
+                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                                .child(
+                                    path.parent()
+                                        .unwrap_or(std::path::Path::new(""))
+                                        .to_string_lossy()
+                                        .into_owned(),
+                                ),
                         )
                     })
                     .on_mouse_down(
@@ -151,7 +157,7 @@ impl Render for Details {
             .h(px(30.))
             .flex_shrink_0()
             .border_b_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(crate::ui_theme::palette(cx).border))
             .px(px(4.))
             .gap(px(3.))
             .child(
@@ -232,8 +238,8 @@ impl Render for Details {
         v_flex()
             .size_full()
             .min_w_0()
-            .bg(rgb(BG))
-            .text_color(rgb(FG))
+            .bg(rgb(crate::ui_theme::palette(cx).background))
+            .text_color(rgb(crate::ui_theme::palette(cx).foreground))
             .child(
                 v_resizable("rebase-metadata-split")
                     .with_state(&self.split)
@@ -261,7 +267,10 @@ impl Render for Details {
                                     .child(toolbar)
                                     .when(self.loading, |v| {
                                         v.child(
-                                            div().p_2().text_color(rgb(MUTED)).child(t("Loading…")),
+                                            div()
+                                                .p_2()
+                                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                                                .child(t("Loading…")),
                                         )
                                     })
                                     .when_some(self.error.clone(), |v, error| {

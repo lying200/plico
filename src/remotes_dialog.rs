@@ -137,14 +137,14 @@ impl Render for Manager {
         v_flex()
             .min_w_0()
             .border_1()
-            .border_color(rgb(0x2b2d30))
+            .border_color(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9)))
             .child(
                 h_flex()
                     .gap_1()
                     .px_1()
                     .py_1()
                     .border_b_1()
-                    .border_color(rgb(0x2b2d30))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9)))
                     .child(
                         Button::new("remote-add")
                             .ghost()
@@ -178,13 +178,13 @@ impl Render for Manager {
                     .px_2()
                     .py_1()
                     .border_b_1()
-                    .border_color(rgb(0x2b2d30))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9)))
                     .child(
                         div()
                             .w(px(90.))
                             .flex_shrink_0()
                             .border_r_1()
-                            .border_color(rgb(0x2b2d30))
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9)))
                             .child(t("Remote name")),
                     )
                     .child(div().pl_2().flex_1().child("URL")),
@@ -201,7 +201,9 @@ impl Render for Manager {
                             .px_2()
                             .py_1()
                             .min_w_0()
-                            .when(self.selected == Some(i), |v| v.bg(rgb(0x2e4369)))
+                            .when(self.selected == Some(i), |v| {
+                                v.bg(rgb(crate::ui_theme::color(cx, 0x2e4369, 0xd0dffe)))
+                            })
                             .child(
                                 div()
                                     .w(px(90.))
@@ -231,7 +233,12 @@ impl Render for Manager {
             )
             .when(self.busy, |v| v.child(t("Updating remote configuration…")))
             .when_some(self.error.clone(), |v, e| {
-                v.child(div().whitespace_normal().text_color(rgb(0xf2a6a6)).child(e))
+                v.child(
+                    div()
+                        .whitespace_normal()
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                        .child(e),
+                )
             })
     }
 }

@@ -359,7 +359,7 @@ impl CompareView {
         cx.emit(Reloaded);
         cx.notify();
     }
-    fn direction_text(&self) -> Option<(StyledText, std::ops::Range<usize>)> {
+    fn direction_text(&self, cx: &App) -> Option<(StyledText, std::ops::Range<usize>)> {
         let Source::WorkingTree { reference, current } = &self.source else {
             return None;
         };
@@ -405,9 +405,9 @@ impl CompareView {
             HighlightStyle {
                 color: Some(
                     rgb(if self.loading || self.error.is_some() {
-                        0x6f737a
+                        crate::ui_theme::color(cx, 0x6f737a, 0x73767c)
                     } else {
-                        0x589df6
+                        crate::ui_theme::color(cx, 0x589df6, 0x2f5eb9)
                     })
                     .into(),
                 ),
@@ -591,7 +591,12 @@ impl CompareView {
                     .disabled(disabled)
                     .on_click(cx.listener(|s, _, _, cx| s.show_diff(cx))),
             )
-            .child(div().w(px(1.)).h(px(20.)).bg(rgb(0x393b40)))
+            .child(
+                div()
+                    .w(px(1.))
+                    .h(px(20.))
+                    .bg(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4))),
+            )
             .child(
                 Button::new("compare-options")
                     .ghost()
@@ -843,7 +848,7 @@ impl CompareView {
 }
 impl Render for CompareView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex().size_full().min_w_0().rounded(px(10.)).overflow_hidden().bg(rgb(0x181a1b))
+        v_flex().size_full().min_w_0().rounded(px(10.)).overflow_hidden().bg(rgb(crate::ui_theme::color(cx, 0x181a1b, 0xffffff)))
             .track_focus(&self.focus).key_context("VersionCompare")
                 .on_action(cx.listener(|s, _: &ShowDiff, _, cx| s.show_diff(cx)))
                 .on_action(cx.listener(|s, _: &Activate, _, cx| s.activate(cx)))
@@ -859,7 +864,7 @@ impl Render for CompareView {
                 .child(self.title()))
                 .child(Button::new("compare-close").ghost().small().icon(icon("closeSmall.svg")).tooltip(t("Close"))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(Close)))))
-            .when_some(self.direction_text(), |v, (text, link)| {
+            .when_some(self.direction_text(cx), |v, (text, link)| {
                 let owner = cx.entity().downgrade();
                 v.child(div().px_2().py_1().child(InteractiveText::new("compare-swap", text)
                     .on_click(if self.loading || self.error.is_some() { vec![] } else { vec![link] }, move |_, _, cx| {
@@ -890,11 +895,11 @@ impl Render for CompareView {
                             file_tree::Row::File { index, depth } => (*depth, s.chain.as_ref().unwrap().changes()[*index].path.file_name().unwrap_or_default().to_string_lossy().into_owned(), "file-text_dark_4x.svg", s.selection.contains(&Node::File(s.chain.as_ref().unwrap().changes()[*index].path.clone()))),
                         };
                         let color = match &entry {
-                            file_tree::Row::File { index, .. } => crate::ui_style::change_color(&s.chain.as_ref().unwrap().changes()[*index]),
-                            _ => crate::ui_style::FG,
+                            file_tree::Row::File { index, .. } => crate::ui_style::change_color(&s.chain.as_ref().unwrap().changes()[*index], cx),
+                            _ => crate::ui_theme::palette(cx).foreground,
                         };
                         h_flex().text_color(rgb(color)).id(("compare-file", row)).w_full().h(px(28.)).pl(px(10. + depth as f32 * 16.)).gap_2().min_w_0()
-                            .when(selected, |v| v.bg(rgb(0x2e4773))).child(match &entry { file_tree::Row::File { index, .. } => img(crate::ui_style::file_icon(&s.chain.as_ref().unwrap().changes()[*index].path)).size(px(16.)).flex_shrink_0().into_any_element(), _ => div().id(("compare-disclosure", row)).child(icon(image)).on_mouse_down(MouseButton::Left, cx.listener(move |s,_,w,cx| { cx.stop_propagation(); s.focus.focus(w,cx); s.choose_row(row,cx); s.activate(cx); })).into_any_element() }).when(matches!(entry, file_tree::Row::Folder { .. }), |v| {
+                            .when(selected, |v| v.bg(rgb(crate::ui_theme::color(cx, 0x2e4773, 0xd0dffe)))).child(match &entry { file_tree::Row::File { index, .. } => img(crate::ui_style::file_icon(&s.chain.as_ref().unwrap().changes()[*index].path, cx)).size(px(16.)).flex_shrink_0().into_any_element(), _ => div().id(("compare-disclosure", row)).child(icon(image)).on_mouse_down(MouseButton::Left, cx.listener(move |s,_,w,cx| { cx.stop_propagation(); s.focus.focus(w,cx); s.choose_row(row,cx); s.activate(cx); })).into_any_element() }).when(matches!(entry, file_tree::Row::Folder { .. }), |v| {
                                 let root_color = match &entry {
                                     file_tree::Row::Folder { path, .. } if path.as_os_str().is_empty() => s.repository_color,
                                     _ => None,
@@ -902,23 +907,23 @@ impl Render for CompareView {
                                 v.child(if let Some(color) = root_color {
                                     div().size(px(14.)).rounded(px(2.)).bg(rgb(color)).flex_shrink_0().into_any_element()
                                 } else {
-                                    img("jb/folder_dark.svg").size(px(16.)).flex_shrink_0().into_any_element()
+                                    img(crate::ui_style::themed_asset("jb/folder_dark.svg", cx)).size(px(16.)).flex_shrink_0().into_any_element()
                                 })
                             })
                             .child(div().flex_shrink_0().child(name))
-                            .when_some(match &entry { file_tree::Row::Folder {label,count,..} if !label.as_os_str().is_empty() || s.repository_color.is_some() => Some(*count), _ => None }, |v,count| v.child(div().text_color(rgb(0x6f737a)).child(crate::ui_style::file_count(count))))
+                            .when_some(match &entry { file_tree::Row::Folder {label,count,..} if !label.as_os_str().is_empty() || s.repository_color.is_some() => Some(*count), _ => None }, |v,count| v.child(div().text_color(rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c))).child(crate::ui_style::file_count(count))))
                             .when_some(match &entry {
                                 file_tree::Row::Folder {path, ..} if path.as_os_str().is_empty() && s.repository_color.is_some() => s.branch_context.as_ref(),
                                 _ => None,
                             }, |v, branch| {
                                 let tooltip = branch.branch.as_ref().map(|name| branch.upstream.as_ref().map(|upstream| format!("{name} → {upstream}")).unwrap_or_else(|| t("No tracking branch").to_owned()));
-                                v.child(div().id(("compare-root-branch", row)).px(px(4.)).bg(rgb(0x2b2d30)).text_color(rgb(0x909090)).flex_shrink_0().child(branch.label().to_owned()).when_some(tooltip, |v, text| v.tooltip(move |w,cx| Tooltip::new(text.clone()).build(w,cx))))
+                                v.child(div().id(("compare-root-branch", row)).px(px(4.)).bg(rgb(crate::ui_theme::color(cx, 0x2b2d30, 0xf7f8f9))).text_color(rgb(crate::ui_theme::color(cx, 0x909090, 0x73767c))).flex_shrink_0().child(branch.label().to_owned()).when_some(tooltip, |v, text| v.tooltip(move |w,cx| Tooltip::new(text.clone()).build(w,cx))))
                             })
                             .when(!s.group_files, |v| {
                                 if let file_tree::Row::File { index, .. } = &entry {
                                     let path = &s.chain.as_ref().unwrap().changes()[*index].path;
                                     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(&s.repo.path);
-                                    v.child(div().min_w_0().truncate().text_color(rgb(0x6f737a)).child(if parent == s.repo.path { parent.file_name().unwrap_or_default().to_string_lossy().into_owned() } else { parent.to_string_lossy().into_owned() }))
+                                    v.child(div().min_w_0().truncate().text_color(rgb(crate::ui_theme::color(cx, 0x6f737a, 0x73767c))).child(if parent == s.repo.path { parent.file_name().unwrap_or_default().to_string_lossy().into_owned() } else { parent.to_string_lossy().into_owned() }))
                                 } else { v }
                             })
                             .on_mouse_down(MouseButton::Left, cx.listener(move |s, event: &MouseDownEvent, window, cx| {

@@ -145,7 +145,7 @@ impl Review {
         ))
     }
     pub(super) fn history(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selection_color = row_selection(&self.history_focus, window);
+        let selection_color = row_selection(&self.history_focus, window, cx);
         let row_height = log_row_height(cx);
         let root_column = log_root_column::Column::new(self, window, cx);
         let root_scroll = self.history_scroll.clone();
@@ -181,7 +181,7 @@ impl Review {
         v_flex()
             .size_full()
             .min_w_0()
-            .bg(rgb(BG))
+            .bg(rgb(crate::ui_theme::palette(cx).background))
             .when_some(self.startup_frame(), |v, (probe, frame)| v.on_prepaint(move |_, _, _| probe.record(frame)))
             .child(
                 h_flex()
@@ -192,7 +192,7 @@ impl Review {
                     .px_2()
                     .gap_1()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .child(div().flex_1().min_w_0().max_w(px(260.)).child(
                         Input::new(&self.filter_search).small()
                             .prefix(jb_icon("search_dark.svg"))
@@ -246,7 +246,7 @@ impl Review {
                                                 uniform_list(
                                                     "history",
                                                     commits.len(),
-                                                    move |range, _, _| {
+                                                    move |range, _, cx| {
                                                         let offset = root_scroll.0.borrow().base_handle.offset().y;
                                                         let first_readable = ((-f32::from(offset) / row_height - 0.5).ceil().max(0.)) as usize;
                                                         range
@@ -271,7 +271,7 @@ impl Review {
                                         .gap_2()
                                         .when(root_column.is_some(), |d| d.pl_0().gap_0())
                                         .min_w(px(736.))
-                                        .when(included.contains(&c.id), |d| d.bg(rgb(0x1d2336)))
+                                        .when(included.contains(&c.id), |d| d.bg(rgb(crate::ui_theme::color(cx, 0x1d2336, 0xe3ebfe))))
                                         // VcsLogNewUiCellWrapper: single-repository selection
                                         // has 4px side insets and Popup.Selection.arc=8 (diameter).
                                         .when(is_selected, |d| d.child(
@@ -279,13 +279,13 @@ impl Review {
                                                 .rounded(px(4.)).bg(rgb(selection_color))
                                         ))
                                         .when_some(root_column.as_ref(), |d, column| d.child(
-                                            column.cell(i, &root_ids, first_readable, owner.clone(), if included.contains(&c.id) { 0x1d2336 } else { BG })
+                                            column.cell(i, &root_ids, first_readable, owner.clone(), if included.contains(&c.id) { crate::ui_theme::color(cx, 0x1d2336, 0xe3ebfe) } else { crate::ui_theme::palette(cx).background }, cx)
                                         ))
                                         .child(h_flex().flex_1().min_w_0().overflow_hidden().gap_2()
                                             .when(root_column.is_some(), |d| d.mr_2())
                                             .child(interactive_graph_cell(rows[i].clone(), graph::text_offset_columns(&rows[i], recommended_width) * 16. + 12., row_height, i,
                                                 GraphNodeStyle { head: checkout_head.as_deref() == Some(c.id.as_str()),
-                                                    background: if is_selected { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG } },
+                                                    background: if is_selected { selection_color } else if included.contains(&c.id) { crate::ui_theme::color(cx, 0x1d2336, 0xe3ebfe) } else { crate::ui_theme::palette(cx).background } },
                                                 owner.clone(), rows.clone(), commits.clone(), graph_hover))
                                         .child(
                                             h_flex()
@@ -296,7 +296,7 @@ impl Review {
                                                 .child(div().flex_1().min_w_0().truncate().child(c.subject.clone()))
                                                 .when(c.shallow_boundary, |d| d.child(
                                                     div().px_1().flex_shrink_0().text_size(px(12.))
-                                                        .text_color(rgb(0xe2b765)).bg(rgb(0x443b27))
+                                                        .text_color(rgb(crate::ui_theme::color(cx, 0xe2b765, 0xa56906))).bg(rgb(crate::ui_theme::color(cx, 0x443b27, 0xfff4d1)))
                                                         .rounded_sm().child(t("Shallow boundary"))
                                                 ))
                                                 .when(!c.refs.is_empty(), |d| d.child(
@@ -313,11 +313,11 @@ impl Review {
                                                         .child(
                                                             reference_icon(
                                                                 [git::RefKind::Head, git::RefKind::Local, git::RefKind::Remote, git::RefKind::Tag]
-                                                                    .into_iter().flat_map(|kind| std::iter::repeat_n(ref_color(kind), c.refs.iter().filter(|r| r.kind == kind).count().min(2))).collect(),
-                                                                if is_selected { selection_color } else if included.contains(&c.id) { 0x1d2336 } else { BG },
+                                                                    .into_iter().flat_map(|kind| std::iter::repeat_n(ref_color(kind, cx), c.refs.iter().filter(|r| r.kind == kind).count().min(2))).collect(),
+                                                                if is_selected { selection_color } else if included.contains(&c.id) { crate::ui_theme::color(cx, 0x1d2336, 0xe3ebfe) } else { crate::ui_theme::palette(cx).background },
                                                             )
                                                         )
-                                                        .child(div().min_w_0().truncate().text_color(rgb(MUTED)).child({
+                                                        .child(div().min_w_0().truncate().text_color(rgb(crate::ui_theme::palette(cx).muted)).child({
                                                             match &sources {
                                                                 Some(ids) => ids.get(i).filter(|id| id.hash == c.id)
                                                                     .and_then(|id| project_ref_titles.as_ref()?.get(id.root.as_ref()))
@@ -331,7 +331,7 @@ impl Review {
                                             div()
                                                 .w(px(110.)).flex_shrink_0()
                                                 .when(root_column.is_some(), |d| d.mr_2())
-                                                .text_color(rgb(MUTED))
+                                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                                 .truncate()
                                                 .child(c.author.clone()),
                                         )
@@ -339,7 +339,7 @@ impl Review {
                                             div()
                                                 .w(px(145.)).flex_shrink_0()
                                                 .truncate()
-                                                .text_color(rgb(MUTED))
+                                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
                                                 .child(plico::commit_date::format(&c.date)),
                                         )
                                         .on_mouse_down(MouseButton::Left, move |event, _, cx| {
@@ -495,7 +495,7 @@ impl Review {
                     )
                     .when(self.log.commits().is_empty() && self.error.is_none() && !self.log_query.history_loading()
                         && self.paths_menu.read(cx).selected_roots().is_some(), |v| v.child(
-                        v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(BG))
+                        v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(crate::ui_theme::palette(cx).background))
                             .child(t("No commits matching filters"))
                             .child(Button::new("reset-project-log-filters").link().small().label(t("Reset filters"))
                                 .on_click(cx.listener(|s, _, window, cx| {
@@ -508,7 +508,7 @@ impl Review {
                                 })))
                     ))
                     .when(self.log.commits().is_empty() && self.error.is_some(), |v| v.child(
-                        v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(BG))
+                        v_flex().absolute().inset_0().items_center().justify_center().gap_2().p_4().bg(rgb(crate::ui_theme::palette(cx).background))
                             .child(t(plico::git_error::summary(self.error.as_deref().unwrap_or_default())))
                             .child(h_flex().gap_3()
                                 .child(Button::new("retry-repository-load").link().small().label(t("Refresh"))

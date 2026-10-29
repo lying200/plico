@@ -611,7 +611,9 @@ impl HistoryView {
                                     .pb_3()
                                     .mb_3()
                                     .border_b_1()
-                                    .border_color(rgb(0x2a2b2d))
+                                    .border_color(rgb(crate::ui_theme::color(
+                                        cx, 0x2a2b2d, 0xe9eaee,
+                                    )))
                                     .child(
                                         TextView::html(
                                             format!("history-message-{id}"),
@@ -630,13 +632,28 @@ impl HistoryView {
                                         .text_size(rems(1.))
                                         .style(
                                             gpui_kit::base::TextViewStyle::default()
-                                                .with_foreground(rgb(0xd1d3d9).into())
-                                                .with_link(rgb(0x71a1fe).into())
-                                                .with_selection(rgb(0x2e436e).into()),
+                                                .with_foreground(
+                                                    rgb(crate::ui_theme::color(
+                                                        cx, 0xd1d3d9, 0x000000,
+                                                    ))
+                                                    .into(),
+                                                )
+                                                .with_link(
+                                                    rgb(crate::ui_theme::color(
+                                                        cx, 0x71a1fe, 0x2f5eb9,
+                                                    ))
+                                                    .into(),
+                                                )
+                                                .with_selection(
+                                                    rgb(crate::ui_theme::color(
+                                                        cx, 0x2e436e, 0xd0dffe,
+                                                    ))
+                                                    .into(),
+                                                ),
                                         )
                                         .selectable(true),
                                     )
-                                    .child(crate::ui_style::commit_refs(refs))
+                                    .child(crate::ui_style::commit_refs(refs, cx))
                                     .child(branches.clone())
                                     .context_menu(move |menu, _, _| {
                                         let hash = hash.clone();
@@ -936,7 +953,7 @@ impl HistoryView {
                     .h(px(row_height))
                     .gap_2()
                     .border_b_1()
-                    .border_color(rgb(0x393b40))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                     .child(div().w(px(100.)).child(t("Version")))
                     .child(div().w(px(145.)).child(t("Date")))
                     .child(div().w(px(130.)).child(t("Author")))
@@ -947,7 +964,7 @@ impl HistoryView {
                     .h(px(row_height))
                     .gap_2()
                     .border_b_1()
-                    .border_color(rgb(0x393b40))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x393b40, 0xdddfe4)))
                     .child(
                         h_flex()
                             .flex_1()
@@ -968,39 +985,50 @@ impl HistoryView {
                     .into_any_element()
             })
             .child(
-                uniform_list("file-history-revisions", cells.len(), move |range, _, _| {
-                    range
-                        .map(|row| {
-                            let (a, b, c, d) = cells[row].clone();
-                            let owner = owner.clone();
-                            let menu_owner = owner.clone();
-                            h_flex()
-                                .id(("history-row", row))
-                                .w_full()
-                                .h(px(row_height))
-                                .gap_2()
-                                .px_2()
-                                .when(selected[row], |v| v.bg(rgb(0x2e4676)))
-                                .when(selection, |v| {
-                                    v.child(div().w(px(100.)).truncate().child(a.clone()))
-                                        .child(div().w(px(145.)).truncate().child(b.clone()))
-                                        .child(div().w(px(130.)).truncate().child(c.clone()))
-                                        .child(div().flex_1().min_w_0().truncate().child(d.clone()))
-                                })
-                                .when(!selection, |v| {
-                                    let mut commit =
-                                        h_flex().flex_1().min_w_0().overflow_hidden().gap_2();
-                                    if let Some(r) = graph.get(row).cloned() {
-                                        let width = plico::graph::text_offset_columns(
-                                            &r,
-                                            recommended_width,
-                                        ) * 16.
-                                            + 12.;
-                                        let hovered = graph_hover
-                                            .filter(|(i, _)| *i == row)
-                                            .map(|(_, index)| index);
-                                        let tooltip = hovered.map(|index| {
-                                            r.arrow_target(index)
+                uniform_list(
+                    "file-history-revisions",
+                    cells.len(),
+                    move |range, _, cx| {
+                        range
+                            .map(|row| {
+                                let (a, b, c, d) = cells[row].clone();
+                                let owner = owner.clone();
+                                let menu_owner = owner.clone();
+                                h_flex()
+                                    .id(("history-row", row))
+                                    .w_full()
+                                    .h(px(row_height))
+                                    .gap_2()
+                                    .px_2()
+                                    .when(selected[row], |v| {
+                                        v.bg(rgb(crate::ui_theme::color(cx, 0x2e4676, 0xd0dffe)))
+                                    })
+                                    .when(selection, |v| {
+                                        v.child(div().w(px(100.)).truncate().child(a.clone()))
+                                            .child(div().w(px(145.)).truncate().child(b.clone()))
+                                            .child(div().w(px(130.)).truncate().child(c.clone()))
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .child(d.clone()),
+                                            )
+                                    })
+                                    .when(!selection, |v| {
+                                        let mut commit =
+                                            h_flex().flex_1().min_w_0().overflow_hidden().gap_2();
+                                        if let Some(r) = graph.get(row).cloned() {
+                                            let width = plico::graph::text_offset_columns(
+                                                &r,
+                                                recommended_width,
+                                            ) * 16.
+                                                + 12.;
+                                            let hovered = graph_hover
+                                                .filter(|(i, _)| *i == row)
+                                                .map(|(_, index)| index);
+                                            let tooltip = hovered.map(|index| {
+                                                r.arrow_target(index)
                                                 .and_then(|target| cells.get(target))
                                                 .map(|(id, date, author, subject)| {
                                                     crate::ui_graph::graph_arrow_tooltip(
@@ -1011,134 +1039,153 @@ impl HistoryView {
                                                     t("Commit is outside the loaded history window")
                                                         .into()
                                                 })
-                                        });
-                                        let hover_owner = owner.clone();
-                                        let click_owner = owner.clone();
-                                        let hover_graph = graph.clone();
-                                        let click_graph = graph.clone();
-                                        commit = commit.child(crate::ui_graph::graph_arrow_cell(
-                                            r,
-                                            width,
-                                            row_height,
-                                            row,
-                                            crate::ui_graph::GraphNodeStyle {
-                                                head: head_rows[row],
-                                                background: if selected[row] {
-                                                    0x2e4676
-                                                } else {
-                                                    0x18191a
-                                                },
-                                            },
-                                            hovered,
-                                            tooltip,
-                                            move |segment, cx| {
-                                                let _ = hover_owner.update(cx, |s, cx| {
-                                                    if s.loading
-                                                        || !std::sync::Arc::ptr_eq(
-                                                            &hover_graph,
-                                                            &s.graph,
-                                                        )
-                                                    {
-                                                        return;
-                                                    }
-                                                    if segment.is_none()
-                                                        && s.graph_hover
-                                                            .is_some_and(|(i, _)| i != row)
-                                                    {
-                                                        return;
-                                                    }
-                                                    let hover =
-                                                        segment.map(|segment| (row, segment));
-                                                    if s.graph_hover != hover {
-                                                        s.graph_hover = hover;
-                                                        cx.notify();
-                                                    }
-                                                });
-                                            },
-                                            move |target, w, cx| {
-                                                let _ = click_owner.update(cx, |s, cx| {
-                                                    if s.loading
-                                                        || s.selection.is_some()
-                                                        || !std::sync::Arc::ptr_eq(
-                                                            &click_graph,
-                                                            &s.graph,
-                                                        )
-                                                    {
-                                                        return;
-                                                    }
-                                                    s.select(target, cx);
-                                                    s.focus.focus(w, cx);
-                                                });
-                                            },
-                                        ));
-                                    }
-                                    v.child(
-                                        commit.child(div().flex_1().min_w_0().truncate().child(d)),
-                                    )
-                                    .child(div().w(px(130.)).flex_shrink_0().truncate().child(c))
-                                    .child(div().w(px(145.)).flex_shrink_0().truncate().child(b))
-                                })
-                                .on_mouse_down(MouseButton::Left, move |event, w, cx| {
-                                    let _ = owner.update(cx, |s, cx| {
-                                        s.focus.focus(w, cx);
-                                        s.select_modified(
-                                            row,
-                                            event.modifiers.control,
-                                            event.modifiers.shift,
-                                            cx,
-                                        );
-                                    });
-                                })
-                                .map(|v| {
-                                    if selection {
-                                        return v.into_any_element();
-                                    }
-                                    v.context_menu(move |menu, _, cx| {
-                                        let Some(view) = menu_owner.upgrade() else {
-                                            return menu;
-                                        };
-                                        view.update(cx, |s, cx| {
-                                            if let Some(revision) = s.revision(row) {
-                                                if !s.revisions.contains(&revision.id) {
-                                                    s.select(row, cx);
-                                                }
-                                            }
-                                        });
-                                        let state = view.read(cx);
-                                        let request = (!state.loading
-                                            && state
-                                                .revisions
-                                                .ordered(&state.revision_ids())
-                                                .len()
-                                                == 1)
-                                            .then(|| {
-                                                state.revision(row).filter(|r| !r.deleted).cloned()
-                                            })
-                                            .flatten()
-                                            .map(|revision| GetRevision {
-                                                repository: state.repo.path.clone(),
-                                                path: state.path.clone(),
-                                                revision,
                                             });
-                                        let owner = menu_owner.clone();
-                                        menu.item(
-                                            PopupMenuItem::new(t("Get"))
-                                                .icon(Icon::default().path("jb/download_dark.svg"))
-                                                .disabled(request.is_none())
-                                                .on_click(move |_, _, cx| {
-                                                    if let Some(request) = request.clone() {
-                                                        let _ = owner
-                                                            .update(cx, |_, cx| cx.emit(request));
-                                                    }
-                                                }),
+                                            let hover_owner = owner.clone();
+                                            let click_owner = owner.clone();
+                                            let hover_graph = graph.clone();
+                                            let click_graph = graph.clone();
+                                            commit =
+                                                commit.child(crate::ui_graph::graph_arrow_cell(
+                                                    r,
+                                                    width,
+                                                    row_height,
+                                                    row,
+                                                    crate::ui_graph::GraphNodeStyle {
+                                                        head: head_rows[row],
+                                                        background: if selected[row] {
+                                                            crate::ui_theme::color(
+                                                                cx, 0x2e4676, 0xd0dffe,
+                                                            )
+                                                        } else {
+                                                            crate::ui_theme::color(
+                                                                cx, 0x18191a, 0xffffff,
+                                                            )
+                                                        },
+                                                    },
+                                                    hovered,
+                                                    tooltip,
+                                                    move |segment, cx| {
+                                                        let _ = hover_owner.update(cx, |s, cx| {
+                                                            if s.loading
+                                                                || !std::sync::Arc::ptr_eq(
+                                                                    &hover_graph,
+                                                                    &s.graph,
+                                                                )
+                                                            {
+                                                                return;
+                                                            }
+                                                            if segment.is_none()
+                                                                && s.graph_hover
+                                                                    .is_some_and(|(i, _)| i != row)
+                                                            {
+                                                                return;
+                                                            }
+                                                            let hover = segment
+                                                                .map(|segment| (row, segment));
+                                                            if s.graph_hover != hover {
+                                                                s.graph_hover = hover;
+                                                                cx.notify();
+                                                            }
+                                                        });
+                                                    },
+                                                    move |target, w, cx| {
+                                                        let _ = click_owner.update(cx, |s, cx| {
+                                                            if s.loading
+                                                                || s.selection.is_some()
+                                                                || !std::sync::Arc::ptr_eq(
+                                                                    &click_graph,
+                                                                    &s.graph,
+                                                                )
+                                                            {
+                                                                return;
+                                                            }
+                                                            s.select(target, cx);
+                                                            s.focus.focus(w, cx);
+                                                        });
+                                                    },
+                                                ));
+                                        }
+                                        v.child(
+                                            commit.child(
+                                                div().flex_1().min_w_0().truncate().child(d),
+                                            ),
+                                        )
+                                        .child(
+                                            div().w(px(130.)).flex_shrink_0().truncate().child(c),
+                                        )
+                                        .child(
+                                            div().w(px(145.)).flex_shrink_0().truncate().child(b),
                                         )
                                     })
+                                    .on_mouse_down(MouseButton::Left, move |event, w, cx| {
+                                        let _ = owner.update(cx, |s, cx| {
+                                            s.focus.focus(w, cx);
+                                            s.select_modified(
+                                                row,
+                                                event.modifiers.control,
+                                                event.modifiers.shift,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                                    .map(|v| {
+                                        if selection {
+                                            return v.into_any_element();
+                                        }
+                                        v.context_menu(move |menu, _, cx| {
+                                            let Some(view) = menu_owner.upgrade() else {
+                                                return menu;
+                                            };
+                                            view.update(cx, |s, cx| {
+                                                if let Some(revision) = s.revision(row) {
+                                                    if !s.revisions.contains(&revision.id) {
+                                                        s.select(row, cx);
+                                                    }
+                                                }
+                                            });
+                                            let state = view.read(cx);
+                                            let request = (!state.loading
+                                                && state
+                                                    .revisions
+                                                    .ordered(&state.revision_ids())
+                                                    .len()
+                                                    == 1)
+                                                .then(|| {
+                                                    state
+                                                        .revision(row)
+                                                        .filter(|r| !r.deleted)
+                                                        .cloned()
+                                                })
+                                                .flatten()
+                                                .map(|revision| GetRevision {
+                                                    repository: state.repo.path.clone(),
+                                                    path: state.path.clone(),
+                                                    revision,
+                                                });
+                                            let owner = menu_owner.clone();
+                                            menu.item(
+                                                PopupMenuItem::new(t("Get"))
+                                                    .icon(
+                                                        Icon::default()
+                                                            .path("jb/download_dark.svg"),
+                                                    )
+                                                    .disabled(request.is_none())
+                                                    .on_click(move |_, _, cx| {
+                                                        if let Some(request) = request.clone() {
+                                                            let _ = owner.update(cx, |_, cx| {
+                                                                cx.emit(request)
+                                                            });
+                                                        }
+                                                    }),
+                                            )
+                                        })
+                                        .into_any_element()
+                                    })
                                     .into_any_element()
-                                })
-                                .into_any_element()
-                        })
-                        .collect()
-                })
+                            })
+                            .collect()
+                    },
+                )
                 .track_scroll(&self.scroll)
                 .flex_1()
                 .min_h_0(),
@@ -1151,9 +1198,9 @@ impl HistoryView {
                     .px_3()
                     .gap_2()
                     .border_t_1()
-                    .border_color(rgb(crate::ui_style::BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .text_size(px(12.))
-                    .text_color(rgb(crate::ui_style::MUTED))
+                    .text_color(rgb(crate::ui_theme::palette(cx).muted))
                     .child(
                         div().min_w_0().truncate().child(i18n::history_count(
                             self.history.revisions.len(),
@@ -1407,7 +1454,7 @@ impl HistoryView {
                     .h(px(36.))
                     .px_3()
                     .gap_2()
-                    .bg(rgb(0x212326))
+                    .bg(rgb(crate::ui_theme::color(cx, 0x212326, 0xf7f8f9)))
                     .child(
                         Button::new("history-previous-change")
                             .ghost()
@@ -1478,7 +1525,9 @@ impl HistoryView {
                                     .px_2()
                                     .gap_1()
                                     .border_b_1()
-                                    .border_color(rgb(0x2a2b2d))
+                                    .border_color(rgb(crate::ui_theme::color(
+                                        cx, 0x2a2b2d, 0xe9eaee,
+                                    )))
                                     .child(Icon::default().path("jb/locked_dark.svg").size(px(14.)))
                                     .child(div().truncate().child(format!(
                                         "{} {} · {}",
@@ -1557,7 +1606,7 @@ impl Render for HistoryView {
                     }
                 }),
             )
-            .bg(rgb(0x18191a))
+            .bg(rgb(crate::ui_theme::color(cx, 0x18191a, 0xffffff)))
             .text_size(rems(1.))
             .child(
                 h_flex()
@@ -1733,8 +1782,8 @@ impl Render for HistoryWindow {
                 }),
             )
             .size_full()
-            .bg(rgb(0x18191a))
-            .text_color(rgb(0xced0d6))
+            .bg(rgb(crate::ui_theme::color(cx, 0x18191a, 0xffffff)))
+            .text_color(rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000)))
             .child(TitleBar::new().child(t("History for Selection")))
             .child(div().flex_1().min_h_0().child(self.history.clone()))
     }

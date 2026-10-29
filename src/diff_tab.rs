@@ -933,14 +933,14 @@ impl Render for DiffTab {
                         Icon::default()
                             .path("jb/locked_dark.svg")
                             .size(px(16.))
-                            .text_color(rgb(0xced0d6)),
+                            .text_color(rgb(crate::ui_theme::color(cx, 0xced0d6, 0x000000))),
                     )
                 })
                 .child(
                     div()
                         .flex_shrink_0()
                         .ml_1()
-                        .text_color(rgb(0xbcbec4))
+                        .text_color(rgb(crate::ui_theme::color(cx, 0xbcbec4, 0x080808)))
                         .child(revision),
                 )
                 .when_some(path, |cell, path| {
@@ -951,7 +951,7 @@ impl Render for DiffTab {
                             .min_w_0()
                             .h_full()
                             .ml_2()
-                            .text_color(rgb(0x73767c))
+                            .text_color(rgb(crate::ui_theme::color(cx, 0x73767c, 0x73767c)))
                             .child(crate::diff_path_title::path_title(path, full_path)),
                     )
                 })
@@ -964,7 +964,7 @@ impl Render for DiffTab {
             .w_full()
             .flex_shrink_0()
             .border_b_1()
-            .border_color(rgb(0x26282c))
+            .border_color(rgb(crate::ui_theme::color(cx, 0x26282c, 0xe9eaee)))
             .when(status != Some(DiffFileStatus::Added), |row| {
                 row.child(title_cell(
                     before,
@@ -1055,7 +1055,7 @@ impl Render for DiffTab {
             .relative()
             .size_full()
             .min_h_0()
-            .bg(rgb(0x191a1c))
+            .bg(rgb(crate::ui_theme::color(cx, 0x191a1c, 0xffffff)))
             .when_some(self.loading_focus.as_ref(), |view, focus| {
                 view.track_focus(focus)
             })
@@ -1080,7 +1080,7 @@ impl Render for DiffTab {
                     .when(self.embedded, |bar| {
                         bar.h(px(crate::ui_style::LOG_TOOLBAR_HEIGHT))
                             .border_b_1()
-                            .bg(rgb(0x191a1c))
+                            .bg(rgb(crate::ui_theme::color(cx, 0x191a1c, 0xffffff)))
                     })
                     .when(!self.embedded, |bar| {
                         bar.h(px(40.))
@@ -1088,9 +1088,9 @@ impl Render for DiffTab {
                             .mt(px(2.))
                             .rounded(px(6.))
                             .border_1()
-                            .bg(rgb(0x212326))
+                            .bg(rgb(crate::ui_theme::color(cx, 0x212326, 0xf7f8f9)))
                     })
-                    .border_color(rgb(0x26282c))
+                    .border_color(rgb(crate::ui_theme::color(cx, 0x26282c, 0xe9eaee)))
                     .flex_shrink_0()
                     .gap_2()
                     .px_2()
@@ -1134,7 +1134,12 @@ impl Render for DiffTab {
                             )
                             .on_click(cx.listener(|s, _, window, cx| s.open_source(window, cx))),
                     )
-                    .child(div().h(px(20.)).border_l_1().border_color(rgb(0x43454a)))
+                    .child(
+                        div()
+                            .h(px(20.))
+                            .border_l_1()
+                            .border_color(rgb(crate::ui_theme::color(cx, 0x43454a, 0xdddfe4))),
+                    )
                     .when(self.file_navigation, |toolbar| {
                         toolbar
                             .child(
@@ -1159,12 +1164,18 @@ impl Render for DiffTab {
                                         Button::new("choose-file")
                                             .link()
                                             .small()
-                                            .child(div().text_color(rgb(0x6b9bfa)).child(
-                                                i18n::message(i18n::Message::FilePosition {
-                                                    current: self.chain.index() + 1,
-                                                    total: self.chain.len(),
-                                                }),
-                                            ))
+                                            .child(
+                                                div()
+                                                    .text_color(rgb(crate::ui_theme::color(
+                                                        cx, 0x6b9bfa, 0x2f5eb9,
+                                                    )))
+                                                    .child(i18n::message(
+                                                        i18n::Message::FilePosition {
+                                                            current: self.chain.index() + 1,
+                                                            total: self.chain.len(),
+                                                        },
+                                                    )),
+                                            )
                                             .disabled(
                                                 self.unavailable.is_some() || self.chain.len() < 2,
                                             ),
@@ -1208,7 +1219,7 @@ impl Render for DiffTab {
                     .when_some(difference_count, |toolbar, count| {
                         toolbar.child(
                             div()
-                                .text_color(rgb(0x8c8e93))
+                                .text_color(rgb(crate::ui_theme::color(cx, 0x8c8e93, 0x73767c)))
                                 .text_size(px(12.))
                                 .child(count),
                         )
@@ -1237,7 +1248,7 @@ impl Render for DiffTab {
                             .px_3()
                             .py_1()
                             .gap_2()
-                            .bg(rgb(0x233354))
+                            .bg(rgb(crate::ui_theme::color(cx, 0x233354, 0xe3ebfe)))
                             .child(div().flex_1().min_w_0().child(t(notice)))
                             .child(
                                 Button::new("hide-equality-notice")
@@ -1262,13 +1273,15 @@ impl Render for DiffTab {
                             .px_3()
                             .py_1()
                             .gap_2()
-                            .child(div().text_color(rgb(0xf2a6a6)).child(t(
-                                if self.disk_error.is_some() {
-                                    "Could not refresh diff"
-                                } else {
-                                    "Could not save Diff preferences. Try the setting again."
-                                },
-                            )))
+                            .child(
+                                div()
+                                    .text_color(rgb(crate::ui_theme::color(cx, 0xf2a6a6, 0xc54e58)))
+                                    .child(t(if self.disk_error.is_some() {
+                                        "Could not refresh diff"
+                                    } else {
+                                        "Could not save Diff preferences. Try the setting again."
+                                    })),
+                            )
                             .child(
                                 Button::new("copy-diff-preference-error")
                                     .link()
@@ -1332,7 +1345,7 @@ impl Render for DiffTab {
                         .px_3()
                         .py_1()
                         .rounded(px(4.))
-                        .bg(rgb(0x34373c))
+                        .bg(rgb(crate::ui_theme::color(cx, 0x34373c, 0xe9eaee)))
                         .text_size(px(12.))
                         .child(t(if next {
                             "Press again to go to the next file"

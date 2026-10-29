@@ -940,7 +940,7 @@ impl Render for Pane {
                     .px_2()
                     .gap_1()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(crate::ui_theme::palette(cx).border))
                     .child(
                         div().flex_1().min_w_0().max_w(px(260.)).child(
                             Input::new(&self.search)
@@ -994,7 +994,13 @@ impl Render for Pane {
                             })),
                     ),
             )
-            .child(div().px_3().py_2().bg(rgb(0x45351c)).child(explanation))
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .bg(rgb(crate::ui_theme::color(cx, 0x45351c, 0xfff4d1)))
+                    .child(explanation),
+            )
             .when_some(self.error.clone(), |v, e| v.child(div().px_3().child(e)))
             .when(empty, |v| {
                 let message = if empty_filtered {
@@ -1013,7 +1019,7 @@ impl Render for Pane {
                         .items_center()
                         .pt(px(60.))
                         .gap_2()
-                        .text_color(rgb(MUTED))
+                        .text_color(rgb(crate::ui_theme::palette(cx).muted))
                         .child(div().w_full().text_center().child(message))
                         .when(empty_filtered, |v| {
                             v.child(
@@ -1067,7 +1073,11 @@ impl Render for Pane {
                                                     .h(px(28.))
                                                     .gap_2()
                                                     .overflow_hidden()
-                                                    .when(selected, |v| v.bg(rgb(0x2e4773)))
+                                                    .when(selected, |v| {
+                                                        v.bg(rgb(crate::ui_theme::color(
+                                                            cx, 0x2e4773, 0xd0dffe,
+                                                        )))
+                                                    })
                                                     .child(graph_cell(
                                                         row,
                                                         56.,
@@ -1075,9 +1085,12 @@ impl Render for Pane {
                                                         GraphNodeStyle {
                                                             head: false,
                                                             background: if selected {
-                                                                0x2e4773
+                                                                crate::ui_theme::color(
+                                                                    cx, 0x2e4773, 0xd0dffe,
+                                                                )
                                                             } else {
-                                                                BG
+                                                                crate::ui_theme::palette(cx)
+                                                                    .background
                                                             },
                                                         },
                                                         None,
@@ -1092,7 +1105,9 @@ impl Render for Pane {
                                                         div()
                                                             .w(px(130.))
                                                             .truncate()
-                                                            .text_color(rgb(MUTED))
+                                                            .text_color(rgb(
+                                                                crate::ui_theme::palette(cx).muted,
+                                                            ))
                                                             .child(commit.author.clone()),
                                                     )
                                                     .on_click(cx.listener(
@@ -1135,7 +1150,11 @@ impl Render for Pane {
                         None => self.commits.len().to_string(),
                     })
                     .when_some(self.count_error.clone(), |v, e| {
-                        v.child(div().text_color(rgb(MUTED)).child(e))
+                        v.child(
+                            div()
+                                .text_color(rgb(crate::ui_theme::palette(cx).muted))
+                                .child(e),
+                        )
                     })
                     .when(self.offset > 0, |v| {
                         v.child(
@@ -1213,7 +1232,10 @@ impl Render for Pane {
                     .px(px(14.))
                     .py(px(14.))
                     .gap_2()
-                    .when(index > 0, |v| v.border_t_1().border_color(rgb(BORDER)))
+                    .when(index > 0, |v| {
+                        v.border_t_1()
+                            .border_color(rgb(crate::ui_theme::palette(cx).border))
+                    })
                     .child(
                         TextView::html(
                             format!("compare-message-{index}"),
@@ -1231,7 +1253,7 @@ impl Render for Pane {
                         .text_size(rems(1.))
                         .selectable(true),
                     )
-                    .child(commit_refs(&card.refs))
+                    .child(commit_refs(&card.refs, cx))
                     .child(card.branches.clone())
             }))
             .when(self.details_total > self.presentations.len(), |v| {
@@ -1240,8 +1262,8 @@ impl Render for Pane {
                         .px(px(14.))
                         .py_2()
                         .border_t_1()
-                        .border_color(rgb(BORDER))
-                        .text_color(rgb(MUTED))
+                        .border_color(rgb(crate::ui_theme::palette(cx).border))
+                        .text_color(rgb(crate::ui_theme::palette(cx).muted))
                         .child(t("Showing the first 50 commits")),
                 )
             });
@@ -1251,7 +1273,7 @@ impl Render for Pane {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(rgb(MUTED))
+                .text_color(rgb(crate::ui_theme::palette(cx).muted))
                 .child(t("Commit details"))
                 .into_any_element()
         } else {

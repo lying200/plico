@@ -15366,3 +15366,15 @@ UI 验收与全量核心测试并行，仅作行为证据；诊断性能采样�
 本地实现为 src/git.rs::LogFilter::is_active、src/project_log.rs::read 的 scope 归一化，
 以及 src/history.rs 的读取/定位/相邻导航分流。相比 Rebased 常驻图，本地继续使用有界按需查询；
 真正过滤及相邻导航的图预算仍保留，细节与回归记录见性能审计本批。
+
+### 主仓库元数据与历史窗口分离：追加源码审计（2026-10-30）
+
+参考 commit 245042348669114adb8e24e5b0fc0ce73763f3c4，实读 backend/src/repo 下的
+GitRepositoryImpl.kt::update/readRepoInfo 与 GitRepositoryReader.kt::readState/readBranches/
+readBranchesFromGit/readHead（完整前缀 plugins/git4idea/）。仓库 info 持有当前分支、HEAD、
+引用、tracking、shallow 等，与 GitLogProvider.kt::readFirstBlock 的 collectMetadata 分离。
+本地对应 ui/project_navigation.rs fresh 后再次读取主根 limit=1 Snapshot 并丢弃 commits；
+git.rs::contained_in_head 实际完整遍历 HEAD，成本随历史规模增加。基准与所有权设计约束见
+PERFORMANCE-DESIGN-AUDIT-20261029.md 的“主根元数据与历史查询混用”节。
+本次仅源码与核心诊断，没有新的原生前置；根过滤后主仓库侧栏、分支不存在等状态待实机核对。
+不照搬上游 refs 文件解析，继续 Git CLI；是否复用本次主根元数据及排除根 fallback 尚未实现。

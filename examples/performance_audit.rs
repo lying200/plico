@@ -47,6 +47,50 @@ fn command(repo: &Repository) -> Command {
 fn main() {
     let repo = Repository::new(std::env::args_os().nth(1).expect("disposable repository"));
     let token = Cancel::default();
+    if std::env::args().nth(2).as_deref() == Some("--primary-metadata") {
+        // Compare only repository metadata. History tips, membership and `more`
+        // have separate consumers and are not interchangeable by this probe.
+        for iteration in 0..6 {
+            let modes = if iteration % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            };
+            let mut metadata = Vec::new();
+            for references in modes {
+                let name = if references {
+                    "primary-references"
+                } else {
+                    "primary-one-commit"
+                };
+                let snapshot = sample(name, iteration, || {
+                    if references {
+                        repo.reference_snapshot(&token)
+                    } else {
+                        repo.snapshot_branches_filtered_at(&[], 0, 1, None, None, &token)
+                    }
+                })
+                .unwrap();
+                println!(
+                    "{}",
+                    serde_json::json!({"result":name,"iteration":iteration,
+                    "commits":snapshot.commits.len(),"membership":snapshot.included_in_head.len(),
+                    "tips":snapshot.tips.len(),"more":snapshot.more})
+                );
+                metadata.push((
+                    snapshot.head_id,
+                    snapshot.current_branch,
+                    snapshot.ref_titles,
+                    snapshot.tracked_branches,
+                    format!("{:?}", snapshot.branches),
+                    format!("{:?}", snapshot.tags),
+                    snapshot.shallow,
+                ));
+            }
+            assert_eq!(metadata[0], metadata[1], "repository metadata differs");
+        }
+        return;
+    }
     if std::env::args().nth(2).as_deref() == Some("--empty-history-filter") {
         use plico::project_log::{self, Query};
         for iteration in 0..6 {

@@ -1767,3 +1767,66 @@ artifacts/test-runs/5b00-18e339c30a46c794-0。上述 desktop 定向 2/2；doctes
 all-targets core clippy、cargo fmt --package plico -- --check 与 git diff --check 通过。
 冻结的五个代码文件 SHA256 与 frozen-code.json 一致，完整测试期间未修改产品或测试代码。
 本批未运行完整 desktop/navigation 或 CI，未推送或发布；原生验收的未覆盖状态如实保留。
+
+### 主根元数据与历史查询混用：规模实验（fc294e6 后，尚未修改产品）
+
+当前 ui/project_navigation.rs::reload_project_history 在 fresh worker 中完成 project_log::read
+后，又调用 primary_repo.snapshot_branches_filtered_at(branches, 0, 1, None, None)。发布回调立即
+清空其 commits，仅安装为 Review.snapshot 并重建侧栏。project_log::merge_window 此前已消费各根
+Snapshot，但 LoadedRoot 只留下 tips/current_branch/ref_titles，其他仓库元数据未交接给主根消费者。
+这与前一批首屏 page 丢弃不同：这里存在仓库元数据与历史窗口共用 Snapshot 类型的问题。
+
+继续读取 git.rs::snapshot_query/contained_in_head 和 head_membership.rs::read，确认 limit=1
+并不等于固定成本：它先读最多两条 log 记录，再为保留的一条运行 rev-list HEAD。membership reader
+会完整 drain 到 EOF，即使目标已经找到也不提前终止。因此主根只需侧栏数据时仍支付整个 HEAD
+遍历成本。不能直接改 reader 为提前返回：现有子进程管道、退出错误与取消协议须另行核对；优先从
+消费者取消不必要的历史请求。正常历史窗口仍需要其 membership，不在本次删除范围。
+
+只读诊断新增 --primary-metadata，交替比较一条提交 snapshot 与现有 reference_snapshot，六轮，
+排除首轮后取五轮中位数。断言 HEAD、当前分支、ref_titles、tracking、branches、tags 和 shallow
+相等；独立输出 commits/membership/tips 数量与 more，不将后者当作等价字段。执行方式：
+
+    cargo build --locked --no-default-features --release --example performance_audit
+    target/release/examples/performance_audit.exe <临时仓库> --primary-metadata
+
+复用此前 72 提交及 100001 提交 fixture，路径见 empty-history-filter-20261030/repositories.json
+及 fixture.json。Git system/global 配置隔离，无并行构建/测试、无网络和 Git 写操作。
+artifacts/primary-metadata-20261030/ 保存 small.jsonl、large.jsonl、small-traced.jsonl、
+small-git.jsonl、summary.json 和 query-counts.json；追踪与无追踪计时分开。
+
+| 规模 | 一条提交 snapshot | 引用 snapshot |
+| --- | ---: | ---: |
+| 72 | 370.36 ms | 249.56 ms |
+| 100001 | 1190.51 ms | 253.48 ms |
+
+72 提交六轮 Trace2：前者每次 8 条顶层 Git（含 log 与 rev-list），后者 6 条且无历史遍历。
+两种规模全部元数据断言通过。此为暖读取核心微基准，不是原生 UI、Push 总耗时或产品提速结果。
+100001 样本前者 commits=1/membership=1/more=true，后者 0/0/false，说明不能随意替换所有 Snapshot。
+已有 tests/project_branches.rs::reference_snapshot_does_not_walk_history_and_supports_unborn_head
+另覆盖缺失祖先对象时引用仍可读、Log 报错以及 unborn symbolic HEAD；本轮实际读取测试源码，
+未重新运行该测试，不以旧测试存在宣称当前方案通过。
+
+上游重新核对 commit 245042348669114adb8e24e5b0fc0ce73763f3c4：
+plugins/git4idea/backend/src/repo/GitRepositoryImpl.kt 的 repoInfo/update/readRepoInfo 独立读取配置、
+refs/HEAD、shallow、hooks、submodules 和 tracking，侧栏仓库状态不通过一条 Log 提交取得。
+GitRepositoryReader.kt::readState/readBranches/readBranchesFromGit/readHead 按设置读取磁盘 refs
+或 for-each-ref，并处理 reftable HEAD 哨兵及 Git fallback。GitLogProvider.kt::readFirstBlock
+另行 collectMetadata。采用“仓库元数据与 Log 查询分开”的所有权规则，不照搬磁盘 refs 解析器。
+
+下一实现的约束：
+
+- 优先复用同一请求已经读出的主根仓库元数据，避免只从 8 次降为 6 次却保留重复 refs 查询；
+  不应长期为每个历史页积累全部根的重复 Snapshot。
+- 主根可能被 Paths/Roots 排除，或其详情过滤失败；此时仍需独立引用读取以供侧栏与操作入口。
+  主根读取失败不能静默复用旧成功数据，项目中其他可读根仍应保留。
+- 分支不存在的错误目前会同时由历史与主 snapshot 查询产生。reference_snapshot 不接收 branches，
+  替换必须明确把过滤错误留在历史 scope，不能吞掉错误或把缺失分支变成全部历史。
+- Review.snapshot 的 tips/more/included_in_head 与 Log display 必须分开核对。当前项目导航在
+  log.project_window().is_some() 时走项目 scope；单根旧路径仍使用 snapshot.tips，不能一并替换。
+- metadata 与页面需要请求代数一致，不能拿较早缓存拼接新 HEAD；取消、迟到结果、主根被排除、
+  空根、损坏历史、tag-only、分支过滤和 shallow 都需覆盖。写操作继续独立复验。
+
+本批仅增加诊断与源码证据；下一产品修改前仍须完成本场景 Rebased 原生记录，尤其根过滤后
+侧栏状态与过滤错误，不以此前截图替代。release example 构建、两规模六轮对比、六轮 Trace2、
+example clippy（既有 lib 警告保留）、fmt check 通过。未修改产品代码、未新增 UI 验收、未重跑
+完整核心/桌面或 CI；未宣称上述设计已落地。

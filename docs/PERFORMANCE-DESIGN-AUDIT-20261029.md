@@ -1604,3 +1604,62 @@ offsets、固定 tips、错误根、more 和 graph frontier，避免 next_page �
 失败根、分页接续、取消和选择保留。先完成对应 Rebased 原生场景记录，再修改功能，
 随后用同 fixture/trace 做后验。这与按结果缩小 Push 刷新范围是两件事，本批发现不依赖
 放宽 hooks、失败或恢复检查。当前仅新增测量及源码证据，没有修改功能或声称提速完成。
+
+### 首屏结果所有权交接：实现与同条件后验（cb99ef1 后）
+
+完成 Rebased 原生前置与源码映射后，新增 navigation::Window::from_first_page，直接
+消费 project_log::read 返回的首屏、每根 offsets、固定 scope 与 more，再构建图 frontier。
+ui/project_navigation.rs 的 fresh、offset=0 入口保留这份 Read，不再丢弃后调用
+window_at 从零读取。没有跨刷新缓存；非零 offset、continuation、主根 limit=1 快照、
+写前复验及操作后刷新范围保持原路径。本批不扩展为刷新策略重写。
+
+真实 Git 新回归 project_first_window_consumes_loaded_rows_without_rereading_and_continues_fixed_sources：
+两根含相同提交 OID，另有空根及失败根；读取后暂时移走两根 .git，首屏转换仍成功，
+证明该转换不依赖重新访问 Git。恢复后移动一根分支，按 1/3/100 页大小接续，逐项验证
+根限定身份、固定 tips、游标推进、元数据转出后的 offset、错误保留、空页及取消。
+定向 core 3/3（989 filtered，3ccc-18e3371d92f54334-0）；实际桌面入口
+project_navigation 两项 2/2（188 filtered，2e18-18e3374907ac21b8-0），覆盖初始成员
+加载、选择/过滤/导航、失败根恢复及过期任务取消。定向结果不算全量。
+
+原生证据 artifacts/project-first-page-20261030/：visible-build.json、times.json、
+plico-before/refreshed/push-entry/push-result.png、visible-backend.jsonl、
+visible-git.jsonl、execute-queries.json、summary.json。release SHA256 为
+4FF8CCC64F790C0F5BB7F468210F78B974D3C618A3C29422DB99C7320965706A。
+同一 parent/child 临时仓库与本地 bare，选择 child 提交并展开 Changes，Ctrl+F5 后
+仍为 3 行、原选择、右侧两项文件和详情、1 项修改/4 项未跟踪。随后执行已是最新 Push，
+结果及以上状态同样保留。采样时没有并行构建/测试；仅关闭自建 Plico，保留 Rebased。
+首次用 Hidden 启动没有可操作窗口，该进程已停止；build.json/backend.jsonl/git.jsonl
+是该次启动记录，不用于本次对比。对比使用 visible-*，避免混淆样本。
+
+与上一节同条件单次采样比较（均为顶层 Trace2 start/exit，排除嵌套 Git）：
+
+| 指标 | 修正前 | 修正后 |
+| --- | ---: | ---: |
+| 父子根完整首屏 metadata log 查询 | 4 | 2 |
+| Push 后查询突发段启动数 | 85 | 67 |
+| 突发段首 start 至末 exit | 4.414 秒 | 3.242 秒 |
+| 突发段 Git 进程内 t_abs 合计 | 1.924361 秒 | 1.550228 秒 |
+| 本地 Push 进程 t_abs | 0.095012 秒 | 0.096769 秒 |
+
+后验 Push 为 05:28:38.435657Z–38.525575Z；操作状态复验后，突发段
+05:28:38.763636Z–05:28:42.005588Z，execute-queries.json 的索引 18–84。
+执行工具到最终观察的窗口共 89 次，后段仍有正常轮询；不能全部归于操作刷新。
+同样没有把工具调用边界当 UI 延迟，也没有把小型本地仓库单样本外推到大仓库或公网。
+确定性收益是消除同一请求的重复首屏查询，时间差只作该样本证据。
+
+剩余成本明确保留：主根 limit=1 快照仍查询 refs/metadata、每根图父关系读取及刷新中的
+其他状态/详情查询仍存在。下一阶段如继续，应先检查这些数据的所有权和一致性边界，
+不要因查询名称相同就直接缓存或合并。本批到首屏交接为止，不继续扩大实现范围。
+
+按完整命令进一步核对：消失的每根首屏重读包含 6 条仓库/引用元数据查询、metadata log、
+rev-list 及 2 条图父关系 log，即两根共 20 条。后验突发段恰多重叠 1 次轻量 refs 轮询
+和 1 次 HEAD 读取，因此该窗口净差为 18，不能将 85→67 当无噪声固定预算。
+完整首屏 log 从每根 2 次变 1 次与实际调用路径一致；其他定时轮询仍正常运行。
+
+本批最终验证：完整 core 992/992、0 skipped，耗时 1271.261 秒，运行目录
+artifacts/test-runs/3524-18e3378851bdec48-0。上述 desktop 定向 2/2；另 navigation
+10/10（180 filtered，3f68-18e337ad6da69b24-0）。doctest 成功但当前 0 示例；
+cargo clippy --locked --no-default-features --all-targets 成功，既有警告保留，日志
+project-first-page-20261030/clippy.log。cargo fmt --package plico -- --check 与
+ git diff --check 通过。冻结代码哈希位于同目录 frozen-code.json，验证期间未再改功能代码。
+本批未跑完整 desktop 或 CI；没有推送，也没有发布包。

@@ -223,6 +223,7 @@ impl Review {
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_spawn(async move {
+                        let mut first_page = None;
                         let scope = if fresh {
                             let root_paths = members
                                 .roots
@@ -263,8 +264,8 @@ impl Review {
                                     },
                                 })
                                 .collect::<Vec<_>>();
-                            let mut next = project_log::read(&queries, limit, &token)?.scope;
-                            Arc::make_mut(&mut next).errors.extend(
+                            let mut next = project_log::read(&queries, limit, &token)?;
+                            Arc::make_mut(&mut next.scope).errors.extend(
                                 members
                                     .errors
                                     .iter()
@@ -276,7 +277,11 @@ impl Review {
                                     })
                                     .cloned(),
                             );
-                            next
+                            let scope = next.scope.clone();
+                            if offset == 0 && continuation.is_none() {
+                                first_page = Some(next);
+                            }
+                            scope
                         } else {
                             scope.ok_or("Project history scope is unavailable")?
                         };
@@ -292,6 +297,12 @@ impl Review {
                             };
                         let mut page = match continuation {
                             Some(cursor) => cursor.load(limit, &token)?,
+                            None if first_page.is_some() => {
+                                project_log::navigation::Window::from_first_page(
+                                    first_page.unwrap(),
+                                    &token,
+                                )?
+                            }
                             None => {
                                 project_log::navigation::window_at(scope, offset, limit, &token)?
                             }

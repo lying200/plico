@@ -15299,3 +15299,25 @@ backend/src/log/GitLogProvider.kt::readFirstBlock，metadata 的 commits/refs �
 保留 scope，再由 window_at 从零读取，增加一轮逐根首屏查询。
 拟保留首轮 Read 并交接给导航 Window，维持 offsets、固定 tips、错误根与图布局；
 目前尚未实施。既有 Push 原生对照证明基本操作状态，不替代新首屏交接的具体前置验收。
+
+实现前补充实机（2026-10-30）：Rebased 1.1.22 / 262.10968.SNAPSHOT，同一临时
+parent/child fixture，parent HEAD 5b7f768、child base 245e1c1，Log 显示三行。
+选中 parent 的 child 提交，点击 Log 顶部刷新图标（搜索区右侧），刷新后仍为三行、
+保持原选择、右侧 .gitmodules/child 两项及下方提交详情，Changes 的一项修改与四项
+未跟踪文件保留。截图 artifacts/project-first-page-20261030/rebased-before.png 与
+rebased-after.png。没有滚动；没有捕获稳定执行中状态；空根/错误根/分页由后续测试覆盖，
+不宣称这些已原生验证。参考源码版本仍为 2450423，与安装版不同。
+再次核对 GitLogProvider.kt::readFirstBlock 的 metadata 收集和返回路径，本地映射是
+project_log::Read 到 navigation::Window 的所有权交接、ui/project_navigation.rs fresh
+加载入口；只复用同一请求结果，不引入跨刷新缓存，不缩小操作后刷新。首屏从已读数据
+布局，非零 offset 仍走既有固定 scope 重建；本节在功能修改之前记录。
+
+Plico 后验：同目录 visible-build.json 对应 release SHA256
+4FF8CCC64F790C0F5BB7F468210F78B974D3C618A3C29422DB99C7320965706A；
+plico-before.png / plico-refreshed.png 记录 Ctrl+F5 前后 3 行历史、child 选择、
+.gitmodules/child 文件详情及 Changes 1 项修改/4 项未跟踪均保留。
+plico-push-entry.png / plico-push-result.png 记录同一本地 bare 的已是最新 Push，
+完成刷新后上述状态仍保留。入口仍为 Plico 的 Ctrl+F5、顶部 Push，与 Rebased Log
+顶部刷新位置有既有差异；没有新增控件或调整视觉，不宣称像素还原。运行中稳定截图、
+原生分页/取消/错误根未复测，对应边界由核心和桌面回归覆盖。
+实际首屏读取由每根两次降为一次，Trace2 及时间边界见性能审计本批记录。

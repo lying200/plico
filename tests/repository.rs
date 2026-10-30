@@ -10329,6 +10329,86 @@ fn project_navigation_keeps_each_roots_filters_and_frozen_tips() {
 }
 
 #[test]
+fn project_first_window_consumes_loaded_rows_without_rereading_and_continues_fixed_sources() {
+    use plico::project_log::{self, Entry, Query, navigation::Window};
+    let first = Fixture::new();
+    for subject in ["base", "middle", "tip"] {
+        first.write("file", subject);
+        first.commit(subject);
+    }
+    let second = Fixture::new();
+    second.git(&["fetch", first.0.to_str().unwrap(), "main"]);
+    second.git(&["reset", "--hard", "FETCH_HEAD"]);
+    let empty = Fixture::new();
+    let token = Cancel::default();
+    let queries = [
+        first.repo(),
+        second.repo(),
+        empty.repo(),
+        Repository::new(first.0.join("missing")),
+    ]
+    .map(|repository| Query {
+        repository,
+        branches: vec![],
+        filter: None,
+    });
+    let all = project_log::read(&queries, 100, &token).unwrap();
+    let expected = all
+        .page
+        .entries
+        .iter()
+        .map(Entry::identity)
+        .collect::<Vec<_>>();
+    assert_eq!(expected.len(), 6);
+    for size in [1, 3, 100] {
+        let initial = project_log::read(&queries, size, &token).unwrap();
+        let errors = initial.scope.errors.clone();
+        assert_eq!(errors.len(), 1);
+        // Converting already read metadata must work even if Git cannot reopen
+        // either populated repository. Continuation still performs fresh reads.
+        for f in [&first, &second] {
+            fs::rename(f.0.join(".git"), f.0.join(".git-saved")).unwrap();
+        }
+        let result = Window::from_first_page(initial, &token);
+        for f in [&first, &second] {
+            fs::rename(f.0.join(".git-saved"), f.0.join(".git")).unwrap();
+        }
+        let mut window = result.unwrap();
+        assert_eq!(window.offset, 0);
+        assert_eq!(window.rows.len(), expected.len().min(size));
+        assert_eq!(window.read.scope.errors, errors);
+        let original_head = first.git(&["rev-parse", "HEAD"]);
+        first.git(&["update-ref", "refs/heads/main", "HEAD^"]);
+        let mut actual = Vec::new();
+        loop {
+            assert_eq!(window.offset, actual.len());
+            actual.extend(
+                std::mem::take(&mut window.read.page.entries)
+                    .iter()
+                    .map(Entry::identity),
+            );
+            if !window.read.page.more {
+                break;
+            }
+            window = window.continuation().unwrap().load(size, &token).unwrap();
+            assert!(
+                actual.len() <= expected.len(),
+                "continuation did not advance"
+            );
+        }
+        first.git(&["update-ref", "refs/heads/main", &original_head]);
+        assert_eq!(actual, expected);
+    }
+    let read = project_log::read(&[], 1, &token).unwrap();
+    let empty_window = Window::from_first_page(read, &token).unwrap();
+    assert!(empty_window.rows.is_empty());
+    assert!(!empty_window.read.page.more);
+    let read = project_log::read(&[], 1, &token).unwrap();
+    token.cancel();
+    assert!(Window::from_first_page(read, &token).is_err());
+}
+
+#[test]
 fn project_log_pages_consume_per_root_prefixes_and_keep_the_original_query() {
     use plico::project_log::{self, Entry, Query};
     let first = Fixture::new();

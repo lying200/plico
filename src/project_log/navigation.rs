@@ -20,6 +20,25 @@ pub struct Continuation {
     offset: usize,
 }
 impl Window {
+    /// Consume the initial `project_log::read` result without querying Git again.
+    /// Its per-root cursors already account for the rows emitted in this page.
+    pub fn from_first_page(read: Read, token: &Cancel) -> Result<Self, String> {
+        let start = Layout::default();
+        let (rows, end) = read.page.layout_window(start.clone(), token)?;
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        Ok(Self {
+            len: read.page.entries.len(),
+            read,
+            rows,
+            start,
+            end,
+            offset: 0,
+            selected: 0,
+        })
+    }
+
     pub fn continuation(&self) -> Result<Continuation, String> {
         Ok(Continuation {
             read: self.read.cursor(),

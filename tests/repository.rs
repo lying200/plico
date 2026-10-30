@@ -5615,6 +5615,140 @@ fn rebase_update_rejects_changed_refs_after_decisions_without_losing_saved_work(
 }
 
 #[test]
+fn push_flow_reads_recovery_targets_only_after_non_ff_rejection() {
+    use plico::{
+        push::{Spec, Status},
+        push_flow::{self, Decisions},
+        push_target::{Origin, Target},
+        update_method::Method,
+    };
+    const CHILD: &str = "PLICO_PUSH_TARGET_QUERY_CASE";
+    let Ok(mode) = std::env::var(CHILD) else {
+        let traces = Fixture::new();
+        for mode in ["new", "success", "current", "rejected"] {
+            let trace = traces.0.join(format!("{mode}.jsonl"));
+            // Configure a new process, never mutate the parallel test environment.
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "push_flow_reads_recovery_targets_only_after_non_ff_rejection",
+                    "--nocapture",
+                ])
+                .env(CHILD, mode)
+                .env("PLICO_PERF_TRACE", &trace)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{mode}: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let events: Vec<serde_json::Value> = fs::read_to_string(trace)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            // push_snapshot needs one remote query before writing; only a rejected
+            // attempt should add recovery and rebase-over-merge target checks.
+            let remotes = events
+                .iter()
+                .filter(|event| event["name"] == "remote")
+                .count();
+            assert_eq!(
+                remotes,
+                if mode == "rejected" { 3 } else { 1 },
+                "{mode}: unexpected remote inventory queries"
+            );
+        }
+        return;
+    };
+    struct Decline(usize);
+    impl Decisions for Decline {
+        fn rejected(&mut self, _: Method, _: &Result<bool>) -> Option<Method> {
+            self.0 += 1;
+            None
+        }
+        fn rebase_over_merge(&mut self, _: &Result<bool>) -> Result<Option<Method>> {
+            panic!("unexpected update")
+        }
+        fn published(&mut self, _: &Result<Option<plico::pull::Target>>) -> bool {
+            panic!("unexpected update")
+        }
+    }
+    let remote = Fixture::new();
+    remote.git(&["config", "core.bare", "true"]);
+    let f = Fixture::new();
+    f.write("file", "base\n");
+    f.commit("base");
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.git(&["remote", "add", "origin", remote.0.to_str().unwrap()]);
+    if mode != "new" {
+        f.git(&["push", "-u", "origin", "main"]);
+    }
+    if mode == "rejected" {
+        f.write("incoming", "incoming\n");
+        f.commit("incoming");
+        f.git(&["push", "origin", "main"]);
+        f.git(&["reset", "--hard", &base]);
+    }
+    if mode == "success" || mode == "rejected" {
+        f.write("ours", "ours\n");
+        f.commit("ours");
+    }
+    let head = f.git(&["rev-parse", "HEAD"]);
+    f.write("file", "valuable local edit\n");
+    let mut choice = Decline(0);
+    let report = push_flow::execute(
+        &f.repo(),
+        Spec {
+            tags: None,
+            force: false,
+            source_branch: "main".into(),
+            source_oid: head.clone(),
+            set_upstream: mode == "new",
+            target: Target {
+                remote: "origin".into(),
+                branch: "main".into(),
+                special: false,
+                new_branch: mode == "new",
+                origin: Origin::TrackingBranch,
+            },
+        },
+        std::ffi::OsStr::new("true"),
+        &Cancel::default(),
+        &Default::default(),
+        None,
+        Default::default(),
+        plico::published_commits::Protection::Defaults,
+        &mut choice,
+    );
+    assert!(report.error.is_none(), "{:?}", report.error);
+    assert_eq!(report.attempts, 1);
+    assert_eq!(
+        report.push.unwrap().status,
+        match mode.as_str() {
+            "new" => Status::NewBranch,
+            "success" => Status::Success,
+            "current" => Status::UpToDate,
+            "rejected" => Status::RejectedNonFf,
+            _ => panic!("unknown fixture"),
+        }
+    );
+    assert_eq!(choice.0, usize::from(mode == "rejected"));
+    assert_eq!(report.cancelled_decision, mode == "rejected");
+    assert!(report.update.is_none());
+    assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
+    if mode != "rejected" {
+        assert_eq!(remote.git(&["rev-parse", "main"]), head);
+    }
+    assert_eq!(
+        fs::read_to_string(f.0.join("file")).unwrap(),
+        "valuable local edit\n"
+    );
+}
+
+#[test]
 fn rejected_push_flow_updates_retries_or_preserves_conflict_and_cancel() {
     use plico::{
         push::{Spec, Status},

@@ -71,6 +71,9 @@ pub fn execute(
             let status = result.status;
             report.attempts += 1;
             report.push = Some(result);
+            if !push_recovery::needs_targets(status, spec.force, attempt) {
+                break;
+            }
             let current = repo.pull_targets(token)?;
             match push_recovery::after_push(
                 status,

@@ -1455,3 +1455,39 @@ pull_targets 包含 `remote`、远端 `for-each-ref`、`symbolic-ref`、当前�
 rejected_push_flow_updates_retries_or_preserves_conflict_and_cancel 等，覆盖 merge/rebase、
 冲突、取消与草稿保留；下一批须补终止结果不读取恢复目标、真正拒绝仍复验 tracking 的证据，
 并按项目约定先做同场景 Rebased 原生前置。当前没有实施这两项后续改动。
+
+### Push 终止结果的恢复查询按需执行（2026-10-30）
+
+先完成本地 bare fixture 的 Rebased 正常/已是最新原生验证及源码核对，再修改
+`push_recovery::needs_targets` 与 `push_flow::execute`。状态、force、attempt 的纯
+门禁由恢复策略模块拥有，执行器在读取 Targets 前调用；原 after_push 共用门禁，
+只有普通 non-FF 拒绝仍进入实时 tracking/current branch 检查。没有缓存恢复目标，
+没有弱化写前源 OID、force lease 或写后 operation_state，更没有调整 UI 完成刷新。
+
+普通终止结果省去一次 pull_targets，即 attached 分支上的 4 条 Git 查询。另一个
+行为变化是成功/终止结果不再被不相关的恢复目标读取错误附加 report.error。此处不
+承诺网络耗时或端到端百分比；本次原生验收与回归并行，不作为性能计时样本。
+
+新增真实 Git 回归通过子进程启动前设置 PLICO_PERF_TRACE，覆盖 NewBranch、Success、
+UpToDate 和拒绝后取消恢复，校验状态、远端 HEAD、本地修改以及实际 remote 命令数。
+前三者各 1 次（写前快照），拒绝为 3 次（写前、恢复目标、合并风险检查各一次）。
+首次实验误把拒绝路径期望设为 2，运行 `2e34-18e334d1775d05b0-0` 新测试失败；
+跟踪并读取 rebase_over_merge_problem 后修正测试期望，未为通过测试删去风险检查。
+随后 `5370-18e334e4a614d618-0` 定向 4/4 通过，另 986 项过滤；包括既有
+merge/rebase 重试、冲突、取消与草稿保留。之后补充 Forced 终止策略覆盖，进入完整回归。
+
+Plico 同条件正常/已是最新原生结果通过，截图、构建摘要、保留差异见 REBASED-REFERENCE
+相应节及 `artifacts/push-terminal-20261030/`。自建 Plico 已停止，fixture 远端保留
+已推送的 HEAD；不触及产品仓库远端。代码摘要 frozen-code.json 已冻结，当前等待完整
+core、doctest、clippy 与 Push 对话框定向桌面回归。此次没有修改桌面生命周期，不重跑
+整套导航，不将定向桌面结果冒充全量。
+
+本批范围止于该查询门禁。完整刷新按实际副作用收敛仍待独立设计：必须区分直接 Push
+与中途 Update/保存恢复，且考虑 hooks、外部写入、失败和取消。最终成功状态本身不能
+证明工作区未变，本批没有用该状态直接跳过 Changes 或成员刷新。
+
+提交前验证完成：完整 core `3b9c-18e3350474e63378-0` **990/990、0 skipped**，
+1219.487 秒，status exit 0；Push 对话框定向 desktop
+`4f68-18e3362cf402a744-0` **2/2、188 filtered**，status exit 0。
+doctest 成功（0 示例）；clippy 成功，保留既有警告，日志位于本批 artifacts。
+最终源码摘要与 frozen-code.json 一致，fmt/diff 检查通过。没有运行本批 CI 或推送。

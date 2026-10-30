@@ -16,6 +16,12 @@ pub enum Decision {
     Update,
 }
 
+/// Only an ordinary non-fast-forward rejection needs fresh recovery targets.
+/// Keep this gate shared with the policy so terminal results do not launch queries.
+pub(crate) fn needs_targets(status: Status, force: bool, attempt: usize) -> bool {
+    attempt < MAX_PUSH_ATTEMPTS && status == Status::RejectedNonFf && !force
+}
+
 /// `attempt` is zero-based. Subsequent attempts must belong to the same
 /// user-authorized recovery loop, not a newly opened Push dialog.
 pub fn after_push(
@@ -26,7 +32,7 @@ pub fn after_push(
     attempt: usize,
     auto_update: bool,
 ) -> Decision {
-    if attempt >= MAX_PUSH_ATTEMPTS || status != Status::RejectedNonFf || force {
+    if !needs_targets(status, force, attempt) {
         return Decision::Stop;
     }
     if current.current_branch.as_deref() != Some(&spec.source_branch) {
@@ -116,6 +122,7 @@ mod tests {
             Status::Cancelled,
             Status::Unknown,
             Status::Success,
+            Status::Forced,
             Status::NewBranch,
             Status::UpToDate,
         ] {

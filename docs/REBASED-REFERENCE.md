@@ -15232,3 +15232,45 @@ push_recovery.rs 的纯策略，以及 repository.rs 的完整/普通引用刷�
 确定的差异与待办详见性能审计“Push/Fetch 完成路径复核”：先消除终止结果不使用的恢复目标
 读取，再独立设计完成观察；保持失败、取消、Update/保存恢复及用户手动完整刷新的边界。
 本轮未操作 Push 原生场景，不作为后续修改行为的实机前置替代。
+
+### Push 终止结果查询：实现前原生验证（2026-10-30）
+
+使用 computer-use 技能操作已安装 Rebased 1.1.22 / 262.10968.SNAPSHOT，源码仍为
+`245042348669114adb8e24e5b0fc0ce73763f3c4`，二者版本不同。临时父子仓库和本地 bare
+地址见 `artifacts/push-terminal-20261030/fixture.json`。父仓库 HEAD 为 5b7f768，保留
+CaseFile.txt 修改及 .idea 未跟踪文件；原 bare main 不存在，先通过 CLI 写入父提交
+245e1c1，作为落后一条提交的远端。没有修改产品仓库或公网远端。
+
+Ctrl+Shift+K 打开 Push，仅勾选 parent，child 未勾选；左侧根/分支/目标及 outgoing
+提交、右侧文件详情、底部 tags 与 Push/Cancel，见 rebased-outgoing.png。同目录
+rebased-success.png 记录“Pushed 1 commit to origin/main”，CLI 确认远端到 5b7f768；
+Log 选择及 Changes 保留。重新打开后没有 outgoing 提交，右侧 No commits selected，
+Push 仍可用（rebased-up-to-date-entry.png）；执行后显示 Everything is up to date
+（rebased-up-to-date-result.png）。未捕获稳定执行中画面，未重测拒绝/取消/失败。
+
+已再次读取 `plugins/git4idea/backend/src/push/GitPushOperation.java` execute：只有
+non-FF rejected 集合非空才判断 force、tracking、current branch 并进入 Update，
+所有结束仍在 finally 更新 repository。本地 `push_flow::execute` 当前无条件读取
+pull_targets，而 `push_recovery::after_push` 对终止结果直接 Stop。拟将纯资格判断
+放在读取之前，恢复分支仍读取实时目标；保留源 OID 复验、强推 lease 和 UI 完整刷新。
+这也避免成功推送被随后无关目标读取失败附加 error；属于有意调整的结果行为。
+本节先于功能修改；Plico 原生后验及回归尚待完成。
+
+后续 Plico 原生后验：release SHA256
+`06565C639B77F84FB0C45EBBF0EE9BD343E6CBD7279F680C8E2D715B23195F58`，进程与路径
+见同目录 plico-build.json。仅将自有 bare main 从已验证 5b7f768 回退到 245e1c1，再
+fetch 更新本地跟踪引用，没有重置脏工作区。选中 child 提交、打开 Changes 后，从顶部
+Push 箭头进入 parent 推送。plico-before/outgoing/running/success.png 分别记录入口、
+待推送一条提交、右下角执行中/取消及“推送完成”；CLI 确认远端 HEAD 等于本地。
+再次打开并执行，plico-up-to-date-entry/result.png 显示“没有待推送提交”、按钮可用及
+“已是最新”。两次结束均保留 child 选择、详情和一项修改/四项未跟踪文件。
+
+结构与交互通过本次范围：左侧目标/outgoing、右侧文件、底部 tags/执行/取消，结果
+分类与 Rebased 一致。既有差异：Plico 当前按选定根推送，不展示 Rebased 多根勾选树；
+结果使用状态栏而非通知气泡，主题、尺寸、文件层次等像素差异保留，本次没有调整界面。
+未重新原生验证拒绝/失败/取消，这些边界由核心回归覆盖，不算截图验收。仅停止本次
+自建 Plico；Rebased 窗口均保留，自有 fixture 远端保留本轮推送后的 HEAD 供复核。
+
+随后完整 core 990/990、Push 对话框定向 desktop 2/2（188 filtered）、doctest、clippy
+及格式检查通过，运行标识见性能审计本节对应记录。本批不包含全量 desktop/navigation
+或 CI 结果；没有新增可见控件或改变焦点/Tab 生命周期。

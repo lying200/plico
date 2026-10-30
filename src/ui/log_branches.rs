@@ -1384,6 +1384,7 @@ mod selection_tests {
                     entries: ids
                         .iter()
                         .map(|id| plico::project_log::Entry {
+                            head: Default::default(),
                             root: id.root.clone(),
                             commit: commit.clone(),
                             display_parents: None,

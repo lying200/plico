@@ -117,6 +117,7 @@ pub fn load(ids: &[CommitId], token: &Cancel) -> Result<Selection> {
             return Err("Log preview exceeds the change limit".into());
         }
         commits.extend(snapshot.commits.into_iter().map(|commit| Entry {
+            head: super::HeadState::default(),
             root: root.clone(),
             commit,
             display_parents: None,

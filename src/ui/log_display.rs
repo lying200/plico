@@ -13,6 +13,7 @@ use std::sync::Arc;
 pub(super) struct Display {
     commits: Arc<Vec<Commit>>,
     identities: Arc<Vec<CommitId>>,
+    heads: Arc<Vec<project_log::HeadState>>,
     scope: Option<Arc<Scope>>,
     project: Option<Box<navigation::Window>>,
     project_rows: bool,
@@ -25,10 +26,15 @@ pub(super) struct Display {
 }
 impl Display {
     fn entries(&mut self, entries: Vec<Entry>) {
+        let mut heads = Vec::with_capacity(entries.len());
         let (ids, commits) = entries
             .into_iter()
-            .map(|e| (e.identity(), e.commit))
+            .map(|e| {
+                heads.push(e.head);
+                (e.identity(), e.commit)
+            })
             .unzip();
+        self.heads = Arc::new(heads);
         self.identities = Arc::new(ids);
         self.commits = Arc::new(commits);
     }
@@ -63,6 +69,11 @@ impl Display {
             std::mem::take(&mut snapshot.commits)
                 .into_iter()
                 .map(|commit| Entry {
+                    head: project_log::HeadState::for_commit(
+                        &commit.id,
+                        snapshot.head_id.as_deref(),
+                        &snapshot.included_in_head,
+                    ),
                     root: root.clone(),
                     commit,
                     display_parents: None,
@@ -90,6 +101,9 @@ impl Display {
     }
     pub fn ids(&self) -> &Arc<Vec<CommitId>> {
         &self.identities
+    }
+    pub fn heads(&self) -> &Arc<Vec<project_log::HeadState>> {
+        &self.heads
     }
     pub fn sources(&self) -> Option<&Arc<Vec<CommitId>>> {
         self.project_rows.then_some(&self.identities)
@@ -148,6 +162,7 @@ impl Display {
                 entries: entries
                     .iter()
                     .map(|e| Entry {
+                        head: e.head,
                         root: e.root.clone(),
                         commit: e.commit.clone(),
                         display_parents: e.display_parents.clone(),
@@ -187,6 +202,7 @@ impl Display {
                         .find(|c| c.id == id.hash)
                         .cloned()
                         .map(|commit| Entry {
+                            head: project_log::HeadState::default(),
                             root: id.root,
                             commit,
                             display_parents: None,
@@ -250,6 +266,9 @@ mod tests {
             }),
         };
         let mut window = fixture_window(vec![commit("same-hash")]);
+        window.snapshot.head_id = Some("same-hash".into());
+        window.snapshot.included_in_head =
+            Arc::new(std::collections::HashSet::from(["same-hash".into()]));
         window.snapshot.tips = vec!["fixed-tip".into()];
         window.snapshot.more = true;
         let old_model = Arc::new(Model::new(&window.rows, &Default::default()).unwrap());
@@ -260,6 +279,13 @@ mod tests {
         );
         assert_eq!(first.offset(), 100);
         assert!(first.more());
+        assert_eq!(
+            first.heads()[0],
+            project_log::HeadState {
+                included: true,
+                tip: true
+            }
+        );
         assert_eq!(
             first.repository(0).unwrap().path,
             std::path::PathBuf::from("parent")
@@ -279,6 +305,7 @@ mod tests {
         );
         assert!(second.scope().unwrap().roots[0].query.filter.is_none());
         assert!(!second.more());
+        assert_eq!(second.heads()[0], project_log::HeadState::default());
         assert!(!second.reproject(&old_model, vec![]));
         assert_eq!(second.rows().len(), 1);
         assert!(second.reproject(

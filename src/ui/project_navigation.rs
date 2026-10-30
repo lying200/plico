@@ -453,6 +453,8 @@ mod tests {
             assert!(s.error.is_none(), "{:?}", s.error);
             assert!(s.log.project_window().is_some());
             assert_eq!(s.log.commits().len(), 2);
+            assert_eq!(s.log.heads().len(), 2);
+            assert!(s.log.heads().iter().all(|head| head.included && head.tip));
             assert!(s.recent_recorded);
             assert!(!s.merge_recovery_available);
             assert!(!s.revert_recovery_available);
@@ -541,6 +543,7 @@ mod tests {
             assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.log_repository(0).unwrap().path, paths[1]);
             assert_eq!(s.log.commits()[0].subject, "child-only");
+            assert!(s.log.heads()[0].included && s.log.heads()[0].tip);
         });
         // The path editor/tree emits absolute selections, including sibling
         // repositories outside the primary root. Clearing text must not lose it.
@@ -725,6 +728,7 @@ mod tests {
                         .iter()
                         .cloned()
                         .map(|commit| plico::project_log::Entry {
+                            head: Default::default(),
                             root: Arc::new(s.repo.path.clone()),
                             commit,
                             display_parents: None,

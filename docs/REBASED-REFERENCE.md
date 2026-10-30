@@ -15415,3 +15415,51 @@ Plico Paths 直接显示，Rebased 在工具栏折叠区；恢复采用清除路
 本次不声称原生验证。Plico 分支弹窗另有自身查询，不能仅凭弹窗截图证明主 Snapshot 复用，
 后者由核心 Trace2 与 desktop 主根字段断言共同验证。原生后验时并行运行测试，仅作行为证据。
 已停止自启 Plico PID 11576，所有 Rebased 窗口保留。
+
+### 主根引用交接后的日志高亮数据归属（2026-10-30，实现前）
+
+继续审计发现 ff81297 的验收遗漏：ui/log_history.rs 仍从主 Snapshot.included_in_head 获取
+高亮，并用主 head_id 绘制所有根的 HEAD 节点。项目 merge_window 已经丢弃每根归属集合，
+旧路径最多保留主根额外 limit=1 的局部集合；纯引用交接将其清空后，使旧的局部高亮也消失。
+不能据此判定 rev-list 无消费者，更不能通过删除计算“提速”。需要把已算好的行状态交给 Log。
+
+实机前置：Rebased 1.1.22 / 262.10968.SNAPSHOT，仍用独立 parent/child fixture。
+在 parent 通过 commit-tree＋update-ref 创建 audit-outside-head 空提交分支，HEAD、index 与
+工作区不变，未访问远端；完整仓库/HEAD/新分支 OID 记录 artifacts/head-membership-20261030/fixture.json。
+Log 刷新后四行：未合入 HEAD 的 audit outside HEAD 为普通背景，parent 的 child/base 及 child
+根的 base 三行有当前分支背景；两个根的当前 HEAD 各有空心节点。选中未合入行后选择背景优先，
+右侧仍可显示其详情。截图 rebased-current-heads.png、rebased-selected.png；未滚动。
+同条件 Plico ff81297 的 release（before-build.json，SHA256 95FA7BBF...）四行均无高亮，
+只有主根 HEAD 有空心节点，截图 plico-before.png。仅关闭自启 Plico，Rebased 保留。
+
+实际读取 Rebased 245042348669114adb8e24e5b0fc0ce73763f3c4 的
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/highlighters/CurrentBranchHighlighter.java：
+按 details.getRoot() 获取条件，选择态优先；HEAD 或单一当前分支过滤时不高亮、无当前分支时
+不高亮。data/CurrentBranchConditionCache.kt 以根分开维护 condition，后台构建 permanent graph
+谓词，失效时允许旧 condition。当前修复仅恢复数据归属及根限定身份；既有 Plico 同步准确查询、
+配色、detached/单分支过滤差异保留，未声称这些状态已实机复刻。取消/错误和深页状态待测试。
+
+实现映射：每个 project_log::Entry 携带该根该提交的 HEAD 归属与 HEAD 节点标记，随合并、
+分页和导航一起移动；Display 从被接纳的 page 接收逐行状态，渲染不再读取主引用 Snapshot 的
+归属集合。不新增 Git 查询、不延长集合生命周期、不恢复额外主根历史读取；单根路径同样交接。
+本段为本次修改前的原生/源码依据，后验尚未完成。
+
+### 日志逐根 HEAD 状态：实施后验（2026-10-30）
+
+同一 parent/child 与 audit-outside-head 场景，Plico 最终 release SHA256
+616E90AC48A890C1DD25DBD79DF919E5711E97D56DA130B334FF97A7C1C2BEE4，构建记录
+artifacts/head-membership-20261030/after-build.json；代码哈希 frozen-code.json。
+plico-after.png：四行中未合入行保持普通背景，其余三行高亮；parent 的 child 提交与
+child 根的 base 各有空心 HEAD 节点。plico-selected.png：选择未合入行，选择背景优先，
+右侧空变更提示及说明正常。plico-selection-changed.png：改选 parent HEAD 后，未合入行
+恢复普通背景，其余高亮保持，右侧显示对应的 .gitmodules/child 文件及说明。加载中的
+状态观察到了，但不将截图调用延迟用作操作性能数据；本轮同时有测试负载。
+
+功能结构/交互通过：行顺序、根身份、HEAD 节点、选择背景优先级、异步说明与文件显示。
+没有新增控件或调整焦点/快捷键；未操作滚动。Rebased 当前浅色、Plico 当前深色，已有配色、
+面板布局和细节差异保留，不声明像素一致；detached/单分支过滤与失败/取消未在本次原生
+复现。后两项的既有定向桌面回归通过，不能替代未验证的原生状态。
+最终 desktop 定向 10/10、180 filtered（4e7c-18e33f0900838508-0），含初载、过滤、导航、
+请求替换、刷新期间打开 Diff 和取消/迟到结果。完整 core 另见性能审计最终记录。
+已按 PID/路径复验关闭自启 Plico 23164；按预期旧 OID 删除仅本次创建的 audit-outside-head
+引用，HEAD 与原有 CaseFile.txt/.idea 工作区状态不变；所有 Rebased 窗口保留。

@@ -126,6 +126,107 @@ fn project_popup_preserves_reference_scope_and_repository_local_targets() {
     assert_eq!(Project::default().scope(None, false, false), Scope::Empty);
 }
 #[test]
+fn project_head_state_is_root_scoped_and_survives_paging_and_reference_handoff() {
+    use plico::project_log::{self, HeadState, Query};
+    let f = Fixture::new();
+    let primary = f.repository("primary");
+    let base = git(&primary.path, &["rev-parse", "HEAD"]);
+    git(
+        &primary.path,
+        &["commit", "--allow-empty", "-qm", "new head"],
+    );
+    let head = git(&primary.path, &["rev-parse", "HEAD"]);
+    git(
+        &f.0,
+        &[
+            "clone",
+            "--no-hardlinks",
+            primary.path.to_str().unwrap(),
+            "child",
+        ],
+    );
+    let child = Repository::new(f.0.join("child"));
+    git(&child.path, &["branch", "kept-new", &head]);
+    git(&child.path, &["reset", "--hard", &base]);
+    let queries = [primary.clone(), child.clone()].map(|repository| Query {
+        repository,
+        branches: vec![],
+        filter: None,
+    });
+    let token = Cancel::default();
+    let (mut read, refs) = project_log::read_with_primary(&queries, 1, &primary, &token).unwrap();
+    assert!(
+        refs.unwrap().included_in_head.is_empty(),
+        "references must not be a surrogate for row state"
+    );
+    let scope = read.scope.clone();
+    let mut seen = std::collections::HashMap::new();
+    loop {
+        assert!(read.scope.errors.is_empty());
+        for entry in &read.page.entries {
+            assert!(
+                seen.insert(
+                    (entry.root.as_ref().clone(), entry.commit.id.clone()),
+                    entry.head
+                )
+                .is_none()
+            );
+        }
+        if !read.page.more {
+            break;
+        }
+        read = read.next_page(1, &token).unwrap();
+    }
+    assert_eq!(seen.len(), 4);
+    assert_eq!(
+        seen[&(primary.path.clone(), head.clone())],
+        HeadState {
+            included: true,
+            tip: true
+        }
+    );
+    assert_eq!(
+        seen[&(primary.path.clone(), base.clone())],
+        HeadState {
+            included: true,
+            tip: false
+        }
+    );
+    assert_eq!(
+        seen[&(child.path.clone(), head.clone())],
+        HeadState {
+            included: false,
+            tip: false
+        }
+    );
+    assert_eq!(
+        seen[&(child.path.clone(), base.clone())],
+        HeadState {
+            included: true,
+            tip: true
+        }
+    );
+    let window = project_log::navigation::window_at(scope, 1, 2, &token).unwrap();
+    for entry in &window.read.page.entries {
+        assert_eq!(
+            entry.head,
+            seen[&(entry.root.as_ref().clone(), entry.commit.id.clone())]
+        );
+    }
+    git(&child.path, &["reset", "--hard", &head]);
+    let refreshed = project_log::read(&queries, 10, &token).unwrap();
+    assert!(refreshed.page.entries.iter().all(|e| e.head.included));
+    assert_eq!(
+        refreshed.page.entries.iter().filter(|e| e.head.tip).count(),
+        2
+    );
+    assert!(
+        !seen[&(child.path.clone(), head)].included,
+        "a refresh cannot mutate the previous page"
+    );
+}
+
+#[test]
 fn project_history_hands_off_primary_metadata_and_preserves_filtered_scope() {
     use plico::project_log::{self, Query};
     let f = Fixture::new();

@@ -494,6 +494,7 @@ mod repository_tests {
                 entries: [&parent, &child]
                     .into_iter()
                     .map(|root| plico::project_log::Entry {
+                        head: Default::default(),
                         display_parents: None,
                         root: Arc::new(root.clone()),
                         commit: commit.clone(),

@@ -260,6 +260,7 @@ fn metadata_batch_groups_roots_without_conflating_identical_oids() {
     let replaced = second.git(&["commit-tree", "HEAD^{tree}", "-m", "other root replacement"]);
     second.git(&["replace", &commits[0].id, &replaced]);
     let entry = |root: &PathBuf, index: usize| Entry {
+        head: Default::default(),
         root: Arc::new(root.clone()),
         commit: commits[index].clone(),
         display_parents: None,

@@ -1885,3 +1885,41 @@ artifacts/test-runs/f70-18e33c2f3943d370-0。上述 desktop 两组共 9 项通�
 该测试风格变化单独复验；frozen-code.json 与 final-code.json 记录这一区别，其他代码哈希一致。
 fmt check 与 git diff --check 通过，原生和性能证据对应同一产品构建。未运行完整桌面/navigation
 或 CI；未推送、未打包。本批范围到主根元数据交接为止，尚未解决所有性能审计剩余项。
+
+### 主根引用交接的消费者回归修正（ff81297 后）
+
+后续源码审计与同条件原生对照发现，前批“元数据与 Log 分离”的验收漏掉了渲染消费者：
+ui/log_history 仍读主 Snapshot.included_in_head，且用主 HEAD 比较所有根的提交。项目合并
+此前已丢弃各根集合，旧的额外主根查询仅补回部分主根高亮；ff81297 将这部分也清空。
+因此前批查询数量与耗时测量仍是实际观测，但不能以字段交接测试通过推断 UI 行为完整。
+本批先补 Rebased/Plico 实机证据，再修正消费者，前置记录见 REBASED-REFERENCE.md。
+
+project_log::Entry 增加 HeadState，包含该根提交是否属于 HEAD、是否为 HEAD 节点两位状态；
+merge_window 在消费源快照时计算，随后随有界页面合并、分页和导航移动。主根 head_id 保留
+一次短字符串 clone，供源页面计算；其他引用字段仍按原交接方式移动。Display 与提交身份
+一起接纳这些状态，渲染不再依赖主引用 Snapshot。单根 Display::single 采用相同规则。
+不增加 Git 查询，不恢复额外主根历史读取，也不长期保留每根 membership 哈希集合。
+selection::load 的 Entry 仅供说明与文件详情，默认行状态不用于 Log 页面；裸 merge API
+没有 HEAD 输入，同样保持默认。核对 UI 调用链，没有以这两条路径替换已接纳页面。
+
+新增真实 Git 回归：两个 clone 具有相同提交 OID、不同当前 HEAD，保留额外分支，验证
+每根包含/不包含与 tip、逐页合并、window_at 导航、引用交接和刷新不修改旧页面。定向
+project_branches 6/6（3408-18e33df4081f7e40-0）。桌面单根页面测试验证同 OID 换根后
+不复用旧状态；project_navigation 从实际 UI 初载及过滤路径验证父/子根状态进入 Display。
+首轮桌面 10/10（6138-18e33ecbbd022fc4-0），随后仅移除已无用途的 checkout_head 局部变量，
+最终构建与同组桌面复验进行中。doctest 成功但 0 示例；core all-targets clippy 成功，
+既有警告保留，见 artifacts/head-membership-20261030/clippy.log。
+
+完整 core 运行 530c-18e33ee04dfca928-0，997 项，最终结果待记录。源码冻结记录 frozen-code.json；
+后续仅文档验收更新。原生后验、提交尚待完成。未运行 CI，未推送。本批只修正这项状态归属
+缺陷，不扩展为高亮设置重构；既有配色、detached/单分支过滤差异继续明确保留。
+
+本批最终验收：完整 core 997/997、0 skipped，1505.854 秒，运行目录
+artifacts/test-runs/530c-18e33ee04dfca928-0。最终 desktop 定向 10/10、180 filtered，
+105.820 秒，4e7c-18e33f0900838508-0；不是完整 desktop/navigation 套件。
+最终 release 构建、doctest（0 示例）、core all-targets clippy、fmt check 与 diff check 通过；
+仅保留既有 clippy/sequencer 警告。最终源码与 frozen-code.json 一致。
+原生同条件三项通过：未合入行不高亮、两根各自 HEAD 节点、选择切换与详情；截图、构建
+SHA256 及清理记录见 REBASED-REFERENCE.md 后验段。本批未新增端到端性能计时或内存测量，
+不能把上一批数字直接当作修正后的新测量；源码确认没有增加命令调用。
+没有运行 CI、完整桌面/navigation、推送或发包；本批修复闭环，整体性能审计剩余项未称完成。

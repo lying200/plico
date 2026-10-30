@@ -20,7 +20,27 @@ pub struct RepositoryLog {
     pub more: bool,
 }
 
+/// Presentation facts captured from this row's repository, never a project-wide hash lookup.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeadState {
+    pub included: bool,
+    pub tip: bool,
+}
+impl HeadState {
+    pub fn for_commit(
+        id: &str,
+        head: Option<&str>,
+        included: &std::collections::HashSet<String>,
+    ) -> Self {
+        Self {
+            included: included.contains(id),
+            tip: head == Some(id),
+        }
+    }
+}
+
 pub struct Entry {
+    pub head: HeadState,
     /// Projected display parents only; real parents stay in commit.
     pub display_parents: Option<Vec<(String, bool)>>,
     pub root: Arc<PathBuf>,
@@ -125,6 +145,7 @@ pub fn merge(logs: Vec<RepositoryLog>, limit: usize) -> Page {
             log.commits
                 .into_iter()
                 .map(|commit| Entry {
+                    head: HeadState::default(),
                     root: log.root.clone(),
                     display_parents: None,
                     commit,
@@ -457,7 +478,7 @@ fn read_impl(
                     // the window. Do not clone commits or retain metadata per page/root.
                     let snapshot = &mut window.snapshot;
                     captured = Some(crate::git::Snapshot {
-                        head_id: snapshot.head_id.take(),
+                        head_id: snapshot.head_id.clone(),
                         included_in_head: Arc::default(),
                         current_branch: snapshot.current_branch.clone(),
                         ref_titles: snapshot.ref_titles.clone(),
@@ -514,6 +535,11 @@ fn merge_window(
         .commits
         .into_iter()
         .map(|commit| Entry {
+            head: HeadState::for_commit(
+                &commit.id,
+                snapshot.head_id.as_deref(),
+                &snapshot.included_in_head,
+            ),
             root: root.clone(),
             display_parents: projected.as_mut().and_then(Iterator::next),
             commit,

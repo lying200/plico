@@ -1491,3 +1491,46 @@ core、doctest、clippy 与 Push 对话框定向桌面回归。此次没有修�
 `4f68-18e3362cf402a744-0` **2/2、188 filtered**，status exit 0。
 doctest 成功（0 示例）；clippy 成功，保留既有警告，日志位于本批 artifacts。
 最终源码摘要与 frozen-code.json 一致，fmt/diff 检查通过。没有运行本批 CI 或推送。
+
+### 操作状态轮询的目录解析复核（5e623cb 后，只读审计）
+
+当前工作区起点 5e623cb。重新拆分已有 binding-refresh-20261030 的 Trace2 原始样本，
+仍使用 03:44:32.878Z 至 03:46:32.878Z 的 120 秒窗口、顶层 start（sid 无斜线）：
+100 次启动中，46 次 `rev-parse --absolute-git-dir`，23 次 `rev-parse --verify HEAD`，
+23 次 for-each-ref，8 次 config --null --list --includes。目录解析在 parent 和 child
+各 23 次。此为旧样本再分析，不是新版本性能测量，46% 是调用数占比，不是提速预期。
+
+完整读取本地 ui/worktree_sync.rs、project_operations.rs、operation_state.rs、
+operation_inspection.rs 及 watcher 的 binding/git_paths/project 生命周期。调用链为
+每 5 秒（或根/事件变化）Observer::poll → observe → Observation::read →
+editor_directory，每根即使 11 项操作标记完全不变也要启动一次 Git。改变时再读取
+operation_state_in，并在末尾重新读取 Observation 复验。只读 Inspection 则把状态与
+恢复记录合在一次目录解析中，最后重解析防止混用目录，不能把两条调用路径混为一谈。
+
+Rebased 245042348669114adb8e24e5b0fc0ce73763f3c4 再次读取
+GitRepositoryUpdater.kt 全文、GitRepositoryImpl.kt::update/readRepoInfo、
+GitRepositoryReader.kt::readRepositoryState/findRebaseBranch：长寿命 repositoryFiles
+与 reader 持有目录，VFS 按 HEAD、refs、config、merge/rebase 分别触发更新，操作标记
+从对应文件读取。不能据此宣称 Rebased 所有状态读取均零 CLI，也不能复制其 VFS 生命周期。
+
+下一优化不能简单使用 ProjectEvents 当前保存的目录：绑定轮询每 30 秒、每次一根，
+操作轮询每 5 秒、遍历所有根；take 之后才提出的重建请求可能尚未执行。重建失败时为保留
+观察能力还会暂留旧 watcher。必须在读取操作状态的同一请求内验证绑定，且前后检查、
+失败为 unknown、取消不接纳、未送达重试都保留，不能把“监听器存在”当新鲜目录证明。
+
+额外发现了只用 Binding::current 仍不充分的边界。独立临时仓库实验记录
+`artifacts/operation-binding-audit-20261030/config-probe.json`：仅追加损坏的 .git/config，
+未改 .git 指向，`rev-parse --absolute-git-dir` 从 exit 0 变为 128；恢复原配置又返回 0。
+现有 Binding 记录目录创建时间、指针文件和 commondir，不记录 config。若缓存命中直接
+返回旧 Observation，就会绕过当前实现的配置解析错误，并可能把不可读仓库继续视为 idle。
+这是 CLI 实验加源码推导，尚未实现缓存版本或运行其负例；不能称已复现产品回归。
+
+因此下一批需先明确目录身份与 Git 可读性的共同失效条件，再决定抽取 watcher/observer
+可共用的有界证据，避免新增一套互不同步的目录缓存。外部 include/global config、路径
+间接层、linked worktree 与网络/未知布局要有明确回退；不得仅延长轮询间隔掩盖开销。
+已读既有 tests/project_operations.rs 的 gitfile 改向/损坏/取消、tests/conflicts.rs 的
+merge --quit（refs/index 不变）与嵌套操作标记测试。新增实现还须覆盖配置损坏/恢复、
+稳定轮询 CLI 数量、绑定变化后旧标记不串用及 UI 未接纳重试。
+
+本轮未修改功能代码，没有新的原生验收，也不拿旧 merge 截图替代未来实现前置；测试
+基线沿用 5e623cb 的记录，不称本轮重跑。临时配置已恢复，仅新增上述审计证据与设计约束。

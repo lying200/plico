@@ -15274,3 +15274,17 @@ Push 箭头进入 parent 推送。plico-before/outgoing/running/success.png 分�
 随后完整 core 990/990、Push 对话框定向 desktop 2/2（188 filtered）、doctest、clippy
 及格式检查通过，运行标识见性能审计本节对应记录。本批不包含全量 desktop/navigation
 或 CI 结果；没有新增可见控件或改变焦点/Tab 生命周期。
+
+### 操作状态目录生命周期：继续源码审计（2026-10-30）
+
+参考 commit 245042348669114adb8e24e5b0fc0ce73763f3c4。本轮再次读取
+backend/src/repo/GitRepositoryUpdater.kt 全文以及 GitRepositoryImpl.kt 的 update/
+readRepoInfo、GitRepositoryReader.kt 的 readRepositoryState/findRebaseBranch。
+提取规则：持久目录/reader 与 repository 生命周期对应，状态变化依靠 VFS 分类触发，
+操作标记使用每工作树路径；没有把上游路径持有方式视为可直接绕过本地目录复验的依据。
+
+本地映射为 project_operations::Observer、operation_state::Observation 和
+worktree_events 的绑定证据。两者轮询期限、失败保留和送达确认不同，不能直接共用旧
+watcher 路径。旧空闲 Trace2 中 46/100 次启动为目录解析；新 CLI 探针显示配置损坏即使
+目录指向不变也会导致当前目录解析失败。具体实验与后续设计边界见性能审计相应节。
+本轮仅分析，不新增产品行为，不宣称完成原生前置或后验；未来实现须补对应实机场景。

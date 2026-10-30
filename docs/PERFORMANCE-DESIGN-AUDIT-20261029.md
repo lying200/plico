@@ -1189,3 +1189,43 @@ clippy 保留已有警告，日志 artifacts/dirty-scope-20261030/clippy-final.l
 ASCII 别名及已声明子模块映射。非 ASCII Windows 范围、未知/错误成员、超额快照、ignored 显示等
 保留全量回退。源码依据、原生结果和查询计时分别记录，未以定向测试代替上述完整回归。
 整轮审计仍有统一刷新路由、不可变详情缓存的精确失效，以及剩余进程/计算热点评估待完成。
+## 阶段 5 提交后的刷新调度复查（2026-10-30）
+
+阶段 5 实现提交为 `13688b8`。以下是后续只读源码审计，不是已实施的优化或新的耗时测量。
+
+确认的放大链路：`ui/auto_refresh.rs::start_auto_refresh` 发现 References 改变后，
+进入 `ui/repository.rs::refresh_impl(false, true, ...)`。同一入口也用于 Push 完成
+（`ui/remote.rs`）、Pull/项目 Update 完成、需要刷新时的 Fetch，以及 shallow/config 通知。
+它无条件刷新项目根、全部分支比较、历史计数、清空全部提交详情缓存，并刷新 Changes。
+`ProjectRoots::refresh` 确实启动 mappings 发现和逐根 shallow 查询，同时发出 Checking；
+因此这不是几个廉价 UI notify，而是具有任务、查询和下游状态成本的放大。
+已有 discovering/pending 合并防止反复取消，但不能消除不必要的发现任务。
+
+对照 Rebased `245042348669114adb8e24e5b0fc0ce73763f3c4`，本轮重新读取
+`platform/vcs-log/impl/src/com/intellij/vcs/log/data/VcsLogData.kt` 的持有者初始化与
+refresh：commitDetailsGetter 独立于 refresher，refresh(roots, optimized) 转交按根刷新。
+结合 REBASED-REFERENCE.md“详情缓存与引用失效前置”的原生记录，不能将刷新 Log 翻译为
+清空全部详情。源码结构也不能证明上游完整处理了 replace/grafts，保留先前限制。
+
+下一批修改的范围限定为“引用观察到消费方的刷新决策”，不引入通用事件总线或提高并发：
+
+| 已确认的变化 | 拟刷新范围 | 实施前必须守住的边界 |
+| --- | --- | --- |
+| 普通分支/标签/远端引用 | 相关历史、计数、标签与符号分支比较 | 不推导为工作树或项目成员已变化；配置/解释另行失效 |
+| HEAD/index/worktree | Changes 基线及相应比较 | 写操作失败或取消仍可能有部分结果，不能只看成功码 |
+| 成员或仓库身份 | 项目发现及对应根消费者 | 同路径仓库替换不能复用旧身份缓存 |
+| replace/shallow/配置解释 | 对应根详情及依赖解释的消费者 | 补查 grafts、已加载选择与迟到结果，不能只清 Cache |
+| 手动刷新/未知变化 | 保守刷新 | 保留用户主动修复未知状态的入口 |
+
+Push 不能仅按操作名直接跳过所有本地观察：hook、并行外部修改及部分完成都须由实际观察
+决定后续刷新。Fetch 已有 unchanged/stamp 判断，拆分时应保留，而非重新无条件刷新。
+普通引用保留详情缓存要与 root identity/grafts 的审计一起完成，不能单独删 clear()。
+
+另一个独立缺口：`diff_tab.rs::disk_changed` 在 Commit/Stash、loading、无 viewer 或文档锁定时
+提前返回；disk_pending 只覆盖已进入 disk_refreshing 的通知。固定端点解释失效不能直接复用
+该入口并声称完成；其 read_contents 分支从文本构造 DiffFile，还需保留二进制、mode、gitlink
+等语义。下一批刷新决策不顺带重写整个 Diff 生命周期，此项独立跟踪。
+
+验收将用临时仓库和本地 bare remote，对普通引用变化、Push up-to-date/部分失败、HEAD 移动、
+配置与 replace 分别记录实际 Git 命令及消费方启动次数；用原生同条件截图确认选择、已打开 Diff
+和失败恢复。当前仅建立调用链与验收边界，未测得这批改动的收益，未实施上述策略。

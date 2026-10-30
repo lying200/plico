@@ -74,14 +74,19 @@ pub fn observe(
     previous: Option<&Observation>,
     token: &crate::git::Cancel,
 ) -> Result<Option<(Observation, State)>, String> {
+    let mut trace =
+        crate::performance_trace::Span::new("request", "operation-observe", Some(&repo.path));
+    trace.outcome("error");
     let next = Observation::read(repo, token)?;
     if previous == Some(&next) {
+        trace.outcome("unchanged");
         return Ok(None);
     }
     let state = repo.operation_state_in(&next.directory, token)?;
     if Observation::read(repo, token)? != next {
         return Err("Operation state changed while observing repository".into());
     }
+    trace.outcome("changed");
     Ok(Some((next, state)))
 }
 impl State {

@@ -15517,3 +15517,7 @@ large-loaded.png、large-selected.png（1000/100001 行及 c100001 空变更详�
 10000/100001 行、单轨道、未选择提交及未开 Diff。与前轮相同产品哈希，Job 从启动前纳入后代。
 Rebased 2450423 的 GitRepositoryUpdater.kt 本轮全文复核，按 VFS 事件更新 repository/changes 的规则
 及 Plico 5 秒 refs/operation 轮询差异见性能审计“Job Object 与空闲查询复核”。尚无行为调整。
+
+refs/operation 诊断包装后的原生复核：artifacts/observation-trace-20261030/native/loaded.png，
+同一十万提交 fixture、10000 行、未开 Diff；构建哈希及归属断言见性能审计本批记录。
+本次只观察默认关闭的诊断，不改变轮询或界面行为；自有 PID 24776 随 Job 清理，用户窗口保留。

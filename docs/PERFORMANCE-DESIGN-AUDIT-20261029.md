@@ -2137,3 +2137,71 @@ changes 消费者。不能把上游 VFS 服务直接等价为本地 watcher 永�
 本轮没有产品改动或新的 Rebased 行为设计；两个 Job 在采样完成后关闭，各自进程 14032/15720
 已核对退出，用户窗口保留。原生截图只覆盖无 trace 运行；诊断复核未另做交互验收。
 fmt/diff 检查用于文档提交，产品测试仍引用前批结果，未重跑、未推送、未运行 CI。
+
+### refs/operation 观察的诊断归属（26ebced 后，验证中）
+
+前轮 trace 的周期查询均 parent=0，本轮只补同步 worker 的两个 scope：
+branch_updates::References::read → references-observe；operation_state::observe → operation-observe。
+复用已有 performance_trace::Span，root 仍用会话内哈希，不写路径、参数、OID 或错误文本；默认关闭，
+16 MiB 上限和已有文件不覆盖规则不变。Span 不跨 await，不改变任务/取消/缓存/失效/查询语义。
+refs 成功标 ok，操作观察按返回值标 changed/unchanged，提前错误保留 error；refs 既有显式取消分支标 cancelled。
+操作观察内的取消也可能标 error，子查询仍有取消状态，因此不能按父层 error 数推算故障次数。
+这些是核心读取范围，不是 UI 端到端请求：尚未区分调用入口、队列、结果发布或实际呈现。
+
+本轮不调整产品可见行为，故不新增 Rebased 操作设计；前轮已读 2450423 GitRepositoryUpdater.kt
+和原生观察记录继续作为后续行为修改的依据。长期目录缓存及轮询频率保持不变。
+变更仅 src/branch_updates.rs、src/operation_state.rs 的诊断包装，沿用现有 trace 嵌套/恢复/关闭/容量测试；
+真实入口的 parent/root/command 关系另用原生运行产物核对，不在测试线程修改进程环境。
+完整 core 48fc-18e34418e1c7376c-0 正在运行，源码哈希 frozen-code.json；尚未标全绿或提交。
+
+本批原生归属验证已完成：artifacts/observation-trace-20261030/native/ 中 measure.ps1、
+trace.jsonl、check.ps1、attribution-check.json、loaded.png、process.json 保留完整输入及断言。
+构建 SHA256 5A578A289C11ADE876BFE58F52315E13C75FF21321C1063BB3BF47949DE3CA07；
+原生截图确认十万提交仓库实载 10000 行。trace 自身第 4–30 秒内完成的 5 次 references-observe
+各含 for-each-ref + rev-parse、结果 ok；5 次 operation-observe 各含 rev-parse、结果 unchanged；
+全部 15 条 query 的 parent/root 均匹配，无游离周期查询，初始 changed 分支也有记录。
+check.ps1 对次数下限、精确子查询集合、root、parent、outcome 逐项断言通过。
+这里只验证诊断归属；本次同时运行核心回归且启用 trace，采集的时延/资源不是性能对比基线。
+Job 已关闭，自有 PID 24776 退出，用户 Rebased 保留；未执行原生写操作或滚动。
+这证明稳定轮询仍有一次目录解析，不证明可以安全缓存目录：现有 project_operations 回归要求
+linked worktree 管理目录变化和损坏 include 配置不被旧状态隐藏，不能以减少命令数代替这些语义。
+
+release 构建、doc（0 示例）、all-targets core clippy 已成功，日志位于本批目录；既有警告保留。
+未修改桌面状态或可见行为，未运行桌面套件。完整 core 仍运行于上述唯一运行目录，未重启；
+完成前不提交本批、不宣称全绿。阶段 1 的 UI 跨异步关联和完整资源压力验收仍未完成。
+
+等待本批全量测试期间已重建后续资源压力 fixture：artifacts/review-pressure-20261030/create.ps1
+使用 Git fast-import 创建独立临时仓库；fixture.json 记录 10000 提交、最新提交 100 文件，
+review.rs 为 975000 字节（SHA256 D6528FB997CDBB75DD486DE0BB399C2007C9733FCD7390FFCEB6CB3DC70AA6F1），
+HEAD 173675bbbee70383dd945523f9d669b2dc7131d8，工作树干净。仅预检原生最新提交和文件列表，
+preflight/selected-100-files.png 显示 10000/10000 历史、100 个文件及正确提交说明。
+未完成大 Diff 打开、全文核对或重复操作压力；并发核心测试期间的采样不作为资源门槛结果。
+readonly-check.json 确认 HEAD/status 保留、自有应用退出；用户窗口保留。
+
+### 本轮阶段收尾边界（2026-10-30）
+
+本阶段交付为性能设计审计、主要已证实热点的修复、回归与可复核测量，不等同于全部发布性能门槛通过。
+已完成的主线覆盖阶段内查询共享、刷新/缓存失效归属、批量详情读取和不必要的全历史依赖移除；
+保留 Git CLI、写入新鲜性复验、取消及每根 HEAD 显示语义。最后一批只补观察查询的诊断归属。
+源码对照、原生前后状态、命令数和当前核心测量分别保留在本文件和 REBASED-REFERENCE.md，
+不把核心查询耗时冒充按钮到呈现的延迟，也不把早期基线当作最终构建测量。
+
+以下转为后续独立专项，不继续扩大本轮实现范围：
+- 跨异步入口的端到端关联与实际呈现计时；当前同步观察 scope 只解决其中一部分归因。
+- 复杂图、大 Diff、百文件切换、重复刷新/开关仓库的完整资源压力及 GPU 验收。
+- 有充分收益与正确性证据后再评估长期目录缓存或稳定轮询优化；本轮不删除保底检查。
+
+review-pressure-20261030/session 的场景准备只到打开 checkpoint.txt Diff、在文件选择器搜索 review.rs；
+尚未打开并核对大文件，未请求正式 steady 样本。已通过 stop 标记关闭自有 Job/PID 24800，
+用户 Rebased 保留。不把这一中断的准备过程记作大 Diff 或压力验收通过。
+当前唯一剩余提交前事项是 core 48fc-18e34418e1c7376c-0 的终态；验证期间不再改产品代码。
+
+本阶段最终验收：本批完整 core 998/998 通过、0 skipped，1375.091 秒，
+运行目录 artifacts/test-runs/48fc-18e34418e1c7376c-0，唯一运行进程正常退出 0。
+最终两个产品源码哈希仍与 frozen-code.json 一致。release、doc（0 示例）、core all-targets clippy、
+fmt check、diff check 及原生追踪归属断言通过；既有编译/clippy 警告保留。
+本批没有桌面状态/生命周期变化，未重跑完整 desktop/navigation；既有功能批次的定向桌面和
+原生对照结果见各自记录。不宣称 CI 通过，未推送、未发布 preview。
+
+本轮性能审计与已实施修复在上述边界内阶段性完成；后续专项明确保留，不再自动追加本轮任务。
+最后提交仅包含 refs/operation 诊断归属及这些验收记录，不包含压力预检产物或未完成的产品实现。

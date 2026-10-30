@@ -75,6 +75,9 @@ impl References {
                 .filter(|line| line.starts_with("refs/replace/")))
     }
     pub fn read(repo: &Repository, token: &Cancel) -> Result<Self> {
+        let mut trace =
+            crate::performance_trace::Span::new("request", "references-observe", Some(&repo.path));
+        trace.outcome("error");
         // Replacement objects can change history and details without moving
         // HEAD or ordinary branch/tag refs. They invalidate the observation,
         // but never become displayed branches or incoming/outgoing targets.
@@ -84,9 +87,12 @@ impl References {
             .ok()
             .map(|s| s.trim().to_owned());
         if token.cancelled() {
+            trace.outcome("cancelled");
             return Err("Cancelled".into());
         }
-        Ok(Self::from_records(refs, head))
+        let references = Self::from_records(refs, head);
+        trace.outcome("ok");
+        Ok(references)
     }
     pub(crate) fn from_records(refs: String, head: Option<String>) -> Self {
         let rows = refs

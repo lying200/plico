@@ -153,6 +153,83 @@ fn membership_errors_and_cancellation_never_turn_unknown_into_idle() {
 }
 
 #[test]
+fn operation_observer_does_not_hide_config_errors_behind_unchanged_markers() {
+    use plico::operation_inspection::Inspection;
+    for mode in ["local", "include", "conditional-include"] {
+        let fixture = Fixture::new();
+        let healthy = fixture.repo("healthy");
+        let affected = fixture.repo("affected");
+        let config = affected.path.join(".git/config");
+        let changed = if mode == "local" {
+            config.clone()
+        } else {
+            let external = fixture.0.join("external config");
+            git(
+                &affected.path,
+                &[
+                    "config",
+                    if mode == "include" {
+                        "include.path"
+                    } else {
+                        "includeIf.onbranch:main.path"
+                    },
+                    external.to_str().unwrap(),
+                ],
+                true,
+            );
+            external
+        };
+        let original = std::fs::read(&changed).ok();
+        let local_config = std::fs::read(&config).unwrap();
+        let head = std::fs::read(affected.path.join(".git/HEAD")).unwrap();
+        let index = std::fs::read(affected.path.join(".git/index")).unwrap();
+        let roots = [healthy, affected.clone()];
+        let token = Cancel::default();
+        let mut observer = Observer::default();
+        let initial = observer.poll(&roots, &token).unwrap().unwrap();
+        assert!(initial.iter().all(|entry| entry.state.is_ok()));
+        assert!(observer.poll(&roots, &token).unwrap().is_none());
+
+        // Missing includes becoming malformed must invalidate too, even though
+        // they never appeared as a successfully loaded configuration origin.
+        std::fs::write(&changed, "[broken\n").unwrap();
+        let invalid = observer.poll(&roots, &token).unwrap().unwrap();
+        assert_eq!(invalid[0].state, initial[0].state, "{mode}");
+        assert!(invalid[1].state.is_err(), "{mode}");
+        let inspection = Inspection::read(&affected, &token);
+        assert!(inspection.state.is_err(), "{mode}");
+        assert_eq!(inspection.recovery.flags(), (true, true, true));
+        assert_eq!(
+            std::fs::read(affected.path.join(".git/HEAD")).unwrap(),
+            head
+        );
+        assert_eq!(
+            std::fs::read(affected.path.join(".git/index")).unwrap(),
+            index
+        );
+        if mode != "local" {
+            assert_eq!(std::fs::read(&config).unwrap(), local_config);
+        }
+
+        if let Some(bytes) = original {
+            std::fs::write(&changed, bytes).unwrap();
+        } else {
+            std::fs::remove_file(&changed).unwrap();
+        }
+        let cancelled = Cancel::default();
+        cancelled.cancel();
+        assert!(observer.poll(&roots, &cancelled).is_err());
+        let recovered = observer.poll(&roots, &token).unwrap().unwrap();
+        assert_eq!(recovered[1].state, initial[1].state, "{mode}");
+        assert!(observer.poll(&roots, &token).unwrap().is_none());
+        assert!(
+            invalid[1].state.is_err(),
+            "published errors remain immutable"
+        );
+    }
+}
+
+#[test]
 fn operation_inspection_uses_each_worktree_and_reresolves_changed_git_file() {
     use plico::operation_inspection::{Inspection, RecoveryPresence};
     let fixture = Fixture::new();

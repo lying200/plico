@@ -1534,3 +1534,28 @@ merge --quit（refs/index 不变）与嵌套操作标记测试。新增实现还
 
 本轮未修改功能代码，没有新的原生验收，也不拿旧 merge 截图替代未来实现前置；测试
 基线沿用 5e623cb 的记录，不称本轮重跑。临时配置已恢复，仅新增上述审计证据与设计约束。
+
+### 配置失效边界回归与收益判断（15aa1fc 后）
+
+读取 Configuration::poll 及其 missing include/error/recovery 测试后确认：当前配置观察
+每 30 秒依靠 Git 解析 includes、计算摘要，错误和恢复都触发失效；不保存配置依赖文件
+集合，也不提供每 5 秒操作状态读取所需的新鲜可读性证明。直接引用它上一次成功摘要会
+改变 unknown 的发现时机，单独缓存 .git/config 则遗漏外部 include 与条件 include。
+
+新增 tests/project_operations.rs::operation_observer_does_not_hide_config_errors_behind_unchanged_markers，
+直接经过 Observer::poll 和 Inspection::read，覆盖本地 config、仓库外含空格路径的
+include、onbranch:main 条件 include。后两项从不存在变为损坏，主配置、HEAD/index
+字节保持不变；目标根仍发布错误、另一个根正常、恢复记录为保守 unknown；修复后一次
+取消不吞掉恢复，下一次观察回到正常，旧发布快照保持错误。没有修改功能代码或缓存策略。
+隔离定向运行 `2cc4-18e3368bf3759e80-0`：10/10 通过，981 filtered，包括整个
+project_operations、两个 operation_observation 和配置 missing include 回归；不是全量。
+
+对同一旧 Trace2 窗口按目录查询 start.sid 匹配 exit：46/46 匹配，均 exit 0，t_abs
+合计 0.937601 秒/120 秒。该值不包含完整父进程启动等待，不是 CPU、UI 延迟或新版本
+计时。收益证据与复杂度结合后的决定：暂不为了省这部分轮询引入配置依赖解析器，保留
+上述测试作为以后共享生命周期优化的约束。下一优先级回到用户触发操作的端到端查询与
+完成刷新；目录缓存候选保留为未实施，不用提高轮询周期或放宽错误语义冒充优化完成。
+
+本批仅测试与审计记录：cargo fmt 检查、git diff --check、doctest（0 示例）及
+`cargo clippy --locked --no-default-features --all-targets` 成功；既有 clippy 警告保留，
+日志为 operation-binding-audit-20261030/clippy.log。没有运行全量核心/桌面、原生 UI 或 CI。

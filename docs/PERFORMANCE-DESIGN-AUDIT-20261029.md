@@ -1229,3 +1229,29 @@ Push 不能仅按操作名直接跳过所有本地观察：hook、并行外部�
 验收将用临时仓库和本地 bare remote，对普通引用变化、Push up-to-date/部分失败、HEAD 移动、
 配置与 replace 分别记录实际 Git 命令及消费方启动次数；用原生同条件截图确认选择、已打开 Diff
 和失败恢复。当前仅建立调用链与验收边界，未测得这批改动的收益，未实施上述策略。
+
+### Grafts 前置缺口的实证与修复进行中
+
+全新两提交仓库实测：refs 不变时 info/grafts 仍改变父关系，删除后恢复。
+证据 artifacts/refresh-dependencies-20261030/probe.ps1/result.json；原生 Rebased 的
+同条件操作和三张截图见 REBASED-REFERENCE.md“Grafts 与刷新依赖前置”。
+已修改 Pending 的 grafts/父目录删除与重命名识别、linked worktree 的 common 路径路由，
+并让解释通知直接触发历史重载，避免只等引用轮询。尚未放宽详情缓存清理策略；
+仓库身份替换、有界轮询兜底、固定 Diff 解释失效仍未完成。
+
+定向验证：b0c-18e32cdc1f73ddf8-0 单元 16/16（971 filtered）；
+6178-18e32ce7a48adeb4-0 真实观察器 5/5；56fc-18e32ce8bb2f052c-0 桌面仓库详情隔离
+1/1（188 filtered）。格式与 diff 检查通过。发布构建与 Plico 同条件原生复验待完成，
+当前结果不代表此工作树已通过全量测试或此批已可提交。
+
+后续发布构建通过（保留 sequencer.rs 的既有 dead_code 警告），Plico 原生创建/删除 grafts
+均自动更新历史父关系及当前详情、保持选择；截图与构建身份见参考文档的新复验小节。
+本批功能代码冻结，开始完整核心回归；完成前不标为提交就绪。
+
+提交前结果：`2f78-18e32d2c718fa554-0` 完整 core **987/987、0 skipped**，
+1140.702 秒，core-status.txt 为 exit code 0。随后
+`cargo test --locked --no-default-features --doc` 与
+`cargo clippy --locked --no-default-features --all-targets` 均成功退出；clippy 保留已有警告，
+不声称 warning-free。冻结文件摘要复核一致，格式和 diff 检查通过。
+本批桌面范围为上述 1 项仓库详情隔离定向回归及 Windows 原生 grafts 创建/删除复验；
+没有重跑完整 desktop/navigation，也没有推送或取得新的 CI 结果。

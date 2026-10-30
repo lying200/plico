@@ -42,6 +42,7 @@ impl GitPaths {
                 || relative == Path::new("config")
                 || relative == Path::new("shallow")
                 || relative == Path::new("info/exclude")
+                || relative == Path::new("info/grafts")
                 || relative == Path::new("info")
                 || relative.starts_with("refs")
                 || relative.starts_with("reftable")

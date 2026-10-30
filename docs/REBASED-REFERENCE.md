@@ -15037,3 +15037,41 @@ Windows watcher 返回的是实际大小写；传入错误大小写的核心分�
 与 Rebased 的差异：本地 Commit 列表仍只展示当前父仓库，未聚合展示子仓库文件；本次保持既有范围，
 只保证父 gitlink 不遗漏。未验证本次刷新中的双击、失败/取消、深层嵌套子模块原生行为。
 验证结束仅关闭本次 Plico，保留用户和测试 Rebased 窗口。
+
+## Grafts 与刷新依赖前置（2026-10-30）
+
+使用 computer-use 技能，Rebased 1.1.22 / 262.10968.SNAPSHOT，源码仍为
+245042348669114adb8e24e5b0fc0ce73763f3c4。复用 dirty-scope-20261030/boundaries.json
+记录的独立 parent/child 仓库和本地 bare remote；parent HEAD 为 5b7f768，父提交 245e1c1，
+工作区保留上一轮 CaseFile.txt 修改及 .idea。未执行远端操作。
+在 parent Log 点击 child 提交，右侧为 .gitmodules 和 child 两项；图中保留父子连接。
+写入 parent/.git/info/grafts，内容为完整 HEAD 加换行，使该提交按 Git 解释成为根提交。
+CLI 已确认父列表为空；原生自动观察及点击 Log 顶部刷新后仍保留原连接及两项详情。
+截图 artifacts/refresh-dependencies-20261030/rebased-grafts-{before,after,refreshed}.png。
+Log 在中部、详情在右侧、Commit 在左侧；刷新未改变选择或焦点入口，未验证取消/失败状态。
+完成后核对 grafts 内容仍等于本次写入值并删除，CLI 父关系恢复；保留所有 Rebased 窗口。
+
+另一个全新两提交 CLI fixture 的复现脚本和结果为同目录 probe.ps1/result.json：
+Git 2.56.0.windows.3 下引用完全相同，grafts 改变历史，删除恢复。
+本轮读取 GitRepositoryUpdater.kt::filesChanged，其分支区分当前分支、普通 refs、config、
+index、exclude 等，没有 grafts 的明确分支；不从该文件推断整个上游完全不支持 grafts。
+复读 VcsLogData.kt 的独立详情 getter 和按根 refresher，与之前缓存生命周期依据一致。
+
+本地现状：Pending 未识别 grafts；linked worktree 的 GitPaths 未转发 common/info/grafts；
+主根历史轮询只比较引用，解释变化可能被漏掉。实施映射为 worktree_events 的解释通知、
+GitPaths 的共享路径，以及 ui/worktree_sync 的历史重载条件。保留差异：遵循 Git 实际解释，
+不复制此场景 Rebased 保留旧父关系的表现。固定 Diff 的完整解释失效独立跟踪。
+本节为实施前证据，Plico 同条件原生复验尚待完成。
+
+### Plico grafts 同条件复验
+
+构建 SHA256 8D161D6BC28BD77863A6A3739D63B84C936D79BA158E20E15E7139CBAC29E8FE，
+身份记录 artifacts/refresh-dependencies-20261030/plico-build.json。使用隔离 LOCALAPPDATA，
+同一 parent/child 仓库，点击 child 后记录 plico-grafts-before.png：三条聚合历史、父子连线、
+右侧 .gitmodules/child 两项。写入相同 grafts 后无需手动刷新，plico-grafts-after.png 中
+父子连接消失、历史两条，右侧增加 CaseFile.txt（根提交相对空树），选中 OID 保留。
+删除本次 grafts 后 plico-grafts-restored.png 自动恢复三条历史、连接及两项文件。
+三张截图均在上述目录；未操作滚动或写入工作区文件，未测量毫秒级延迟或内存。
+对照差异：Plico 本场景跟随 Git 更新，Rebased 保留先前父关系；界面布局沿用既有实现，
+无新增入口/快捷键。加载中再次改 grafts、查询失败和取消未做原生专项；固定 Diff 解释失效
+仍属独立未完成项，不由此次 Log 与详情通过代替。测试仓库 grafts 已恢复为不存在。

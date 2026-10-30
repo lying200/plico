@@ -94,9 +94,11 @@ impl Review {
                                 return false;
                             }
                             let primary = plico::recent_projects::identity(&s.repo.path);
-                            let refresh_shallow = notices
-                                .iter()
-                                .any(|notice| notice.batch.shallow || notice.batch.configuration);
+                            let refresh_interpretation = notices.iter().any(|notice| {
+                                notice.batch.shallow
+                                    || notice.batch.configuration
+                                    || notice.batch.interpretation
+                            });
                             let refresh_project_log = s.log.project_window().is_some()
                                 && !s.local
                                 && notices.iter().any(|notice| {
@@ -112,7 +114,7 @@ impl Review {
                                     cx,
                                 );
                             }
-                            if refresh_shallow {
+                            if refresh_interpretation {
                                 // The primary ref poll cannot detect unchanged tips
                                 // with new ancestry. Refresh the catalog, rows and
                                 // count together, once for all affected roots.

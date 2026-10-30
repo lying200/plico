@@ -22,7 +22,7 @@ pub struct Batch {
     pub refs: bool,
     /// Shallow boundaries changed without necessarily moving any reference.
     pub shallow: bool,
-    /// Object interpretation may have changed (replace refs or packed/reftable
+    /// Object interpretation may have changed (grafts, replace refs or packed/reftable
     /// ref storage, where the affected namespace is not available).
     pub interpretation: bool,
     /// Effective Git configuration changed; fixed Diff endpoints stay fixed.
@@ -153,6 +153,13 @@ impl Pending {
                             self.batch.configuration = true;
                         }
                         if path.starts_with(".git/refs/replace")
+                            || path == Path::new(".git/info/grafts")
+                            || (path == Path::new(".git/info")
+                                && matches!(
+                                    event.kind,
+                                    EventKind::Remove(_)
+                                        | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                                ))
                             || path == Path::new(".git/packed-refs")
                             || path.starts_with(".git/reftable")
                         {
@@ -334,6 +341,41 @@ mod tests {
         assert!(!batch.changed());
         fallback.advance(&mut batch, now + Duration::from_secs(30));
         assert!(batch.all && batch.index);
+    }
+    #[test]
+    fn graft_edits_and_info_removal_invalidate_history_without_ref_movement() {
+        let root = Path::new("repo");
+        for (path, kind) in [
+            (
+                ".git/info/grafts",
+                EventKind::Create(notify::event::CreateKind::File),
+            ),
+            (
+                ".git/info/grafts",
+                EventKind::Modify(notify::event::ModifyKind::Data(
+                    notify::event::DataChange::Content,
+                )),
+            ),
+            (
+                ".git/info/grafts",
+                EventKind::Remove(notify::event::RemoveKind::File),
+            ),
+            (
+                ".git/info",
+                EventKind::Remove(notify::event::RemoveKind::Folder),
+            ),
+            (
+                ".git/info",
+                EventKind::Modify(notify::event::ModifyKind::Name(
+                    notify::event::RenameMode::From,
+                )),
+            ),
+        ] {
+            let mut pending = Pending::default();
+            pending.push(root, Ok(Event::new(kind).add_path(root.join(path))));
+            assert!(pending.batch.interpretation && pending.batch.history_changed());
+            assert!(!pending.batch.refs && !pending.batch.index);
+        }
     }
     #[test]
     fn staging_and_history_invalidation_have_distinct_consumers() {

@@ -163,6 +163,34 @@ fn linked_worktree_ignores_main_index_but_observes_own_index_and_shared_refs() {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+    let repo = plico::git::Repository::new(&root);
+    let token = plico::git::Cancel::default();
+    let refs = plico::branch_updates::References::read(&repo, &token).unwrap();
+    let grafts = f.0.join(".git/info/grafts");
+    for contents in [Some(format!("{}\n", refs.head.as_ref().unwrap())), None] {
+        match contents {
+            Some(contents) => fs::write(&grafts, contents).unwrap(),
+            None => fs::remove_file(&grafts).unwrap(),
+        }
+        let start = Instant::now();
+        loop {
+            let batch = events.take();
+            if batch.interpretation {
+                assert!(batch.history_changed());
+                assert!(!batch.refs && !batch.index && !batch.membership);
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "missing shared grafts event"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            refs,
+            plico::branch_updates::References::read(&repo, &token).unwrap()
+        );
+    }
 }
 
 #[test]

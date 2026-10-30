@@ -1368,3 +1368,49 @@ Plico 真实 OS 探针在正常旧目录通知通过后，改向并 reconcile �
 通知；隔离运行 36e4-18e3311d0c52e0e4-0 为 0/1，目标断言失败。探针已归档 artifacts，
 未留在正式测试集合中。下一步具备 gitfile 场景的原生前置、源码映射和可重放失败条件，
 可以开始补绑定生命周期；尚不放宽 commondir/未知布局的兜底，也不宣称性能改动已完成。
+
+### 绑定生命周期实施中
+
+在原生前置之后实现 `worktree_events/binding.rs`：保留工作目录、gitfile、worktree/common
+管理目录和 commondir 的有界证据；指针文件直接比较内容（每项最多 8 KiB），目录比较创建
+时间，不能取得该信息或遇到间接路径时保守兜底。目录 mtime 不参与比较，避免 index.lock
+导致每次操作误判身份变化。安装阶段复读 GitPaths 并检查安装前后证据，拒绝不稳定结果。
+
+`ProjectEvents` 增加独立到期时间、round-robin 游标与待确认失效。每次后台检查一个根，
+稳定时不启动 Git；变化或 watcher rescan 时先安装新监听，成功后释放旧监听，失败保留旧
+监听并在 30 秒后重试。取消不确认结果。失效通知持续到 UI 接收后显式 acknowledge；
+不能因已读取或暂时被操作/文档锁拒收就丢失。`ui/worktree_sync.rs` 在根列表 Arc 不变时
+也执行到期检查，重新绑定会触发解释及全量刷新，避免仅依赖普通 refs 比较。
+
+健康本地无 commondir 的根关闭周期 all；网络路径、linked worktree 和未知绑定继续保守
+兜底。未共享操作状态轮询的管理目录缓存，本批不同时改变写操作前置条件。
+定向验证：61c8-18e331679d731a68-0 的首版 OS 测试 6/6；
+48c-18e331775d7b42a4-0 观察器单元 16/16、973 filtered；补充失败恢复和取消检查后，
+5e1c-18e3318729ecad64-0 真实 OS 测试 **7/7**。正式回归新增 repository_binding.rs：
+自动检查（不重新 reconcile）后新目录 index 通知、旧目录事件隔离、未确认重复投递、取消、
+健康空闲无 all，以及初始绑定失败后无成员变化的恢复。尚待发布构建、Plico 原生后验、
+同条件空闲追踪与完整回归，不属于提交就绪或全绿结论。
+
+发布构建及 gitfile 改向/后续提交/恢复原绑定的 Plico 原生后验通过，截图见参考文档。
+同一 parent/child fixture、相同测试分支和选中提交、Changes 打开，稳定后采样 UTC
+03:44:32.878 至 03:46:32.878 的 120 秒；未运行构建或测试。结果
+`artifacts/binding-refresh-20261030/idle-120s-summary.json`：顶层 Git **100 次**，
+全部匹配 exit；根验证、成员读取、历史/图、status 均 **0 次**，引用 **23 次**、其他
+**77 次**。基线对应为 416、32、4、52、4、40、284，顶层启动数减少约 76.0%。
+仍存在引用和操作状态等必要/待优化轮询，不把总数视为全可消除。
+Trace2 进程内累计耗时 2.058396 秒（基线 8.708319 秒），仍不是 UI 等待或 CPU 耗时；
+本轮仅一次同条件采样，没有方差、RSS、网络操作提速结论。idle-before/after.png 保持选择、
+详情与 Changes；测试分支按 expected OID 删除，仅停止自建 Plico 进程。
+功能代码现冻结，接续完整 core/desktop/navigation、doctest 和 clippy；完成前不提交功能改动。
+
+提交前验证完成：隔离运行 `5d68-18e33210aa753238-0`，完整 core **989/989、0 skipped**
+（1236.624 秒），完整 desktop **190/190、0 skipped**（867.650 秒），navigation
+**10/10、180 filtered**（8.351 秒），三个 status 文件均为 exit code 0。导航使用项目
+隔离入口规定的 test profile / debug-assertions=false，不冒充完整 release profile。
+随后 doctest 成功（当前 0 个示例），`cargo clippy --locked --no-default-features --all-targets`
+成功退出，既有警告保留，日志为本批 artifacts 下 clippy.log。代码及文档冻结摘要核对一致；
+补充此验证记录后再次执行 fmt/diff 检查。没有推送或本批 CI 结果。
+
+此批完成绑定生命周期和健康本地 gitfile 根的空闲刷新收敛。后续独立问题仍是操作完成后的
+按实际结果刷新、操作状态轮询的目录复用、固定 Diff 解释失效；本批不以这些尚未实现的
+收益作宣传，也不将网络/linked worktree 的保守兜底算作已经优化。

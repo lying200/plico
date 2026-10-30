@@ -2,6 +2,7 @@
 use crate::git::{Cancel, Repository};
 use std::path::{Path, PathBuf};
 
+#[derive(PartialEq, Eq)]
 pub(super) struct GitPaths {
     directory: PathBuf,
     common: PathBuf,

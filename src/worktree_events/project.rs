@@ -4,18 +4,32 @@ use crate::git::{Cancel, Repository};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 struct Observed {
     events: Option<Events>,
     schedule: Schedule,
     configuration: super::configuration::Configuration,
+    binding: BindingCheck,
+}
+#[derive(Default)]
+struct BindingCheck {
+    next: Option<Instant>,
+    requested: bool,
+    reinstall: bool,
+    pending: bool,
+}
+impl BindingCheck {
+    fn due(&self, now: Instant) -> bool {
+        self.requested || self.next.is_none_or(|next| now >= next)
+    }
 }
 #[derive(Default)]
 pub struct ProjectEvents {
     roots: BTreeMap<PathBuf, Observed>,
     configuration_cursor: Option<PathBuf>,
+    binding_cursor: Option<PathBuf>,
 }
 pub struct Notice {
     pub root: PathBuf,
@@ -35,10 +49,14 @@ impl ProjectEvents {
             if token.cancelled() {
                 return Err("Cancelled".into());
             }
-            if self.roots.contains_key(&root) {
+            if let Some(observed) = self.roots.get_mut(&root) {
+                observed.binding.requested = true;
                 continue;
             }
             let events = Events::for_repository(&Repository::new(&root), token).ok();
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
             let fallback = events.is_none()
                 || is_network_path(&root.to_string_lossy())
                 || root.join(".git").is_file();
@@ -48,6 +66,7 @@ impl ProjectEvents {
                     events,
                     schedule: Schedule::new(Instant::now(), fallback),
                     configuration: Default::default(),
+                    binding: Default::default(),
                 },
             );
         }
@@ -62,7 +81,13 @@ impl ProjectEvents {
                     .as_ref()
                     .map(Events::take)
                     .unwrap_or_default();
+                if batch.all || batch.membership {
+                    observed.binding.requested = true;
+                    observed.binding.reinstall |= batch.all;
+                }
                 let poll_documents = observed.schedule.advance(&mut batch, now);
+                batch.all |= observed.binding.pending;
+                batch.interpretation |= observed.binding.pending;
                 batch.configuration |=
                     observed.configuration.pending() && !observed.configuration.diff_only();
                 batch.diff_configuration |= observed.configuration.diff_only();
@@ -74,6 +99,84 @@ impl ProjectEvents {
                 })
             })
             .collect()
+    }
+    pub fn bindings_due(&self, now: Instant) -> bool {
+        self.roots.values().any(|root| root.binding.due(now))
+    }
+    /// Off-thread: inspect one root per call, even when many deadlines coincide.
+    /// Stable bindings need no Git process. Failed installation remains retryable.
+    pub fn poll_bindings(&mut self, now: Instant, token: &Cancel) -> Result<(), String> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        let next = self
+            .roots
+            .iter()
+            .find(|(root, observed)| {
+                observed.binding.due(now)
+                    && self
+                        .binding_cursor
+                        .as_ref()
+                        .is_none_or(|cursor| *root > cursor)
+            })
+            .or_else(|| {
+                self.roots
+                    .iter()
+                    .find(|(_, observed)| observed.binding.due(now))
+            })
+            .map(|(root, _)| root.clone());
+        let Some(root) = next else {
+            return Ok(());
+        };
+        let observed = self.roots.get_mut(&root).unwrap();
+        let valid = !observed.binding.reinstall
+            && observed
+                .events
+                .as_ref()
+                .and_then(|events| events.binding.as_ref())
+                .is_some_and(|binding| binding.current());
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if !valid {
+            let replacement = Events::for_repository(&Repository::new(&root), token);
+            if token.cancelled() {
+                return Err("Cancelled".into());
+            }
+            // Publish invalidation even when rebinding fails: the old contents
+            // are no longer trustworthy. Keep the old watcher until replacement succeeds.
+            observed.binding.pending = true;
+            observed.configuration.request();
+            match replacement {
+                Ok(events) => observed.events = Some(events),
+                Err(_) => {
+                    observed.binding.reinstall = true;
+                    observed.schedule.set_fallback(true);
+                    observed.binding.requested = false;
+                    observed.binding.next = Some(now + Duration::from_secs(30));
+                    self.binding_cursor = Some(root);
+                    return Ok(());
+                }
+            }
+        }
+        let healthy = observed
+            .events
+            .as_ref()
+            .and_then(|events| events.binding.as_ref())
+            .is_some_and(|binding| binding.simple_local);
+        observed.schedule.set_fallback(!healthy);
+        observed.binding.reinstall = false;
+        observed.binding.requested = false;
+        observed.binding.next = Some(now + Duration::from_secs(30));
+        self.binding_cursor = Some(root);
+        Ok(())
+    }
+    pub fn acknowledge_bindings(&mut self, roots: &[PathBuf]) {
+        for root in roots {
+            if let Some(observed) = self.roots.get_mut(root) {
+                observed.binding.pending = false;
+            }
+        }
     }
     pub fn configuration_due(&self, notices: &[Notice], now: Instant) -> bool {
         self.roots.values().any(|root| root.configuration.due(now))
@@ -174,7 +277,7 @@ impl ProjectEvents {
 
 // Git may return a canonical Windows path with a verbatim prefix. That
 // prefix is not itself a network share: local roots keep native watching.
-fn is_network_path(path: &str) -> bool {
+pub(super) fn is_network_path(path: &str) -> bool {
     let path = path.replace('\\', "/");
     if let Some(rest) = path.strip_prefix("//?/") {
         return rest
@@ -202,6 +305,7 @@ mod tests {
                 events: None,
                 schedule: Schedule::new(now, false),
                 configuration: Default::default(),
+                binding: Default::default(),
             },
         );
         let mut initial = project.take(now);
@@ -241,6 +345,7 @@ mod tests {
                     events: None,
                     schedule: Schedule::new(now, false),
                     configuration: Default::default(),
+                    binding: Default::default(),
                 },
             );
         }
@@ -309,6 +414,7 @@ mod tests {
                     events: None,
                     schedule: Schedule::new(now, false),
                     configuration: Default::default(),
+                    binding: Default::default(),
                 },
             );
         }

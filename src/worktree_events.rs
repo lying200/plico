@@ -1,4 +1,5 @@
 //! Bounded filesystem invalidations, not a second repository cache.
+mod binding;
 mod configuration;
 mod git_paths;
 mod ignore_rules;
@@ -93,6 +94,9 @@ pub struct Schedule {
     initial: bool,
 }
 impl Schedule {
+    fn set_fallback(&mut self, fallback: bool) {
+        self.fallback = fallback;
+    }
     pub fn new(now: Instant, fallback: bool) -> Self {
         Self {
             next_documents: now,
@@ -230,6 +234,7 @@ impl Pending {
 pub struct Events {
     _watcher: RecommendedWatcher,
     pending: Arc<Mutex<Pending>>,
+    binding: Option<binding::Binding>,
 }
 impl Events {
     /// Install off the UI thread: some backends enumerate directories here.
@@ -243,10 +248,20 @@ impl Events {
         token: &crate::git::Cancel,
     ) -> Result<Self, String> {
         let paths = git_paths::GitPaths::read(repo, token)?;
+        let binding = binding::Binding::read(&repo.path, &paths).ok();
+        if paths != git_paths::GitPaths::read(repo, token)? {
+            return Err("Repository binding changed while resolving directories".into());
+        }
         if token.cancelled() {
             return Err("Cancelled".into());
         }
-        Self::install(repo.path.clone(), Some(paths)).map_err(|error| error.to_string())
+        let mut events =
+            Self::install(repo.path.clone(), Some(paths)).map_err(|error| error.to_string())?;
+        if binding.as_ref().is_some_and(|binding| !binding.current()) || token.cancelled() {
+            return Err("Repository binding changed while installing watcher".into());
+        }
+        events.binding = binding;
+        Ok(events)
     }
     fn install(root: PathBuf, paths: Option<git_paths::GitPaths>) -> notify::Result<Self> {
         let mut directories = vec![root.clone()];
@@ -285,6 +300,7 @@ impl Events {
         Ok(Self {
             _watcher: watcher,
             pending,
+            binding: None,
         })
     }
     pub fn take(&self) -> Batch {

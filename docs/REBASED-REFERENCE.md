@@ -15191,3 +15191,29 @@ git add 产生 index 通知，再改向另一目录、显式 reconcile 相同根
 下一步本地实现映射明确为 ProjectEvents 的绑定检查/重建生命周期、Events 的目录身份和
 后台观察调用入口。健康 gitfile 根的周期 all 缩减必须与新旧目录事件隔离一起验收；
 本节尚未修改产品代码或完成 Plico 原生后验，commondir 特殊场景继续保守兜底。
+
+### Plico 绑定检查的原生后验（实施中）
+
+构建 SHA256 `3DC0373473F3086D64689FADD9D879D994C7AB7720A0CC1D0E6096B8B2E5A779`，
+`artifacts/binding-refresh-20261030/plico-build.json` 记录本次独立进程和仓库。
+同一 binding-reference fixture，原指针 admin-a、选中 binding base、打开 Changes。
+`plico-before.png` 为一条历史、file.txt 详情和四个 IDE 未跟踪文件。
+改向已有两个新增空提交的 admin-b 后，`plico-redirected.png` 自动变成三条历史，保留
+基线选择和 Changes；再创建 `plico binding subsequent`，`plico-subsequent.png` 自动
+出现第四条。恢复 admin-a 后，`plico-restored.png` 自动恢复一条历史及 main/HEAD 标签。
+全程没有手动刷新、切换仓库或滚动，未测量毫秒级响应。相比 Rebased 的本次有限窗口，
+Plico 能自动跟随改向及后续变化；真正新旧监听事件隔离另外由 OS 测试验证，不能仅由
+历史变化推断（引用轮询也会读取历史）。没有新增界面结构，不宣称主题/像素一致。
+
+本次单根 Plico 已关闭，所有 Rebased 窗口保留。接续同构建的父子仓库空闲采样，证据
+`idle-build.json` / `plico-idle-git.jsonl`；采样及完整回归尚未完成，暂不作为提交就绪依据。
+
+空闲采样随后完成：idle-before.png / idle-after.png 为相同 child 选择、两项详情、
+CaseFile.txt 修改及四个未跟踪文件；无额外 UI 操作。120 秒内没有成员/历史/status 重读，
+查询分类和基线比较见性能审计记录。该 Plico 已停止，测试分支恢复删除，原生窗口均保留。
+完整回归仍待完成；原生失败/取消状态由上述独立 OS 测试覆盖，不冒充截图验收。
+
+后续完整回归通过：`5d68-18e33210aa753238-0` core 989/989、desktop 190/190，
+navigation 10/10（180 filtered）；doctest/clippy 成功。详见性能审计提交前记录。
+目录创建时间不可用、间接路径、网络和 commondir 布局继续保守处理；没有扩展原生验收
+到这些特殊布局，也没有新增像素级还原结论。

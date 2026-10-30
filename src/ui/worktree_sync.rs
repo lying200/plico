@@ -48,6 +48,21 @@ impl Review {
                         }
                         watched = Some(roots.clone());
                     }
+                    // Binding checks have an independent deadline: unchanged
+                    // project membership does not prove unchanged administrative paths.
+                    if events.bindings_due(Instant::now()) {
+                        let query_token = token.clone();
+                        let (next, result) = wx
+                            .background_spawn(async move {
+                                let result = events.poll_bindings(Instant::now(), &query_token);
+                                (events, result)
+                            })
+                            .await;
+                        events = next;
+                        if result.is_err() || token.cancelled() {
+                            break;
+                        }
+                    }
                     let mut notices = events.take(Instant::now());
                     if events.configuration_due(&notices, Instant::now()) {
                         let query_token = token.clone();
@@ -73,6 +88,11 @@ impl Review {
                             .iter()
                             .any(|n| n.batch.all || n.batch.index || n.batch.refs);
                     if !notices.is_empty() {
+                        let binding_roots: Vec<_> = notices
+                            .iter()
+                            .filter(|notice| notice.batch.all && notice.batch.interpretation)
+                            .map(|notice| notice.root.clone())
+                            .collect();
                         let configuration_roots: Vec<_> = notices
                             .iter()
                             .filter(|notice| {
@@ -145,6 +165,7 @@ impl Review {
                         });
                         match accepted {
                             Ok(true) => {
+                                events.acknowledge_bindings(&binding_roots);
                                 events.acknowledge_configuration(&configuration_roots);
                                 events.acknowledge_status_rules(&status_roots);
                             }

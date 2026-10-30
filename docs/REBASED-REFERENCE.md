@@ -15321,3 +15321,18 @@ plico-push-entry.png / plico-push-result.png 记录同一本地 bare 的已是�
 顶部刷新位置有既有差异；没有新增控件或调整视觉，不宣称像素还原。运行中稳定截图、
 原生分页/取消/错误根未复测，对应边界由核心和桌面回归覆盖。
 实际首屏读取由每根两次降为一次，Trace2 及时间边界见性能审计本批记录。
+
+### 空详情过滤与普通历史的分流：源码审计（2026-10-30）
+
+参考 commit 245042348669114adb8e24e5b0fc0ce73763f3c4。实读
+platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VcsLogFiltererImpl.kt：filter
+单独计算 visibleRoots/matchingHeads；filterByDetails 在 detailsFilters 为空、没有
+forceFilterByVcs 时直接使用内存候选。范围或父数条件无法由内存解析时保留强制 VCS
+分支。filterWithVcs 将该根的空结构路径去掉，空用户匹配集合则跳过该根；两者语义不同。
+另读 visible/filters/VcsLogFilterCollectionImpl.java 全文，collection 以实际过滤对象
+组成，不把所有 UI 空值包装成必定存在的详情过滤对象。
+
+本地 ui/project_navigation.rs 无条件 Some(per_root) 导致默认浏览走 filtered topology
+两次；100001 提交的核心诊断实际复现预算错误，None 路径正常返回首屏。证据与修正
+边界见性能审计“空过滤器误走全图路径”节。本轮没有产品行为修改或新增原生截图；
+未来实现前需验证清除过滤/根选择对应状态，不能将本源码记录当作原生前置完成。

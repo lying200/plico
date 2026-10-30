@@ -1663,3 +1663,64 @@ cargo clippy --locked --no-default-features --all-targets 成功，既有警告�
 project-first-page-20261030/clippy.log。cargo fmt --package plico -- --check 与
  git diff --check 通过。冻结代码哈希位于同目录 frozen-code.json，验证期间未再改功能代码。
 本批未跑完整 desktop 或 CI；没有推送，也没有发布包。
+
+### 空过滤器误走全图路径：成本与规模失效实验（e0d06e4 后）
+
+当前源码确认第二处设计问题：ui/project_navigation.rs::reload_project_history 为每根
+无条件构造 Some(per_root)，即使 text/date/author/path 全部没有条件。path_filter::project
+在无路径或选择整根时返回空路径数组。project_log::read/Read::next_page 按 Option
+是否为 Some 分派；history::read_branches_filtered 没有空条件短路，因此读取完整 topology
+及 read_matches 的 filtered topology。LogFilter::default 的 arguments 为空，两次图查询
+参数相同，匹配集合实际上是全部提交。这不是同一图命令为防竞态而故意复验。
+
+后果不只多两次进程启动：即使只显示 1000 行，也遍历最多 100001 条图记录并投影；
+topology::read 的 100000 提交预算会让本来没有过滤条件的普通日志失败。主窗口若依赖
+这一默认映射，源码路径同样受影响；本轮验证的是实际核心 Query 输入，不冒充原生 UI
+大仓库复现。现有 none-filter 核心基准不能代表 UI 默认的 Some(empty) 路径。
+
+新增只读诊断入口（不修改产品行为）：
+
+    cargo build --locked --no-default-features --release --example performance_audit
+    target/release/examples/performance_audit.exe <临时仓库> --empty-history-filter
+
+分别调用 project_log::read 的 None 与 Some(LogFilter::default)，显示预算 1000，
+六轮交替顺序，首轮预热排除出中位数。两路成功时比较根限定提交身份、顺序及 more；
+结果同时输出每根错误，允许有意观测预算失败，不能用程序退出码代替结果字段。
+采样期间没有并行构建/测试；Git system/global 配置隔离。使用之前的 72 提交和
+2000 提交 fixture，另通过 fast-import 建立独立 100001 条线性空提交仓库。
+不是复杂 merge 图、冷启动、UI 或内存测量。完整路径、HEAD 和数量记录在
+artifacts/empty-history-filter-20261030/repositories.json；新 fixture 在 fixture.json。
+
+| 提交规模 | None 中位数 | Some(empty) 中位数 | 首屏结果 |
+| --- | ---: | ---: | --- |
+| 72 | 411.11 ms | 507.42 ms | 两者均 72 行，身份与顺序一致 |
+| 2000 | 399.57 ms | 534.28 ms | 两者均 1000 行，身份与顺序一致 |
+| 100001 | 1256.51 ms | 1729.51 ms | None 1000 行；Some(empty) 0 行且预算错误 |
+
+前两组中位数可比较完成同一页面的成本；最后一组后一项是失败耗时，不能称为正常
+加载性能。六轮大仓库均复现同一过滤图预算错误；None 均成功且 more=true。
+另在 72 提交 fixture 打开 Trace2，六轮每次 None 为 9 条顶层 Git 调用、0 条全图
+查询；Some(empty) 为 11 条、2 条全图查询。无追踪时间与追踪计数分开采集。
+证据为 *-untraced.jsonl、small-traced.jsonl、small-git.jsonl、query-counts.json、summary.json。
+
+对照 Rebased 245042348669114adb8e24e5b0fc0ce73763f3c4，实读
+platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VcsLogFiltererImpl.kt 的 filter、
+createVisibleGraph、filterByDetails、filterWithVcs 相关段，以及
+visible/filters/VcsLogFilterCollectionImpl.java 全文。没有 detailsFilters 且没有范围/
+父数条件迫使 VCS 查询时，filterByDetails 直接返回内存候选；可见根和 matchingHeads
+仍独立生效。filterWithVcs 中空 users 代表该根无匹配，不等于取消作者过滤；整根路径
+映射为空时去掉 STRUCTURE_FILTER。上游依赖常驻图/索引，本地不照搬内存布局。
+
+下一步实现方向：在领域层明确有效详情条件，并让无条件输入采用现有有界无过滤路径。
+谓词必须保留 authors=Some(empty) 的“无匹配”语义、日期、有效文本及路径；regex/
+match_case 开关本身不能成为有效条件，分支/根选择继续独立限定 tips。不能只用
+arguments().is_empty() 判断（空作者集合有特殊语义），也不能提高 100000 预算掩盖问题。
+需要覆盖初次读取、分页、清除过滤、整根选择和图布局的一致性；真正过滤的预算与错误
+保持明确。修改产品行为前还需完成该场景的 Rebased 原生操作/截图和本地映射记录，
+本批仅源码审计与诊断，不以旧首屏截图代替新前置验收。
+
+本批验证：诊断 release 构建成功；三个规模各六轮交替采样及小仓库六轮 Trace2 运行
+完成，成功结果的页面身份断言通过，预算错误按预期记录在结果字段中。cargo fmt
+--package plico -- --check、git diff --check 与 cargo clippy --locked
+--no-default-features --example performance_audit 成功（既有 lib 警告保留）。
+没有修改产品代码，没有重跑完整核心/桌面或 CI，也未新增原生 UI 验收或推送。

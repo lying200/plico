@@ -47,6 +47,61 @@ fn command(repo: &Repository) -> Command {
 fn main() {
     let repo = Repository::new(std::env::args_os().nth(1).expect("disposable repository"));
     let token = Cancel::default();
+    if std::env::args().nth(2).as_deref() == Some("--empty-history-filter") {
+        use plico::project_log::{self, Query};
+        for iteration in 0..6 {
+            let modes = if iteration % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            };
+            let mut successful = Vec::new();
+            for filtered in modes {
+                let name = if filtered {
+                    "history-empty-filter"
+                } else {
+                    "history-no-filter"
+                };
+                let read = sample(name, iteration, || {
+                    project_log::read(
+                        &[Query {
+                            repository: repo.clone(),
+                            branches: vec![],
+                            filter: filtered.then(Default::default),
+                        }],
+                        1000,
+                        &token,
+                    )
+                    .unwrap()
+                });
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "result": name, "iteration": iteration,
+                        "rows": read.page.entries.len(), "more": read.page.more,
+                        "errors": read.scope.errors,
+                    })
+                );
+                if read.scope.errors.is_empty() {
+                    successful.push((
+                        read.page
+                            .entries
+                            .iter()
+                            .map(|e| e.identity())
+                            .collect::<Vec<_>>(),
+                        read.page.more,
+                    ));
+                }
+            }
+            if successful.len() == 2 {
+                assert_eq!(
+                    successful[0], successful[1],
+                    "empty filter changed the visible page"
+                );
+            }
+        }
+        return;
+    }
     if std::env::args().nth(2).as_deref() == Some("--changes-scope") {
         use plico::{changes_scope::Scope, commit_changes::Snapshot};
         let path = std::env::args_os()

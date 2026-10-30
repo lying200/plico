@@ -15075,3 +15075,42 @@ GitPaths 的共享路径，以及 ui/worktree_sync 的历史重载条件。保�
 对照差异：Plico 本场景跟随 Git 更新，Rebased 保留先前父关系；界面布局沿用既有实现，
 无新增入口/快捷键。加载中再次改 grafts、查询失败和取消未做原生专项；固定 Diff 解释失效
 仍属独立未完成项，不由此次 Log 与详情通过代替。测试仓库 grafts 已恢复为不存在。
+
+## 普通引用刷新范围（2026-10-30，实施前）
+
+Rebased 版本与参考 commit 同前节。复用 boundaries.json 的 parent/child 临时仓库，
+选中 parent 的 child 提交；外部创建指向 HEAD 的 audit-ref-refresh-20261030 分支。
+原生自动增加图中分支标签、详情归属由 2 个变为 3 个，选中提交、两项文件和左侧工作区
+修改均保留。截图 artifacts/reference-refresh-20261030/rebased-before.png、rebased-added.png。
+截图不证明内部查询次数或缓存命中。使用 expected OID 删除本次分支，未改 HEAD/index/文件。
+未验证加载中、失败、取消状态；没有新增入口、焦点操作或滚动。
+
+源码依据沿用并复读 GitRepositoryUpdater.kt::filesChanged：普通 refs 更新 repository，
+仅 index/HEAD/currentBranch 等将 root 标为 dirty；VcsLogData.kt 将按根历史刷新与详情 getter
+分开持有。本地对照 ui/auto_refresh.rs → repository.rs::refresh_impl，当前引用轮询会额外
+触发项目发现、全部分支比较和全量 Changes。已有文件观察器也会刷新 Changes。
+本批先拆出已知普通引用变化的消费入口：前后 HEAD、当前分支和 replace 相同才采用较窄路径；
+刷新相关历史/计数/比较，保守清当前根详情缓存，不清其他根，不再次发起项目发现或 Changes。
+首次观察、checkout、replace、手动刷新仍走完整入口。文件观察器的保守 refs 失效本批保留，
+不声称已完全消除所有无关 Changes 查询；Push/Fetch 完成路径仍需单独处理其部分写入边界。
+本地实施及 Plico 同条件验收待完成。
+
+### 普通引用刷新实施后的原生验收
+
+发布构建 SHA256 7E4DE8D92E4289517C42D93D2EF4557B05434968DF003DFFEAD2AD05BBDAEFD3，
+记录 artifacts/reference-refresh-20261030/plico-build.json。仍使用 parent/child fixture，
+展开 Commit 并选中 child，创建同名测试分支后标签及归属从 2 变 3，删除后恢复；
+Changes 的 CaseFile.txt 和四个 .idea 未跟踪文件、选中 OID、右侧两项文件均保留。
+截图 plico-before.png、plico-added.png、plico-restored.png 均在上述目录。
+结构未改动；本轮验证标签更新和选择保持，不宣称精确像素或毫秒延迟一致。
+
+父子仓库的 Trace2 样本同时包含周期性兜底与成员扫描（added-commands.json、
+removed-commands.json），不能拿它们证明本批完全消除项目扫描。源码 ProjectEvents::reconcile
+对 .git 文件的根启用 30 秒 fallback；当前子模块正属于此类，属于后续可收敛的独立来源。
+另用此前创建的两提交单根仓库隔离观察，构建与路径见 single-build.json，截图
+single-before.png/single-added.png 保留选择及 Changes，标签归属增加。
+single-added-at.txt 起 12 秒内，single-added-commands.json 记录 1 次 status、0 次
+rev-parse --show-toplevel 和 0 次 .gitmodules 读取，历史 log 及标签查询正常发生。
+这是一次带 Trace2 的调用验证，没有旧构建同条件计时，不能给出总体提速百分比。
+两个测试分支均用 expected OID 删除；仅停止本次两个 Plico，保留所有 Rebased 窗口。
+普通 refs 到加载中/错误/取消等竞态还依赖回归；配置/replace/HEAD 改变维持完整刷新入口。

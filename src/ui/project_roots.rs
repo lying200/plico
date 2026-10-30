@@ -361,6 +361,98 @@ mod tests {
     use super::*;
 
     #[gpui::test]
+    fn ordinary_reference_observation_keeps_membership_but_checkout_refreshes_it(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use crate::ui::Review;
+        use gpui::component::Root;
+        use plico::branch_updates::References;
+        use std::path::PathBuf;
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "plico-reference-routing-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )));
+        std::fs::create_dir(&fixture.0).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&fixture.0)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&["init", "-qb", "main"]);
+        git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "base",
+        ]);
+        let repo = Repository::new(&fixture.0);
+        let token = Cancel::default();
+        let before = References::read(&repo, &token).unwrap();
+        git(&["branch", "topic"]);
+        let added = References::read(&repo, &token).unwrap();
+        git(&["checkout", "-q", "topic"]);
+        let checkout = References::read(&repo, &token).unwrap();
+        assert_eq!(
+            before.head, checkout.head,
+            "checkout changes branch identity without moving HEAD"
+        );
+        cx.update(gpui::component::init);
+        let mut review = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Review::new(PathBuf::new(), 100, None, window, cx));
+            review = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let review = review.unwrap();
+        cx.run_until_parked();
+        review.update(cx, |s, cx| {
+            s.repo = repo;
+            s.local = false;
+            s.updates.references = Some(before);
+            s.project_roots.update(cx, |roots, _| {
+                roots.token.cancel();
+                roots.task = Task::ready(());
+                roots.discovering = false;
+                roots.pending = false;
+            });
+            let generation = s.project_roots.read(cx).generation;
+            s.apply_observed_references(added, None, cx);
+            assert_eq!(s.project_roots.read(cx).generation, generation);
+            assert!(
+                s.log_query.running(),
+                "reference changes must still reload history"
+            );
+            s.apply_observed_references(checkout, None, cx);
+            assert_eq!(
+                s.project_roots.read(cx).generation,
+                generation + 1,
+                "checkout may change membership and conditional configuration"
+            );
+        });
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
     fn unshallow_uses_editor_repository_and_invalidates_unknown_membership(
         cx: &mut gpui::TestAppContext,
     ) {

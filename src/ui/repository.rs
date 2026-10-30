@@ -338,6 +338,24 @@ impl Review {
         }
         self.reload_history(more, preserve, requested_offset, !more, cx);
     }
+    /// A completed reference observation proved HEAD, checkout and replacements
+    /// unchanged. Worktree/configuration/membership events have separate owners;
+    /// do not turn this notification into a second discovery or status query.
+    pub(super) fn refresh_reference_changes(&mut self, cx: &mut Context<Self>) {
+        let root = self.repo.path.clone();
+        let batch = plico::worktree_events::Batch {
+            refs: true,
+            ..Default::default()
+        };
+        for view in &self.branch_compare_tabs {
+            view.update(cx, |view, cx| view.repository_changed(&root, &batch, cx));
+        }
+        self.history_count.invalidate();
+        // Retention across reference changes requires a complete interpretation
+        // epoch. Keep the existing conservative policy for this root for now.
+        self.details_cache.invalidate_repository(&root);
+        self.reload_history(false, true, None, true, cx);
+    }
     fn reload_history(
         &mut self,
         more: bool,

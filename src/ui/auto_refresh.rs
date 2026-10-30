@@ -97,22 +97,8 @@ impl Review {
                             let Ok((refs, counts)) = result else {
                                 return;
                             };
-                            let changed = s.updates.references.as_ref().map_or_else(
-                                || s.snapshot.as_ref().is_some_and(|s| s.head_id != refs.head),
-                                |old| old != &refs,
-                            );
                             let notify = counts.is_some();
-                            if s.updates
-                                .references
-                                .as_ref()
-                                .is_some_and(|old| !old.same_replacements(&refs))
-                            {
-                                s.invalidate_loaded_details(&s.repo.path.clone());
-                            }
-                            s.accept_reference_observation(refs, counts);
-                            if changed {
-                                s.refresh_impl(false, true, None, cx);
-                            }
+                            s.apply_observed_references(refs, counts, cx);
                             s.check_remote_updates(cx);
                             if notify {
                                 cx.notify();
@@ -126,6 +112,42 @@ impl Review {
                 cx.background_executor().timer(Duration::from_secs(5)).await;
             }
         });
+    }
+    /// Called only after the polling request's cancellation/query guards pass.
+    pub(super) fn apply_observed_references(
+        &mut self,
+        refs: References,
+        counts: Option<Counts>,
+        cx: &mut Context<Self>,
+    ) {
+        let changed = self.updates.references.as_ref().map_or_else(
+            || {
+                self.snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.head_id != refs.head)
+            },
+            |old| old != &refs,
+        );
+        let references_only = !self.local
+            && self.updates.references.as_ref().is_some_and(|old| {
+                old.head == refs.head && old.branch == refs.branch && old.same_replacements(&refs)
+            });
+        if self
+            .updates
+            .references
+            .as_ref()
+            .is_some_and(|old| !old.same_replacements(&refs))
+        {
+            self.invalidate_loaded_details(&self.repo.path.clone());
+        }
+        self.accept_reference_observation(refs, counts);
+        if changed {
+            if references_only {
+                self.refresh_reference_changes(cx);
+            } else {
+                self.refresh_impl(false, true, None, cx);
+            }
+        }
     }
     /// A successful history refresh publishes the observation made BEFORE its
     /// history read. Later external changes remain detectable by the next poll.

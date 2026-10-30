@@ -1255,3 +1255,33 @@ Push 不能仅按操作名直接跳过所有本地观察：hook、并行外部�
 不声称 warning-free。冻结文件摘要复核一致，格式和 diff 检查通过。
 本批桌面范围为上述 1 项仓库详情隔离定向回归及 Windows 原生 grafts 创建/删除复验；
 没有重跑完整 desktop/navigation，也没有推送或取得新的 CI 结果。
+
+### 引用轮询的刷新消费拆分（进行中）
+
+grafts 修复已提交 `93271c0`。随后按参考文档“普通引用刷新范围”的原生前置记录，
+将引用轮询的结果接纳集中到 ui/auto_refresh.rs::apply_observed_references。
+原有取消、操作锁、文档锁和查询 stamp 门禁保留在调用处；只有前后 HEAD、当前分支、
+replace 相同且处于 Log 模式，才调用 repository.rs::refresh_reference_changes。
+该入口按当前根通知分支比较、刷新历史/计数，保守失效当前根详情缓存，省去该轮询额外
+发起的项目发现和 Changes 请求。手动刷新及未知/checkout/解释变化仍用完整入口。
+
+这不是整个刷新重构完成：文件观察器仍会保守响应 refs，Push/Fetch 完成的刷新还未拆分，
+详情缓存也未改为跨 refs 长期复用。本批只处理有前后快照依据的重复查询来源。
+首次定向测试因测试模块缺少 PathBuf 导入编译失败（12c4-18e32ea4539caa14-0），已修正；
+51c8-18e32eb0d45d6b64-0 桌面回归 1/1、189 filtered：真实 Git 新分支保持成员代数，
+同 HEAD 切换分支增加发现代数，普通引用仍启动历史查询。发布构建与 Plico 原生复验待完成，
+尚未测量本批查询减少或延迟收益，未提交。
+
+原生后验已完成：parent/child 的分支创建/删除均更新标签和归属，保留选择、文件详情与 Changes。
+首次 Trace2 与子模块周期性 fallback 重叠，保留为混合样本，不作减少扫描的证明。
+单根隔离样本 12 秒内只有 1 次 status，没有 show-toplevel/.gitmodules 项目发现查询；
+历史读取正常发生。证据及剩余差异见参考文档“普通引用刷新实施后的原生验收”。
+本批没有旧版本同条件耗时对照，不推导百分比提速。功能代码冻结，完整 desktop/navigation
+回归待完成；核心代码未变，沿用上一提交 core 987/987 的证据，不冒充本批重新跑过 core。
+
+提交前结果：63a4-18e32f358c1a5e7c-0 完整 desktop **190/190、0 skipped**，860.146 秒；
+42b0-18e32ffe482a97f8-0 navigation **10/10、180 filtered**，8.002 秒。
+navigation 使用隔离入口规定的 test profile / debug-assertions=false，并非完整 release profile。
+两个 status 文件均为 exit code 0；随后 clippy 成功退出，日志为
+artifacts/reference-refresh-20261030/clippy.log，既有警告保留。冻结摘要复核、fmt 与 diff 检查通过。
+本批核心源文件未改动，完整核心依据仍是 93271c0 前的 987/987；没有新 CI 或推送记录。

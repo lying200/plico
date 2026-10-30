@@ -14,6 +14,7 @@ pub(super) struct Configuration {
     pending: bool,
     requested: bool,
     broad: bool,
+    ignore_rules: super::ignore_rules::IgnoreRules,
 }
 impl Configuration {
     pub fn due(&self, now: Instant) -> bool {
@@ -28,13 +29,19 @@ impl Configuration {
     pub fn diff_only(&self) -> bool {
         self.pending && !self.broad
     }
+    pub fn status_rules_pending(&self) -> bool {
+        self.ignore_rules.pending()
+    }
+    pub fn acknowledge_status_rules(&mut self) {
+        self.ignore_rules.acknowledge();
+    }
     pub fn acknowledge(&mut self) {
         self.pending = false;
         self.broad = false;
     }
     pub fn poll(&mut self, repo: &Repository, token: &Cancel, now: Instant) -> Result<(), String> {
-        // One bounded query per root per interval, not per selection. Git owns
-        // all include/precedence parsing; missing include files are re-evaluated.
+        // One eligible root per interval, not per selection. Resolve external
+        // ignore paths only when config changed or resolution previously failed.
         let result = repo.read(
             &[
                 OsStr::new("config"),
@@ -58,6 +65,11 @@ impl Configuration {
             }
             (Sha256::digest(bytes).into(), other.finalize().into())
         });
+        self.ignore_rules.poll(
+            repo,
+            token,
+            fingerprint.is_none() || self.fingerprint != fingerprint,
+        )?;
         // Errors are unknown, not evidence that the old interpretation is valid.
         self.pending |= fingerprint.is_none() || self.fingerprint != fingerprint;
         self.broad |= fingerprint.is_none()
@@ -96,7 +108,7 @@ pub(super) mod tests {
             f.git(&["config", "include.path", "observed-include"]);
             f
         }
-        fn git(&self, args: &[&str]) {
+        pub(in crate::worktree_events) fn git(&self, args: &[&str]) {
             let output = Command::new("git")
                 .arg("-C")
                 .arg(&self.0)

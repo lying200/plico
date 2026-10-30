@@ -148,6 +148,21 @@ fn linked_worktree_ignores_main_index_but_observes_own_index_and_shared_refs() {
         !references.membership,
         "refs must not invalidate project membership"
     );
+    fs::create_dir_all(f.0.join(".git/info")).unwrap();
+    fs::write(f.0.join(".git/info/exclude"), "shared-ignore\n").unwrap();
+    let start = Instant::now();
+    loop {
+        let batch = events.take();
+        if batch.status_rules {
+            assert!(!batch.history_changed() && !batch.index && !batch.membership);
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "missing shared exclude event"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[test]

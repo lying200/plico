@@ -41,6 +41,8 @@ impl GitPaths {
             if relative == Path::new("packed-refs")
                 || relative == Path::new("config")
                 || relative == Path::new("shallow")
+                || relative == Path::new("info/exclude")
+                || relative == Path::new("info")
                 || relative.starts_with("refs")
                 || relative.starts_with("reftable")
             {
@@ -104,6 +106,10 @@ mod tests {
             common: "/main/.git".into(),
         };
         let root = Path::new("/topic");
+        assert_eq!(
+            paths.route(root, Path::new("/main/.git/info/exclude")),
+            Some(root.join(".git/info/exclude"))
+        );
         assert_eq!(
             paths.route(root, Path::new("/main/.git/worktrees/topic/index")),
             Some(root.join(".git/index"))

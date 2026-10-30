@@ -132,6 +132,219 @@ fn excluded_staged_blob_survives_commit_amend_and_failed_commit() {
 }
 
 #[test]
+fn incremental_changes_match_full_snapshots_for_renames_rules_and_deleted_subtrees() {
+    use plico::{
+        changes_scope::Scope,
+        commit_changes::Snapshot,
+        git::{Cancel, Repository},
+    };
+    fn assert_full(repo: &Repository, snapshot: &Snapshot) {
+        let full = Snapshot::load(repo, &Cancel::default()).unwrap();
+        let keys = |changes: Vec<plico::git::Change>| {
+            changes
+                .into_iter()
+                .map(|c| (c.area, c.path, c.old_path, c.status))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(snapshot.head, full.head);
+        assert_eq!(
+            keys(snapshot.review_versions.clone()),
+            keys(full.review_versions)
+        );
+        assert_eq!(
+            keys(snapshot.files.iter().map(|f| f.change()).collect()),
+            keys(full.files.iter().map(|f| f.change()).collect())
+        );
+    }
+    let f = Fixture::new();
+    for name in ["old.txt", "other.txt", "mm.txt", "literal[1].txt"] {
+        f.write(name, "base\n");
+    }
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "base"]);
+    f.git(&["mv", "old.txt", "new.txt"]);
+    f.write("other.txt", "retained\n");
+    f.write("mm.txt", "staged\n");
+    f.git(&["add", "mm.txt"]);
+    f.write("mm.txt", "base\n");
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let mut snapshot = Snapshot::load(&repo, &token).unwrap();
+    let index = f.git(&["ls-files", "--stage", "-z"]);
+    f.write("new.txt", "modified after rename\n");
+    f.write("literal[1].txt", "literal changed\n");
+    fs::create_dir(f.0.join("untracked-dir")).unwrap();
+    f.write("untracked-dir/a.txt", "a\n");
+    f.write("untracked-dir/b.txt", "b\n");
+    snapshot = snapshot
+        .refresh(
+            &repo,
+            &Scope::paths([
+                "new.txt".into(),
+                "literal[1].txt".into(),
+                "untracked-dir".into(),
+            ]),
+            &token,
+        )
+        .unwrap();
+    assert_full(&repo, &snapshot);
+    assert!(
+        !snapshot
+            .files
+            .iter()
+            .any(|file| file.change().path == std::path::Path::new("mm.txt"))
+    );
+    assert!(
+        snapshot
+            .files
+            .iter()
+            .any(|file| file.change().old_path.as_deref() == Some(std::path::Path::new("old.txt")))
+    );
+    fs::remove_dir_all(f.0.join("untracked-dir")).unwrap();
+    snapshot = snapshot
+        .refresh(&repo, &Scope::paths(["untracked-dir".into()]), &token)
+        .unwrap();
+    assert_full(&repo, &snapshot);
+    f.write("other.txt", "base\n");
+    snapshot = snapshot
+        .refresh(&repo, &Scope::paths(["other.txt".into()]), &token)
+        .unwrap();
+    assert_full(&repo, &snapshot);
+    f.write("hidden.txt", "untracked\n");
+    snapshot = snapshot
+        .refresh(&repo, &Scope::paths(["hidden.txt".into()]), &token)
+        .unwrap();
+    f.write(".gitignore", "hidden.txt\n");
+    snapshot = snapshot
+        .refresh(&repo, &Scope::paths([".gitignore".into()]), &token)
+        .unwrap();
+    assert_full(&repo, &snapshot);
+    assert_eq!(f.git(&["ls-files", "--stage", "-z"]), index);
+    let cancelled = Cancel::default();
+    cancelled.cancel();
+    assert!(
+        snapshot
+            .refresh(&repo, &Scope::empty(), &cancelled)
+            .is_err()
+    );
+    assert!(
+        snapshot
+            .refresh(
+                &Repository::new(f.0.join("missing")),
+                &Scope::paths(["other.txt".into()]),
+                &token
+            )
+            .is_err()
+    );
+    assert_full(&repo, &snapshot);
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "advance head"]);
+    snapshot = snapshot
+        .refresh(&repo, &Scope::paths(["other.txt".into()]), &token)
+        .unwrap();
+    assert_full(&repo, &snapshot);
+}
+
+#[cfg(windows)]
+#[test]
+fn incremental_windows_case_aliases_keep_literal_paths_and_remove_clean_records() {
+    use plico::{
+        changes_scope::Scope,
+        commit_changes::Snapshot,
+        git::{Cancel, Repository},
+    };
+    let f = Fixture::new();
+    for name in ["Case[1].txt", "Case1.txt"] {
+        f.write(name, "base\n");
+    }
+    f.git(&["add", "."]);
+    f.git(&["commit", "-m", "case baseline"]);
+    let repo = Repository::new(&f.0);
+    let token = Cancel::default();
+    let mut snapshot = Snapshot::load(&repo, &token).unwrap();
+    let scope = Scope::paths(["case[1].txt".into()]);
+    assert!(!scope.is_full());
+    for content in ["changed\n", "base\n", "again\n"] {
+        f.write("case[1].txt", content);
+        snapshot = snapshot.refresh(&repo, &scope, &token).unwrap();
+        let full = Snapshot::load(&repo, &token).unwrap();
+        let keys = |value: &Snapshot| {
+            value
+                .review_versions
+                .iter()
+                .map(|c| (c.area, c.path.clone(), c.old_path.clone(), c.status.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&snapshot), keys(&full));
+        assert_eq!(snapshot.files.len(), full.files.len());
+        assert!(
+            snapshot
+                .review_versions
+                .iter()
+                .all(|c| c.path == std::path::Path::new("Case[1].txt"))
+        );
+    }
+}
+
+#[test]
+fn incremental_submodule_events_query_parent_gitlink_and_clear_its_old_status() {
+    use plico::{
+        changes_scope::Scope,
+        commit_changes::Snapshot,
+        git::{Cancel, Repository},
+        worktree_events::Batch,
+    };
+    let parent = Fixture::new();
+    let source = Fixture::new();
+    parent.base();
+    source.base();
+    parent.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        source.0.to_str().unwrap(),
+        "child",
+    ]);
+    parent.git(&["commit", "-m", "child"]);
+    let repo = Repository::new(&parent.0);
+    let token = Cancel::default();
+    let catalog = plico::project_repositories::Repositories::discover(&repo, &token).unwrap();
+    assert!(catalog.errors.is_empty());
+    let child = &catalog.submodules[0].root;
+    let mut snapshot = Snapshot::load(&repo, &token).unwrap();
+    let from_child = Batch {
+        paths: ["selected".into()].into(),
+        ..Default::default()
+    };
+    let from_parent = Batch {
+        paths: ["child/selected".into()].into(),
+        ..Default::default()
+    };
+    let child_scope = Scope::for_event(&repo.path, child, &from_child, Some(&catalog));
+    let parent_scope = Scope::for_event(&repo.path, &repo.path, &from_parent, Some(&catalog));
+    assert_eq!(child_scope, Scope::paths(["child".into()]));
+    assert_eq!(parent_scope, child_scope);
+    assert!(Scope::for_event(&repo.path, &source.0, &from_child, Some(&catalog)).is_empty());
+    assert!(Scope::for_event(&repo.path, child, &from_child, None).is_full());
+    for (content, scope) in [("changed\n", &child_scope), ("base\n", &parent_scope)] {
+        fs::write(child.join("selected"), content).unwrap();
+        snapshot = snapshot.refresh(&repo, scope, &token).unwrap();
+        let full = Snapshot::load(&repo, &token).unwrap();
+        let keys = |value: &Snapshot| {
+            value
+                .review_versions
+                .iter()
+                .map(|c| (c.area, c.path.clone(), c.old_path.clone(), c.status.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&snapshot), keys(&full));
+        assert_eq!(snapshot.files.len(), full.files.len());
+        assert_eq!(snapshot.files.len(), usize::from(content != "base\n"));
+    }
+}
+
+#[test]
 fn excluded_add_delete_rename_and_file_directory_replacement_round_trip() {
     for mode in [
         "added-deleted",

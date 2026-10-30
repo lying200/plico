@@ -47,6 +47,57 @@ fn command(repo: &Repository) -> Command {
 fn main() {
     let repo = Repository::new(std::env::args_os().nth(1).expect("disposable repository"));
     let token = Cancel::default();
+    if std::env::args().nth(2).as_deref() == Some("--changes-scope") {
+        use plico::{changes_scope::Scope, commit_changes::Snapshot};
+        let path = std::env::args_os()
+            .nth(3)
+            .expect("relative invalidated path");
+        let scope = Scope::paths([path.into()]);
+        assert!(
+            !scope.is_full() && !scope.is_empty(),
+            "a partial range is required"
+        );
+        let baseline = Snapshot::load(&repo, &token).unwrap();
+        let keys = |value: &Snapshot| {
+            value
+                .review_versions
+                .iter()
+                .map(|c| (c.area, c.path.clone(), c.old_path.clone(), c.status.clone()))
+                .collect::<Vec<_>>()
+        };
+        for iteration in 0..6 {
+            // Alternate order; iteration zero is warm-up, not a cold-cache claim.
+            let modes = if iteration % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            };
+            for partial in modes {
+                let result = sample(
+                    if partial {
+                        "changes-partial"
+                    } else {
+                        "changes-full"
+                    },
+                    iteration,
+                    || {
+                        if partial {
+                            baseline.refresh(&repo, &scope, &token).unwrap()
+                        } else {
+                            Snapshot::load(&repo, &token).unwrap()
+                        }
+                    },
+                );
+                assert_eq!(
+                    keys(&result),
+                    keys(&baseline),
+                    "fixture changed during measurement"
+                );
+                assert_eq!(result.head, baseline.head);
+            }
+        }
+        return;
+    }
     if std::env::args().nth(2).as_deref() == Some("--parent-changes") {
         let snapshot = repo.snapshot(None, 50, None, &token).unwrap();
         for count in [1, 20, 50] {

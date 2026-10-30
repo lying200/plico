@@ -14939,3 +14939,101 @@ platform/vcs-log/impl/src/com/intellij/vcs/log/impl/MergedChangeDiffRequestProvi
 本次仅验证批量查询行为；主题、面板宽度与三栏结构差异明确保留，不宣称像素验收。
 验收后仅关闭本次启动的 Plico，并用预期 OID 删除两个临时分支引用；main 仍为 8c899826，
 a.txt 仍为 ours，工作区仅原有 .idea/ 未跟踪。保留用户全部 Rebased 窗口。
+
+### 工作树增量刷新原生前置（2026-10-30）
+
+安装版 Rebased 1.1.22（既有记录 build 262.10968.SNAPSHOT），源码依据仍为
+245042348669114adb8e24e5b0fc0ce73763f3c4。独立 fixture 与本地 bare remote 见
+artifacts/dirty-scope-20261030/probe.json；base=7c749012，已暂存 old.txt → new.txt，
+.gitignore 初始忽略 untracked-dir/。通过 File → Open → New Window 打开 work，按用户既有授权
+仅信任该项目，不信任父目录。原有三个 Rebased 窗口保留。Ctrl+K 打开 Commit 工具窗口，未提交或推送。
+
+初始 Changes 位于左上、消息输入与 Commit 按钮在下，Project 位于左下，Log/Diff 在右侧。
+Changes 一个 new.txt，标注 renamed from old.txt；Unversioned Files 五个，包括新建 .idea 的
+四个可见项目文件与根 .gitignore。截图 rebased-initial.png（以下路径均在上述 artifact 目录）。
+双击 new.txt 打开 Commit: new.txt，左侧 base 的 old.txt 带只读锁，右侧 Current version new.txt
+可编辑，两侧正文相同，显示 Contents are identical；截图 rebased-rename-diff.png。
+
+由外部命令只修改 unrelated.txt，然后点击 Changes 工具栏刷新。刷新中旧重命名行、勾选与 Diff
+保留，Unversioned Files 显示 updating，截图 rebased-updating.png。完成后 Changes 两个文件，
+new.txt 仍勾选、unrelated.txt 未勾选，原 Diff 保留；截图 rebased-single-edit.png。
+本次外部修改后的首次观察仍是旧列表，随后使用了显式刷新，不能据此声称已验证自动监听延迟。
+刷新中的双击、失败与取消状态尚未验证。
+
+清空 .gitignore，仅变更该规则文件，再显式刷新并展开 Unversioned Files，数量由五变六，
+新增 untracked-dir/hidden.txt，既有重命名及 Diff 保留；截图 rebased-ignore-removed.png。
+随后只删除自建 hidden.txt 和空 untracked-dir，再刷新，未跟踪数恢复五，目录及子文件从列表
+消失，其余条目保留；截图 rebased-directory-deleted.png。未执行滚动自动化。
+
+已读源码与映射：plugins/git4idea/backend/src/status/GitStagingAreaHolder.java 的 refresh/
+collectDirtyPathsPerRoot 保留范围外记录，扩展已有新增/删除/rename 两端；GitChangeProvider.java
+补跨范围 rename 与子模块父根 dirt。repo/GitUntrackedFilesHolder.kt 的 acquireDirt/
+applyRefreshResult 管理 Everything/Files 与独立未跟踪集合，更新期间的新 dirt 不丢失；
+index/GitIndexStatusUtil.kt 提供按范围、tracked/untracked/ignored 选项组合的 status 查询。
+本地拟由 ChangesRefresh 持有成功快照、本轮范围和期间累计范围，Snapshot 负责状态语义合并，
+Review/LocalView 只传递失效意图；保留现有展示、勾选、错误列表和 MM 净差异规则。
+上述源码版本与安装版不是同一构建证明；命令范围实验另见性能审计，不用截图证明内部命令数量。
+ignore 规则依赖采用保守全量回退，失败保留旧快照及待查范围；这是本地设计选择，不照搬上游
+refreshFiles 将 VcsException 转为空结果的行为。阶段 5 实现及 Plico 同条件验收仍待完成。
+
+### 外部忽略文件前置验证（2026-10-30）
+
+沿用上述版本与独立 fixture，设置仅该仓库的 core.excludesFile 指向 fixture 父目录的
+external-ignore，新建 external.txt 与 info.txt。显式刷新后未跟踪七个，截图
+artifacts/dirty-scope-20261030/rebased-excludes-before.png。只写 external-ignore 的
+external.txt 规则，配置值不变；再次显式刷新后六个，external.txt 消失、info.txt 保留，
+截图 rebased-excludes-after.png。再写 .git/info/exclude 的 info.txt 规则，刷新后五个，
+截图 rebased-info-exclude-after.png。重命名勾选和右侧 Diff 保持，刷新中保留旧列表并标 updating。
+未验证这两类规则变更的自动监听延迟；没有提交、推送或改用户全局配置。
+
+已读同参考 commit 的 GitRepositoryUpdater.kt 对 isExclude、.gitignore 与 rootDirty 的处理
+分支：info/exclude 和 .gitignore 使未跟踪集合失效；core.excludesfile 监听仍为 TODO。
+本地将规则失效单列为 status_rules，不使历史行失效。外部文件采用有界内容摘要和既有周期检查，
+Git 负责 --path 路径展开；这是补足上游 TODO 的本地选择，不声称上游有完整外部监听。
+Git for Windows 自带 gitignore.adoc 明确 info/exclude 位于 common Git directory，默认全局
+规则来自 XDG_CONFIG_HOME/git/ignore 或 HOME/.config/git/ignore；git-config.adoc 的 path 类型
+负责波浪号展开。实现后自动交付与原生 Plico 验证待完成。
+
+后置原生验证：同 fixture，构建身份见 artifacts/dirty-scope-20261030/plico-build.json。
+从规则已生效的状态开始，Plico 左上 Changes 为两个更改、五个未跟踪；双击 new.txt 保留
+HEAD old.txt → 工作区 new.txt Diff，显示文本内容相同。截图 plico-excludes-before.png。
+仅清空仓库外 external-ignore，不改配置、不点击刷新；下一次观察未跟踪六个，新增 external.txt，
+截图 plico-excludes-after.png。然后只清空 .git/info/exclude，自动变为七个，新增 info.txt，
+截图 plico-info-exclude-after.png。截图均在同 artifact 目录，旧行选择与 Diff 保持。
+这是前置 Rebased 隐藏流程的反向规则移除验证；未测精确刷新延迟，未捕获此次刷新中间帧或失败。
+外部文件由周期检查处理，info/exclude 同时有 watcher 与周期兜底；仅截图不区分具体触发来源。
+本地仍是较窄侧栏、默认统一 Diff，重命名行没有 Rebased 的 renamed from 注释，属于既有差异，
+不宣称像素还原。验证后恢复两份 fixture 规则，仅关闭本次启动的 Plico，保留所有 Rebased 窗口。
+
+### 局部查询大小写与子模块边界前置（2026-10-30）
+
+新建独立 parent/source/child 仓库及本地 bare remote，位置、Git 版本及查询结果见
+artifacts/dirty-scope-20261030/boundaries.json，复现脚本 boundaries.ps1。安装版仍为 Rebased
+1.1.22；按既有授权仅信任新项目，以 New Window 打开，保留其他窗口。父仓库 CaseFile.txt
+通过小写路径写入，child/CaseFile.txt 内容也改变。Commit 展示三个 Changes，按 child（一文件）
+与 parent（CaseFile.txt、child 两文件）分组；截图 rebased-boundaries-dirty.png。
+通过小写路径将两文件内容恢复为 base 后，无手动刷新，Changes 自动清空，只余 .idea 的四个
+未跟踪文件；截图 rebased-boundaries-clean.png。截图均位于上述 artifact 目录。
+自动更新延迟、失败/取消未测；没有提交或推送。这确认父子仓库状态需要一致更新，不证明内部查询数量。
+
+参考源码仍为 2450423：完整读取 platform/vcs-impl/src/com/intellij/openapi/vcs/util/paths/
+RootDirtySet.java，其范围集合与 belongsTo 共享 caseSensitive 策略，目录合并和超限回退；
+GitStagingAreaHolder.java collectDirtyPathsPerRoot 通过 knownSubmodules 将子根失效扩展到父根
+gitlink 路径。仅查询父根 child/CaseFile.txt 会返回空，不能当作 child 已干净。
+本地下一步让查询匹配与快照剔除使用同一大小写规则，并明确子根到父 gitlink 的范围映射。
+Windows ASCII 路径拟用 Git 的 literal+icase pathspec；非 ASCII 大小写语义尚不能证明与 Windows
+一致，先全量回退而不自造 Unicode 折叠。生产局部刷新仍待接通与同条件 Plico 验证。
+
+后置验证：接通后 release SHA256
+1A752D25F90F1DA2F345B4AEA29B2F2AAACFD83165B9DE367711AC7E01615F4C，独立 LOCALAPPDATA，
+同 boundaries fixture。初始父 Changes 一个 CaseFile.txt；只写 child/casefile.txt 后自动出现
+child gitlink，父 Changes 两个；恢复父、子文件后只余四个未跟踪 .idea 文件。再次用小写路径
+写父文件，自动出现正确拼写 CaseFile.txt。没有点刷新、提交或推送。
+截图 artifacts/dirty-scope-20261030/plico-submodule-before.png、plico-submodule-dirty.png、
+plico-submodule-clean.png、plico-case-partial.png；构建身份 plico-boundaries-build.json。
+仅该自建仓库启用 Git trace2，plico-boundaries-git.jsonl 证实实际 status 使用
+:(icase,literal)child，以及恢复时的 CaseFile.txt/child 范围、再修改时的 CaseFile.txt 范围。
+Windows watcher 返回的是实际大小写；传入错误大小写的核心分支由真实 Git 回归另行覆盖。
+与 Rebased 的差异：本地 Commit 列表仍只展示当前父仓库，未聚合展示子仓库文件；本次保持既有范围，
+只保证父 gitlink 不遗漏。未验证本次刷新中的双击、失败/取消、深层嵌套子模块原生行为。
+验证结束仅关闭本次 Plico，保留用户和测试 Rebased 窗口。

@@ -47,11 +47,92 @@ pub struct Snapshot {
     pub review_versions: Vec<Change>,
 }
 impl Snapshot {
+    /// Owned allocation estimate for the optional refresh cache (not process RSS).
+    pub fn retained_bytes(&self) -> usize {
+        fn paths(
+            path: &std::path::PathBuf,
+            old: &Option<std::path::PathBuf>,
+            status: &String,
+        ) -> usize {
+            path.capacity() + old.as_ref().map_or(0, |p| p.capacity()) + status.capacity()
+        }
+        std::mem::size_of::<Self>()
+            + self.head.as_ref().map_or(0, String::capacity)
+            + self.files.capacity() * std::mem::size_of::<File>()
+            + self.review_versions.capacity() * std::mem::size_of::<Change>()
+            + self
+                .files
+                .iter()
+                .map(|file| match file {
+                    File::Tracked(c) => paths(&c.path, &c.old_path, &c.status),
+                    File::Unversioned(c) | File::Conflict(c) => {
+                        paths(&c.path, &c.old_path, &c.status)
+                    }
+                })
+                .sum::<usize>()
+            + self
+                .review_versions
+                .iter()
+                .map(|c| paths(&c.path, &c.old_path, &c.status))
+                .sum::<usize>()
+    }
     pub fn load(repo: &Repository, token: &Cancel) -> Result<Self, String> {
         let mut trace = crate::performance_trace::Span::new("request", "changes", Some(&repo.path));
         trace.outcome("error");
         let head = crate::commit_operation::head(repo, token)?;
         let review_versions = repo.local_changes(token)?;
+        let snapshot = Self::from_versions(repo, head, review_versions, token)?;
+        trace.outcome("ok");
+        Ok(snapshot)
+    }
+    /// Refresh a successful snapshot from this same repository. The caller owns
+    /// invalidation delivery, retaining failed/in-flight ranges, and full rescans.
+    pub fn refresh(
+        &self,
+        repo: &Repository,
+        scope: &crate::changes_scope::Scope,
+        token: &Cancel,
+    ) -> Result<Self, String> {
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        let scope = scope.expanded(&self.review_versions);
+        if scope.is_full() {
+            return Self::load(repo, token);
+        }
+        if scope.is_empty() {
+            return Ok(self.clone());
+        }
+        let head = crate::commit_operation::head(repo, token)?;
+        if head != self.head {
+            return Self::load(repo, token);
+        }
+        let refreshed = repo.local_changes_in(&scope, token)?;
+        let mut versions: Vec<_> = self
+            .review_versions
+            .iter()
+            .filter(|change| !scope.contains_change(change))
+            .cloned()
+            .collect();
+        versions.extend(
+            refreshed
+                .into_iter()
+                .filter(|change| scope.contains_change(change)),
+        );
+        // Reset accumulated state from an authoritative bounded read rather than
+        // letting repeated partial updates grow the retained listing without limit.
+        if versions.len() > 100_000 {
+            return Self::load(repo, token);
+        }
+        crate::git::sort_status(&mut versions);
+        Self::from_versions(repo, head, versions, token)
+    }
+    fn from_versions(
+        repo: &Repository,
+        head: Option<String>,
+        review_versions: Vec<Change>,
+        token: &Cancel,
+    ) -> Result<Self, String> {
         let staged: HashSet<_> = review_versions
             .iter()
             .filter(|c| c.area == Area::Staged && c.status == "M")
@@ -78,7 +159,6 @@ impl Snapshot {
             return Err("HEAD changed; refresh local changes".into());
         }
         let files = collect(&review_versions, &net)?;
-        trace.outcome("ok");
         Ok(Self {
             head,
             files,

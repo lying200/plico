@@ -80,6 +80,11 @@ impl Review {
                             })
                             .map(|notice| notice.root.clone())
                             .collect();
+                        let status_roots: Vec<_> = notices
+                            .iter()
+                            .filter(|notice| notice.batch.status_rules)
+                            .map(|notice| notice.root.clone())
+                            .collect();
                         let accepted = this.update_in(wx, |s, window, cx| {
                             if token.cancelled()
                                 || s.documents.locked()
@@ -137,7 +142,10 @@ impl Review {
                             true
                         });
                         match accepted {
-                            Ok(true) => events.acknowledge_configuration(&configuration_roots),
+                            Ok(true) => {
+                                events.acknowledge_configuration(&configuration_roots);
+                                events.acknowledge_status_rules(&status_roots);
+                            }
                             Ok(false) => {}
                             Err(_) => break,
                         }
@@ -215,6 +223,18 @@ impl Review {
         if !batch.changed() {
             return;
         }
+        // Capture membership before this event can start rediscovery. A child
+        // event refreshes the parent's gitlink, never a path inside that link.
+        if let Some(view) = &self.local_view {
+            let catalog = self.project_roots.read(cx).snapshot().and_then(Result::ok);
+            let scope = plico::changes_scope::Scope::for_event(
+                &self.repo.path,
+                root,
+                &batch,
+                catalog.as_deref(),
+            );
+            view.update(cx, |view, cx| view.refresh_scope(scope, cx));
+        }
         // A child history reload does not pass through refresh_impl, whose
         // cache clear protects the primary Log. Invalidate this root's details,
         // including packed replace refs and watcher rescan, without evicting
@@ -256,9 +276,6 @@ impl Review {
             view.update(cx, |view, cx| view.repository_changed(root, &batch, cx));
         }
         if primary {
-            if let Some(view) = &self.local_view {
-                view.update(cx, |v, cx| v.refresh(cx));
-            }
             if let Some(view) = &self.project_view {
                 view.update(cx, |v, cx| v.refresh_external(cx));
             }

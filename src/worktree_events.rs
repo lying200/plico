@@ -1,6 +1,7 @@
 //! Bounded filesystem invalidations, not a second repository cache.
 mod configuration;
 mod git_paths;
+mod ignore_rules;
 mod project;
 pub use project::{Notice, ProjectEvents};
 
@@ -28,6 +29,8 @@ pub struct Batch {
     pub configuration: bool,
     /// Only diff.* settings changed; membership and history rows remain valid.
     pub diff_configuration: bool,
+    /// Ignore file contents changed without moving HEAD or altering history.
+    pub status_rules: bool,
     /// Repository roots, declarations or gitlinks may have changed.
     pub membership: bool,
 }
@@ -39,6 +42,7 @@ impl Batch {
             || self.interpretation
             || self.configuration
             || self.diff_configuration
+            || self.status_rules
             || self.membership
             || !self.paths.is_empty()
     }
@@ -139,6 +143,10 @@ impl Pending {
                         self.batch.membership = true;
                     }
                     if path.starts_with(".git") {
+                        if path == Path::new(".git/info/exclude") || path == Path::new(".git/info")
+                        {
+                            self.batch.status_rules = true;
+                        }
                         if path == Path::new(".git/config")
                             || path == Path::new(".git/config.worktree")
                         {
@@ -330,6 +338,16 @@ mod tests {
     #[test]
     fn staging_and_history_invalidation_have_distinct_consumers() {
         let root = Path::new("repo");
+        for path in [".git/info/exclude", ".git/info"] {
+            let mut pending = Pending::default();
+            pending.push(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(path))),
+            );
+            assert!(pending.batch.changed() && pending.batch.status_rules);
+            assert!(!pending.batch.history_changed() && !pending.batch.baseline_changed());
+            assert!(crate::changes_scope::Scope::from_batch(&pending.batch).is_full());
+        }
         let diff = Batch {
             diff_configuration: true,
             ..Default::default()

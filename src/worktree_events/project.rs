@@ -66,6 +66,7 @@ impl ProjectEvents {
                 batch.configuration |=
                     observed.configuration.pending() && !observed.configuration.diff_only();
                 batch.diff_configuration |= observed.configuration.diff_only();
+                batch.status_rules |= observed.configuration.status_rules_pending();
                 (batch.changed() || poll_documents).then(|| Notice {
                     root: root.clone(),
                     batch,
@@ -84,7 +85,7 @@ impl ProjectEvents {
                         .is_some_and(|root| !root.configuration.pending())
             })
     }
-    /// Off-thread, at most one Git query per call. Round-robin eligible roots so
+    /// Off-thread, at most one eligible root per call. Round-robin roots so
     /// a continuously dirty root cannot starve another root's periodic check.
     /// Queued reads and unacknowledged deliveries have independent lifetimes.
     pub fn poll_configuration(
@@ -135,12 +136,17 @@ impl ProjectEvents {
                 notices[i].batch.configuration =
                     observed.configuration.pending() && !observed.configuration.diff_only();
                 notices[i].batch.diff_configuration = observed.configuration.diff_only();
-            } else if observed.configuration.pending() {
+                notices[i].batch.status_rules |= observed.configuration.status_rules_pending();
+            } else if observed.configuration.pending()
+                || observed.configuration.status_rules_pending()
+            {
                 notices.push(Notice {
                     root: root.clone(),
                     batch: Batch {
-                        configuration: !observed.configuration.diff_only(),
+                        configuration: observed.configuration.pending()
+                            && !observed.configuration.diff_only(),
                         diff_configuration: observed.configuration.diff_only(),
+                        status_rules: observed.configuration.status_rules_pending(),
                         ..Default::default()
                     },
                     poll_documents: false,
@@ -153,6 +159,14 @@ impl ProjectEvents {
         for root in roots {
             if let Some(observed) = self.roots.get_mut(root) {
                 observed.configuration.acknowledge();
+                observed.configuration.acknowledge_status_rules();
+            }
+        }
+    }
+    pub fn acknowledge_status_rules(&mut self, roots: &[PathBuf]) {
+        for root in roots {
+            if let Some(observed) = self.roots.get_mut(root) {
+                observed.configuration.acknowledge_status_rules();
             }
         }
     }
@@ -173,6 +187,43 @@ fn is_network_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ignore_content_delivery_does_not_reload_history_or_disappear_before_acknowledgement() {
+        use crate::worktree_events::configuration::tests::Fixture;
+        use std::{fs, time::Duration};
+        let fixture = Fixture::new();
+        fixture.git(&["config", "core.excludesFile", "rules"]);
+        let now = Instant::now();
+        let token = Cancel::default();
+        let mut project = ProjectEvents::default();
+        project.roots.insert(
+            fixture.0.clone(),
+            Observed {
+                events: None,
+                schedule: Schedule::new(now, false),
+                configuration: Default::default(),
+            },
+        );
+        let mut initial = project.take(now);
+        project
+            .poll_configuration(&mut initial, now, &token)
+            .unwrap();
+        project.acknowledge_configuration(std::slice::from_ref(&fixture.0));
+        fs::write(fixture.0.join("rules"), "hidden\n").unwrap();
+        let later = now + Duration::from_secs(31);
+        let mut notices = Vec::new();
+        project
+            .poll_configuration(&mut notices, later, &token)
+            .unwrap();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].batch.status_rules);
+        assert!(!notices[0].batch.history_changed());
+        let retry = project.take(later);
+        assert!(retry[0].batch.status_rules && !retry[0].batch.history_changed());
+        assert!(!project.configuration_due(&retry, later));
+        project.acknowledge_status_rules(std::slice::from_ref(&fixture.0));
+        assert!(project.take(later).is_empty());
+    }
     #[test]
     fn configuration_delivery_is_per_root_and_survives_rejection_and_cancellation() {
         use crate::worktree_events::configuration::tests::Fixture;

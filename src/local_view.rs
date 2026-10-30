@@ -182,6 +182,16 @@ impl LocalView {
             self.refresh.update(cx, |query, cx| query.request(cx));
         }
     }
+    pub(crate) fn refresh_scope(
+        &mut self,
+        scope: plico::changes_scope::Scope,
+        cx: &mut Context<Self>,
+    ) {
+        if self.write_token.is_none() {
+            self.refresh
+                .update(cx, |query, cx| query.request_scope(scope, cx));
+        }
+    }
     fn sync_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.draft.message().to_owned();
         self.input.update(cx, |s, cx| s.set_value(text, window, cx));
@@ -635,7 +645,7 @@ mod refresh_tests {
             let query = cx.new(|_| {
                 crate::changes_refresh::ChangesRefresh::with_loader(
                     Repository::new("unused"),
-                    std::rc::Rc::new(move |_, _, _, _, cx| {
+                    std::rc::Rc::new(move |_, _, _, _, _, cx| {
                         let n = count.get() + 1;
                         count.set(n);
                         let timer =

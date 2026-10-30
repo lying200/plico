@@ -2278,6 +2278,50 @@ impl Repository {
         )?;
         parse_status(&bytes)
     }
+    pub(crate) fn local_changes_in(
+        &self,
+        scope: &crate::changes_scope::Scope,
+        token: &Cancel,
+    ) -> Result<Vec<Change>> {
+        let Some(paths) = scope.query_paths() else {
+            return self.local_changes(token);
+        };
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
+        if paths.is_empty() {
+            return Ok(vec![]);
+        }
+        // Match Windows ASCII spelling aliases both in Git and when reconciling
+        // the old snapshot. Per-path literal magic keeps brackets and wildcards
+        // literal; global --literal-pathspecs cannot be combined with icase.
+        #[cfg(windows)]
+        let query_paths: Vec<std::ffi::OsString> = paths
+            .iter()
+            .map(|path| {
+                let mut value = std::ffi::OsString::from(":(icase,literal)");
+                value.push(path);
+                value
+            })
+            .collect();
+        let mut args = vec![
+            #[cfg(not(windows))]
+            OsStr::new("--literal-pathspecs"),
+            #[cfg(windows)]
+            OsStr::new("--no-literal-pathspecs"),
+            OsStr::new("status"),
+            OsStr::new("--porcelain=v1"),
+            OsStr::new("-z"),
+            OsStr::new("--untracked-files=all"),
+            OsStr::new("--ignore-submodules=none"),
+            OsStr::new("--"),
+        ];
+        #[cfg(not(windows))]
+        args.extend(paths.iter().map(|path| path.as_os_str()));
+        #[cfg(windows)]
+        args.extend(query_paths.iter().map(|path| path.as_os_str()));
+        parse_status(&self.read(&args, token)?)
+    }
     fn working_tree_base(&self, token: &Cancel) -> Result<String> {
         match crate::commit_operation::head(self, token)? {
             Some(head) => Ok(head),
@@ -2755,6 +2799,11 @@ fn parse_status(bytes: &[u8]) -> Result<Vec<Change>> {
             }
         }
     }
+    sort_status(&mut result);
+    Ok(result)
+}
+
+pub(crate) fn sort_status(result: &mut [Change]) {
     result.sort_by_key(|f| {
         (
             match f.area {
@@ -2766,7 +2815,6 @@ fn parse_status(bytes: &[u8]) -> Result<Vec<Change>> {
             f.path.clone(),
         )
     });
-    Ok(result)
 }
 
 fn drain_diagnostics(mut pipe: impl Read, limit: usize) -> std::io::Result<Vec<u8>> {

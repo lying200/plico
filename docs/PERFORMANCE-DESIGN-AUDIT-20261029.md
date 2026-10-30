@@ -1042,3 +1042,150 @@ cargo clippy --locked --no-default-features --all-targets 成功，仍有非阻�
 cargo fmt --package plico -- --check 与 git diff --check 通过。
 原生验证范围及截图见前述各增量记录；CI 尚未运行，本次未推送。
 本结果覆盖本批已实现代码，不代表上述剩余设计、三栏 Diff 或整体性能审计已经完成。
+
+### 提交后的阶段 5 命令实验（2026-10-30）
+
+上述实现已提交为 130da87；继续在独立临时仓库和本地 bare remote 上验证查询范围，未操作用户仓库。
+Git 2.56.0.windows.3，禁用 system config、独立空 global config/模板，显式本地作者与 autocrlf=false。
+记录及 fixture 路径：artifacts/dirty-scope-20261030/probe.json。已提交 old.txt 后执行 git mv 到
+new.txt，status --porcelain=v1 --untracked-files=all --renames 的实际结果：
+
+| 查询范围 | 结果 |
+| --- | --- |
+| 全仓库 | R old.txt → new.txt |
+| 仅 old.txt | D old.txt |
+| 仅 new.txt | A new.txt |
+| 同时 old.txt/new.txt | R old.txt → new.txt |
+
+另创建规则 untracked-dir/ 的 .gitignore 及目录内文件。带 --ignored=matching 的全仓库查询包含
+ignored 目录，限制为 .gitignore 时仅返回规则文件本身，不返回受规则影响的目录。
+这直接验证了范围不仅影响性能，也影响记录语义；普通事件路径不能直接用作增量替换的完整范围。
+rename 两端扩展、ignore 规则依赖失效和全量回退仍是实施前提。本实验只覆盖 ASCII 路径的命令行为，
+不是原生 Rebased/Plico UI 验收，也不是性能计时；尚未开始阶段 5 功能代码修改。
+
+### 阶段 5 核心范围与合并实现（2026-10-30，UI 尚未接入）
+
+原生前置已补齐，见 REBASED-REFERENCE.md“工作树增量刷新原生前置”。新增 changes_scope::Scope：
+包含全量/有界路径范围、目录覆盖折叠和范围并集，最多 512 个范围、6000 单位参数预算；超限不拆分
+rename 候选，而是回退一个全量查询。未知/基线/成员事件、规则文件、非法相对路径也回退全量。
+局部范围补上原 review_versions 中的 rename 两端与 A/D/R/C 候选，独立于 Commit 勾选范围。
+
+Repository::local_changes_in 使用 literal pathspec、NUL 状态协议及原有 untracked/submodule
+选项。Snapshot::refresh 保留范围外原记录，仅替换本次覆盖的 path/origPath，使用同一个状态排序
+与 collect/MM 净差异规则；前后 HEAD 复验保留，HEAD 已改变则全量重建，失败不修改传入快照。
+累计记录超过 100000 时重新全量读取，避免部分更新无限累加旧记录。
+
+定向隔离运行 2470-18e3280d73e0b308-0：6/6（974 过滤），4.243 秒。真实 Git 测试将局部结果与
+全量 Snapshot 的 head、每条 review_versions 和展示 files 逐项比较，覆盖已暂存重命名后再编辑、
+字面量方括号路径、范围外修改保留、MM 被工作区反向恢复、未跟踪目录创建/删除、规则变化、恢复干净、
+HEAD 前移、预取消和查询失败；检查 index 未被读操作修改。另验证范围折叠/边界与四个旧 collector
+回归。最后增加达到全量回退后停止枚举的短路；最新版本在
+6160-18e3282f1240c01c-0 再跑范围及真实增量对照，2/2（978 过滤），2.781 秒通过。fmt/diff check 通过。
+
+尚未接入 ChangesRefresh/LocalView，所以本次不能宣称界面提速或增量刷新已经交付。后续必须将
+成功快照绑定具体仓库，限制额外保留内存，合并在途/失败范围；在接入前补 ignore/exclude 外部依赖、
+周期全量校验及大小写/子模块边界，避免将当前全量扫描偶然覆盖的变化变成永久漏报。
+本次仅有核心定向结果，没有本增量全量或 Plico 原生验收结论。
+
+### 阶段 5 刷新任务所有权（2026-10-30，文件事件尚未接通）
+
+ChangesRefresh 现持有本仓库的最后成功 Snapshot、本轮 Scope 和期间累计 Scope。
+request 仍代表显式全量刷新；request_scope 接受有界失效范围。成功后发布共享 Arc<Snapshot>，
+LocalView 的勾选/列表按原流程从事件消费，不增加一份缓存克隆。失败保留旧快照，并把本轮范围
+并回 pending；只有本轮期间收到新失效才立即继续，否则等待下次请求，避免错误重试热循环。
+新的 LocalView 创建新的 ChangesRefresh，repository 在该刷新器生命周期内不替换，不跨根共享缓存。
+
+额外快照缓存按拥有的 Vec/路径/String capacity 加结构体与 Arc 控制块估算，预算 2 MiB；超额结果
+仍交付列表，但不保留为下次增量基线。此数字不是 RSS，不含 allocator 元数据、UI 列表副本、Git
+子进程或 GPU；查询期间可能同时持有前后快照和有界 Git 输出。首次、无缓存、ignored 展示开启、
+距上次成功全量至少 30 秒时，下一次请求转为全量。没有新增常驻定时查询；该机制不等同于已经
+解决外部 ignore 文件无事件时的主动观察，文件事件接通前仍需补相应依赖。
+
+桌面定向 30d8-18e32859c9c50d68-0：3/3（186 过滤），0.164 秒。覆盖在途范围合并、失败后与
+新范围并集重试、没有新事件时不循环、成功快照 Arc 复用、超额快照交付但不缓存、过期全量重建，
+以及既有取消、延迟 loading 反馈与 LocalView 树几何保留。这里调度边界使用受控 loader，真实 Git
+语义由上一节核心对照覆盖；尚未完成生产事件到局部读取的端到端运行。
+目前所有既有 LocalView 调用仍走全量 request，未启用局部事件入口；无本增量 UI 提速或原生验收声明。
+
+### 阶段 5 忽略规则依赖（2026-10-30）
+
+补充外部 core.excludesFile 和 common Git directory 的 info/exclude 内容观察；源码/原生前置
+见 REBASED-REFERENCE 的同日外部忽略文件记录。单独 status_rules 失效只触发 Changes 等工作树
+消费者，不触发历史、分支比较、提交详情缓存失效。通知直到 UI 接纳才确认；读取不代表交付。
+linked worktree 的共享 info/exclude 事件路由到该根的合成 .git 地址，主工作树 index 仍不路由。
+
+沿用配置轮询的 30 秒周期与逐根公平调度，不新建定时器或每次文件编辑解析配置。每次 eligible
+root 仍读一次有效配置；首次、配置变化或上次解析失败时额外调用一次 config --null --path
+和一次 common-directory 查询。稳定状态复用解析路径，只读最多两个规则文件，每文件 1 MiB，
+8 KiB 缓冲流式摘要，不缓存正文。不能继续把每次 poll_configuration 称为严格只有一个 Git 进程。
+规则缺失可作为稳定状态，读取失败、非普通文件、超限保守使 Changes 失效；同长度修改可识别。
+取消不推进摘要或配置检查期限。Git 负责路径展开，支持显式空值、相对路径、波浪号及默认路径。
+默认 XDG/HOME 分支仍依赖进程环境；未在测试线程中修改全局环境。
+
+定向核心 4f2c-18e3290275448d00-0 为 15/15（967 过滤），新增交付边界后
+32c8-18e32910fcbbdde8-0 为 4/4（979 过滤）；桌面 950-18e32914aa04f3d8-0 为
+4/4（185 过滤）。未重跑全量，未启用普通路径的生产局部查询；Windows 大小写、子模块路径范围
+及端到端提速仍待下一步验证，不以这些定向结果宣称阶段 5 全部完成。
+
+真实 OS 事件集成 2d44-18e3292854dc71b0-0：5/5、0 过滤，包含 linked worktree 共享
+exclude 通知。release 构建通过（既有 sequencer 未使用 variant 警告）；原生 Plico 同仓库
+自动发现外部规则与 info/exclude 内容变化，列表 5→6→7，保留已打开 Diff，截图与操作记录见
+REBASED-REFERENCE。fmt、diff check 和核心 all-targets clippy 通过，clippy 仍有既有警告。
+
+### 阶段 5 大小写与子模块查询边界（2026-10-30）
+
+独立实验 artifacts/dirty-scope-20261030/boundaries.json 证实：Windows 工作树通过小写
+casefile.txt 写入后，全量 status 返回 CaseFile.txt；literal 小写 pathspec 返回空。
+子模块内部文件改变时，全量父根 status 返回 child，而 child/CaseFile.txt 范围返回空。
+这两种空结果都不是干净状态。Rebased 实机与 RootDirtySet/GitStagingAreaHolder 对照见参考文档。
+
+核心局部查询现对 Windows ASCII 路径使用逐路径 :(icase,literal)，快照范围剔除、纳入和目录合并
+使用相同 ASCII 忽略大小写匹配，保留分量边界。不能把全局 --literal-pathspecs 与 --icase-pathspecs
+一起传给 Git（实测报不兼容）；本地显式关闭全局 literal 后使用逐路径 magic，括号/星号仍为字面量。
+非 Windows 保持原字面量和大小写敏感语义；Windows 非 ASCII 失效路径暂全量回退，避免自造 Unicode
+大小写规则造成漏项。命令长度预算计入 magic 前缀。配置规则文件大小写别名也必须全量回退。
+
+定向 4904-18e329ca2f325504-0：4/4（981 过滤），包含真实 Git clean→dirty→clean→dirty、
+大小写别名、括号字面量、原重命名/删除/MM 语义。fmt 与 diff check 通过。大小写分支仍未接入
+生产 UI，因此没有本次 Plico 原生后置或端到端性能通过声明。
+子模块下一步应复用 project_repositories::SubmoduleRelation 的 parent/path 映射，传播子仓库
+失效并扩大父根范围到 gitlink；不能只依据磁盘 .git 或任意路径祖先猜测已跟踪关系。
+
+### 阶段 5 生产事件入口接通（2026-10-30，验收进行中）
+
+Scope::for_event 使用现有 project_repositories catalog：父根内 child/file 范围扩展为已声明
+gitlink child；子根独立通知沿 SubmoduleRelation 向祖先传递，父根只查询对应 gitlink。
+无关的注册根返回空范围；catalog 缺失、出错或关系超出 4096 上限时全量回退。关系遍历维护 visited，
+不根据任意磁盘 .git 猜测关系，不增加每事件 Git 发现查询。Review 在事件触发成员重新发现前捕获
+有效 catalog，将范围交给 LocalView::refresh_scope / ChangesRefresh；显式刷新仍保持全量。
+这次仅改变 Changes 查询失效范围，未扩大既有父子 Diff Tab 通知行为。
+
+真实 Git 回归 2df4-18e329fcac1c4e58-0：5/5（981 过滤），包含父/子两种事件地址均形成 child
+范围，修改和恢复后的快照与全量结果相同，无关根不触发查询，未知成员回退。桌面定向
+5a70-18e32a006efb2734-0：8/8（181 过滤）。新增 performance_audit --changes-scope 模式以交错
+顺序比较 Snapshot 全量/局部读取，预热一次后五组，保留 HEAD 复验并校验结果；它不测 UI 或 RSS。
+
+原生生产链已验证：同 Rebased 边界 fixture，父 Changes 自动出现/消失 child gitlink，大小写别名
+写入自动显示 CaseFile.txt；Git trace2 确认有范围 status 真正执行，详见 REBASED-REFERENCE。
+这不覆盖本地原有未聚合子仓库 Commit 列表、父子 Diff Tab 通知或刷新中双击的全部行为。
+
+单独万文件基准：100 个目录、10,000 个已跟踪小文本、一个修改，Windows 当前机器，release
+读取 Snapshot（含 Git 启动和 HEAD 复验），预热后交错五组。全量中位数 170.3914 ms，局部
+136.4897 ms，减少约 19.9%；两组结果完全相同。fixture 与原始结果分别在
+artifacts/dirty-scope-20261030/benchmark-fixture.json、benchmark.jsonl。
+这不是冷缓存/网络仓库/UI 响应时间测量，没有采集 RSS、GPU 或 CPU；进程启动仍占主要固定成本，
+不能由此宣称全部操作提速 20%。没有在构建或测试并行运行时计时。
+
+### 阶段 5 提交前完整回归（2026-10-30）
+
+受测代码冻结指纹见 artifacts/dirty-scope-20261030/frozen-worktree.json，结束后复核全部一致。
+隔离入口 all 的运行 60c4-18e32a4d1ebae2d0-0 退出 0：core 986/986、0 跳过，1204.825 秒；
+desktop 189/189、0 跳过，850.193 秒；navigation 10/10、按入口过滤 179，8.058 秒。
+navigation 是关闭 debug assertions 的 test profile，不能称为完整 release 构建测试。
+fmt check、diff check、doc test（0 示例）与 no-default-features all-targets clippy 均通过；
+clippy 保留已有警告，日志 artifacts/dirty-scope-20261030/clippy-final.log。没有本次 CI 通过声明。
+
+本阶段交付有界路径查询、成功快照所有权、失败范围保留、重命名候选扩展、忽略规则依赖、Windows
+ASCII 别名及已声明子模块映射。非 ASCII Windows 范围、未知/错误成员、超额快照、ignored 显示等
+保留全量回退。源码依据、原生结果和查询计时分别记录，未以定向测试代替上述完整回归。
+整轮审计仍有统一刷新路由、不可变详情缓存的精确失效，以及剩余进程/计算热点评估待完成。

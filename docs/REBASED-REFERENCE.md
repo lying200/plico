@@ -15144,3 +15144,50 @@ rev-parse --show-toplevel 和 0 次 .gitmodules 读取，历史 log 及标签查
 `PERFORMANCE-DESIGN-AUDIT-20261029.md` 的“空闲后台查询与监视器绑定审计”。
 保留差异：轻量实现仍须为网络根、监视失败和未知布局保留有界兜底；不用 JetBrains VFS
 替代本地 notify，也不因上游有串行更新队列而引入通用调度框架。功能实现保持待原生验证。
+
+### gitfile 改向原生前置与失败探针（2026-10-30）
+
+本次独立 fixture 记录于 `artifacts/binding-refresh-20261030/fixture.json`，工作目录名
+binding-reference；Git 为 2.56.0.windows.3，Rebased 1.1.22，参考 commit 不变。
+以 `git init --separate-git-dir` 创建 admin-a 和单提交 `binding base`，复制管理目录到
+同级 admin-b。没有公网 remote 或用户仓库写入。通过已有安装程序打开独立新窗口，按用户
+既有授权信任此自建仓库；Log 选中基线提交，Ctrl+K 打开 Commit 面板。
+
+操作及结果（截图均位于上述目录）：
+
+1. `rebased-before.png`：Log 一条提交，main 在该行，右侧 file.txt 和基线详情。左侧当时
+   尚为 Project；Ctrl+K 的 Commit 面板在后续快照中出现，因此不拿两张图比较精确布局。
+2. 将 work/.git 指向 admin-b，仅在新绑定创建空提交 `new binding commit`。
+   redirect.json 核实 CLI 的实际目录为 admin-b，旧 HEAD 为 56deb21e，新 HEAD 为 35c10979。
+   `rebased-redirected.png` 仍只显示基线；Changes 仅有 IDE 生成的四个未跟踪文件。
+   初次尝试用 WriteAllText 覆盖隐藏的 .git 被 Windows 拒绝，没有修改成功；随后使用
+   Set-Content -Force 写入，CLI 复验通过，实验以这次成功写入为准。
+3. 点击 Log 工具栏刷新，完成后的 `rebased-manual-refresh.png` 出现新提交，保留基线选择、
+   file.txt 和详情。手动查询成功不证明原生监视器已经重新绑定。
+4. 再在 admin-b 创建空提交 `new binding second`（second.json：03:28:50.4998895Z）。
+   03:29:27.519Z 的 `rebased-second-auto.png` 仍只有两条历史，即约 37 秒后第二次提交
+   未自动显示；再次点击同一刷新按钮，`rebased-second-manual.png` 出现三条历史。
+   这是有限观察窗口，不断言任意更长时间或其他触发条件下都无法自动恢复。
+
+布局/交互沿用 Log 工具栏刷新入口、中央历史、右侧选中提交详情与左侧 Commit 面板；
+两次手动刷新都保留基线选择。无新增焦点规则或快捷键，未做滚动、取消、失败弹窗或
+commondir 改向原生验证。实验后按预期指针核验恢复 admin-a，CLI HEAD 恢复为基线；
+restored.json 记录结果，保留所有 Rebased 窗口和两份测试管理目录。
+
+随后完整读取 `plugins/git4idea/backend/src/repo/GitRepositoryImpl.kt`：创建时查找 gitDir，
+持有 repositoryFiles/repositoryReader 并安装 updater；update 重读 repoInfo，所读实现
+没有在每次 update 中重建 repositoryFiles/updater。与前述 Updater 的监听生命周期对应，
+但未阅读完整 VCS 管理器基类，不能推断所有重建入口。保留差异：本地应检测改向并恢复持续
+事件通知，不复制此场景中需要反复手动刷新的表现。
+
+本地真实 OS 探针源码在 `artifacts/binding-refresh-20261030/binding_probe.rs`。
+通过正式隔离 runner 临时挂入 integration test：安装外部管理目录观察器，确认原目录
+git add 产生 index 通知，再改向另一目录、显式 reconcile 相同根、排空指针事件，最后
+在新绑定 git add；三秒内未收到 index 通知，目标断言失败。
+最终带正常事件对照的运行 `36e4-18e3311d0c52e0e4-0` 为 **0 passed / 1 failed**；
+之前无该对照的初版运行 `1278-18e33113b5533900-0` 同样失败，不能算作回归通过。
+临时测试入口已移出 tests，源码及失败日志保留，没有通过 ignore 或修改断言隐藏缺口。
+
+下一步本地实现映射明确为 ProjectEvents 的绑定检查/重建生命周期、Events 的目录身份和
+后台观察调用入口。健康 gitfile 根的周期 all 缩减必须与新旧目录事件隔离一起验收；
+本节尚未修改产品代码或完成 Plico 原生后验，commondir 特殊场景继续保守兜底。

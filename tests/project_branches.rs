@@ -126,6 +126,159 @@ fn project_popup_preserves_reference_scope_and_repository_local_targets() {
     assert_eq!(Project::default().scope(None, false, false), Scope::Empty);
 }
 #[test]
+fn project_history_hands_off_primary_metadata_and_preserves_filtered_scope() {
+    use plico::project_log::{self, Query};
+    let f = Fixture::new();
+    let primary = f.repository("primary");
+    let child = f.repository("child");
+    let base = git(&primary.path, &["rev-parse", "HEAD"]);
+    git(&primary.path, &["branch", "topic"]);
+    git(
+        &primary.path,
+        &["commit", "--allow-empty", "-qm", "new main"],
+    );
+    git(&primary.path, &["tag", "base", &base]);
+    let token = Cancel::default();
+    let query = |repository: Repository, branches| Query {
+        repository,
+        branches,
+        filter: None,
+    };
+    let queries = [
+        query(primary.clone(), vec!["refs/heads/topic".into()]),
+        query(child, vec![]),
+    ];
+    let (read, refs) = project_log::read_with_primary(&queries, 10, &primary, &token).unwrap();
+    let refs = refs.unwrap();
+    let expected = primary.reference_snapshot(&token).unwrap();
+    assert!(read.scope.errors.is_empty());
+    assert_eq!(read.page.entries.len(), 2);
+    assert_eq!(read.scope.roots[0].tips, [base]);
+    assert_eq!(refs.head_id, expected.head_id);
+    assert_eq!(refs.current_branch, expected.current_branch);
+    assert_eq!(refs.ref_titles, expected.ref_titles);
+    assert_eq!(refs.tracked_branches, expected.tracked_branches);
+    assert_eq!(
+        format!("{:?}", refs.branches),
+        format!("{:?}", expected.branches)
+    );
+    assert_eq!(format!("{:?}", refs.tags), format!("{:?}", expected.tags));
+    assert!(refs.commits.is_empty() && refs.included_in_head.is_empty());
+    assert!(!refs.more);
+    let plain = project_log::read(&queries, 10, &token).unwrap();
+    assert_eq!(
+        read.page
+            .entries
+            .iter()
+            .map(|e| e.identity())
+            .collect::<Vec<_>>(),
+        plain
+            .page
+            .entries
+            .iter()
+            .map(|e| e.identity())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        format!("{:?}", read.page.layout(&token).unwrap()),
+        format!("{:?}", plain.page.layout(&token).unwrap())
+    );
+    let (empty, refs) = project_log::read_with_primary(
+        &[Query {
+            repository: primary.clone(),
+            branches: vec![],
+            filter: Some(plico::git::LogFilter {
+                authors: Some(vec![]),
+                ..Default::default()
+            }),
+        }],
+        10,
+        &primary,
+        &token,
+    )
+    .unwrap();
+    assert!(empty.page.entries.is_empty() && empty.scope.errors.is_empty());
+    assert_eq!(refs.unwrap().head_id, expected.head_id);
+    token.cancel();
+    assert!(project_log::read_with_primary(&queries, 10, &primary, &token).is_err());
+}
+
+#[test]
+fn project_primary_references_survive_exclusion_and_history_errors_without_hiding_them() {
+    use plico::project_log::{self, Query};
+    let f = Fixture::new();
+    let primary = f.repository("primary");
+    let child = f.repository("child");
+    let token = Cancel::default();
+    let child_query = Query {
+        repository: child,
+        branches: vec![],
+        filter: None,
+    };
+    let (read, refs) =
+        project_log::read_with_primary(std::slice::from_ref(&child_query), 10, &primary, &token)
+            .unwrap();
+    assert_eq!(read.page.entries.len(), 1);
+    assert_eq!(
+        refs.unwrap().head_id.as_deref(),
+        Some(git(&primary.path, &["rev-parse", "HEAD"]).as_str())
+    );
+    let missing_branch = Query {
+        repository: primary.clone(),
+        branches: vec!["refs/heads/missing".into()],
+        filter: None,
+    };
+    let (read, refs) = project_log::read_with_primary(
+        &[missing_branch, child_query.clone()],
+        10,
+        &primary,
+        &token,
+    )
+    .unwrap();
+    assert!(
+        refs.is_ok(),
+        "Log branch errors must not erase readable repository metadata"
+    );
+    assert_eq!(read.page.entries.len(), 1);
+    assert_eq!(read.scope.errors.len(), 1);
+    assert!(read.scope.errors[0].1.contains("Branch no longer exists"));
+    let parent = git(&primary.path, &["rev-parse", "HEAD"]);
+    git(
+        &primary.path,
+        &["commit", "--allow-empty", "-qm", "new head"],
+    );
+    std::fs::remove_file(
+        primary
+            .path
+            .join(".git/objects")
+            .join(&parent[..2])
+            .join(&parent[2..]),
+    )
+    .unwrap();
+    let (read, refs) = project_log::read_with_primary(
+        &[
+            Query {
+                repository: primary.clone(),
+                branches: vec![],
+                filter: None,
+            },
+            child_query.clone(),
+        ],
+        10,
+        &primary,
+        &token,
+    )
+    .unwrap();
+    assert!(refs.is_ok());
+    assert_eq!(read.scope.errors.len(), 1);
+    assert_eq!(read.page.entries.len(), 1);
+    let absent = Repository::new(f.0.join("absent"));
+    let (read, refs) = project_log::read_with_primary(&[child_query], 10, &absent, &token).unwrap();
+    assert!(refs.is_err());
+    assert_eq!(read.page.entries.len(), 1);
+}
+
+#[test]
 fn reference_snapshot_does_not_walk_history_and_supports_unborn_head() {
     let f = Fixture::new();
     let repo = f.repository("history");
@@ -148,9 +301,20 @@ fn reference_snapshot_does_not_walk_history_and_supports_unborn_head() {
     let empty = f.0.join("unborn");
     std::fs::create_dir(&empty).unwrap();
     git(&empty, &["init", "-q", "-b", "main"]);
-    let refs = Repository::new(empty)
-        .reference_snapshot(&Cancel::default())
-        .unwrap();
+    let unborn = Repository::new(empty);
+    let (read, refs) = plico::project_log::read_with_primary(
+        &[plico::project_log::Query {
+            repository: unborn.clone(),
+            branches: vec![],
+            filter: None,
+        }],
+        10,
+        &unborn,
+        &Cancel::default(),
+    )
+    .unwrap();
+    assert!(read.page.entries.is_empty() && read.scope.errors.is_empty());
+    let refs = refs.unwrap();
     assert!(refs.head_id.is_none());
     assert_eq!(refs.current_branch.as_deref(), Some("main"));
 }

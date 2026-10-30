@@ -224,6 +224,7 @@ impl Review {
                 let result = cx
                     .background_spawn(async move {
                         let mut first_page = None;
+                        let mut primary = None;
                         let scope = if fresh {
                             let root_paths = members
                                 .roots
@@ -264,7 +265,13 @@ impl Review {
                                     },
                                 })
                                 .collect::<Vec<_>>();
-                            let mut next = project_log::read(&queries, limit, &token)?;
+                            let (mut next, references) = project_log::read_with_primary(
+                                &queries,
+                                limit,
+                                &primary_repo,
+                                &token,
+                            )?;
+                            primary = Some(references);
                             Arc::make_mut(&mut next.scope).errors.extend(
                                 members
                                     .errors
@@ -287,14 +294,6 @@ impl Review {
                         };
                         let recovery =
                             fresh.then(|| Self::read_primary_recovery(&primary_repo, &token));
-                        let primary =
-                            if fresh {
-                                Some(primary_repo.snapshot_branches_filtered_at(
-                                    &branches, 0, 1, None, None, &token,
-                                ))
-                            } else {
-                                None
-                            };
                         let mut page = match continuation {
                             Some(cursor) => cursor.load(limit, &token)?,
                             None if first_page.is_some() => {
@@ -325,8 +324,7 @@ impl Review {
                             }
                             if let Some(primary) = primary {
                                 match primary {
-                                    Ok(mut snapshot) => {
-                                        snapshot.commits.clear();
+                                    Ok(snapshot) => {
                                         s.snapshot = Some(snapshot);
                                         s.record_recent_project();
                                         s.rebuild_branches(cx);
@@ -443,6 +441,14 @@ mod tests {
         });
         let review = review.unwrap();
         cx.run_until_parked();
+        let parent = review.read_with(cx, |s, _| {
+            s.commit_ids()
+                .iter()
+                .find(|id| id.root.as_ref() == &paths[0])
+                .unwrap()
+                .hash
+                .clone()
+        });
         review.read_with(cx, |s, _| {
             assert!(s.error.is_none(), "{:?}", s.error);
             assert!(s.log.project_window().is_some());
@@ -551,6 +557,10 @@ mod tests {
             assert_eq!(s.log.commits().len(), 1);
             assert_eq!(s.log_repository(0).unwrap().path, paths[1]);
             assert_eq!(s.history_count.total, Some(1));
+            let primary = s.snapshot.as_ref().unwrap();
+            assert_eq!(primary.current_branch.as_deref(), Some("main"));
+            assert_eq!(primary.head_id.as_deref(), Some(parent.as_str()));
+            assert!(primary.commits.is_empty() && primary.included_in_head.is_empty());
         });
         // Exercise the menu's production event route, including exact empty
         // selection. Counts must use the same root scope as visible commits.

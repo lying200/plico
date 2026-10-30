@@ -366,6 +366,36 @@ impl Read {
 /// At most two N-row metadata prefixes coexist during merging, not N per root.
 /// No total-count traversal is performed here. Refresh/new limits re-query tips.
 pub fn read(queries: &[Query], limit: usize, token: &crate::git::Cancel) -> Result<Read, String> {
+    read_impl(queries, limit, None, token).map(|(read, _)| read)
+}
+
+/// Read a project page and its primary repository's reference metadata in one
+/// request. The primary may be excluded by Log filters or have unreadable
+/// history; its reference result is independent of those per-root errors.
+/// The returned snapshot has no commit/membership payload and is not a page.
+pub fn read_with_primary(
+    queries: &[Query],
+    limit: usize,
+    primary: &crate::git::Repository,
+    token: &crate::git::Cancel,
+) -> Result<(Read, Result<crate::git::Snapshot, String>), String> {
+    let (read, captured) = read_impl(queries, limit, Some(primary), token)?;
+    let references = match captured {
+        Some(snapshot) => Ok(snapshot),
+        None => primary.reference_snapshot(token),
+    };
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    Ok((read, references))
+}
+
+fn read_impl(
+    queries: &[Query],
+    limit: usize,
+    primary: Option<&crate::git::Repository>,
+    token: &crate::git::Cancel,
+) -> Result<(Read, Option<crate::git::Snapshot>), String> {
     if queries.len() > 4096 {
         return Err("Too many history repositories".into());
     }
@@ -379,6 +409,7 @@ pub fn read(queries: &[Query], limit: usize, token: &crate::git::Cancel) -> Resu
         offsets: Default::default(),
     };
     let mut seen = std::collections::HashSet::new();
+    let mut captured = None;
     for query in queries {
         if token.cancelled() {
             return Err("Cancelled".into());
@@ -418,7 +449,27 @@ pub fn read(queries: &[Query], limit: usize, token: &crate::git::Cancel) -> Resu
             ),
         };
         match window {
-            Ok(window) => {
+            Ok(mut window) => {
+                if primary.is_some_and(|primary| {
+                    primary.path == root || primary.path == query.repository.path
+                }) {
+                    // Move only the requested root's metadata before merging consumes
+                    // the window. Do not clone commits or retain metadata per page/root.
+                    let snapshot = &mut window.snapshot;
+                    captured = Some(crate::git::Snapshot {
+                        head_id: snapshot.head_id.take(),
+                        included_in_head: Arc::default(),
+                        current_branch: snapshot.current_branch.clone(),
+                        ref_titles: snapshot.ref_titles.clone(),
+                        tracked_branches: std::mem::take(&mut snapshot.tracked_branches),
+                        commits: vec![],
+                        branches: std::mem::take(&mut snapshot.branches),
+                        tags: std::mem::take(&mut snapshot.tags),
+                        tips: snapshot.tips.clone(),
+                        more: false,
+                        shallow: snapshot.shallow,
+                    });
+                }
                 let current_branch = window.snapshot.current_branch.clone();
                 let ref_titles = window.snapshot.ref_titles.clone();
                 let tips = merge_window(&mut result.page, Arc::new(root), window, limit)?;
@@ -440,7 +491,7 @@ pub fn read(queries: &[Query], limit: usize, token: &crate::git::Cancel) -> Resu
         return Err("Cancelled".into());
     }
     result.advance_offsets()?;
-    Ok(result)
+    Ok((result, captured))
 }
 
 /// Append one bounded source prefix; metadata never accumulates N rows per root.

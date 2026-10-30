@@ -10499,7 +10499,11 @@ fn empty_history_filter_does_not_apply_filtered_graph_budget_to_normal_browsing(
         branches: vec![],
         filter: Some(filter.clone()),
     };
-    let read = project_log::read(&[query.clone()], 1000, &token).unwrap();
+    let (read, primary) =
+        project_log::read_with_primary(&[query.clone()], 1000, &repo, &token).unwrap();
+    let primary = primary.unwrap();
+    assert!(primary.commits.is_empty() && primary.included_in_head.is_empty());
+    assert_eq!(primary.current_branch.as_deref(), Some("main"));
     assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
     assert_eq!(read.page.entries.len(), 1000);
     assert!(read.page.more);

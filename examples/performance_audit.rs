@@ -47,6 +47,58 @@ fn command(repo: &Repository) -> Command {
 fn main() {
     let repo = Repository::new(std::env::args_os().nth(1).expect("disposable repository"));
     let token = Cancel::default();
+    if std::env::args().nth(2).as_deref() == Some("--project-primary") {
+        use plico::project_log::{self, Query};
+        let queries = [Query {
+            repository: repo.clone(),
+            branches: vec![],
+            filter: None,
+        }];
+        for iteration in 0..6 {
+            let modes = if iteration % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            };
+            let mut pages = Vec::new();
+            for reuse in modes {
+                let name = if reuse {
+                    "project-primary-reused"
+                } else {
+                    "project-primary-separate"
+                };
+                let (read, primary) = sample(name, iteration, || {
+                    if reuse {
+                        project_log::read_with_primary(&queries, 1000, &repo, &token).unwrap()
+                    } else {
+                        (
+                            project_log::read(&queries, 1000, &token).unwrap(),
+                            repo.snapshot_branches_filtered_at(&[], 0, 1, None, None, &token),
+                        )
+                    }
+                });
+                assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+                let primary = primary.unwrap();
+                pages.push((
+                    read.page
+                        .entries
+                        .iter()
+                        .map(|e| e.identity())
+                        .collect::<Vec<_>>(),
+                    read.page.more,
+                    primary.head_id,
+                    primary.current_branch,
+                    primary.ref_titles,
+                    primary.tracked_branches,
+                ));
+            }
+            assert_eq!(
+                pages[0], pages[1],
+                "primary metadata reuse changed the page or references"
+            );
+        }
+        return;
+    }
     if std::env::args().nth(2).as_deref() == Some("--primary-metadata") {
         // Compare only repository metadata. History tips, membership and `more`
         // have separate consumers and are not interchangeable by this probe.

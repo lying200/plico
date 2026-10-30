@@ -15378,3 +15378,40 @@ git.rs::contained_in_head 实际完整遍历 HEAD，成本随历史规模增加�
 PERFORMANCE-DESIGN-AUDIT-20261029.md 的“主根元数据与历史查询混用”节。
 本次仅源码与核心诊断，没有新的原生前置；根过滤后主仓库侧栏、分支不存在等状态待实机核对。
 不照搬上游 refs 文件解析，继续 Git CLI；是否复用本次主根元数据及排除根 fallback 尚未实现。
+
+主根元数据实现前原生验证（2026-10-30）：已安装 Rebased 1.1.22（此前 About 记录），
+本次 exe ProductVersion 为 262.10968.0.0-IC；源码仍为 245042348669114adb8e24e5b0fc0ce73763f3c4。
+使用既有独立 parent/child 仓库，parent HEAD 5b7f76821dbdbbc0744bcbf34b28641bb5f36da2、
+child HEAD 245e1c1a7fefd84123cc4299121858d674a7b786；parent 有 CaseFile.txt 修改及 .idea 未跟踪。
+Paths 位于 Log 工具栏折叠区。取消 Roots 的 parent 后，历史从三行变为 child 的一行，原先
+选中的 parent 提交消失，右侧显示 Select commit to view changes / No commits selected。
+顶部 main 选择器仍列出两根；展开 parent 子菜单，仍有 Local Branches in parent、main、
+origin/main 和 Remote Branches in parent。Changes 的主根修改和项目树不受 Log 根过滤影响。
+点击 Log 刷新图标后保持 child 一行；重新勾选 parent 恢复三行，但不自动恢复被过滤掉的选择。
+最后关闭菜单并恢复所有根，没有滚动或 Git 写操作，所有用户窗口保留。
+
+截图 artifacts/primary-metadata-20261030/rebased-all-roots.png、rebased-child-only.png、
+rebased-child-only-branches.png、rebased-excluded-parent-branches.png、rebased-child-refreshed.png、
+rebased-roots-restored.png。分支菜单由顶部 main 打开，按项目→根→本地/远程层级组织；本地暂保留
+既有侧栏与菜单布局，不调整像素。未原生复现缺失分支、损坏仓库、取消或稳定加载中状态。
+
+与已读 GitRepositoryImpl::repoInfo/readRepoInfo、GitRepositoryReader::readState 和
+GitLogProvider::readFirstBlock 对照：过滤范围不能决定仓库元数据是否存在。本地拟在
+project_log 初次读取时仅提取目标主根的引用字段、交接给 ui/project_navigation；主根没有成功
+窗口时以 reference_snapshot 独立读取，历史 scope 错误仍保留。只复用本次请求结果，不缓存到
+未来查询；不为每根每页保存额外完整 Snapshot。该前置记录先于功能代码修改。
+
+Plico 实现后原生后验（2026-10-30）：release SHA256
+95FA7BBF08861209B078C7B7BB341025EA2E0646A212CF8C817FB6BD8217C4DE，进程/仓库记录
+artifacts/primary-metadata-20261030/plico-build.json。同一 parent/child fixture，先选中
+parent 的 child 提交，右侧 .gitmodules/child 两项；取消 parent 根后历史仅 child 的 base 一行，
+选择及右侧详情清空。顶部 main 分支菜单仍列两根，parent 子菜单含 main、origin/main 与远程组。
+Ctrl+F5 后仍为 child 一行，清除路径过滤恢复三行，未自动恢复旧选择，行为与 Rebased 一致。
+截图 plico-all-roots.png、plico-child-only.png、plico-excluded-parent-branches.png、
+plico-child-refreshed.png、plico-roots-restored.png 位于同目录。
+使用当前深色 Plico 与浅色 Rebased，窗口尺寸及已打开面板不同，不作像素一致声明。
+Plico Paths 直接显示，Rebased 在工具栏折叠区；恢复采用清除路径按钮而非重新勾选，
+同样回到所有根。没有修改这些既有布局/入口。缺失分支、损坏历史、空根、取消仅测试覆盖，
+本次不声称原生验证。Plico 分支弹窗另有自身查询，不能仅凭弹窗截图证明主 Snapshot 复用，
+后者由核心 Trace2 与 desktop 主根字段断言共同验证。原生后验时并行运行测试，仅作行为证据。
+已停止自启 Plico PID 11576，所有 Rebased 窗口保留。

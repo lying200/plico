@@ -1830,3 +1830,58 @@ GitRepositoryReader.kt::readState/readBranches/readBranchesFromGit/readHead 按�
 侧栏状态与过滤错误，不以此前截图替代。release example 构建、两规模六轮对比、六轮 Trace2、
 example clippy（既有 lib 警告保留）、fmt check 通过。未修改产品代码、未新增 UI 验收、未重跑
 完整核心/桌面或 CI；未宣称上述设计已落地。
+
+### 主根引用元数据同请求交接：实现与后验（48a0a05 后）
+
+完成本场景 Rebased 原生前置后，project_log::read_with_primary 在已有初次 history Window
+被合并消费前，只取出目标主根的 HEAD、branches、tags、tracking、ref_titles、shallow 等字段。
+branches/tags/tracking 按所有权转移，引用标题共享 Arc；不克隆 commits 或 membership，不在
+每根 scope/每页额外持有 Snapshot。未命中主根（被排除、路径别名未精确匹配、历史失败）时
+独立 reference_snapshot；该结果与 Read.scope.errors 分别返回。取消仍整体拒收。
+ui/project_navigation fresh worker 采用此交接，删除后续 limit=1 历史查询；同一个请求 stamp
+控制页面和主根结果发布。continuation 不重新读取主根，写操作复验不变。
+
+返回的主根 Snapshot 仅作仓库元数据，commits/membership 为空、more=false；tips 不能代替
+Log scope。项目分页/导航继续使用 project_window 的固定 scope；单根旧读取路径不变。
+不存在的过滤分支仍在历史 scope 报错，但不会抹去仍可读取的主根引用；这与上游仓库 info 和
+Log 过滤分离的规则一致。没有把故障转为旧快照或静默放开过滤。
+
+只读诊断新增 --project-primary，将完整的 project_log::read＋主根 limit=1 查询与新交接
+直接对比，六轮交替执行。断言页面根限定身份/顺序、more、HEAD、分支及引用/跟踪字段一致。
+采样没有并行构建/测试；两规模沿用前述临时 fixture，排除首轮后取五轮中位数：
+
+| 规模 | 额外主根查询 | 同次读取交接 |
+| --- | ---: | ---: |
+| 72 | 842.21 ms | 406.99 ms |
+| 100001 | 2521.92 ms | 1330.20 ms |
+
+72 提交六轮独立 Trace2，每轮 17→9 条顶层 Git，历史命令（log/rev-list）4→2。
+消除的是完整额外主根查询的 8 条命令，而非只删除 log/rev-list 的 2 条。
+证据 artifacts/primary-metadata-20261030/project-small.jsonl、project-large.jsonl、
+project-small-traced.jsonl、project-small-git.jsonl、project-summary.json、project-query-counts.json。
+这些是核心暖查询样本，未量化 UI 延迟、网络操作、复杂图或内存，不外推整体速度百分比。
+
+新增真实 Git 回归覆盖过滤分支与仓库字段分离、图布局/页面一致、空作者集合、取消、排除主根、
+缺失分支错误保留、损坏祖先时引用可读，以及主根不可读不丢其他根。既有 unborn 用例改为通过
+交接入口验证 symbolic HEAD；100001 提交回归同样通过交接入口，继续验证分页与图预算边界。
+初轮定向 core 3/3、993 filtered（3200-18e33bd525a355ac-0）；随后补充空作者与 unborn 覆盖，
+由当前完整 core 运行验收，不把旧定向结果当作补充测试已通过。
+
+desktop project_navigation 2/2、188 filtered（3844-18e33be5aac4de94-0），新增断言仅显示
+child 时主根 HEAD/main 仍正确且没有提交 payload。另 log_count/log_query 定向 7/7、
+183 filtered（56b0-18e33c31995eaad0-0），覆盖计数、旧请求拒收和过滤选择。doctest 成功但
+0 示例；all-targets core clippy 成功，日志 implementation-clippy.log，新增测试存在一处
+cloned_ref_to_slice_refs 建议，待提交前收尾。release 程序及 example 构建成功。
+
+原生 Plico 同条件根过滤、主根分支菜单、刷新和恢复均通过，截图和版本见参考文档后验。
+本次全量核心运行 f70-18e33c2f3943d370-0 已启动，预计 996 项；结果尚待终态，不标全绿。
+冻结源码哈希在 frozen-code.json；本批未提交、未推送，未运行完整 desktop/navigation 或 CI。
+
+本批最终验收：完整 core 996/996、0 skipped，耗时 1275.720 秒，运行目录
+artifacts/test-runs/f70-18e33c2f3943d370-0。上述 desktop 两组共 9 项通过，属于定向而非完整套件。
+提交前将新增测试中的单元素 clone 切片改为 std::slice::from_ref；产品代码、断言和测试场景未变。
+最终 project_branches 文件 5/5、0 skipped（b28-18e33cb8958715b4-0），其专项 clippy 通过，
+新增建议已消除（final-test-clippy.log），既有 lib 警告仍保留。全量运行用修改前已编译测试，
+该测试风格变化单独复验；frozen-code.json 与 final-code.json 记录这一区别，其他代码哈希一致。
+fmt check 与 git diff --check 通过，原生和性能证据对应同一产品构建。未运行完整桌面/navigation
+或 CI；未推送、未打包。本批范围到主根元数据交接为止，尚未解决所有性能审计剩余项。

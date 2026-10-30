@@ -1724,3 +1724,46 @@ arguments().is_empty() 判断（空作者集合有特殊语义），也不能提
 --package plico -- --check、git diff --check 与 cargo clippy --locked
 --no-default-features --example performance_audit 成功（既有 lib 警告保留）。
 没有修改产品代码，没有重跑完整核心/桌面或 CI，也未新增原生 UI 验收或推送。
+
+### 空详情过滤分流：实现与后验（d87c04e 后）
+
+完成上述 Rebased 实机前置后，在 LogFilter::is_active 统一定义实际详情条件：空白文本、
+单独 regex/match_case 不构成过滤；authors=Some(empty) 仍表示无匹配，日期和路径继续生效。
+project_log::read 将无条件输入归一化为 None，并将归一化查询保存在固定 scope 中，后续分页
+沿用相同路径。history 的直接读取、定位及相邻导航入口同样处理空条件，避免仅修 UI。
+普通 offset 读取仍重建 graph frontier；分支、根选择、固定 tips、取消与错误传播保持原约束。
+相邻导航仍有一次有界 topology 查询；真实过滤仍有 100000 提交预算，本批没有解决所有大图操作。
+
+新增真实 Git 回归覆盖 merge 图的非零 offset 行布局、空白/模式开关、分支范围、父子导航，
+并确认日期、文本、路径和空作者集合不会被归一化掉。100001 提交 fixture 覆盖普通首屏、
+下一页、直接 history 读取、定位、取消，以及真实过滤仍明确报告预算错误。桌面原入口增加
+空控件和整根选择的 scope 断言，防止 UI 默认输入重新触发全图。未增加跨请求缓存或常驻索引。
+
+后验数据在 artifacts/empty-history-filter-20261030/after-summary.json 和
+ after-query-counts.json。72 提交六轮 Trace2 中，两种输入每轮均 9 条顶层 Git 调用、0 条
+全图查询；修正前 Some(empty) 为 11 条、其中 2 条全图。该追踪样本不与此前无追踪时间相减。
+100001 提交无追踪六轮中，两种输入均成功返回 1000 行、more=true，身份/顺序一致；排除首轮
+后的五轮中位数为 None 1274.24 ms、Some(empty) 1284.71 ms。修正前空过滤六轮全部失败，
+不能将失败耗时与成功耗时计算为提速百分比。采样期间无并行构建/测试；仅代表此线性空提交
+fixture 的暖读取，不代表公网操作、复杂合并图、冷启动或内存占用。
+
+原生 Plico 使用 release SHA256
+64178D9EFD6948EA0A59588D182136C540F09C72934D32066289DC37E7B60D78。
+同一 parent/child fixture 的文本过滤/清除呈现 3→1→3 行，根取消/恢复呈现 3→2→3 行，
+选择、右侧详情及 Changes 状态保留。100001 提交独立 fixture 的原生首屏显示
+“已加载 1000 / 100001 条提交”，没有预算错误。截图和构建记录见 REBASED-REFERENCE 本批。
+原生验收期间核心测试并行运行，因此这些 UI 操作只验证行为，不作为时间测量。测试 Plico
+进程已关闭，保留用户 Rebased 窗口；未做滚动自动化。
+
+新增小 fixture 首次使用短分支名而触发既有全引用校验，已改 refs/heads/topic；随后发现
+Git --before=@0 不适合作为空结果断言，改为明确的 2001 年时间。两次失败属于测试输入修正，
+没有放宽产品校验。最终小用例定向 1/1（42f0-18e339ad596851b4-0），大用例首次定向通过；
+桌面 project_navigation 定向 2/2、188 filtered（63ac-18e339775ab829d0-0）。
+release 程序及诊断 example 构建成功；doctest 成功但当前 0 示例；all-targets core clippy
+成功、既有警告保留（implementation-clippy.log）。最终全量核心结果在本节末补充。
+
+本批最终验证：隔离入口完整 core 994/994、0 skipped，耗时 1322.872 秒，运行目录
+artifacts/test-runs/5b00-18e339c30a46c794-0。上述 desktop 定向 2/2；doctest、
+all-targets core clippy、cargo fmt --package plico -- --check 与 git diff --check 通过。
+冻结的五个代码文件 SHA256 与 frozen-code.json 一致，完整测试期间未修改产品或测试代码。
+本批未运行完整 desktop/navigation 或 CI，未推送或发布；原生验收的未覆盖状态如实保留。

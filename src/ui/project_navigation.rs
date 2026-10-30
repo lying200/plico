@@ -477,6 +477,16 @@ mod tests {
                 Arc::ptr_eq(&files, &s.files),
                 "multi-root refresh must retain the combined file model"
             );
+            assert!(
+                s.log
+                    .scope()
+                    .as_ref()
+                    .unwrap()
+                    .roots
+                    .iter()
+                    .all(|root| root.query.filter.is_none()),
+                "empty UI controls must not create a full-graph filter"
+            );
             assert_eq!(
                 cards,
                 s.selection_details
@@ -504,6 +514,13 @@ mod tests {
             assert_eq!(s.log_repository(0).unwrap().path, paths[0]);
             assert_eq!(s.log.commits()[0].subject, "parent-only");
             assert_eq!(s.history_count.total, Some(1));
+            assert!(
+                s.log.scope().as_ref().unwrap().roots[0]
+                    .query
+                    .filter
+                    .is_none(),
+                "selecting the whole repository restricts roots, not commit details"
+            );
         });
         review.update(cx, |s, cx| {
             s.text_filter = Some(git::LogFilter {

@@ -155,6 +155,9 @@ pub fn read_branches_filtered(
     filter: &crate::git::LogFilter,
     token: &Cancel,
 ) -> Result<Window, String> {
+    if !filter.is_active() {
+        return read_branches(repo, branches, offset, limit, fixed, None, token);
+    }
     let inputs = repo.history_inputs(token)?;
     if let Some(hashes) = filter.hashes() {
         if let Some(window) = read_hashes(repo, &inputs, &hashes, offset, limit, fixed, token)? {
@@ -332,6 +335,12 @@ pub fn locate_filtered(
     if !crate::git::is_oid(target) || roots.iter().any(|id| !crate::git::is_oid(id)) {
         return Err("Commit navigation requires full commit IDs".into());
     }
+    if !filter.is_active() {
+        return Ok(match locate(repo, roots, target, limit, token)? {
+            Some(located) => FilteredLocation::Found(located),
+            None => FilteredLocation::OutsideRoots,
+        });
+    }
     let topology = read_topology(repo, roots, token)?;
     let mut matched = match filter.hashes() {
         Some(hashes) => hash_matches(repo, roots, &topology, &hashes, token)?,
@@ -417,7 +426,7 @@ pub fn adjacent(
         return Err("Commit navigation requires full commit IDs".into());
     }
     let topology = read_topology(repo, roots, token)?;
-    let matched = if let Some(filter) = filter {
+    let matched = if let Some(filter) = filter.filter(|filter| filter.is_active()) {
         filter.validate_paths()?;
         let mut matched = match filter.hashes() {
             Some(hashes) => hash_matches(repo, roots, &topology, &hashes, token)?,

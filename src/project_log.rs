@@ -396,7 +396,8 @@ pub fn read(queries: &[Query], limit: usize, token: &crate::git::Cancel) -> Resu
             return Err("Duplicate history repository".into());
         }
         let repository = crate::git::Repository::new(&root);
-        let window = match &query.filter {
+        let filter = query.filter.as_ref().filter(|filter| filter.is_active());
+        let window = match filter {
             Some(filter) => crate::history::read_branches_filtered(
                 &repository,
                 &query.branches,
@@ -424,6 +425,7 @@ pub fn read(queries: &[Query], limit: usize, token: &crate::git::Cancel) -> Resu
                 Arc::make_mut(&mut result.scope).roots.push(LoadedRoot {
                     query: Query {
                         repository,
+                        filter: filter.cloned(),
                         ..query.clone()
                     },
                     tips,

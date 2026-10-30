@@ -15336,3 +15336,33 @@ forceFilterByVcs 时直接使用内存候选。范围或父数条件无法由内
 两次；100001 提交的核心诊断实际复现预算错误，None 路径正常返回首屏。证据与修正
 边界见性能审计“空过滤器误走全图路径”节。本轮没有产品行为修改或新增原生截图；
 未来实现前需验证清除过滤/根选择对应状态，不能将本源码记录当作原生前置完成。
+
+实现前实机补充（2026-10-30）：Rebased 1.1.22 / 262.10968.SNAPSHOT，在独立
+parent/child fixture（parent 5b7f768、child 245e1c1）操作 Log。顶部文本框输入 child
+并 Enter，三行变为仅 child 一行；点击文本框清除按钮恢复三行，child 选择、右侧两项
+文件/详情及 Changes 1 修改/4 未跟踪保留。Paths 位于工具栏折叠区，菜单 Roots 中
+取消 child，仅余 parent 的两行；重新勾选后恢复三行。截图位于
+artifacts/empty-history-filter-20261030/rebased-before.png、rebased-filtered.png、
+rebased-cleared.png、rebased-roots-menu.png、rebased-parent-only.png、
+rebased-roots-restored.png。文本输入保留焦点；根复选框选择即时生效，Escape 关闭菜单。
+未滚动，未捕获稳定执行中画面，未原生测试空作者集合或大仓库预算错误。
+
+与已读 VcsLogFiltererImpl.kt 对照：空详情条件不触发详情过滤，根和分支范围独立。
+拟在 LogFilter 领域层定义有效条件；project_log 首次读取归一化并保存 scope，直接调用
+history 的读取/定位入口也识别空条件，避免只修 UI 后其他入口再次走全图。保留有效
+作者/日期/文本/路径、固定 tips 和图预算。该记录先于实现；源 commit 2450423 与安装
+版不同，保留上述版本区别。Plico 同条件后验待实施后补充。
+
+Plico 实现后原生验收（2026-10-30）：同目录 plico-build.json 对应 release SHA256
+64178D9EFD6948EA0A59588D182136C540F09C72934D32066289DC37E7B60D78。
+plico-before.png、plico-filtered.png、plico-cleared.png 记录同一 parent/child 的
+3→1→3 行；plico-parent-only.png、plico-roots-restored.png 记录根切换的 3→2→3 行。
+原选择、右侧文件/详情、Changes 1 修改/4 未跟踪保留。Plico 使用 Ctrl+A、Backspace、Enter
+清空文本，Rebased 使用输入框清除按钮，保留该既有交互差异；未调整布局或声称像素还原。
+另在独立 100001 提交 fixture 启动 Plico，plico-large-initial.png 显示首屏 1000/100001，
+不再出现空过滤预算错误；构建/进程记录 plico-large-build.json，Git 追踪 plico-large-git.jsonl。
+原生未验证加载更多、空作者、取消及稳定执行中状态，对应范围以核心/桌面测试结果为准。
+UI 验收与全量核心测试并行，仅作行为证据；诊断性能采样另外独立进行。只关闭自启 Plico。
+本地实现为 src/git.rs::LogFilter::is_active、src/project_log.rs::read 的 scope 归一化，
+以及 src/history.rs 的读取/定位/相邻导航分流。相比 Rebased 常驻图，本地继续使用有界按需查询；
+真正过滤及相邻导航的图预算仍保留，细节与回归记录见性能审计本批。

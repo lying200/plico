@@ -10329,6 +10329,219 @@ fn project_navigation_keeps_each_roots_filters_and_frozen_tips() {
 }
 
 #[test]
+fn empty_history_filters_preserve_graph_pages_and_real_constraints() {
+    use plico::{
+        history,
+        project_log::{self, Query},
+    };
+    let f = Fixture::new();
+    f.write("main.txt", "base");
+    f.commit("base");
+    f.git(&["checkout", "-b", "topic"]);
+    f.write("topic.txt", "topic");
+    f.commit("topic");
+    f.git(&["checkout", "main"]);
+    f.write("main.txt", "main");
+    f.commit("main");
+    f.git(&["merge", "--no-ff", "-m", "merge", "topic"]);
+    let repo = f.repo();
+    let token = Cancel::default();
+    let plain = history::read(&repo, None, 1, 2, None, None, &token).unwrap();
+    for filter in [
+        LogFilter::default(),
+        LogFilter {
+            text: " \t\n".into(),
+            regex: true,
+            match_case: true,
+            ..Default::default()
+        },
+    ] {
+        let filtered = history::read_filtered(
+            &repo,
+            None,
+            1,
+            2,
+            Some(&plain.snapshot.tips),
+            &filter,
+            &token,
+        )
+        .unwrap();
+        assert_eq!(format!("{:?}", plain.rows), format!("{:?}", filtered.rows));
+        assert_eq!(
+            plain
+                .snapshot
+                .commits
+                .iter()
+                .map(|c| &c.id)
+                .collect::<Vec<_>>(),
+            filtered
+                .snapshot
+                .commits
+                .iter()
+                .map(|c| &c.id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(plain.snapshot.more, filtered.snapshot.more);
+        assert!(filtered.projected_parents.is_none());
+        for parent in [false, true] {
+            let selected = &plain.snapshot.commits[0].id;
+            assert_eq!(
+                history::adjacent(
+                    &repo,
+                    &plain.snapshot.tips,
+                    selected,
+                    parent,
+                    Some(&filter),
+                    &token
+                )
+                .unwrap(),
+                history::adjacent(&repo, &plain.snapshot.tips, selected, parent, None, &token)
+                    .unwrap()
+            );
+        }
+        let read = project_log::read(
+            &[Query {
+                repository: repo.clone(),
+                branches: vec!["refs/heads/topic".into()],
+                filter: Some(filter),
+            }],
+            10,
+            &token,
+        )
+        .unwrap();
+        assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+        assert!(read.scope.roots[0].query.filter.is_none());
+        assert_eq!(
+            read.page.entries.len(),
+            2,
+            "empty details must still respect branch scope"
+        );
+    }
+    for filter in [
+        LogFilter {
+            text: "topic".into(),
+            ..Default::default()
+        },
+        LogFilter {
+            after: Some(0),
+            ..Default::default()
+        },
+        LogFilter {
+            before: Some(1_000_000_000),
+            ..Default::default()
+        },
+        LogFilter {
+            authors: Some(vec![]),
+            ..Default::default()
+        },
+        LogFilter {
+            paths: vec!["topic.txt".into()],
+            ..Default::default()
+        },
+    ] {
+        let read = project_log::read(
+            &[Query {
+                repository: repo.clone(),
+                branches: vec![],
+                filter: Some(filter.clone()),
+            }],
+            10,
+            &token,
+        )
+        .unwrap();
+        assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+        assert_eq!(read.scope.roots[0].query.filter.as_ref(), Some(&filter));
+        if filter.authors == Some(vec![]) || filter.before == Some(1_000_000_000) {
+            assert!(read.page.entries.is_empty());
+        }
+    }
+}
+
+#[test]
+fn empty_history_filter_does_not_apply_filtered_graph_budget_to_normal_browsing() {
+    use plico::{
+        history,
+        project_log::{self, Query},
+    };
+    use std::io::{BufWriter, Write};
+    use std::process::Stdio;
+    let f = Fixture::new();
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(&f.0)
+        .args(["fast-import", "--quiet"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = BufWriter::new(child.stdin.take().unwrap());
+    for i in 0..100_001 {
+        writeln!(input,"commit refs/heads/main\ncommitter Fixture <fixture@example.invalid> {} +0000\ndata 1\nx\n",1700000000+i).unwrap();
+    }
+    input.flush().unwrap();
+    drop(input);
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let repo = f.repo();
+    let token = Cancel::default();
+    let filter = LogFilter {
+        regex: true,
+        match_case: true,
+        ..Default::default()
+    };
+    let query = Query {
+        repository: repo.clone(),
+        branches: vec![],
+        filter: Some(filter.clone()),
+    };
+    let read = project_log::read(&[query.clone()], 1000, &token).unwrap();
+    assert!(read.scope.errors.is_empty(), "{:?}", read.scope.errors);
+    assert_eq!(read.page.entries.len(), 1000);
+    assert!(read.page.more);
+    assert!(read.scope.roots[0].query.filter.is_none());
+    let next = read.next_page(2, &token).unwrap();
+    assert_eq!(next.page.entries.len(), 2);
+    assert!(next.page.entries.iter().all(|entry| {
+        !read
+            .page
+            .entries
+            .iter()
+            .any(|old| old.identity() == entry.identity())
+    }));
+    let direct = history::read_filtered(&repo, None, 0, 2, None, &filter, &token).unwrap();
+    assert_eq!(direct.snapshot.commits.len(), 2);
+    assert!(direct.projected_parents.is_none());
+    let target = &direct.snapshot.commits[1].id;
+    let located =
+        history::locate_filtered(&repo, &direct.snapshot.tips, target, 2, &filter, &token).unwrap();
+    assert!(matches!(located,history::FilteredLocation::Found(found) if found.selected==1));
+    // Real filters retain their explicit full-graph budget. Raising the limit
+    // or swallowing this error would only hide the routing defect.
+    let active = project_log::read(
+        &[Query {
+            filter: Some(LogFilter {
+                text: "x".into(),
+                ..Default::default()
+            }),
+            ..query.clone()
+        }],
+        2,
+        &token,
+    )
+    .unwrap();
+    assert!(active.page.entries.is_empty());
+    assert_eq!(active.scope.errors.len(), 1);
+    assert!(active.scope.errors[0].1.contains("100,000-commit"));
+    token.cancel();
+    assert!(project_log::read(&[query], 2, &token).is_err());
+}
+
+#[test]
 fn project_first_window_consumes_loaded_rows_without_rereading_and_continues_fixed_sources() {
     use plico::project_log::{self, Entry, Query, navigation::Window};
     let first = Fixture::new();

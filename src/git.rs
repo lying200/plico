@@ -53,6 +53,16 @@ pub struct LogFilter {
     pub paths: Vec<String>,
 }
 impl LogFilter {
+    /// Presentation flags alone do not restrict history. An explicitly empty
+    /// author selection does: it matches no commits rather than all commits.
+    pub(crate) fn is_active(&self) -> bool {
+        !self.text.trim().is_empty()
+            || self.after.is_some()
+            || self.before.is_some()
+            || self.authors.is_some()
+            || !self.paths.is_empty()
+    }
+
     /// Rebased fromHash: every token must be a 7–64 digit hex prefix.
     pub fn hashes(&self) -> Option<Vec<String>> {
         let words: Vec<_> = self

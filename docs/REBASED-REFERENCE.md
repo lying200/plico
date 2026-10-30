@@ -15114,3 +15114,33 @@ rev-parse --show-toplevel 和 0 次 .gitmodules 读取，历史 log 及标签查
 这是一次带 Trace2 的调用验证，没有旧构建同条件计时，不能给出总体提速百分比。
 两个测试分支均用 expected OID 删除；仅停止本次两个 Plico，保留所有 Rebased 窗口。
 普通 refs 到加载中/错误/取消等竞态还依赖回归；配置/replace/HEAD 改变维持完整刷新入口。
+
+## 管理目录绑定与后台兜底源码复核（2026-10-30）
+
+参考 commit 再次核实为 `245042348669114adb8e24e5b0fc0ce73763f3c4`。
+安装版仍采用前述 Rebased 1.1.22 / 262.10968.SNAPSHOT，不能视为与源码完全相同。
+本节为独立源码分析，未修改产品行为，没有新增原生截图；此前子模块事件截图不替代
+尚未进行的 `.git` 指针或 `commondir` 改向实验。
+
+本轮实际读取 `plugins/git4idea/backend/src/repo/` 下：
+
+- `GitRepositoryUpdater.kt`：由 repositoryFiles.rootDirs 注册递归监视，dispose 时释放
+  watchRequests；filesChanged 分开处理 config、index、HEAD、refs、exclude、worktrees，
+  普通 refs 更新 repository，只有特定工作区相关变化才标记 rootDirty。
+- `GitRepositoryFiles.java` 的 createInstance、getMainGitDirForWorktree、目录和监听路径
+  定义：通过 commondir 区分 worktree 与 common 管理目录，HEAD/index/操作标记属于前者，
+  refs/config 等属于后者。相对和绝对 commondir 均有处理。
+- `GitRepositoryManager.java` 全文件：项目级串行更新执行器、仓库释放检查、通知携带前后
+  GitRepoInfo；注册 GitWorktreeUpdateListener，但未在本轮继续读取该监听器及基类。
+
+可提取规则是“绑定实际管理目录、按变化类型通知、监视器随持有者释放”；以上三个文件
+不能证明 Rebased 在同路径改向时一定自动重建，也不能证明整个应用不存在周期扫描。
+不据此伪造上游的重绑定行为或完整后台查询成本。
+
+本地映射：`worktree_events/git_paths.rs` 已区分目录及事件路由，但 `project.rs` 仅按工作
+目录路径保留观察器，`ui/worktree_sync.rs` 又只在根列表 Arc 改变时 reconcile。
+`.git` 文件的 30 秒 all 兜底与这种绑定生命周期缺口必须一起处理，不能只删周期刷新。
+空闲 Trace2 分类、消费者链和下一批有限范围见
+`PERFORMANCE-DESIGN-AUDIT-20261029.md` 的“空闲后台查询与监视器绑定审计”。
+保留差异：轻量实现仍须为网络根、监视失败和未知布局保留有界兜底；不用 JetBrains VFS
+替代本地 notify，也不因上游有串行更新队列而引入通用调度框架。功能实现保持待原生验证。

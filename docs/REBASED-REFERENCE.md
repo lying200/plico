@@ -15463,3 +15463,43 @@ child 根的 base 各有空心 HEAD 节点。plico-selected.png：选择未合�
 请求替换、刷新期间打开 Diff 和取消/迟到结果。完整 core 另见性能审计最终记录。
 已按 PID/路径复验关闭自启 Plico 23164；按预期旧 OID 删除仅本次创建的 audit-outside-head
 引用，HEAD 与原有 CaseFile.txt/.idea 工作区状态不变；所有 Rebased 窗口保留。
+
+### 多选详情限定输入：实现前原生依据（2026-10-30）
+
+本次安装版 Rebased 1.1.22/build 262.10968.SNAPSHOT，exe ProductVersion 262.10968.0.0-IC；
+源码 245042348669114adb8e24e5b0fc0ce73763f3c4。独立 parent/child 仓库沿用
+artifacts/head-membership-20261030/fixture.json 的 repository（临时 audit 分支已清理）。
+parent HEAD 5b7f7682、child HEAD/base 245e1c1a，parent 工作区 CaseFile.txt 修改与 .idea
+未跟踪保持；不执行 Git 写操作，不触及远端。窗口为 parent – Log，全根无过滤三行。
+
+点击第一行 child：右上 parent 两文件 .gitmodules/child，右下 HEAD/main/origin-main 标签。
+Shift+Down 加选 parent base：右上 parent 三文件，说明卡按 child/base 显示顺序排列，标签保留。
+再次 Shift+Down 加选 child 根同哈希 base：文件树成为 child 一文件与 parent 三文件两组，
+没有按相同 OID 或路径去重。焦点保持 Log，键盘扩选有效；加载时短暂保留旧详情，随后替换。
+截图 artifacts/selection-inputs-20261030/rebased-single.png、rebased-parent-multiple.png、
+rebased-cross-root.png。第三张卡在可视区下方，未滚动，不声称完整三卡视觉已验证。
+失败、取消、浅克隆及十万条规模尚未原生验证，后者上一批只有核心成本证据。
+
+已读上游 GitDetailsCollector.kt 全文与 GitLogProvider.kt 的 readFullDetails/readMetadata，
+规则和源码路径详见性能审计 d442862 后段：指定 OID 的 no-walk 详情不负责 HEAD 可达条件。
+本地实际消费者 ui/log_selection/commit_presentation 仍需 ID、parents、refs 与 shallow；
+历史导航仍需要 included_in_head。实现映射：将现有快照解析与 HEAD 归属填充分开，历史入口
+保持完整快照；新内部详情入口仅返回指定提交及同次 shallow 输入。log_changes 使用该输入并
+在文件比较后再次核对 shallow，保留取消/输出限制/每父合并/跨根/次序，不引入跨请求缓存。
+不删除引用标签，不改变已接纳 Log 行高亮；保留已有深/浅主题、布局、加载占位和 merge 两栏
+差异。本段先于产品代码修改；实现后须在 Plico 同场景后验。
+
+### 多选详情限定输入：原生后验（2026-10-30）
+
+同一 parent/child 三行场景，Plico release SHA256
+4F9A251D935262886C5CB454516D9C16F2D6DC5573033C47864BA5A770CCEAC0，build.json 在
+artifacts/selection-inputs-20261030。单选第一行再两次 Shift+Down：同根两选显示 parent 三文件，
+再加入 child 根后显示 child 一文件/parent 三文件，根与路径未串用；说明可见部分依次 child/base，
+HEAD/main/origin-main 标签保留。历史三行高亮及两个根 HEAD 节点保留。截图 plico-single.png、
+plico-parent-multiple.png、plico-cross-root.png。第三张卡同样在可视区下方，未滚动，未声称全卡
+像素验收；焦点留在 Log，键盘扩选有效。加载时 Plico 清空详情显示占位而参考保留旧内容的差异仍在。
+
+本批不增加控件或改变布局/快捷键；配色、Project 面板、图标及 merge 两栏差异保留。
+未原生复现取消/失败/浅克隆/大规模；核心和桌面验证独立记录。停止且只停止本次 Plico PID 14348，
+所有 Rebased 窗口保留。此次没有 Git 写操作，原 fixture 工作区不修改；并行桌面测试期间的原生观察
+仅用于行为核对，不将截图调用时间计为性能。

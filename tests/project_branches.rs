@@ -52,6 +52,65 @@ fn git(path: &Path, args: &[&str]) -> String {
     String::from_utf8(out.stdout).unwrap().trim().into()
 }
 #[test]
+fn selection_rows_keep_labels_and_order_without_unselected_head_ancestry() {
+    let f = Fixture::new();
+    let repo = f.repository("selection");
+    let token = Cancel::default();
+    let base = git(&repo.path, &["rev-parse", "HEAD"]);
+    git(&repo.path, &["tag", "-a", "v1", "-m", "tag", &base]);
+    git(&repo.path, &["commit", "--allow-empty", "-qm", "tip"]);
+    let tip = git(&repo.path, &["rev-parse", "HEAD"]);
+    let ids = [base.clone(), tip];
+    let history = repo.snapshot_commits(&ids, &ids, &token).unwrap();
+    let selection = plico::log_changes::load(&repo, &ids, &token).unwrap();
+    assert_eq!(selection.commits.len(), history.commits.len());
+    for (actual, expected) in selection.commits.iter().zip(&history.commits) {
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.parents, expected.parents);
+        assert_eq!(actual.shallow_boundary, expected.shallow_boundary);
+        assert_eq!(actual.author, expected.author);
+        assert_eq!(actual.date, expected.date);
+        assert_eq!(actual.subject, expected.subject);
+        assert_eq!(actual.committer_timestamp, expected.committer_timestamp);
+        assert_eq!(actual.refs, expected.refs);
+    }
+    assert!(selection.files.is_empty());
+    assert_eq!(history.included_in_head.len(), 2);
+    assert!(selection.commits[0].refs.iter().any(|r| r.name == "v1"));
+    assert!(selection.commits[1].refs.iter().any(|r| r.name == "HEAD"));
+
+    // Available selected objects need no traversal of unrelated current HEAD.
+    // History pages must still report that traversal failure, not an empty set.
+    let tree = git(&repo.path, &["rev-parse", "HEAD^{tree}"]);
+    let raw = f.0.join("missing-ancestor.commit");
+    std::fs::write(
+        &raw,
+        format!(
+            "tree {tree}\nparent {}\nauthor Test <test@example.invalid> 1000000000 +0000\ncommitter Test <test@example.invalid> 1000000000 +0000\n\nunselected\n",
+            "f".repeat(40)
+        ),
+    )
+    .unwrap();
+    let broken = git(
+        &repo.path,
+        &["hash-object", "-t", "commit", "-w", raw.to_str().unwrap()],
+    );
+    git(&repo.path, &["update-ref", "HEAD", &broken]);
+    assert!(repo.snapshot_commits(&ids, &ids, &token).is_err());
+    let selected = plico::log_changes::load(&repo, &ids, &token).unwrap();
+    assert_eq!(selected.commits[0].id, base);
+    assert_eq!(selected.commits[1].id, ids[1]);
+    assert!(selected.commits[0].refs.iter().any(|r| r.name == "v1"));
+    assert!(
+        selected
+            .commits
+            .iter()
+            .all(|c| c.refs.iter().all(|r| r.name != "HEAD"))
+    );
+    assert!(selected.files.is_empty());
+}
+
+#[test]
 fn project_popup_preserves_reference_scope_and_repository_local_targets() {
     let f = Fixture::new();
     let first = f.repository("first");

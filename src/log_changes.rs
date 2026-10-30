@@ -106,12 +106,8 @@ pub fn load(
             files: vec![],
         });
     }
-    let shallow = repo.shallow_boundaries(token)?;
-    let mut commits = repo.snapshot_commits(ids, ids, token)?.commits;
+    let crate::git::SelectionRows { commits, shallow } = repo.selection_rows(ids, token)?;
     let mut changes = Vec::new();
-    for commit in &mut commits {
-        commit.shallow_boundary = shallow.1.contains(&commit.id);
-    }
     for files in repo.log_commit_changes_batch(&commits.iter().rev().collect::<Vec<_>>(), token)? {
         if files.len() > crate::combined_changes::MAX_INPUT_CHANGES.saturating_sub(changes.len()) {
             return Err("Log preview exceeds the change limit".into());

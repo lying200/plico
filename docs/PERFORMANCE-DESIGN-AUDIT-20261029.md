@@ -1993,3 +1993,53 @@ selection-summary.json、selection-large-traced.jsonl、selection-large-git.json
 large-walk-times.json、build.json。原始目录被忽略，不随源码提交。
 release example、两规模探针断言、example clippy、fmt/diff check 通过，既有 lib 警告保留。
 未修改产品代码，不重跑整套核心/桌面，不声称新的 UI 或产品提速已实现；未推送或打包。
+
+### 多选详情限定输入实现与复测（d442862 后）
+
+本场景原生前置完成后，git::snapshot_metadata 复用现有指定 OID、refs/tag peeling 与标签
+排序解析，但不计算 HEAD 归属；snapshot_branches_with_inputs/snapshot_commits_with_inputs
+显式调用 with_head_membership，保持所有历史页面调用语义。reference_snapshot 本就空选择，
+直接取元数据。新增内部 SelectionRows 只向 log_changes 交付 commits 与同次浅边界输入，
+不暴露可误认为完整历史页的缺省 Snapshot。解析器仍短暂构造共享引用元数据，未新增常驻缓存。
+
+log_changes::load 不再先单独 shallow 后另读完整 snapshot；使用 selection_rows 的 shallow
+标记，文件比较后仍复验完整 shallow 集合。每父比较、逆序合并、离散选择、预算、取消与多根
+分组不变。减少的是一次无消费者的 HEAD 遍历和一次同阶段 shallow 查询，未放宽末次复验。
+未调整其他 snapshot_commits 调用、HEAD 高亮、UI 缓存或写操作。
+
+新增 tests/project_branches::selection_rows_keep_labels_and_order_without_unselected_head_ancestry：
+对照完整历史逐字段验证指定 OID 顺序、父、作者、时间、主题、浅边界、HEAD/tag 引用；再将
+当前 HEAD 指向缺失祖先的独立提交，已存在选中对象仍可提供详情，完整历史仍必须报错。
+这验证实际依赖边界，不靠计时断言。原文件选择浅边界/取消、跨根同 OID、membership merge
+及引用交接等定向 18/18、980 filtered（48d8-18e3414d92d3c3f0-0）通过。
+桌面初载/导航/高亮/请求生命周期 8/8、182 filtered（3984-18e34160d742ef44-0）；另补准确的
+log_selection::repository_tests 1/1、189 filtered（3d48-18e3418b4ff0a628-0），共 9 项，非完整桌面。
+原生 Plico 同根/跨根多选已与 Rebased 对照，截图、SHA256、保留差异和自启进程清理见参考文档。
+
+待构建/定向测试及原生程序结束后，关闭诊断、顺序复测 --log-selection，沿用上一批同一 fixture、
+配置隔离与 5 次中位数。此次并非新旧二进制交替实验，保留系统时序波动限制：
+
+| 条数 | 72 提交，前→后 | 100001 提交，前→后 |
+| --- | ---: | ---: |
+| 1（多选管线控制） | 546.25→553.65 ms | 1119.16→469.57 ms |
+| 20 | 585.29→448.01 ms | 1083.03→462.21 ms |
+| 50 | 612.93→562.11 ms | 1178.58→593.49 ms |
+
+独立 100001 Trace2 五轮每轮 1/20/50 分别 10/10/11 条，原为 12/12/13；各自零 rev-list、
+恰好两次 --is-shallow-repository。首次取诊断用 50 个 OID 的历史查询在计时区间外，仍有正常
+HEAD 归属遍历，不将它算为多选调用或声称所有历史都不再遍历。没有用 Trace2 时间估算无追踪收益。
+这些是核心文件+说明数据，不含 UI 归属分支后续批查询、渲染、Diff 正文、网络或内存；1 条控制
+不代表 UI 真正单选路径。小仓库 1 条未改善，不能外推所有选择都更快。
+
+证据 artifacts/selection-inputs-20261030/：small.jsonl、large.jsonl、summary.json、
+large-traced.jsonl、large-git.jsonl、query-counts.json、build.json、frozen-code.json。
+release 程序/example、doctest（0 示例）、core all-targets clippy 成功（既有警告保留）。
+完整 core 6320-18e341a2b9e5fda0-0 已启动，预计 998 项，尚未终态。代码冻结，后续仅补验收记录；
+未提交、未推送、未跑完整 desktop/navigation 或 CI，不宣称整体性能审计完成。
+
+本批最终验收：完整 core 998/998、0 skipped，1334.283 秒，运行目录
+artifacts/test-runs/6320-18e341a2b9e5fda0-0。最终源码与 frozen-code.json 一致，期间未修改
+产品或测试。桌面定向两组共 9 项、原生同场景后验、release/诊断构建、doctest（0 示例）、
+core all-targets clippy、fmt check 和 diff check 通过；既有警告保留，非完整桌面/navigation。
+性能证据与原生构建对应相同产品源码。提交仅含详情输入拆分、回归与审计记录；未推送、未打包、
+未运行 CI。整体性能审计的收口与剩余项分级仍需另行核对，不将本批完成替代整个目标完成。

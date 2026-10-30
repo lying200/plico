@@ -238,6 +238,12 @@ pub struct Snapshot {
     pub more: bool,
     pub shallow: bool,
 }
+/// Details consume decorated rows and must recheck the same shallow boundary
+/// after file comparisons. They do not consume the Log's HEAD reachability.
+pub(crate) struct SelectionRows {
+    pub commits: Vec<Commit>,
+    pub shallow: (bool, HashSet<String>),
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Area {
     Commit,
@@ -1385,7 +1391,7 @@ impl Repository {
     /// Branch menus need reference metadata, not a history page. Reuse the
     /// same peeling/parser rules with an explicitly empty commit selection.
     pub fn reference_snapshot(&self, token: &Cancel) -> Result<Snapshot> {
-        self.snapshot_query(
+        self.snapshot_metadata(
             &self.history_inputs(token)?,
             &[],
             0,
@@ -1467,7 +1473,7 @@ impl Repository {
         text_filter: Option<&LogFilter>,
         token: &Cancel,
     ) -> Result<Snapshot> {
-        let mut snapshot = self.snapshot_query(
+        let snapshot = self.snapshot_metadata(
             inputs,
             branches,
             offset,
@@ -1477,6 +1483,7 @@ impl Repository {
             None,
             token,
         )?;
+        let mut snapshot = self.with_head_membership(snapshot, token)?;
         if text_filter.is_some_and(|filter| !filter.paths.is_empty())
             && !snapshot.commits.is_empty()
         {
@@ -1513,7 +1520,7 @@ impl Repository {
         if ids.len() > HISTORY_MAX || ids.iter().any(|id| !is_oid(id)) {
             return Err("Invalid selected history IDs".into());
         }
-        self.snapshot_query(
+        let snapshot = self.snapshot_metadata(
             inputs,
             &[],
             0,
@@ -1522,9 +1529,40 @@ impl Repository {
             None,
             Some(ids),
             token,
-        )
+        )?;
+        self.with_head_membership(snapshot, token)
     }
-    fn snapshot_query(
+    pub(crate) fn selection_rows(&self, ids: &[String], token: &Cancel) -> Result<SelectionRows> {
+        if ids.len() > HISTORY_MAX || ids.iter().any(|id| !is_oid(id)) {
+            return Err("Invalid selected history IDs".into());
+        }
+        let inputs = self.history_inputs(token)?;
+        let snapshot = self.snapshot_metadata(
+            &inputs,
+            &[],
+            0,
+            ids.len().max(1),
+            Some(ids),
+            None,
+            Some(ids),
+            token,
+        )?;
+        Ok(SelectionRows {
+            commits: snapshot.commits,
+            shallow: inputs.shallow,
+        })
+    }
+    fn with_head_membership(&self, mut snapshot: Snapshot, token: &Cancel) -> Result<Snapshot> {
+        snapshot.included_in_head = Arc::new(self.contained_in_head(
+            snapshot.head_id.as_deref(),
+            &snapshot.commits,
+            token,
+        )?);
+        Ok(snapshot)
+    }
+    /// Parse shared reference/row metadata. Only history-page callers add HEAD
+    /// membership; details and reference menus must not walk unrelated history.
+    fn snapshot_metadata(
         &self,
         inputs: &HistoryInputs,
         selected_branches: &[String],
@@ -1740,11 +1778,9 @@ impl Repository {
                 commit.refs = labels;
             }
         }
-        let included_in_head =
-            Arc::new(self.contained_in_head(head_id.as_deref(), &commits, token)?);
         Ok(Snapshot {
             head_id,
-            included_in_head,
+            included_in_head: Arc::default(),
             current_branch,
             ref_titles,
             tracked_branches: Arc::new(

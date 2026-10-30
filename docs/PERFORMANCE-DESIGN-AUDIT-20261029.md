@@ -1923,3 +1923,73 @@ artifacts/test-runs/530c-18e33ee04dfca928-0。最终 desktop 定向 10/10、180 
 SHA256 及清理记录见 REBASED-REFERENCE.md 后验段。本批未新增端到端性能计时或内存测量，
 不能把上一批数字直接当作修正后的新测量；源码确认没有增加命令调用。
 没有运行 CI、完整桌面/navigation、推送或发包；本批修复闭环，整体性能审计剩余项未称完成。
+
+### 当前核心路径重测与多选历史依赖审计（44dbd9c 后）
+
+上一批已修复 Log 页面 HEAD 状态归属，本批先重新测量而非沿用最初 N+1 数字。
+当前代码基线 44dbd9c，原 72 提交/200 文件与 2000 提交/10000 文件临时仓库均干净，
+remote 仍为各自本地 bare。重新构建 release performance_audit；隔离 system/global Git
+配置、关闭两种诊断后顺序执行既有完整核心探针，每项 5 次取中位数。没有并行构建/测试，
+但用户程序仍运行；属于暖读取核心样本，不是原生 UI、冷启动、网络或内存测量。
+
+| 当前核心入口 | 72 提交 | 2000 提交 |
+| --- | ---: | ---: |
+| 全量 Changes | 142.03 ms | 324.94 ms |
+| history 1000 | 377.10 ms | 390.85 ms |
+| 多选 20 条含说明 | 559.09 ms | 566.69 ms |
+| 多选 50 条含说明 | 614.53 ms | 639.64 ms |
+| Push 目标快照 | 262.97 ms | 289.28 ms |
+| UI 使用的 registered Update 预检 | 498.64 ms | 494.03 ms |
+
+独立 small Trace2 五轮全部一致：history 8 次，registered Update 11 次，多选 1/20/50
+分别 12/12/13 次 Git。多选已按批次增长，不能再用初始审计的 50/110 次描述当前实现。
+1 条样本是多选管线的控制输入；UI 真正单选走另一入口，不得把 546.07 ms 当作单击延迟。
+这些入口不含操作执行、UI 内容加载或完整后台收敛，不能相加推导完整操作耗时。
+
+新增只读诊断模式 --log-selection：固定先取 50 条 OID，分别记录 load 文件阶段、批量
+metadata 阶段和整个核心调用，断言返回顺序/数量，5 轮 x 1/20/50。它不修改产品查询、
+不代替正确性测试，也不把本机毫秒数设为测试门槛。用 72 与既有 100001 提交 fixture：
+
+| 选中条数 | 72 提交总计中位数 | 100001 提交总计中位数 |
+| --- | ---: | ---: |
+| 1（控制） | 546.25 ms | 1119.16 ms |
+| 20 | 585.29 ms | 1083.03 ms |
+| 50 | 612.93 ms | 1178.58 ms |
+
+两种规模 metadata 中位数均约 40–46 ms；增长集中在 load。两仓内容不同，不能将上述差值
+全部归因于历史条数。额外 100001 Trace2 核对：每个总调用恰好一个成功 rev-list HEAD，
+1/20/50 各五轮 Git exit.t_abs 中位数 578.20/572.22/571.83 ms。该值含 Trace2 开销，
+不含完整父进程启动/排队，不从无追踪总计直接相减计算可兑现收益。
+
+实际读到的调用链：log_changes::load 先 shallow_boundaries，再 snapshot_commits；后者
+history_inputs 再查 shallow，snapshot_query 在 no-walk 读取指定 OID 后仍执行
+contained_in_head → rev-list HEAD。head_membership::read 排空整个遍历，只保留窗口 OID。
+load 只取 Snapshot.commits，归属集合立即释放；最后再读取 shallow，之后说明批量 log。
+三次 shallow 中首尾保护仍必要，中间同阶段重复是共享输入候选。前述 12 次命令包含这三次。
+
+消费者逐项核对：project_log::selection::load 的 Entry 只送详情；selection::metadata
+使用 commit ID/父关系/浅边界，ui/log_selection 使用 commit.refs 生成卡片标签，
+commit_presentation 使用 ID/shallow 标记。归属不被这条详情链使用，但 refs 仍有消费者。
+history::locate_filtered 等也调用 snapshot_commits，返回 Snapshot 用于真实历史页面，
+上一批刚修复其高亮交接；不能给所有 snapshot_commits 全局禁用归属或删除 refs。
+其他 branch_compare/stash/tag_create/interactive_rebase 本批只检索到调用入口，未逐项审计，不能据此认定可删字段或扩大修改。
+
+重新读取 Rebased 245042348669114adb8e24e5b0fc0ce73763f3c4：
+plugins/git4idea/backend/src/history/GitDetailsCollector.kt 全文，readFullDetailsForHashes
+使用 hashes stdin + no-walk，按 requirements 读取 metadata/name-status/per-parent，
+createCommit 保存父关系/用户/消息/状态，不在此重建当前分支可达集合；
+plugins/git4idea/backend/src/log/GitLogProvider.kt::readFullDetails/readMetadata 分别委托
+collector/collectMetadata。上游当前分支高亮由独立根条件维护，入口见上一批参考记录。
+这支持按消费需求拆分，而非删除所有历史归属计算；不宣称整个 Rebased details 流程零额外查询。
+
+下一产品修改边界：仅让 Log 多选详情获取有标签的指定提交与同次浅边界输入，保留原顺序、
+真实父关系、每父批量文件语义、输出上限、取消、末尾浅边界复验与根隔离。历史页面 API 继续
+返回完整归属状态。先做该场景的 Rebased 原生前置，再实现；本批只有核心测量和源码证据，
+没有新的原生验收，不以旧多选截图替代下一改动的前置。现有三栏 merge Diff 差异也未解决。
+
+证据 artifacts/performance-rebaseline-20261030/：small/large.jsonl、summary.json、
+small-traced.jsonl、small-git.jsonl、query-counts.json，selection-small/100001.jsonl、
+selection-summary.json、selection-large-traced.jsonl、selection-large-git.jsonl、
+large-walk-times.json、build.json。原始目录被忽略，不随源码提交。
+release example、两规模探针断言、example clippy、fmt/diff check 通过，既有 lib 警告保留。
+未修改产品代码，不重跑整套核心/桌面，不声称新的 UI 或产品提速已实现；未推送或打包。

@@ -47,6 +47,40 @@ fn command(repo: &Repository) -> Command {
 fn main() {
     let repo = Repository::new(std::env::args_os().nth(1).expect("disposable repository"));
     let token = Cancel::default();
+    if std::env::args().nth(2).as_deref() == Some("--log-selection") {
+        // Isolate the current multi-selection pipeline on histories of different
+        // sizes. One item here is a control, not the UI's single-selection path.
+        let history = repo.snapshot(None, 50, None, &token).unwrap();
+        for iteration in 0..5 {
+            for count in [1, 20, 50] {
+                let ids = history
+                    .commits
+                    .iter()
+                    .take(count)
+                    .map(|c| c.id.clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(ids.len(), count, "fixture requires at least 50 commits");
+                sample(&format!("selection-total-{count}"), iteration, || {
+                    let selected = sample(&format!("selection-files-{count}"), iteration, || {
+                        plico::log_changes::load(&repo, &ids, &token).unwrap()
+                    });
+                    assert_eq!(
+                        selected.commits.iter().map(|c| &c.id).collect::<Vec<_>>(),
+                        ids.iter().collect::<Vec<_>>()
+                    );
+                    let details = sample(&format!("selection-metadata-{count}"), iteration, || {
+                        repo.commit_metadata_batch(
+                            &selected.commits.iter().collect::<Vec<_>>(),
+                            &token,
+                        )
+                        .unwrap()
+                    });
+                    assert_eq!(details.len(), count);
+                });
+            }
+        }
+        return;
+    }
     if std::env::args().nth(2).as_deref() == Some("--project-primary") {
         use plico::project_log::{self, Query};
         let queries = [Query {

@@ -2095,3 +2095,45 @@ prepaint 是程序内部里程碑，不是 GPU 呈现或可交互时刻；十万
 
 产品验证沿用 e7cdac4 的完整 core 998/998、桌面定向 9 项、doc/clippy/release 与原生后验；
 本轮仅文档及忽略的采样产物，不重复运行产品测试。完整 desktop/navigation、CI、推送和发包均未执行。
+
+### Job Object 与空闲查询复核（fe38485 后）
+
+本轮实际复用了 scripts/windows-job-memory.ps1 的 JobMemory 类（挂起创建、先纳入 Job 再恢复），
+未调用其中旧的截图、输入或滚动代码；原生界面只通过 computer-use 检查。
+独立启动脚本及产物 artifacts/job-resources-20261030/measure.ps1、process.json、samples.json、
+summary.json、gpu.json、startup.json、loaded-10000.png。同一 e7cdac4 release 哈希，
+空应用 profile、隔离 Git 配置、无 trace、无并发构建测试；用户应用保留，暖文件系统。
+仓库仍为自有 100001 线性提交，这次实际加载 10000 行（原生截图及 prepaint 均确认），未开 Diff。
+
+30 秒、约 200 ms 采样；20 秒后的主进程 Private Bytes 120.69–120.99 MiB；
+内核 Job PeakJobMemoryUsed 155.19 MiB，包含从启动起纳入的后代，排除 GPU；单进程峰值
+128.39 MiB，不标作 Git 独立峰值。末段 Job CPU 328.125 ms / 9968.40 ms wall，未按核心数归一化。
+30 秒末 active processes=1，累计 total processes=190；采样观察到最多 9 个同时活动进程。
+GPU 单点 Dedicated 48.91 MiB、Shared 19.28 MiB，独立报告，不与 Job 峰值相加。
+prepaint 2236.896 ms，不是呈现时间；本次与前轮参数/进程约束不同，不能拿差值宣称性能改善。
+没有 Diff、压力循环和复杂图，不宣称已通过 PLAN 完整 150/250 MiB 发布门槛。
+
+进程数引出一次独立诊断复核，避免把 Windows 后代数当成顶层 Git 查询数：
+artifacts/job-resources-traced-20261030/ 使用相同产品、仓库与 10000 行规模，另开 profile、启用
+PLICO_PERF_TRACE；此轮不作为无 trace 性能数据。trace 在人工核查期间继续记录，分析明确截取
+其自身起点 0–30 秒，不能将整个文件的条数与第 30 秒 Job 统计直接比较。
+query-summary.json：59 条顶层 query，其中前 4 秒 44 条，4–30 秒 15 条（5 次 for-each-ref、
+10 次 rev-parse）。15 条查询 wall time 合计 805.918 ms，可能与其他工作重叠，不是 UI 卡顿时间或 CPU。
+全部 59 条 parent=0；这证实当前启动/后台路径缺失请求关联，不能从 trace 单独精确归因每条 rev-parse。
+
+源码核对提供后续关联入口：ui/auto_refresh.rs::start_auto_refresh 每 5 秒调用
+branch_updates::References::read，后者固定 for-each-ref + rev-parse HEAD；
+ui/worktree_sync.rs 的 operations observer 每 5 秒保底，project_operations::Observer::poll
+调用 operation_state::observe，Observation::read 即使状态未变也通过 editor_directory 执行
+rev-parse --absolute-git-dir。这与样本每周期三条命令的模式一致，但尚未通过请求关联逐条证明。
+本轮重新读取 Rebased 245042348669114adb8e24e5b0fc0ce73763f3c4 的
+plugins/git4idea/backend/src/repo/GitRepositoryUpdater.kt 全文：注册管理目录 VFS 监听，按
+HEAD/refs/packed-refs/reftable/config/merge/rebase 事件调用 repository.update，index/工作树通知
+changes 消费者。不能把上游 VFS 服务直接等价为本地 watcher 永不丢事件，也不据此删除保底轮询。
+
+结论：剩余追踪应覆盖启动、refs 轮询与 operations observer，而非只给 Log Details 计时；
+区分事件触发与保底检查后，才能决定是否复用已验证的 binding 或降低稳定轮询成本。
+目录缓存仍保持暂缓，先补可归因证据；不凭 190 个后代进程的数字直接修改行为。
+本轮没有产品改动或新的 Rebased 行为设计；两个 Job 在采样完成后关闭，各自进程 14032/15720
+已核对退出，用户窗口保留。原生截图只覆盖无 trace 运行；诊断复核未另做交互验收。
+fmt/diff 检查用于文档提交，产品测试仍引用前批结果，未重跑、未推送、未运行 CI。

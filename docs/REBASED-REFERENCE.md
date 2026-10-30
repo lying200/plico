@@ -15512,3 +15512,8 @@ large-loaded.png、large-selected.png（1000/100001 行及 c100001 空变更详�
 沿用前批 Rebased 选择行为依据，本轮没有新增行为或界面实现。加载、选择与详情完成状态通过，
 未量化点击延迟、未执行滚动。资源采样方法、构建哈希、范围限制与剩余验收见性能设计审计末节。
 仅关闭本次自有 Plico 进程，用户 Rebased 窗口保留；未执行 Git 写操作。
+
+本轮补充一万行原生证据：artifacts/job-resources-20261030/loaded-10000.png 显示
+10000/100001 行、单轨道、未选择提交及未开 Diff。与前轮相同产品哈希，Job 从启动前纳入后代。
+Rebased 2450423 的 GitRepositoryUpdater.kt 本轮全文复核，按 VFS 事件更新 repository/changes 的规则
+及 Plico 5 秒 refs/operation 轮询差异见性能审计“Job Object 与空闲查询复核”。尚无行为调整。

@@ -1414,3 +1414,44 @@ Trace2 进程内累计耗时 2.058396 秒（基线 8.708319 秒），仍不是 U
 此批完成绑定生命周期和健康本地 gitfile 根的空闲刷新收敛。后续独立问题仍是操作完成后的
 按实际结果刷新、操作状态轮询的目录复用、固定 Diff 解释失效；本批不以这些尚未实现的
 收益作宣传，也不将网络/linked worktree 的保守兜底算作已经优化。
+
+### Push/Fetch 完成路径复核（6a4c9f5 之后，只读审计）
+
+本轮没有改动产品行为。复核 `ui/remote.rs::start_push` 的 worker、完成回调和
+`push_flow::execute` 全流程：UI 在任何完成结果后均进入 `refresh_impl`，重新发现项目根、
+刷新全部分支比较、清详情缓存、刷新 Changes 并读取历史。`finish_operation` 只处理操作
+身份和文档锁，不提供“工作区未变化”的证明。
+
+Rebased `245042348669114adb8e24e5b0fc0ce73763f3c4` 对照：
+
+- `GitPushOperation.java::execute` 的 finally 对推送根执行 repository.update；真正执行
+  Update 的 `update` 另外对相关根做 VFS refresh 和 repository.update。不是一律不刷新，
+  也不是所有 Push 都按完整工作区更新处理。
+- `GitFetchSupportImpl.kt::doFetch` 在成功后 repository.update；上层聚合每个 remote 的
+  结果，并调用成功 Fetch 的处理器。这里只核实了这些已读入口，未据此断言失败路径绝无
+  其他刷新机制。Plico 的失败/取消后复验属于明确保留的保守差异。
+- Rebased 的 Push 重试中可能执行 Update。Plico 同样可能 Merge/Rebase、保存与恢复本地
+  更改；最终 Status::Success 不能推出 HEAD/index/worktree 没变。`push::ResultState.state`
+  没有 HEAD OID、完整 refs/config/绑定身份，不能单独承担窄刷新证明。
+
+Fetch 已有一定收敛：只有已完整渲染的单根 Log、非 unshallow、成功且未取消、历史观察
+相同、查询 stamp 仍有效时，才跳过完整刷新。多根、失败、取消、浅边界改变和查询被替换
+继续刷新。`HistoryObservation` 覆盖 refs 与 shallow，不是整个工作区/配置/绑定的快照；
+不得直接把它扩展成 Push 全场景的唯一判断依据。
+
+一个更小而明确的查询放大点：`push_flow.rs` 在每次 push 后无条件调用 pull_targets，
+而 `push_recovery::after_push` 首先根据 status/force 判定 Stop。正常附着分支的
+pull_targets 包含 `remote`、远端 `for-each-ref`、`symbolic-ref`、当前分支 upstream
+`for-each-ref` 共 **4 次** CLI；成功、已是最新、force、非快进以外的拒绝/失败均不会使用
+读取出的 Targets。该数量由完整调用路径确认，尚未新增 Trace2 实测，不能套用旧进程
+中位数宣称实际节省多少毫秒。读取失败还可能在远端已成功后将 report.error 置为错误，
+因此移除时也要验证结果呈现，不能当作完全无语义变化的格式调整。
+
+后续优先顺序收敛为：先将“是否可能进入恢复”这一纯策略判断放到目标读取之前，仅在
+非 force 的 RejectedNonFf 等确实需要当前 tracking 身份时读取；保留 push 本身的写前
+源/lease 校验、写后 operation_state 与 UI 完成刷新。随后才评估可接纳的完成观察快照，
+避免为省刷新反而每次追加更多查询。不新增通用事件总线，也不把 UI 缓存当写入授权。
+已有真实 Git 恢复测试位于 tests/repository.rs 的
+rejected_push_flow_updates_retries_or_preserves_conflict_and_cancel 等，覆盖 merge/rebase、
+冲突、取消与草稿保留；下一批须补终止结果不读取恢复目标、真正拒绝仍复验 tracking 的证据，
+并按项目约定先做同场景 Rebased 原生前置。当前没有实施这两项后续改动。

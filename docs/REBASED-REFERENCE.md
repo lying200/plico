@@ -15217,3 +15217,18 @@ CaseFile.txt 修改及四个未跟踪文件；无额外 UI 操作。120 秒内�
 navigation 10/10（180 filtered）；doctest/clippy 成功。详见性能审计提交前记录。
 目录创建时间不可用、间接路径、网络和 commondir 布局继续保守处理；没有扩展原生验收
 到这些特殊布局，也没有新增像素级还原结论。
+
+## Push/Fetch 完成后的刷新来源复核（2026-10-30）
+
+参考 commit 仍为 `245042348669114adb8e24e5b0fc0ce73763f3c4`；本节仅源码分析，无产品
+行为修改或新的原生操作记录。已读取 backend/src/push/GitPushOperation.java 的 execute
+与 update：普通结束在 finally 更新推送根仓库状态；发生 Update 时另外刷新工作区 VFS。
+已读取 backend/src/fetch/GitFetchSupportImpl.kt 的结果聚合、withIndicator 与 doFetch：
+成功后更新 repository，并对成功 remote 调用 Fetch 完成处理；未深入该处理器，不能把
+候选入口当成全部刷新行为已证明。
+
+本地映射为 ui/remote.rs 的 Push 完成回调/Fetch unchanged 门禁、push_flow.rs 的恢复循环、
+push_recovery.rs 的纯策略，以及 repository.rs 的完整/普通引用刷新入口。
+确定的差异与待办详见性能审计“Push/Fetch 完成路径复核”：先消除终止结果不使用的恢复目标
+读取，再独立设计完成观察；保持失败、取消、Update/保存恢复及用户手动完整刷新的边界。
+本轮未操作 Push 原生场景，不作为后续修改行为的实机前置替代。

@@ -190,6 +190,7 @@ pub struct Review {
     selected: Option<usize>,
     log_selection: plico::log_selection::IdentitySelection<plico::project_log::CommitId>,
     loaded_log_selection: Option<Vec<log_selection::Content>>,
+    pending_log_details_refresh: bool,
     aggregate_chain: Option<diff_target::Chain>,
     selection_details: Vec<(
         Vec<git::RefLabel>,
@@ -398,6 +399,7 @@ impl Review {
             selected: None,
             log_selection: Default::default(),
             loaded_log_selection: None,
+            pending_log_details_refresh: false,
             aggregate_chain: None,
             selection_details: Vec::new(),
             selection_branches: None,

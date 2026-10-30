@@ -78,7 +78,7 @@ pub fn observe(
     if previous == Some(&next) {
         return Ok(None);
     }
-    let state = repo.operation_state(token)?;
+    let state = repo.operation_state_in(&next.directory, token)?;
     if Observation::read(repo, token)? != next {
         return Err("Operation state changed while observing repository".into());
     }

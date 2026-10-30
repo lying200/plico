@@ -20,8 +20,11 @@ pub struct Prepared {
 }
 impl Prepared {
     pub fn read_registered(registered: &[Repository], token: &Cancel) -> Result<Self, String> {
+        let mut trace = crate::performance_trace::Span::new("request", "update-preflight", None);
+        trace.outcome("error");
         let group = group::Group::prepare_registered(registered, token)?;
         let editor_directories = group.editor_directories(token)?;
+        trace.outcome("ok");
         Ok(Self {
             group,
             editor_directories,
@@ -48,6 +51,18 @@ pub fn prepare(repo: &Repository, token: &Cancel) -> Result<Request, String> {
         return Err("An unfinished operation prevents update".into());
     }
     let targets = repo.pull_targets(token)?;
+    prepare_observed(repo, targets, token)
+}
+
+/// Consume the targets read during this root's preflight. The caller has just
+/// checked operation state in the same phase. This is not a reusable cache:
+/// execution validates the resulting request again after user interaction and
+/// at its existing write/fetch boundaries.
+fn prepare_observed(
+    repo: &Repository,
+    targets: crate::pull::Targets,
+    token: &Cancel,
+) -> Result<Request, String> {
     let branch = targets
         .current_branch
         .ok_or("Update Project requires an attached branch")?;
@@ -66,7 +81,9 @@ pub fn prepare(repo: &Repository, token: &Cancel) -> Result<Request, String> {
         target,
         reinstate_index: true,
     };
-    crate::merge_update::validate(repo, &request, token)?;
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
     Ok(request)
 }
 

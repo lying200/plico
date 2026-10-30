@@ -8,6 +8,17 @@
 
 ## Fetch / Update / Push 速度对照（2026-10-29）
 
+性能审计推进阶段 1：`src/performance_trace.rs` 及 read_stream/operation_process/queue
+加入默认关闭的有界诊断，参照 `GitHandler.java::runInCurrentThread/logTime` 的 command
+span；保留本地 Job、取消、输出上限与所有 Git 行为。详细范围、未完成项及验证证据见
+[推进记录](PERFORMANCE-DESIGN-AUDIT-20261029.md#推进记录阶段-1-后端观测基础)。
+
+后续在 `6f2b454` 基线上完成了[性能设计审计](PERFORMANCE-DESIGN-AUDIT-20261029.md)：
+独立分解进程成本、状态重复读取、Log 多选 N+1、刷新失效范围和 status 缓存取舍。
+该轮只增加诊断工具和分析，没有修改产品行为。特别补充了 Trace2 开关的对照：本机
+开启追踪会明显增加短命令耗时，下面原有追踪数据继续作为命令链证据，不等同于无追踪
+用户响应时间。参考版本、已读源码、测量边界及分阶段建议见该报告。
+
 原生操作记录、截图路径与分析、Trace2 口径和数据见
 [Windows 操作速度排查](PERFORMANCE-AUDIT-20261029.md)。安装版 Rebased 1.1.22 /
 `262.10968.SNAPSHOT`，源码参考 `245042348669114adb8e24e5b0fc0ce73763f3c4`；
@@ -14456,3 +14467,475 @@ doctest 通过（当前 0 项）；Clippy 按贡献规范命令完成，仍有�
 （8.147s；按入口过滤其他 178 项）。桌面包含最后补充的多仓库菜单范围断言。
 最终 release 构建、`cargo fmt --package plico -- --check` 与 `git diff --check` 均通过。
 以上为本机 Windows 验证，本轮尚未提交或运行远端 CI。
+
+## Update 预检阶段共享（2026-10-29，实施前依据）
+
+本次先使用 computer-use 在既有独立 fixture `%TEMP%/plico-speed-20261029/rebased`
+复现；本地 bare remote 为同目录 `remote-rebased.git`，不是项目或公网远端。安装版从
+product-info.json 核对为 1.1.22 / 262.10968.SNAPSHOT；源码仍为
+`245042348669114adb8e24e5b0fc0ce73763f3c4`。窗口列表中另一个旧标题的句柄曾返回
+同一画面，随后明确选择 `rebased – Log` 句柄并核对左下项目路径，后续仅操作该 fixture。
+
+分支 `changes-menu-20261029`，HEAD `5b5595bcd8a0a1279c91809fc23ddebc48bd22f1`，
+`menu-case/alpha.txt` 有 staged 和 unstaged 修改。Ctrl+T 打开居中 Update Project；
+Merge 默认选中，Rebase 在其下，底行 Don't show again、Reset、OK、Cancel，OK 默认焦点。
+无上游时确认后右下角 Cannot update 通知说明缺少 tracked branch。给该测试分支配置
+origin/main 后再次打开，Escape 关闭；再次 Ctrl+T、Enter 完成空更新，显示 All files
+are up to date。HEAD 不变，仍 ahead 2，MM 状态保留。后台执行太快，本轮未捕获稳定
+进行中画面；冲突、执行中取消、上游在 Fetch 中删除及多 root 原生场景尚未验证。
+
+截图在 `artifacts/update-context-20261029/`：rebased-entry.png（入口布局）、
+rebased-update-dialog.png（选项和默认焦点）、rebased-no-upstream.png（失败通知）、
+rebased-cancelled.png（对话框关闭，之前错误通知仍可见）、rebased-update-result.png
+（成功通知与历史并列，之前错误通知尚未消失）。这些截图不用于推导毫秒性能。
+
+已读取源码：`plugins/git4idea/backend/src/update/GitUpdateProcess.java` 的构造、update、
+updateImpl、fetchAndNotify、checkTrackedBranchesConfiguration：构造先更新 repository；
+预检从 repository 状态读取当前分支/track info；Fetch 后再次检查上游，不能把整个操作
+视为一个永久有效快照。`backend/src/repo/GitRepositoryImpl.kt::update/readRepoInfo`
+将 config、branches、track infos 组织为 repoInfo 后替换并发布变化。
+`tests/git4idea/update/GitSingleRepoUpdateTest.kt` 已读取本地改动保存及更新范围测试；
+稀疏 clone 的 blob 获取失败，改从相同 commit 的 raw GitHub 下载到上述 artifacts 目录，
+保留版权头。测试覆盖 dirty/clean、fast-forward 不必 stash、已 Fetch 后再次新增远端提交。
+
+本地映射计划：`project_update::roots::from_inventory` 与 `project_update::prepare`
+共享一次预检内已读取的 operation state 和 pull targets，构造本次请求，不跨确认、Fetch
+或写入边界缓存。执行器 `Group::execute` / merge/rebase updater 的复验保持；保留每 root
+独立身份、取消、无上游跳过和 detached/submodule 路由。Plico 仍在显示选择前预检，
+与 Rebased 先弹选择后报告缺上游的顺序不同，本轮不改变这一交互。实现后的 Plico
+原生对照与速度验收仍待完成，不以本段前置记录代表交付通过。
+
+本轮 Plico 实机复现已完成：release SHA256
+`FFD16226DA9AD47FD4C8466BFFD6877A0D3E74E17B8850B1309977D3100D9E30`，使用独立
+LOCALAPPDATA profile、同一 fixture 和本地 bare remote。工具栏左上 Update 箭头打开
+预检，准备完成后弹出居中 Merge/Rebase 选项，取消可关闭；再次确认后底部显示更新中，
+最终“已是最新”。HEAD、origin/main 和 MM 状态与 Rebased 空更新后相同。取消上游后
+再次点击 Update，底部“操作失败/无法更新项目”，没有进入执行。测试完仅关闭本轮
+启动的 Plico（首次隐藏启动 PID 19432、原生交互 PID 16504），保留所有 Rebased 窗口，
+fixture 分支恢复为最初无上游状态。
+
+同目录新增截图：plico-entry.png、plico-preparing.png、plico-update-dialog.png、
+plico-cancelled.png、plico-updating.png、plico-update-result.png、plico-no-upstream.png。
+结构与交互：两款均为居中二选一、默认 Merge、底部确认/取消；Plico 缺少 Rebased 此处
+Reset 按钮，状态使用底栏而非通知卡片，Ctrl+T 本轮未打开 Plico 对话框，改用工具栏。
+上述为既有差异，本次没有扩大实现范围或声称像素级一致。尚未实机测试多 root、冲突、
+执行中取消、确认期间外部改动；后者由新增集成测试覆盖，不等同原生验收。
+
+`plico-visible-events.jsonl` 显示实际 UI 单根成功预检 11 个直接子查询（原基线 26），
+取消后再次打开仍为新请求，不复用上次快照。带其他测试负载的此轮原生耗时不作为速度
+基准。核心定向 `4e0c-18e2ff256e631468-0`，8/8 通过、178 过滤，包含新复验测试。
+旧全量 `1a74-18e2fdf8c95dc7ec-0` 最终 957/957 通过（1213.698s、零跳过），但因
+期间发生重编译且不含最后的预检改动，不作为当前版本全量通过证据。
+
+## refs 共享读取前置（2026-10-29）
+
+再次核对安装版 1.1.22 / 262.10968.SNAPSHOT、源码 commit
+`245042348669114adb8e24e5b0fc0ce73763f3c4`。独立 fixture 继续使用
+`%TEMP%/plico-speed-20261029/rebased`，HEAD `5b5595bcd8a0a1279c91809fc23ddebc48bd22f1`，
+保留原 MM 内容和无上游分支。没有网络写入；仅在此测试仓库新增指向 HEAD 的
+`audit-shared-refs-20261029` 分支和 `audit-shared-tag-20261029` annotated tag，
+随后用带 expected OID 的 update-ref 删除这两项自建引用，恢复原引用集合。
+
+computer-use 实机观察：Log 顶行保持当前提交，外部新增 refs 后自动增加顶行装饰，
+右下详情同时显示新增分支和 tag；没有点击刷新或切换仓库。删除后顶行装饰恢复，
+右侧文件列表保持两文件，但右下详情区连续两次观察为空；重新点击同一提交行后恢复。
+因此只证实引用自动更新，不能声称本版本所有详情状态都无损保留，也不将其空白行为
+作为本地应复制的目标。没有测量毫秒延迟，没有操作滚动。
+
+截图 `artifacts/ref-context-20261029/`：rebased-before.png、rebased-added.png、
+rebased-removed.png、rebased-removed-stable.png、rebased-reselected.png；fixture.json
+记录分支/tag OID。主布局、选中行、右侧文件和详情信息层级可直接对照。未验证条件：
+unborn/detached 原生显示、shallow 边界变化、失败/取消、refs 在读取期间变化。
+这些条件继续由针对性核心测试保证，实施后仍需 Plico 相同场景截图，不算已验收。
+
+已读源码及规则：
+- `plugins/git4idea/backend/src/repo/GitRepositoryImpl.kt` 的 getters/update/readRepoInfo/
+  notifyIfRepoChanged：普通分支、HEAD、remote 和 tracking 来自不可变 repoInfo，更新后
+  比较并通知；不能把每个 getter 翻译成一次独立 Git 命令。
+- 同目录 `GitRepositoryUpdater.kt`：heads/remotes/config/reftable 等触发 repository.update；
+  tags 单独 scheduleReload 并通知 GIT_REPO_CHANGE；index/current branch 等再触发
+  dirty scope。共享输入不意味着合并或丢失这些通知入口。
+- `backend/src/log/GitLogProvider.kt::readFirstBlock/readAllHashes/subscribeToRootRefreshEvents`：
+  metadata 收集得到 safeRefs，按需要刷新 branches，再处理新 tag；仓库和 tags 通知都
+  按 registered root 路由到 refresher。初始 recent block 不直接 --tags 是上游的性能
+  取舍，本地既有 tag-only history 语义继续保留，不在本次重构顺便改成忽略 tag。
+
+实现映射已接入、原生验收待下述验证：history 请求内一次采样 refs/HEAD/shallow，同一输入服务历史装饰和
+刷新 baseline；不得发布比历史结果更晚的 observation，不改变 fixed_tips 分页边界。
+特别保留轻量后台 `References::read`：不能为了共享而强制每五秒轮询都解析 peeled tags；
+宽格式只在本来需要历史 ref 信息的请求中读取，转换为与轻量观察相同的比较键。
+
+实施后 Plico 同条件验证：release SHA256
+`D8F41EE4D9477D137C69C96711D029EF371C25C680979926AF2B4EDCB76B8055`，独立测试
+profile，打开相同 fixture，首次显示 74 条提交、选中顶行及 alpha.txt。外部新增同名分支和
+annotated tag 后，顶行装饰和右下 refs 自动更新；用 expected OID 删除两项后自动恢复。
+全过程未点击刷新、未滚动，右侧两个文件、选中行及详情均保留，没有复现参考程序删除后
+详情区短暂/持续空白现象。没有将此差异当作像素级还原；上游详情和本地仍存在排版差异。
+截图为同目录 `plico-before.png`、`plico-added.png`、`plico-removed.png`，诊断为
+`plico-events.jsonl`。本次 tag 对象 `9efe7851eb4c19dd8f041f76be5a308215c4b1e2` 已条件删除；
+HEAD 仍为上述 5b5595bc，`MM menu-case/alpha.txt` 保留。只关闭自有 Plico 测试进程，
+用户 Rebased 窗口保持打开。本次验证自动更新与状态保留，不代表逐帧响应延迟测量；
+前述未验证的原生特殊状态仍不扩大宣称已验证。
+
+## 操作状态目录共享前置（2026-10-29）
+
+安装版 Rebased 1.1.22 / 262.10968.SNAPSHOT；源码仍为
+`245042348669114adb8e24e5b0fc0ce73763f3c4`。本次独立仓库路径保存在
+`artifacts/operation-context-20261029/fixture-path.txt`。main/topic 从 base 分叉并分别
+修改 a.txt，HEAD `8c8998262f6b8e2b76969be1b8cb515cb942aceb`，无远端、无网络操作。
+在独立新窗口打开，依次由宿主 Git 执行 merge topic（冲突）、checkout --ours + add
+（index 已解决但未提交）、merge --abort；每阶段观察原生 Rebased，无手动刷新。
+截图同目录：rebased-idle.png、rebased-conflict.png、rebased-operation-menu.png、
+rebased-resolved.png、rebased-aborted.png。
+
+观察：操作状态位于顶部原分支位置，冲突后变为黄色告警及 Merging main；展开同一入口
+含 Commit、Abort Merge，Escape 返回后继续/取消按钮在分支右侧。仅解决 index 不结束
+Merging 状态，abort 后恢复 main。三条 Log 及双亲分叉不因操作标记变化消失，HEAD 未变。
+未验证原生 linked worktree、目录重定向、恢复记录损坏、rebase/cherry-pick/revert 和取消竞态；
+这些不能凭本次 merge 截图声明验证。没有操作滚动，没有执行 Rebased 内提交/abort 按钮。
+
+已读源码：`backend/src/repo/GitRepositoryFiles.java` constructor/createInstance 将公共
+refs/config/shallow 与每工作树 HEAD/index/merge/rebase/sequencer 路径分开；
+`GitRepositoryReader.kt::readState/readRepositoryState/findRebaseBranch` 从上述目录读取
+标记和分支状态；`GitRepositoryImpl.kt::readRepoInfo/update` 在一次更新中组合状态并发布。
+`backend/src/actions/GitOperationActionBase.kt` 按所有仓库当前状态决定入口与选择目标，
+不是按本进程刚启动过什么命令决定。上游持久仓库对象与 VFS 生命周期并不直接照搬。
+
+本地计划映射：一次只读检查共享新解析的 per-worktree 目录，操作状态与恢复记录仍由
+各自模块解释；后台 observe 保留结束时重新解析目录并核对 marker/index 的稳定性。
+不缓存目录跨请求，不以 common-dir 读取 index，不删除写操作的检查。恢复记录存在/错误
+继续保守阻止相应操作。实现及 Plico 同条件复验待记录。
+
+实施后：`operation_inspection.rs` 统一只读状态/恢复记录目录归属，`operation_state::observe`
+复用首个 Observation 的目录；保留结束目录重解析，写入口未使用展示快照。
+Plico release SHA256 `F1F5C1A0C24A64123E735AAA6428E99813749C05D702C4205F3E892163CB30AF`。
+同仓库依次复现外部 merge topic、checkout --ours + add、merge --abort；截图同目录
+`plico-idle.png`、`plico-conflict.png`、`plico-resolved.png`、`plico-aborted.png`。
+无需手动刷新，顶部依次为 main、正在合并/解决冲突、正在合并/完成合并、main；
+Log 三行、选中提交与右侧文件保留。与 Rebased 的动作位置一致，图标/文本/颜色差异保留，
+未声称像素还原；继续/取消按钮未实际点击，本次仅验证外部状态传播。
+测试后 HEAD 不变，无已跟踪文件修改；Rebased 自动创建的未跟踪 `.idea/` 保留。
+只关闭自有 Plico，参考与用户原有 Rebased 窗口保持打开。
+
+## 详情缓存与引用失效前置（2026-10-29）
+
+版本同上。使用上一节独立三提交仓库，路径及替换对象 OID 保存于
+`artifacts/invalidation-context-20261029/{fixture-path.txt,replacement.json}`。
+选中 ours，外部创建指向 HEAD 的 audit-cache-20261029 分支；选择和右侧 a.txt 保留，
+详情显示新增分支。随后用 commit-tree 创建同树、同父但不同正文的提交，并通过
+refs/replace 替换 HEAD 的解释；Git log -1 已显示 audit replacement message，原生
+Rebased 仍显示 ours。点击 Log 工具栏刷新后再次观察仍为 ours。该现象仅说明本场景未更新，
+不推断所有缓存内部路径，也不把它当作本地应该复制的目标。
+
+截图同目录：rebased-selected.png（选择后立即捕获，详情尚未完成）、
+rebased-branch-added.png（详情已完成）、rebased-replaced.png、rebased-after-refresh.png。
+原始 HEAD、工作树和 index 未改变；用 expected OID 删除本次 branch 与 replace ref，
+Git log 恢复 ours；未跟踪 .idea 保留。未验证原生 config.renameLimit、浅克隆、GC、
+仓库替换与全局/include 配置变动；没有关闭用户窗口、没有测绘制延迟。
+
+源码 commit `245042348669114adb8e24e5b0fc0ce73763f3c4`，通过 git show 读取 sparse
+checkout 未展开的文件：`platform/vcs-log/impl/src/com/intellij/vcs/log/data/CommitDetailsGetter.kt`
+以 storage index 缓存完整详情，最多 10000 项，低内存及 dispose 清理；
+`AbstractDataGetter.kt` 先扣掉缓存命中，再按 root 分组向 provider 批量读取；
+`VcsLogData.kt` 将 commitDetailsGetter 与 refresher 分开持有，refresh 调 refresher，
+其数据对象生命周期由 dataDisposable 管理，不能把此结构误译为每次刷新均清详情。
+`plugins/git4idea/backend/src/repo/GitRepositoryUpdater.kt` 明确识别 configChanged，
+repository.update 后清 GitProjectConfigurationCache 并发布 GitConfigListener。
+尚未证明上游处理 replace/grafts 的完整策略，不声称其已解决本次边界。
+
+本地映射决策：保留当前 32 项/2 MiB 上限；纯引用标签与内容解释失效必须分离，详情缓存
+不含标签不代表它只依赖 OID。先补配置、replace、shallow 与 root identity 的失效依据，
+再允许跨 refs 刷新保留，手动刷新和未知事件保持保守。此轮只加真实 Git 依赖测试，
+尚未修改产品缓存策略；后续实现需要 Plico 同条件验收。
+
+### 替换对象失效实施与原生复验
+
+沿用上节 Rebased 版本、参考 commit、源码及三提交 fixture；本地映射为
+`branch_updates.rs` / `git_history_inputs.rs` 的 replacement observation、`detail_cache.rs`
+的按根失效，以及 `ui/worktree_sync.rs` / `ui/auto_refresh.rs` / `ui/log_selection.rs`
+的事件与已加载选择失效。replacement 不作为历史起点，缓存上限仍为 32 项 / 2 MiB。
+
+第一轮仅清理详情 Cache，原生复验失败：顶行已为 audit replacement message，右下仍为 ours。
+证据 `artifacts/invalidation-context-20261029/plico-first-pass-stale-details.png` 和
+`plico-first-pass-events.jsonl`。追加修复已加载选择缓存后重新构建；最终 release SHA256：
+`BD5B49BB5A4A76A631BFFF8C260C62619898B46CA7ED0D43A9CB1853F34340B6`。
+
+最终截图位于同目录：`plico-final-before.png`、`plico-final-replaced.png`、
+`plico-final-restored.png`，诊断为 `plico-final-events.jsonl`。外部 git replace 后，
+Log 顶行和右下正文均自动成为 audit replacement message；按 expected OID 删除替换后均恢复 ours。
+无需点击刷新或重新选择，右上 a.txt 与三行历史保持；没有新增焦点/快捷键/入口，沿用现有布局。
+与本场景 Rebased 保留旧正文的观察不同，本地遵循 Git 实际解释；仍不宣称像素一致或测得逐帧延迟。
+HEAD 保持 8c8998262f6b8e2b76969be1b8cb515cb942aceb，无已跟踪文件变化；.idea/ 保留。
+仅关闭本轮 Plico，Rebased 窗口保留。config.renameLimit、GC、浅边界及仓库替换等原生状态仍待验证。
+最终定向回归核心 14/14、桌面 6/6 通过，具体运行编号与未完成范围见性能审计文档。
+
+## 配置与已打开 Diff 前置（2026-10-29）
+
+使用 computer-use 技能在原生 Rebased 1.1.22 / 262.10968.SNAPSHOT 中验证；源码 commit
+245042348669114adb8e24e5b0fc0ce73763f3c4。继续独立 operation-context fixture，新增测试分支
+`audit-config-20261029`，从原 main 增加两个提交，顶端
+`1608a1318a1acab52e5701a39f6eb711bf148810`。两份 30 行文本各修改末尾 5 行并重命名，
+没有远端操作。路径存于 `artifacts/config-context-20261029/fixture-path.txt`。
+
+步骤与结果：
+
+1. 设置本仓库 diff.renameLimit=1，等待 Log 自动出现两条新增提交，点击顶行。
+   右上显示 4 files：new-x/new-y 为新增、old-a/old-b 为删除。截图 `rebased-limit1.png`。
+2. 双击 new-x 打开 Repository Diff 独立 Tab，顶部显示 1/4 files、单侧新增全文，30 行绿色。
+   左侧 Project、顶部 Log/Repository Diff tabs 保持；截图 `rebased-diff-limit1.png`。
+3. 外部修改本仓库 diff.renameLimit=1000；Git diff-tree -r -M HEAD 输出两条 R083。
+   已打开 Diff 仍为 1/4 files 和新增全文，截图 `rebased-diff-limit1000.png`。
+4. 点击 Log tab，右上仍为 4 files；点击 Log 工具栏刷新，后续稳定观察仍为四项。
+   截图 `rebased-log-limit1000.png`、`rebased-after-refresh.png`。
+
+以上截图均位于 artifacts/config-context-20261029。没有测量毫秒延迟或操作滚动，没有把“保持旧内容”
+判为应复制的产品行为。未验证本场景的 include、worktreeConfig、加载中配置变动、分支比较及
+配置错误；这些不能由本次截图声称通过。原生已打开 Tab 固定的是当时的文件对，配置改变后的
+文件列表重新配对与既有 Tab 是否改变路径是不同问题，不能以刷新为由静默更换用户选定端点。
+
+已读对应源码：`GitRepositoryFiles.java` 和 `GitRepositoryUpdater.kt` 的配置路径与通知见审计文档。
+`plugins/git4idea/backend/src/GitContentRevision.java::getContentAsBytes` 对完整 hash 使用
+ContentRevisionCache，HEAD/分支等符号 revision 不缓存；文件内容加载明确禁止在 EDT 阻塞。
+`backend/src/log/GitLogDiffHandler.java::showDiff/createDiffContent` 构造固定左右路径/hash 的
+producer 和 SimpleDiffRequestChain；缺失侧是 EmptyContent，实际内容按 revision/path 读取。
+这证明“文件列表解释”和“已打开端点内容”的生命周期不同；未读完平台 Diff 的所有刷新链路，
+不推断上游具备完整 replace/config 自动失效。
+
+本地实现映射待落地：仓库级配置依赖观察负责触发列表重算，固定 Diff 保留用户选定 revision/path，
+仅在端点解释发生变化时重读同一端点；不要把普通分支移动转换为所有固定 Diff 重载。
+主 Log、当前选择、详情缓存、分支比较、工作区比较须分别接收对应失效与取消代数。
+仅增加 config 文件 watcher 不覆盖 include 和 worktreeConfig，仍需明确完整来源与有界回退策略。
+
+### 配置观察实施后的 Plico 原生验收
+
+对应实现为 worktree_events/configuration.rs 的每根配置摘要与 30 秒兜底、git_paths.rs 的 common
+config 路由、Batch.configuration、ui/worktree_sync.rs 的已加载选择/历史失效及交付确认。
+ui/branch_compare.rs 在配置事件上强制同 Pair 重读；该分支比较原生场景仍待验收。
+
+release SHA256 `8DB1F3195924F42302C4B09488686B18E5DFB80A6DEE96B51B863759A1C0895F`，
+相同测试分支和 commit，Plico 原生 Log 选中顶行，右上初始四项。外部 config 1→1000 后无需
+点击刷新，文件列表自动为两项重命名；选中提交、日志五行及正文保持。截图同目录
+plico-limit1.png、plico-limit1000.png。随后移除直接 renameLimit，令 include.path 指向
+.git/audit-config-include（初值 1000），仅修改被包含文件为 1；后续观察自动恢复四项，截图
+plico-include-limit1.png。不是精确延迟基准，没有据此断言帧级性能或原生 linked/global 全覆盖。
+诊断保存 plico-events.jsonl。没有新增入口或改变布局，没有操作滚动。
+
+原生主配置与 include 两条链路通过；其余原生加载中变动、错误、linked、分支比较和 Diff 固定端点
+仍待专项验收。核心 9/9、桌面子根缓存 1/1 定向通过，完整套件未跑。测试后删除自建 include
+文件与配置，签回 main，HEAD 仍 8c8998262f6b8e2b76969be1b8cb515cb942aceb，仅 .idea/ 未跟踪。
+保留测试分支供后续使用，只关闭本次 Plico，所有 Rebased 窗口保持。
+
+### 三根配置调度原生复验（2026-10-29）
+
+release SHA256 `684BDFD523270A8C43D6B76D856517AB1F5DEB1AA0B0E3A8825EEEEC7CF966E4`。
+从前述独立 fixture 的 audit-config 分支建立三份 --no-hardlinks 克隆，移除各自 origin；每根
+HEAD 均为 1608a1318a1acab52e5701a39f6eb711bf148810。隔离 LOCALAPPDATA 下配置三根映射，
+不修改用户项目设置；根路径记录 artifacts/config-context-20261029/native-roots.txt。
+同版本 Rebased 的单根配置前置见前节；本节扩展验证 Plico 的多根路由，不声称新增三根 Rebased
+实机对比。诊断同时启用 Plico 与 Trace2，不作为无诊断性能基准。
+
+初始三个根配置 diff.renameLimit=1，项目 Log 实际加载 12 行（每根四条，克隆仅保留本地 audit
+分支，移除 origin 后不显示原 topic）。点击第二个仓库顶行，右上明确标识 repo-2 4 个文件。
+仅修改 repo-2 为 1000，无手动刷新/重选，其列表自动变为 repo-2 2 个文件；选中行和 12 行历史
+保持。随后点击 repo-1 同 ID 提交，仍显示 repo-1 4 个文件，证明没有按相同 OID 串用配置或详情。
+截图同目录 multi-before.png、multi-child-updated.png、multi-primary-unchanged.png。
+
+本次通过启动收敛、子根事件交付、主根/子根同 hash 隔离和选择保持；没有测滚动、逐帧响应、极端
+根数、慢 Git、加载中目录替换、配置错误或正在写操作时的交错，不把这些列为原生通过。
+测试结束仅停止自有 Plico；三根临时 renameLimit 已删除，HEAD 未变、工作树干净；保留 fixture
+及映射便于后续对比，没有关闭 Rebased。构建通过，原有 sequencer dead-code 警告保持。
+
+### Diff 配置收窄刷新后的同条件验收
+
+沿用三根场景及上文 Rebased 配置前置。实现 mapping：worktree_events/configuration.rs 双摘要，
+Batch.diff_configuration，ui/log_selection.rs::refresh_diff_configuration_details 与
+ui/worktree_sync.rs 对对应根的详情失效。已知 diff.* 配置不触发主 Log/成员刷新；未知、错误、
+首次观察仍保守。源代码参考版本与前节一致，不复制 Rebased 缓存四项不更新的表现。
+
+release D52F9671261CA44AB6EE17D387B007609E0A515C12CFD42652D989AF0400D635，原生再次选中
+repo-2 顶端提交，配置 renameLimit 1→1000，无重新选择或手动刷新，4 项自动变 2 项；12 行历史
+及选中行保持。截图 config-context-20261029/narrow-before.png、narrow-updated.png。
+Trace2 变更后 10 秒无 log/--show-toplevel 查询；具体对照限制见审计文档。本次未改入口、焦点或
+布局，不宣称逐帧延迟；History/Navigation 进行中、分支比较窗口、错误恢复仍待扩展原生验收。
+仅关闭自有 Plico，三根测试配置已删除，参考窗口保持。
+
+### 导航未命中与待交付详情失效（实现前验证，2026-10-29）
+
+沿用独立 operation-context fixture（main，HEAD 8c8998262f6b8e2b76969be1b8cb515cb942aceb，
+仅 Rebased 的 .idea/ 未跟踪）。安装版仍为 1.1.22 / 262.10968.SNAPSHOT；源码参考仍为
+245042348669114adb8e24e5b0fc0ce73763f3c4，不假定安装版与 checkout 完全一致。
+原生 Log 选中 audit-config 分支的 1608a131，Ctrl+F 打开中央小型 hash/ref 输入框，输入
+40 个 1 并 Enter。弹窗关闭，左下出现 Commit or reference '11111111' not found；原选中行、
+右侧四项文件和提交正文保持。截图 artifacts/navigation-invalidation-20261029/
+rebased-entry.png、rebased-missing.png。焦点视觉位于弹窗输入框，未命中不跳到另一行。
+本次未触发慢导航期间配置变更、取消、Git 错误；这些不是原生已验证状态。
+
+实际读取 GoToHashOrRefAction.java、GoToHashOrRefPopup.java、VcsLogNavigationUtil.kt 和
+AbstractVcsLogUi.java::jumpTo/tryJumpTo：hash/ref 查找异步完成，仅找到非负行号才跳转，
+未命中单独通知；取消 future 不选行。popup 完成时关闭，关闭取消时取消 future。
+文件均位于 platform/vcs-log/impl/src/com/intellij/vcs/log/ 的 ui/actions、impl、ui 目录。
+本地映射：ui/log_selection.rs 记录被 History/Navigation 延后的配置失效，在
+project_navigation.rs、log_branches.rs、repository.rs 的有效请求完成后交付；保留原导航
+提示/错误，成功选中新行时消费旧待办。仍保留 Plico 的有界查询与行内提示，不复制 Java future
+或通知气泡框架。该变更尚待实现及 Plico 同条件验收。
+
+### 导航失效交付实施后的原生验收
+
+实现使用 Review 的单个待办标记，在四条有效 History/Navigation 完成回调后交付，主动新选择
+和项目切换清除待办；重读详情保留已有导航提示/错误。定向桌面最终 3/3（185 过滤），真实
+项目导航未命中/错误期间失效以及历史失败发布 seam 的边界见性能审计；并非全量通过。
+
+Plico 首个构建 DBAC16D49D149E0A24E89BF46D264CFDE124EAA5DC101487919B31AE67AFBB2B，
+同一独立仓库，文本过滤 config audit rename 并 Enter、选中 1608a131，然后分支 main
+右键“在日志中定位所选引用的提交”。进行中及未命中都保留该提交、四项文件和正文；上方
+显示 main 被当前日志视图隐藏及“清除筛选并显示/关闭提示”。截图同目录 plico-before.png、
+plico-navigation-loading.png、plico-hidden.png。双击分支是更新过滤，正式导航使用上述右键入口。
+与 Rebased hash 未命中都保留原选择，目标种类不同；没有声称两者提示布局逐像素一致。
+
+最终构建 59AB5D0F1CB07A114DFEE3CC7203DD6CF310ABA2B12D89DCDE65312E5DEEA5C1，补充
+配置在导航完成后才到达也保留提示。再次执行同场景，截图 plico-final-hidden.png；保持原
+选中行，外部将 diff.renameLimit 1→1000，文件列表自动从四项变两项，过滤一行、正文与上方
+未命中提示均保持，截图 plico-final-config-updated.png。没有手动重选/刷新，没有操作滚动。
+这是先导航完成、后修改配置的原生验证；精确进行中交错仍只由可控桌面测试覆盖，取消/系统
+Git 错误原生仍待验收。构建、fmt/diff check 通过，既有 sequencer dead-code 警告保留。
+结束仅停止本轮 Plico 进程，删去临时 renameLimit；HEAD 仍 8c899826，仅 .idea/ 未跟踪。
+全部用户 Rebased 窗口保持。截图为 artifacts 中忽略的本机证据，不自动随源码提交。
+
+### 固定 Diff 对象解释变更：实施前原生验证（2026-10-29）
+
+参考版本仍为安装版 1.1.22 / 262.10968.SNAPSHOT，源码
+245042348669114adb8e24e5b0fc0ce73763f3c4。同一独立 operation-context 仓库 main，原 HEAD
+8c8998262f6b8e2b76969be1b8cb515cb942aceb，父 b5d38eb20cd94a12e18ddb61bbd6bb00b81294d6，
+仅 .idea/ 未跟踪，无远程写入。选中 ours，双击右侧 a.txt 打开 Repository Diff，左右标题为
+b5d38eb2 / 8c899826，正文 base / ours，均为只读锁图标，一处差异；截图
+artifacts/fixed-diff-invalidation-20261029/rebased-before.png。
+
+外部在此临时仓库将原 HEAD replace 为 topic c69eab687c1e63e90cc21e18c6d764270e6a16ff，
+命令行 git show 原HEAD:a.txt 已为 theirs；已有 Diff 仍为 base / ours，标题不变，截图
+rebased-replaced.png。再构造 tree=topic tree、parent=topic 的无引用提交
+f708d190ec1814c38d92a6cf5051dd46b7d7d9d6，用 expected OID 更新此 replace ref；已有页签
+仍为 base / ours，截图 rebased-parent-replaced.png。本次只证明这些观察时刻没有自动重读，
+未验证关闭重开、手动 reload、失败/取消；不能推断 Rebased 在所有刷新路径都保持旧内容。
+
+实际重读 plugins/git4idea/backend/src/GitContentRevision.java::getContentAsBytes/loadContent：
+完整 hash 内容缓存、符号引用不缓存、EDT 禁止同步读取；以及同目录 log/GitLogDiffHandler.java
+的 showDiff/createDiffContent：producer 捕获左右 hash/path，使用 GitFileUtils 读取各端，
+并非在加载时重新查询右侧提交的父关系。上游自动失效不完整不能作为本地忽略替换的依据；
+可采用的是固定比较端点和按需加载，原生旧内容表现明确作为保留差异而非还原目标。
+
+本地源码映射：diff_target.rs 保存 parents，但普通 Target::read 走 git.rs::patch_context 的
+git show --diff-merges=first-parent，实际仍重新解释父关系；combined target 则按固定端点读取。
+diff_tab.rs::disk_changed 直接排除 Commit/stash，loading 时也直接返回。因此不能只移除排除
+条件：必须先保证普通提交、根提交、merge、重命名/删除的端点语义，再处理活动/加载中/非活动
+页签的失效交付。此处仅为前置验证与设计依据，产品实现和 Plico 同条件验收尚未完成。
+测试后按 expected OID 删除 replace ref，git show main:a.txt 恢复 ours；HEAD/index/worktree
+未改变，.idea/ 保留，Rebased 窗口保持。
+
+固定父端点的首步实现：git.rs::patch_context 改为显式比较捕获的第一父与提交，root 通过
+empty_tree_id 取得当前对象格式空树，不再依赖 show 的动态父关系；保持单个普通提交一次查询。
+此实现映射上文 GitLogDiffHandler 捕获左右 hash 的规则，尚未统一固定路径与自动重读生命周期。
+SHA-1/SHA-256 替换普通/root 的真实 Target 回归和既有相关测试合计 13/13 定向通过，结果编号
+及限制见性能审计“固定父端点读取实施与核心回归”。Plico 本次原生验收待完成，未宣称完整交付。
+### 固定 Diff 内容读取的进程合并（2026-10-29）
+
+沿用本文件“固定 Diff 对象解释变更”的原生截图、安装版本及参考源码 commit
+245042348669114adb8e24e5b0fc0ce73763f3c4。
+GitLogDiffHandler 捕获左右 hash/path，GitContentRevision 按完整版本读取内容；本地映射为
+combined_changes::read_contents 与 git.rs::read_with_input，两个存在的端点使用一个
+cat-file --batch -z 进程。保留端点、空文件/缺失区别、只读和按需加载，采用有界短生命周期进程，
+不照搬上游内容缓存。长度协议、取消、异常退出与实际测量详见性能审计“固定版本内容的批量读取”。
+该项不改变入口、布局和焦点；Plico 实现后的原生同条件 Diff 验收仍待完成，普通 Target 路径语义、
+对象解释变化后的 Tab 自动重读也仍待完成，不能据此宣称完整功能交付。
+
+### 固定父端点的 Plico 原生验收（2026-10-29）
+
+当前 release SHA256 为 14B51B6123B920D0EC0118B267EF3A82376E9B1A23E7EA20C73B317A4B1ABC2A，
+包含固定父端点与批量 blob reader。沿用上节独立 operation-context 仓库和原生 Rebased 参考，
+未修改用户仓库。以隔离 LOCALAPPDATA 启动 Plico，Log 选择 ours，双击右侧 a.txt。
+左右标题 b5d38eb2 / 8c899826，锁图标表示只读，正文 base / ours；截图
+artifacts/fixed-diff-invalidation-20261029/plico-before.png。
+
+使用 expected-zero update-ref 将原 8c899826 替换为上节 f708d190（tree=topic、parent=topic），
+命令行读取原 OID:a.txt 已为 theirs；活动 Diff 仍显示 ours，截图 plico-active-replaced.png。
+这验证了 disk_changed 直接排除 Area::Commit 的现存缺口，不能标成已完成自动失效。
+点击 Log 后，历史/正文已更新为 fixed diff parent audit，文件列表正确为空；再点击原 Diff 页签，
+仍显示原左右标题，正文为 base / theirs，截图 plico-reactivated-replaced.png。
+说明 deactivate 释放 viewer、activate 使用捕获的 Target 时，已不会通过 show 重算新的父关系。
+随后按 expected replacement OID 删除 replace ref，切到 Log 再切回原 Diff，恢复 base / ours，
+截图 plico-restored.png。HEAD/index/worktree 保持原状态，仅原有 .idea/ 未跟踪。
+
+本次验收覆盖普通文本、原页签非活动后重新激活、替换及恢复，不覆盖 native root/merge/gitlink、
+加载期间事件、失败/取消或批量 combined UI。左右栏、版本标题、只读锁和顶端工具栏结构与参考一致；
+Plico 本次使用默认暗色及无 Project 面板，与参考浅色有外观/宽度差异，不宣称像素验收。
+额外尝试捕获被 Plico 遮挡的 Rebased 窗口得到了遮挡画面，该文件已删除，不能作为新的参考证据；
+仍使用上节已验证的 rebased-before/replaced/parent-replaced 截图。原用户 Rebased 窗口保留。
+
+### 多选提交说明批量读取前置验证（2026-10-29）
+
+安装版 1.1.22 / 262.10968.SNAPSHOT，源码参考仍为 245042348669114adb8e24e5b0fc0ce73763f3c4。
+独立 operation-context 仓库 main=8c899826，无 replace、仅 .idea/ 未跟踪。原生点击 Log，
+选中 ours，再 Shift+Down 加选相邻 theirs。两行高亮，右上合并文件仍为 a.txt，右下正文从
+单卡片变成依显示顺序的 ours、theirs 卡片，详情区有滚动条，焦点仍在 Log；未操作滚动。
+截图 artifacts/metadata-batch-20261029/rebased-single.png、rebased-multiple.png。
+取消、错误、跨根和 50 条规模的原生状态本次未验证。
+
+已重新读取 plugins/git4idea/backend/src/history/GitLogUtil.java::collectMetadata：空输入不查，
+一次 log --no-walk --stdin，统一 UTF-8 与 pretty 格式，流式解析，并报告命令/解析错误。
+本地映射：核心增加批量 metadata 接口；ui/log_selection.rs 按 root 分组前 50 条提交，
+批量读取后恢复原选择顺序。保留正文格式、父/shallow base、总展示预算与 generation 检查，
+不更改文件合并算法、逐父差异或卡片布局。Plico 有界读取区别于上游流式 collector，禁止无界批量。
+实施后还需同条件 Plico 原生验收；该段是前置依据，不是完成声明。
+
+### 多选提交说明批量读取实施后验收（2026-10-30）
+
+release SHA256 04411F424A384F86788C169635B53753E3D5A997CFB90576DABA1865A80ADA36，
+同一个 operation-context 仓库，隔离 LOCALAPPDATA，选择 ours 后 Shift+Down 加选 theirs。
+两行保持高亮，右上仍一个 a.txt，右下顺序为 ours、theirs 的正文/作者/时间/引用卡片；
+布局位置和交互顺序与原生参考相同，焦点保持 Log。截图在 artifacts/metadata-batch-20261029：
+plico-single.png、plico-loading.png、plico-multiple.png。
+Plico 加载时清空详情显示读取提示，Rebased 此次观察保留原卡片直到结果就绪；这为保留差异，
+本次只优化查询，未改变加载呈现。暗/浅主题、Project 面板可见性、列宽及卡片间距不同，不宣称像素还原。
+跨根由核心及桌面回归覆盖；50 条规模是核心计时，不是原生验收。原生错误/取消尚未验证。
+核心批量与 UI 分组已实现，测量和测试编号见性能审计阶段 4；逐父差异批量化仍待完成。
+本次无测试仓库 Git 写入，结束仅关闭本次 Plico 进程，保留所有用户 Rebased 窗口。
+
+### 逐父批量查询前置验证（2026-10-30）
+
+同安装版、同源码 commit、同 operation-context 独立仓库，新增两个仅供验收的分支引用，未切换 HEAD。
+fixture 及 OID 在 artifacts/parent-batch-20261030/fixture.json：c55f8336 的 tree=main，
+parents=main/topic；d9a70403 的 tree=base，parents 相同。原生 Log 点击刷新后分别选中两条：
+前者右侧 No merged conflicts / Show changes to parents，无文件；后者右侧一个 a.txt。
+正文显示各自标题与引用，焦点保持 Log。截图 rebased-empty-parent.png、rebased-both-parents.png。
+这证明不能将 merge 中缺失的空父记录丢弃后仅合并剩余父；未验证 octopus、浅克隆、错误/取消原生状态。
+
+已读 GitDetailsCollector.kt、GitCommitRequirements.kt 和 GitLogRecordCollector.java：
+DIFF_TO_PARENTS 按父数聚合；log -m 可能缺少空父记录，collector 再批量查询 tree hash，按父顺序
+补空副本后交付。记录数不能默认为正确。本地拟用 diff-tree --stdin --always 显式提交/父输入，
+保留每条空结果，再沿用 log_changes::merge_parents 和 zip_changes，避免采用 Push 的 -c 语义。
+Git 官方本机 git-diff-tree.adoc 的 stdin/always 协议已读取；命令实验确认普通、同 tree 空结果、
+重复提交不同父、root 都各有 NUL 分隔的提交头。必须校验每个预期头、记录数量和路径字段，
+分批有界读取；实现及 Plico 同条件验收尚未完成。
+
+### 逐父批量查询实施后验收（2026-10-30）
+
+release SHA256 0BCDB6D6BCB37971664C0F42EE30A039A889CC93BAEA1C449C8488C2FC4B7A7D，
+隔离 LOCALAPPDATA，同前置 fixture。选择 c55f8336 无文件，并显示第一父无变更的提示；
+Shift+Down 加选 d9a70403 后一个 a.txt、两张按显示顺序排列的说明卡片，两行保持高亮、焦点在 Log。
+截图 artifacts/parent-batch-20261030/plico-empty-parent.png、plico-loading.png、
+plico-multiple-merges.png；参考多选截图 rebased-multiple-merges.png。
+这覆盖实际 UI 批量链，空父和跨批次边界另有核心回归；原生取消、失败、octopus 未验证。
+单选仍沿用本地第一父规则，与 Rebased 的 merged conflicts 表达存在既有差异。
+
+双击 a.txt，Plico 显示只读两栏 8c899826 ours → d9a70403 base，截图 plico-combined-diff.png。
+激活原 Rebased 窗口，对同一选择双击 a.txt，显示三栏 8c899826 ours / d9a70403 base /
+c69eab68 theirs，提示 No changes, 1 conflict，截图 rebased-combined-diff.png。
+对应源码（同上述参考 commit）已读：
+platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogAsyncChangesTreeModel.kt 的
+createDiffRequestProducer 对两个 sourceChanges 的 MergedChange 选择专用 producer；
+platform/vcs-log/impl/src/com/intellij/vcs/log/impl/MergedChangeDiffRequestProvider.java
+用 left.before / left.after / right.before 构造三栏，缺少端点时降为两栏，并使用 MERGE_RESULT 颜色模式。
+本地 log_changes::merge_parents / combined_changes::from_file 保留现有合并结果，但 Diff 目标仍
+压为两个端点。批量化未引入此差异；后续内容模型须保留父来源，不能宣称本次已还原完整 merge Diff。
+本次仅验证批量查询行为；主题、面板宽度与三栏结构差异明确保留，不宣称像素验收。
+验收后仅关闭本次启动的 Plico，并用预期 OID 删除两个临时分支引用；main 仍为 8c899826，
+a.txt 仍为 ours，工作区仅原有 .idea/ 未跟踪。保留用户全部 Rebased 窗口。

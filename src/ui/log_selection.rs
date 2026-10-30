@@ -11,6 +11,60 @@ pub(super) struct Content {
 }
 
 impl Review {
+    pub(super) fn refresh_diff_configuration_details(
+        &mut self,
+        root: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) {
+        if self.local {
+            return;
+        }
+        let root = plico::recent_projects::identity(root);
+        if self
+            .selection_content()
+            .iter()
+            .any(|content| plico::recent_projects::identity(content.id.root.as_ref()) == root)
+        {
+            // Do not interrupt navigation/history. Their unsuccessful outcomes
+            // also need to deliver this invalidation to the retained selection.
+            if self.log_query.history_loading()
+                || (self.log_query.running() && !self.log_query.busy())
+            {
+                self.pending_log_details_refresh = true;
+                return;
+            }
+            self.reload_invalidated_log_details(cx);
+        }
+    }
+    pub(super) fn flush_pending_log_details(&mut self, cx: &mut Context<Self>) {
+        if !self.pending_log_details_refresh || self.log_query.running() {
+            return;
+        }
+        self.pending_log_details_refresh = false;
+        if self.local {
+            return;
+        }
+        self.reload_invalidated_log_details(cx);
+    }
+    fn reload_invalidated_log_details(&mut self, cx: &mut Context<Self>) {
+        // Background invalidation must not dismiss the navigation outcome,
+        // whether it arrived during the request or after its completion.
+        let error = self.error.take();
+        let notice = self.navigation_notice.take();
+        self.load_log_selection(cx);
+        self.error = error;
+        self.navigation_notice = notice;
+    }
+    pub(super) fn invalidate_loaded_details(&mut self, root: &std::path::Path) {
+        let root = plico::recent_projects::identity(root);
+        if self.loaded_log_selection.as_ref().is_some_and(|selection| {
+            selection
+                .iter()
+                .any(|content| plico::recent_projects::identity(content.id.root.as_ref()) == root)
+        }) {
+            self.loaded_log_selection = None;
+        }
+    }
     fn selection_content(&self) -> Vec<Content> {
         let rows = self.commit_ids();
         let ordered = self.log_selection.ordered(&rows);
@@ -131,6 +185,7 @@ impl Review {
         cx.notify();
     }
     pub(super) fn load_log_selection(&mut self, cx: &mut Context<Self>) {
+        self.pending_log_details_refresh = false;
         self.loaded_log_selection = None;
         self.reword_gate = None;
         let rows = self.commit_ids();
@@ -176,10 +231,11 @@ impl Review {
                         let snapshot = plico::project_log::selection::load(&ids, &token)?;
                         let mut presentations = Vec::new();
                         let mut presentation_bytes = 0usize;
-                        for entry in snapshot.commits.iter().take(50) {
+                        let entries = &snapshot.commits[..snapshot.commits.len().min(50)];
+                        let metadata = plico::project_log::selection::metadata(entries, &token)?;
+                        for (entry, details) in entries.iter().zip(metadata) {
                             let repo = Repository::new(entry.root.as_ref());
                             let commit = &entry.commit;
-                            let details = repo.commit_metadata(commit, &token)?;
                             let presentation = commit_presentation::build(&details, Some(commit));
                             presentation_bytes = presentation_bytes
                                 .saturating_add(presentation.message.len())
@@ -273,6 +329,7 @@ impl Review {
         let Some(repo) = self.log_repository(index) else {
             return;
         };
+        self.pending_log_details_refresh = false;
         self.loaded_log_selection = None;
         self.reword_gate =
             Some(cx.new(|cx| super::reword::Gate::new(repo.clone(), commit.id.clone(), cx)));
@@ -494,6 +551,31 @@ mod repository_tests {
                     s.details_cache.get(&parent, &commit).unwrap().message,
                     "wrong parent cache"
                 );
+                s.sync_repository_worktree(
+                    &child,
+                    plico::worktree_events::Batch { index: true, ..Default::default() },
+                    false, window, cx,
+                );
+                assert!(s.details_cache.get(&child, &commit).is_some(), "staging alone does not reinterpret fixed commit details");
+                let cached_child = s.details_cache.get(&child, &commit).unwrap();
+                let loaded_child = s.loaded_log_selection.clone();
+                s.sync_repository_worktree(
+                    &child,
+                    plico::worktree_events::Batch { refs: true, interpretation: true, ..Default::default() },
+                    false, window, cx,
+                );
+                assert!(s.details_cache.get(&child, &commit).is_none(), "child ref/replace events bypass the primary refresh and must invalidate their own cache");
+                assert!(s.loaded_log_selection.is_none(), "already rendered details must be invalidated too");
+                s.details_cache.insert(&child, &commit, cached_child);
+                s.loaded_log_selection = loaded_child;
+                s.sync_repository_worktree(
+                    &child,
+                    plico::worktree_events::Batch { configuration: true, ..Default::default() },
+                    false, window, cx,
+                );
+                assert!(s.details_cache.get(&child, &commit).is_none());
+                assert!(s.loaded_log_selection.is_none(), "configuration changes also invalidate already rendered details");
+                assert!(s.details_cache.get(&parent, &commit).is_some(), "do not evict the unrelated primary repository");
                 let (target, _) = s.log_preview_target(cx).unwrap();
                 assert_eq!(target.identity().repository, child);
                 s.open_diff_tab(window, cx);
@@ -588,6 +670,83 @@ mod repository_tests {
                 );
             }
             assert_eq!(s.repo.path, parent);
+        });
+        review.update(cx, |s, cx| {
+            let rows = s.commit_ids();
+            let (old, cancelled) = s.log_query.begin(log_query::Kind::Details);
+            s.details_cache.invalidate_repository(&child);
+            s.invalidate_loaded_details(&child);
+            s.refresh_diff_configuration_details(&child, cx);
+            assert!(cancelled.cancelled());
+            assert!(!s.log_query.is_current(old));
+            assert!(
+                !s.log_query.history_loading(),
+                "diff configuration must not replace history"
+            );
+            assert_eq!(s.commit_ids(), rows);
+        });
+        cx.run_until_parked();
+        review.update(cx, |s, _| {
+            assert!(s.error.is_none(), "{:?}", s.error);
+            assert!(!s.log_query.busy());
+            assert_eq!(s.selection_details.len(), 2);
+            assert_eq!(s.files.len(), 2);
+        });
+        for kind in [log_query::Kind::History, log_query::Kind::Navigation] {
+            review.update(cx, |s, cx| {
+                let rows = s.commit_ids();
+                let (stamp, token) = s.log_query.begin(kind);
+                s.details_cache.invalidate_repository(&child);
+                s.invalidate_loaded_details(&child);
+                s.refresh_diff_configuration_details(&child, cx);
+                assert!(
+                    !token.cancelled(),
+                    "a diff change cannot cancel history or navigation"
+                );
+                assert!(s.log_query.is_current(stamp));
+                assert!(s.loaded_log_selection.is_none());
+                assert_eq!(s.commit_ids(), rows);
+                assert!(s.log_query.finish(stamp));
+                // Successful history publication reconciles the same selected
+                // identities; it must reload invalidated content, not reuse it.
+                s.reconcile_log_details(cx);
+                assert!(!s.pending_log_details_refresh);
+            });
+            cx.run_until_parked();
+            review.read_with(cx, |s, _| {
+                assert!(s.error.is_none(), "{:?}", s.error);
+                assert!(!s.log_query.running());
+                assert!(s.loaded_log_selection.is_some());
+                assert_eq!(s.selection_details.len(), 2);
+                assert_eq!(s.files.len(), 2);
+            });
+        }
+        // A failed history publication retains the selection, but must still
+        // deliver its deferred invalidation without hiding the history error.
+        review.update(cx, |s, cx| {
+            let (stamp, _) = s.log_query.begin(log_query::Kind::History);
+            s.invalidate_loaded_details(&child);
+            s.refresh_diff_configuration_details(&child, cx);
+            assert!(s.pending_log_details_refresh);
+            assert!(s.log_query.finish(stamp));
+            s.error = Some("history query failed".into());
+            s.flush_pending_log_details(cx);
+        });
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert_eq!(s.error.as_deref(), Some("history query failed"));
+            assert!(!s.pending_log_details_refresh);
+            assert!(s.loaded_log_selection.is_some());
+            assert_eq!(s.selection_details.len(), 2);
+        });
+        review.update(cx, |s, cx| {
+            s.invalidate_loaded_details(&child);
+            s.refresh_diff_configuration_details(&child, cx);
+        });
+        cx.run_until_parked();
+        review.read_with(cx, |s, _| {
+            assert_eq!(s.error.as_deref(), Some("history query failed"));
+            assert!(s.loaded_log_selection.is_some());
         });
     }
 }

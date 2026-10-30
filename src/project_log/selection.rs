@@ -13,6 +13,53 @@ pub struct Selection {
     pub changes: Vec<Changes>,
 }
 
+/// Batch the bounded presentation subset per root, then restore displayed order.
+pub fn metadata(entries: &[Entry], token: &Cancel) -> Result<Vec<git::Details>> {
+    if entries.len() > 50 {
+        return Err("Commit metadata exceeds the preview count limit".into());
+    }
+    let mut groups: Vec<(Arc<PathBuf>, Vec<usize>)> = vec![];
+    for (index, entry) in entries.iter().enumerate() {
+        if let Some((_, positions)) = groups.iter_mut().find(|(root, _)| root == &entry.root) {
+            positions.push(index);
+        } else {
+            groups.push((entry.root.clone(), vec![index]));
+        }
+    }
+    let mut ordered: Vec<Option<git::Details>> = (0..entries.len()).map(|_| None).collect();
+    let mut bytes = 0usize;
+    for (root, positions) in groups {
+        let commits: Vec<_> = positions.iter().map(|&i| &entries[i].commit).collect();
+        let details = Repository::new(root.as_ref()).commit_metadata_batch(&commits, token)?;
+        for (position, detail) in positions.into_iter().zip(details) {
+            bytes = bytes.saturating_add(
+                [
+                    &detail.author,
+                    &detail.authored,
+                    &detail.committer,
+                    &detail.committed,
+                    &detail.message,
+                    &detail.base,
+                ]
+                .iter()
+                .map(|s| s.len())
+                .sum::<usize>(),
+            );
+            if bytes > git::OUTPUT_LIMIT {
+                return Err("Log details exceed the preview output limit".into());
+            }
+            ordered[position] = Some(detail);
+        }
+    }
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    ordered
+        .into_iter()
+        .map(|d| d.ok_or_else(|| "Missing selected metadata".into()))
+        .collect()
+}
+
 /// Repository-local order is preserved; equal OIDs in different roots are distinct.
 /// Root order follows first appearance rather than a submodule dependency sort.
 #[derive(Debug, PartialEq, Eq)]

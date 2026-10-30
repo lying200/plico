@@ -1,4 +1,5 @@
 //! Bounded filesystem invalidations, not a second repository cache.
+mod configuration;
 mod git_paths;
 mod project;
 pub use project::{Notice, ProjectEvents};
@@ -20,19 +21,33 @@ pub struct Batch {
     pub refs: bool,
     /// Shallow boundaries changed without necessarily moving any reference.
     pub shallow: bool,
+    /// Object interpretation may have changed (replace refs or packed/reftable
+    /// ref storage, where the affected namespace is not available).
+    pub interpretation: bool,
+    /// Effective Git configuration changed; fixed Diff endpoints stay fixed.
+    pub configuration: bool,
+    /// Only diff.* settings changed; membership and history rows remain valid.
+    pub diff_configuration: bool,
     /// Repository roots, declarations or gitlinks may have changed.
     pub membership: bool,
 }
 impl Batch {
     pub fn changed(&self) -> bool {
-        self.all || self.index || self.refs || self.membership || !self.paths.is_empty()
+        self.all
+            || self.index
+            || self.refs
+            || self.interpretation
+            || self.configuration
+            || self.diff_configuration
+            || self.membership
+            || !self.paths.is_empty()
     }
     pub fn history_changed(&self) -> bool {
-        self.all || self.refs
+        self.all || self.refs || self.interpretation || self.configuration
     }
     /// Local comparisons depend on both HEAD and the index.
     pub fn baseline_changed(&self) -> bool {
-        self.history_changed() || self.index
+        self.history_changed() || self.index || self.diff_configuration
     }
     pub fn affects(&self, path: &Path) -> bool {
         self.all
@@ -124,6 +139,17 @@ impl Pending {
                         self.batch.membership = true;
                     }
                     if path.starts_with(".git") {
+                        if path == Path::new(".git/config")
+                            || path == Path::new(".git/config.worktree")
+                        {
+                            self.batch.configuration = true;
+                        }
+                        if path.starts_with(".git/refs/replace")
+                            || path == Path::new(".git/packed-refs")
+                            || path.starts_with(".git/reftable")
+                        {
+                            self.batch.interpretation = true;
+                        }
                         if path == Path::new(".git/index") || path == Path::new(".git") {
                             self.batch.index = true;
                         }
@@ -304,12 +330,28 @@ mod tests {
     #[test]
     fn staging_and_history_invalidation_have_distinct_consumers() {
         let root = Path::new("repo");
+        let diff = Batch {
+            diff_configuration: true,
+            ..Default::default()
+        };
+        assert!(diff.changed() && diff.baseline_changed());
+        assert!(!diff.history_changed() && !diff.membership);
+        for path in [".git/config", ".git/config.worktree"] {
+            let mut pending = Pending::default();
+            pending.push(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(path))),
+            );
+            assert!(pending.batch.configuration && pending.batch.history_changed());
+            assert!(!pending.batch.index && !pending.batch.refs && !pending.batch.interpretation);
+        }
         for (path, index, refs) in [
             (".git/index", true, false),
             (".git/HEAD", false, true),
             (".git/refs/heads/main", false, true),
             (".git/refs/tags/v1", false, true),
             (".git/refs/remotes/origin/main", false, true),
+            (".git/refs/replace/object", false, true),
             (".git/packed-refs", false, true),
             (".git/shallow", false, true),
             (".git/reftable/tables.list", false, true),
@@ -321,6 +363,13 @@ mod tests {
             );
             assert_eq!(pending.batch.index, index, "{path}");
             assert_eq!(pending.batch.refs, refs, "{path}");
+            assert_eq!(
+                pending.batch.interpretation,
+                path == ".git/packed-refs"
+                    || path.starts_with(".git/refs/replace")
+                    || path.starts_with(".git/reftable"),
+                "only replacement or opaque ref storage reinterprets existing objects: {path}"
+            );
             assert_eq!(pending.batch.history_changed(), refs, "{path}");
             assert!(pending.batch.baseline_changed(), "{path}");
         }

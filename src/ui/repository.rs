@@ -4,16 +4,7 @@ use super::*;
 
 impl Review {
     pub(super) fn read_primary_recovery(repo: &Repository, token: &Cancel) -> (bool, bool, bool) {
-        let merge_recovery = repo
-            .editor_directory(token)
-            .and_then(|dir| plico::merge_saved::read(&dir))
-            .map(|record| record.is_some())
-            .unwrap_or(true);
-        let revert_recovery =
-            plico::revert_operation::Recovery::record_exists(repo, token).unwrap_or(true);
-        let revert_saved =
-            plico::revert_operation::SavedChanges::record_exists(repo, token).unwrap_or(true);
-        (merge_recovery, revert_recovery, revert_saved)
+        plico::operation_inspection::RecoveryPresence::read(repo, token).flags()
     }
     pub(super) fn record_recent_project(&mut self) {
         if !self.recent_recorded {
@@ -209,6 +200,7 @@ impl Review {
         self.show_log_root_names = layout_preferences::load_log_root_names(&self.repo.path);
         self.log_selection = Default::default();
         self.loaded_log_selection = None;
+        self.pending_log_details_refresh = false;
         self.aggregate_chain = None;
         self.selection_details.clear();
         self.selection_branches = None;
@@ -413,24 +405,11 @@ impl Review {
             cx.spawn(async move |this, cx| {
                 let result = cx
                     .background_spawn(async move {
-                        // Capture before history, never after: publishing a newer
-                        // observation than the rendered log could hide an external
-                        // ref change. Paging fixed roots must not advance the baseline.
-                        let observation =
-                            if observe_references && !local && requested_offset.is_none() {
-                                plico::branch_updates::HistoryObservation::read(&repo, &token)
-                                    .and_then(|observation| {
-                                        let counts =
-                                            observation.references.counts(&repo, &token)?;
-                                        Ok((observation, counts))
-                                    })
-                                    .ok()
-                            } else {
-                                None
-                            };
-                        let state = repo.operation_state(&token);
-                        let recovery = Self::read_primary_recovery(&repo, &token);
-                        let result = if local {
+                        let inspection =
+                            plico::operation_inspection::Inspection::read(&repo, &token);
+                        let state = inspection.state;
+                        let recovery = inspection.recovery.flags();
+                        let mut result = if local {
                             repo.local_changes(&token).map(|f| (None, Some(f)))
                         } else if let Some(filter) = &text_filter {
                             history::read_branches_filtered(
@@ -455,6 +434,25 @@ impl Review {
                             )
                             .map(|window| (Some(window), None))
                         };
+                        // Reuse the input captured by the history reader BEFORE
+                        // its commit queries, not a newer post-read observation.
+                        // Fixed-root paging still cannot advance the baseline.
+                        let observation =
+                            if observe_references && !local && requested_offset.is_none() {
+                                result
+                                    .as_mut()
+                                    .ok()
+                                    .and_then(|(window, _)| window.as_mut()?.observation.take())
+                                    .and_then(|observation| {
+                                        observation
+                                            .references
+                                            .counts(&repo, &token)
+                                            .ok()
+                                            .map(|counts| (observation, counts))
+                                    })
+                            } else {
+                                None
+                            };
                         let mut graph_model = None;
                         let result = result.and_then(|(window, local)| {
                             let window = window
@@ -530,6 +528,7 @@ impl Review {
                             let (display, s) = log_display::Display::single(
                                 query,
                                 history::Window {
+                                    observation: None,
                                     snapshot: s,
                                     rows,
                                     start,
@@ -585,6 +584,7 @@ impl Review {
                         }
                         _ => {}
                     }
+                    this.flush_pending_log_details(cx);
                     cx.notify();
                 });
             }),

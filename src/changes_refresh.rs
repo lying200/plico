@@ -4,11 +4,12 @@ use plico::{
     commit_changes::Snapshot,
     commit_recovery,
     git::{Cancel, Repository},
+    performance_trace::{Request, RequestContext},
 };
 use std::{rc::Rc, time::Duration};
 
 type Result = std::result::Result<(Snapshot, bool, Vec<plico::git::Change>), String>;
-type Loader = Rc<dyn Fn(Repository, Cancel, bool, &mut App) -> Task<Result>>;
+type Loader = Rc<dyn Fn(Repository, Cancel, bool, RequestContext, &mut App) -> Task<Result>>;
 
 pub enum Update {
     Started,
@@ -42,17 +43,22 @@ impl ChangesRefresh {
     pub fn new(repository: Repository) -> Self {
         Self::with_loader(
             repository,
-            Rc::new(|repo, token, show_ignored, cx| {
+            Rc::new(|repo, token, show_ignored, trace, cx| {
                 cx.background_spawn(async move {
-                    let snapshot = Snapshot::load(&repo, &token)?;
-                    let recovery =
-                        commit_recovery::pending(&repo.editor_directory(&token)?)?.is_some();
-                    let ignored = if show_ignored {
-                        plico::local_changes::ignored(&repo, &token)?
-                    } else {
-                        vec![]
-                    };
-                    Ok((snapshot, recovery, ignored))
+                    trace.mark("worker-start");
+                    let result = trace.scope(|| {
+                        let snapshot = Snapshot::load(&repo, &token)?;
+                        let recovery =
+                            commit_recovery::pending(&repo.editor_directory(&token)?)?.is_some();
+                        let ignored = if show_ignored {
+                            plico::local_changes::ignored(&repo, &token)?
+                        } else {
+                            vec![]
+                        };
+                        Ok((snapshot, recovery, ignored))
+                    });
+                    trace.mark("worker-finished");
+                    result
                 })
             }),
         )
@@ -94,6 +100,8 @@ impl ChangesRefresh {
             return;
         }
         let token = Cancel::default();
+        let trace = Request::new("changes-refresh", Some(&self.repository.path));
+        let trace_context = trace.context();
         self.flight = Some(Flight {
             token: token.clone(),
             pending: false,
@@ -101,6 +109,8 @@ impl ChangesRefresh {
         self.revision = self.revision.wrapping_add(1);
         self.feedback = false;
         cx.emit(Update::Started);
+        trace_context.mark("started-event");
+        let feedback_trace = trace_context.clone();
         self.delay = cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(300))
@@ -108,17 +118,25 @@ impl ChangesRefresh {
             let _ = this.update(cx, |s, cx| {
                 if s.busy() {
                     s.feedback = true;
+                    feedback_trace.mark("feedback-notify");
                     cx.notify();
                 }
             });
         });
-        let work = (self.loader)(self.repository.clone(), token, self.show_ignored, cx);
+        let work = (self.loader)(
+            self.repository.clone(),
+            token,
+            self.show_ignored,
+            trace_context.clone(),
+            cx,
+        );
         self.query = cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |s, cx| {
                 let pending = s.flight.take().is_some_and(|flight| flight.pending);
                 s.delay = Task::ready(());
                 s.feedback = false;
+                let outcome = if result.is_ok() { "ok" } else { "error" };
                 match result {
                     Ok((snapshot, recovery, ignored)) => {
                         s.loaded = true;
@@ -126,6 +144,8 @@ impl ChangesRefresh {
                     }
                     Err(error) => cx.emit(Update::Failed(error)),
                 }
+                trace_context.mark("result-event");
+                trace.finish(outcome);
                 if pending {
                     s.request(cx);
                 }
@@ -161,7 +181,7 @@ mod tests {
         let loader: Loader = {
             let starts = starts.clone();
             let tokens = tokens.clone();
-            Rc::new(move |_, token, _, cx| {
+            Rc::new(move |_, token, _, _, cx| {
                 let n = starts.get() + 1;
                 starts.set(n);
                 tokens.borrow_mut().push(token);

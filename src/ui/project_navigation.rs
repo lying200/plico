@@ -119,6 +119,7 @@ impl Review {
                             }
                             Err(error) => s.error = Some(error),
                         }
+                        s.flush_pending_log_details(cx);
                         cx.notify();
                     });
                 });
@@ -350,6 +351,7 @@ impl Review {
                         }
                         Err(error) => s.error = Some(error),
                     }
+                    s.flush_pending_log_details(cx);
                     cx.notify();
                 });
             }),
@@ -711,6 +713,75 @@ mod tests {
             assert_eq!(s.files.len(), 1);
             assert_eq!(s.files[0].path, std::path::Path::new("file.txt"));
         });
+        // Invalidation arriving during unsuccessful navigation must reach the
+        // retained child selection through the actual async completion route.
+        let orphan = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&child)
+            .args([
+                "-c",
+                "user.name=Navigation",
+                "-c",
+                "user.email=navigation@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit-tree",
+                "HEAD^{tree}",
+                "-m",
+                "unreachable",
+            ])
+            .output()
+            .unwrap();
+        assert!(orphan.status.success(), "{orphan:?}");
+        let orphan = String::from_utf8(orphan.stdout).unwrap().trim().to_owned();
+        for outside in [true, false] {
+            let old_files = review.read_with(cx, |s, _| s.files.clone());
+            cx.update(|window, cx| {
+                review.update(cx, |s, cx| {
+                    let missing = CommitId {
+                        root: Arc::new(if outside {
+                            child.clone()
+                        } else {
+                            fixture.0.join("outside")
+                        }),
+                        hash: if outside {
+                            orphan.clone()
+                        } else {
+                            "1111111111111111111111111111111111111111".into()
+                        },
+                    };
+                    s.navigate_project_commit("missing".into(), missing, false, false, window, cx);
+                    let stamp = s.log_query.stamp();
+                    s.details_cache.invalidate_repository(&child);
+                    s.invalidate_loaded_details(&child);
+                    s.refresh_diff_configuration_details(&child, cx);
+                    assert!(s.pending_log_details_refresh);
+                    assert!(s.log_query.is_current(stamp));
+                });
+            });
+            cx.run_until_parked();
+            review.read_with(cx, |s, _| {
+                assert!(!s.pending_log_details_refresh);
+                assert!(!s.log_query.running());
+                assert!(s.loaded_log_selection.is_some());
+                assert_eq!(s.commit_ids(), vec![target.clone()]);
+                assert_eq!(s.selected, Some(0));
+                assert_eq!(s.files.len(), 1);
+                assert!(
+                    !Arc::ptr_eq(&old_files, &s.files),
+                    "details must have reloaded"
+                );
+                if outside {
+                    assert!(s.error.is_none(), "{:?}", s.error);
+                    assert_eq!(s.navigation_notice.as_ref().unwrap().name, "missing");
+                } else {
+                    assert_eq!(
+                        s.error.as_deref(),
+                        Some("Commit repository is not in the loaded history")
+                    );
+                }
+            });
+        }
         // Failure keeps the child page and selection; retry uses the fixed scope.
         std::fs::rename(child.join(".git"), child.join(".git-saved")).unwrap();
         review.update(cx, |s, cx| s.previous_window(cx));

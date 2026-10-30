@@ -75,6 +75,13 @@ fn external_child_merge_resolution_and_abort_are_observed_without_ref_changes() 
     let state = observer.poll(&roots, &token).unwrap().unwrap();
     assert_eq!(state[1].state.as_ref().unwrap().operation, Operation::Merge);
     assert_eq!(
+        plico::operation_inspection::Inspection::read(&child, &token)
+            .state
+            .as_ref()
+            .unwrap(),
+        state[1].state.as_ref().unwrap().as_ref()
+    );
+    assert_eq!(
         state[1].state.as_ref().unwrap().conflicts,
         vec![PathBuf::from("a")]
     );
@@ -88,6 +95,13 @@ fn external_child_merge_resolution_and_abort_are_observed_without_ref_changes() 
     git(&child.path, &["add", "a"], true);
     let resolved = observer.poll(&roots, &token).unwrap().unwrap();
     assert!(resolved[1].state.as_ref().unwrap().conflicts.is_empty());
+    assert!(
+        plico::operation_inspection::Inspection::read(&child, &token)
+            .state
+            .unwrap()
+            .conflicts
+            .is_empty()
+    );
     assert_eq!(
         resolved[1].state.as_ref().unwrap().operation,
         Operation::Merge
@@ -136,6 +150,88 @@ fn membership_errors_and_cancellation_never_turn_unknown_into_idle() {
     assert!(observer.poll(&roots[..1], &token).unwrap().is_none());
     assert!(observer.poll(&[], &cancelled).is_err());
     assert!(observer.poll(&[], &token).unwrap().unwrap().is_empty());
+}
+
+#[test]
+fn operation_inspection_uses_each_worktree_and_reresolves_changed_git_file() {
+    use plico::operation_inspection::{Inspection, RecoveryPresence};
+    let fixture = Fixture::new();
+    let main = fixture.repo("main");
+    let first = Repository::new(fixture.0.join("first"));
+    let second = Repository::new(fixture.0.join("second"));
+    for (name, repo) in [("first", &first), ("second", &second)] {
+        git(
+            &main.path,
+            &["worktree", "add", "-b", name, repo.path.to_str().unwrap()],
+            true,
+        );
+    }
+    let token = Cancel::default();
+    let main_dir = main.editor_directory(&token).unwrap();
+    let first_dir = first.editor_directory(&token).unwrap();
+    let second_dir = second.editor_directory(&token).unwrap();
+    // A corrupt record in the common/main directory must not leak into linked
+    // worktree chrome. A corrupt own record remains conservatively present.
+    std::fs::write(main_dir.join("plico-merge-saved"), "broken").unwrap();
+    std::fs::write(first_dir.join("plico-revert-queue"), "broken").unwrap();
+    std::fs::write(second_dir.join("plico-revert-saved"), "broken").unwrap();
+    let head = git(&main.path, &["rev-parse", "HEAD"], true);
+    std::fs::write(second_dir.join("MERGE_HEAD"), format!("{head}\n")).unwrap();
+    assert_eq!(
+        RecoveryPresence::read(&main, &token).flags(),
+        (true, false, false)
+    );
+    let initial = Inspection::read(&first, &token);
+    assert_eq!(initial.recovery.flags(), (false, true, false));
+    assert_eq!(initial.state.unwrap().operation, Operation::None);
+    let (previous, _) = plico::operation_state::observe(&first, None, &token)
+        .unwrap()
+        .unwrap();
+    let original_git_file = std::fs::read(first.path.join(".git")).unwrap();
+    std::fs::write(
+        first.path.join(".git"),
+        format!("gitdir: {}\n", second_dir.display()),
+    )
+    .unwrap();
+    let redirected = Inspection::read(&first, &token);
+    assert_eq!(redirected.recovery.flags(), (false, false, true));
+    assert_eq!(redirected.state.unwrap().operation, Operation::Merge);
+    let (_, state) = plico::operation_state::observe(&first, Some(&previous), &token)
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.operation, Operation::Merge);
+    std::fs::write(first.path.join(".git"), original_git_file).unwrap();
+    assert_eq!(
+        Inspection::read(&first, &token).recovery.flags(),
+        (false, true, false)
+    );
+}
+
+#[test]
+fn operation_inspection_preserves_unknown_and_cancellation_guards() {
+    use plico::operation_inspection::{Inspection, RecoveryPresence};
+    let fixture = Fixture::new();
+    let repo = fixture.repo("repo");
+    let token = Cancel::default();
+    let cancelled = Cancel::default();
+    cancelled.cancel();
+    let cancelled_inspection = Inspection::read(&repo, &cancelled);
+    assert!(cancelled_inspection.state.is_err());
+    assert_eq!(cancelled_inspection.recovery.flags(), (true, true, true));
+    assert_eq!(
+        RecoveryPresence::read(&repo, &cancelled).flags(),
+        (true, true, true)
+    );
+    std::fs::rename(repo.path.join(".git"), repo.path.join("saved-git")).unwrap();
+    let missing = Inspection::read(&repo, &token);
+    assert!(missing.state.is_err());
+    assert_eq!(missing.recovery.flags(), (true, true, true));
+    std::fs::rename(repo.path.join("saved-git"), repo.path.join(".git")).unwrap();
+    let directory = repo.editor_directory(&token).unwrap();
+    std::fs::create_dir(directory.join("plico-merge-saved")).unwrap();
+    let corrupt = Inspection::read(&repo, &token);
+    assert_eq!(corrupt.state.unwrap().operation, Operation::None);
+    assert_eq!(corrupt.recovery.flags(), (true, false, false));
 }
 
 #[test]

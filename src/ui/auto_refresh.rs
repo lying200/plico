@@ -102,6 +102,13 @@ impl Review {
                                 |old| old != &refs,
                             );
                             let notify = counts.is_some();
+                            if s.updates
+                                .references
+                                .as_ref()
+                                .is_some_and(|old| !old.same_replacements(&refs))
+                            {
+                                s.invalidate_loaded_details(&s.repo.path.clone());
+                            }
                             s.accept_reference_observation(refs, counts);
                             if changed {
                                 s.refresh_impl(false, true, None, cx);

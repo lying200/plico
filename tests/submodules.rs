@@ -2551,6 +2551,52 @@ fn project_update_executes_all_registered_ordinary_roots() {
 }
 
 #[test]
+fn project_update_shared_preflight_revalidates_every_root_before_fetch() {
+    use plico::project_update::Prepared;
+    for change in ["tracking", "branch", "operation"] {
+        let (a, _remote_a, _) = ordinary_update_fixture();
+        let (b, _remote_b, _) = ordinary_update_fixture();
+        let token = Cancel::default();
+        let registered = [Repository::new(&a.0), Repository::new(&b.0)];
+        let prepared = Prepared::read_registered(&registered, &token).unwrap();
+        let a_head = a.git(&["rev-parse", "HEAD"]);
+        let a_fetch = fs::read(a.0.join(".git/FETCH_HEAD")).unwrap();
+        let b_head = b.git(&["rev-parse", "HEAD"]);
+        fs::write(b.0.join("draft"), "staged\n").unwrap();
+        b.git(&["add", "draft"]);
+        fs::write(b.0.join("draft"), "unstaged\n").unwrap();
+        match change {
+            "tracking" => {
+                b.git(&["branch", "--unset-upstream"]);
+            }
+            "branch" => {
+                b.git(&["checkout", "-b", "other", "--track", "origin/main"]);
+            }
+            "operation" => {
+                fs::write(b.0.join(".git/MERGE_HEAD"), format!("{b_head}\n")).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let index = fs::read(b.0.join(".git/index")).unwrap();
+        let result = prepared.group.execute_merge(
+            std::ffi::OsStr::new("false"),
+            &token,
+            &Default::default(),
+            None,
+        );
+        assert!(
+            result.is_err(),
+            "stale {change} must reject the whole preflight"
+        );
+        assert_eq!(a.git(&["rev-parse", "HEAD"]), a_head);
+        assert_eq!(fs::read(a.0.join(".git/FETCH_HEAD")).unwrap(), a_fetch);
+        assert_eq!(b.git(&["rev-parse", "HEAD"]), b_head);
+        assert_eq!(fs::read(b.0.join(".git/index")).unwrap(), index);
+        assert_eq!(fs::read(b.0.join("draft")).unwrap(), b"unstaged\n");
+    }
+}
+
+#[test]
 fn project_update_can_skip_primary_without_upstream_or_with_detached_head() {
     use plico::project_update::{Prepared, roots::SkipReason};
     for detached in [false, true] {

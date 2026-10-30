@@ -87,6 +87,9 @@ pub fn load(
     ids: &[String],
     token: &crate::git::Cancel,
 ) -> Result<Snapshot> {
+    let mut trace =
+        crate::performance_trace::Span::new("request", "log-selection", Some(&repo.path));
+    trace.outcome("error");
     if token.cancelled() {
         return Err("Cancelled".into());
     }
@@ -97,6 +100,7 @@ pub fn load(
         return Err("Invalid Log selection".into());
     }
     if ids.is_empty() {
+        trace.outcome("ok");
         return Ok(Snapshot {
             commits: vec![],
             files: vec![],
@@ -105,9 +109,10 @@ pub fn load(
     let shallow = repo.shallow_boundaries(token)?;
     let mut commits = repo.snapshot_commits(ids, ids, token)?.commits;
     let mut changes = Vec::new();
-    for commit in commits.iter_mut().rev() {
+    for commit in &mut commits {
         commit.shallow_boundary = shallow.1.contains(&commit.id);
-        let files = repo.log_commit_changes(commit, token)?;
+    }
+    for files in repo.log_commit_changes_batch(&commits.iter().rev().collect::<Vec<_>>(), token)? {
         if files.len() > crate::combined_changes::MAX_INPUT_CHANGES.saturating_sub(changes.len()) {
             return Err("Log preview exceeds the change limit".into());
         }
@@ -120,6 +125,7 @@ pub fn load(
     if token.cancelled() {
         return Err("Cancelled".into());
     }
+    trace.outcome("ok");
     Ok(Snapshot { commits, files })
 }
 

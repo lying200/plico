@@ -48,51 +48,98 @@ impl Review {
                         }
                         watched = Some(roots.clone());
                     }
-                    let notices = events.take(Instant::now());
+                    let mut notices = events.take(Instant::now());
+                    if events.configuration_due(&notices, Instant::now()) {
+                        let query_token = token.clone();
+                        let (next, updated, result) = wx
+                            .background_spawn(async move {
+                                let result = events.poll_configuration(
+                                    &mut notices,
+                                    Instant::now(),
+                                    &query_token,
+                                );
+                                (events, notices, result)
+                            })
+                            .await;
+                        events = next;
+                        notices = updated;
+                        if result.is_err() || token.cancelled() {
+                            break;
+                        }
+                    }
                     let poll_operations = roots_changed
                         || Instant::now() >= next_operations
                         || notices
                             .iter()
                             .any(|n| n.batch.all || n.batch.index || n.batch.refs);
                     if !notices.is_empty() {
-                        if this
-                            .update_in(wx, |s, window, cx| {
-                                if token.cancelled() || s.documents.locked() || s.operation.busy() {
-                                    return;
-                                }
-                                let primary = plico::recent_projects::identity(&s.repo.path);
-                                let refresh_shallow =
-                                    notices.iter().any(|notice| notice.batch.shallow);
-                                let refresh_project_log = s.log.project_window().is_some()
-                                    && !s.local
-                                    && notices.iter().any(|notice| {
-                                        notice.batch.history_changed()
-                                            && plico::recent_projects::identity(&notice.root)
-                                                != primary
-                                    });
-                                for notice in notices {
-                                    s.sync_repository_worktree(
-                                        &notice.root,
-                                        notice.batch,
-                                        notice.poll_documents,
-                                        window,
-                                        cx,
-                                    );
-                                }
-                                if refresh_shallow {
-                                    // The primary ref poll cannot detect unchanged tips
-                                    // with new ancestry. Refresh the catalog, rows and
-                                    // count together, once for all affected roots.
-                                    s.refresh_impl(false, true, None, cx);
-                                } else if refresh_project_log {
-                                    // One refresh for this whole batch, including events
-                                    // arriving while an older Log query was in flight.
-                                    s.reload_project_history(false, true, None, cx);
-                                }
+                        let configuration_roots: Vec<_> = notices
+                            .iter()
+                            .filter(|notice| {
+                                notice.batch.configuration || notice.batch.diff_configuration
                             })
-                            .is_err()
-                        {
-                            break;
+                            .map(|notice| notice.root.clone())
+                            .collect();
+                        let accepted = this.update_in(wx, |s, window, cx| {
+                            if token.cancelled()
+                                || s.documents.locked()
+                                || s.operation.busy()
+                                || s.repo.path != root
+                            {
+                                return false;
+                            }
+                            let primary = plico::recent_projects::identity(&s.repo.path);
+                            let refresh_shallow = notices
+                                .iter()
+                                .any(|notice| notice.batch.shallow || notice.batch.configuration);
+                            let refresh_project_log = s.log.project_window().is_some()
+                                && !s.local
+                                && notices.iter().any(|notice| {
+                                    notice.batch.history_changed()
+                                        && plico::recent_projects::identity(&notice.root) != primary
+                                });
+                            for notice in notices {
+                                s.sync_repository_worktree(
+                                    &notice.root,
+                                    notice.batch,
+                                    notice.poll_documents,
+                                    window,
+                                    cx,
+                                );
+                            }
+                            if refresh_shallow {
+                                // The primary ref poll cannot detect unchanged tips
+                                // with new ancestry. Refresh the catalog, rows and
+                                // count together, once for all affected roots.
+                                s.refresh_impl(false, true, None, cx);
+                            } else if refresh_project_log {
+                                // One refresh for this whole batch, including events
+                                // arriving while an older Log query was in flight.
+                                s.reload_project_history(false, true, None, cx);
+                            }
+                            // refresh_impl also resolves comparison pairs. Apply the
+                            // forced interpretation refresh last so its task cannot be
+                            // replaced by a same-pair, labels-only refresh above.
+                            for configuration_root in &configuration_roots {
+                                for view in &s.branch_compare_tabs {
+                                    view.update(cx, |view, cx| {
+                                        view.repository_changed(
+                                            configuration_root,
+                                            &Batch {
+                                                configuration: true,
+                                                ..Default::default()
+                                            },
+                                            cx,
+                                        )
+                                    });
+                                }
+                            }
+                            true
+                        });
+                        match accepted {
+                            Ok(true) => events.acknowledge_configuration(&configuration_roots),
+                            Ok(false) => {}
+                            Err(_) => break,
                         }
                     }
                     if poll_operations {
@@ -167,6 +214,24 @@ impl Review {
             == plico::recent_projects::identity(&self.repo.path);
         if !batch.changed() {
             return;
+        }
+        // A child history reload does not pass through refresh_impl, whose
+        // cache clear protects the primary Log. Invalidate this root's details,
+        // including packed replace refs and watcher rescan, without evicting
+        // unrelated roots. More precise ordinary-ref retention follows later.
+        if batch.history_changed() || batch.diff_configuration {
+            self.details_cache.invalidate_repository(root);
+        }
+        if batch.all
+            || batch.shallow
+            || batch.interpretation
+            || batch.configuration
+            || batch.diff_configuration
+        {
+            self.invalidate_loaded_details(root);
+        }
+        if batch.diff_configuration {
+            self.refresh_diff_configuration_details(root, cx);
         }
         if self
             .project_roots

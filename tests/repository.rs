@@ -118,6 +118,388 @@ fn merge_completion_and_abort_preserve_repository_state() {
     }
 }
 struct Fixture(PathBuf);
+
+#[test]
+fn parent_batch_splits_oversized_output_without_rejecting_valid_comparisons() {
+    use std::{io::Write, process::Stdio};
+    let f = Fixture::new();
+    f.write("a", "content\n");
+    f.commit("seed");
+    let blob = f.git(&["rev-parse", "HEAD:a"]);
+    let token = Cancel::default();
+    let repo = f.repo();
+    let mut commit = repo
+        .snapshot(None, 1, None, &token)
+        .unwrap()
+        .commits
+        .remove(0);
+    f.git(&["read-tree", "--empty"]);
+    // Build a large tree directly in the disposable index, without creating
+    // thousands of worktree files or exceeding platform filename limits.
+    let input: String = (0..4000)
+        .map(|i| format!("100644 {blob}\t{i:04}-{}\n", "x".repeat(210)))
+        .collect();
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(&f.0)
+        .args(["update-index", "--index-info"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    commit.id = f.git(&["commit-tree", &f.git(&["write-tree"]), "-m", "large root"]);
+    commit.parents.clear();
+    // Twelve individually valid records exceed the 8 MiB batch output limit.
+    let results = repo
+        .log_commit_changes_batch(&vec![&commit; 12], &token)
+        .unwrap();
+    assert_eq!(results.len(), 12);
+    let expected = repo.log_commit_changes(&commit, &token).unwrap();
+    assert_eq!(expected.len(), 4000);
+    assert!(results.iter().all(|result| result == &expected));
+}
+
+#[test]
+fn parent_batch_preserves_empty_merge_records_roots_and_chunk_boundaries() {
+    let f = Fixture::new();
+    f.write("a", "base\n");
+    f.commit("base");
+    let base = f.git(&["rev-parse", "HEAD"]);
+    f.write("a", "ours\n");
+    f.commit("ours");
+    let ours = f.git(&["rev-parse", "HEAD"]);
+    f.git(&["checkout", "-b", "topic", &base]);
+    f.write("a", "theirs\n");
+    f.commit("theirs");
+    let theirs = f.git(&["rev-parse", "HEAD"]);
+    let empty = f.git(&[
+        "commit-tree",
+        &format!("{ours}^{{tree}}"),
+        "-p",
+        &ours,
+        "-p",
+        &theirs,
+        "-m",
+        "empty parent",
+    ]);
+    let both = f.git(&[
+        "commit-tree",
+        &format!("{base}^{{tree}}"),
+        "-p",
+        &ours,
+        "-p",
+        &theirs,
+        "-m",
+        "both parents",
+    ]);
+    f.git(&["update-ref", "refs/heads/empty", &empty]);
+    f.git(&["update-ref", "refs/heads/both", &both]);
+    let token = Cancel::default();
+    let repo = f.repo();
+    let history = repo.snapshot(None, 20, None, &token).unwrap();
+    let find = |id: &str| history.commits.iter().find(|c| c.id == id).unwrap();
+    // Split a merge's parent records over the 32-query batch boundary.
+    let mut commits = vec![find(&base); 31];
+    commits.extend([
+        find(&empty),
+        find(&both),
+        find(&ours),
+        find(&theirs),
+        find(&base),
+    ]);
+    let actual = repo.log_commit_changes_batch(&commits, &token).unwrap();
+    for (commit, actual) in commits.iter().zip(&actual) {
+        assert_eq!(*actual, repo.log_commit_changes(commit, &token).unwrap());
+    }
+    assert!(actual[31].is_empty());
+    assert_eq!(actual[32].len(), 1);
+    let mut shallow = find(&base).clone();
+    shallow.shallow_boundary = true;
+    assert!(repo.log_commit_changes_batch(&[&shallow], &token).is_err());
+    let mut missing = find(&ours).clone();
+    missing.id = "1".repeat(40);
+    assert!(
+        repo.log_commit_changes_batch(&[find(&ours), &missing], &token)
+            .is_err()
+    );
+    token.cancel();
+    assert!(repo.log_commit_changes_batch(&[], &token).is_err());
+}
+
+#[test]
+fn metadata_batch_groups_roots_without_conflating_identical_oids() {
+    use plico::project_log::{Entry, selection};
+    use std::sync::Arc;
+    let first = Fixture::new();
+    first.write("a", "first\n");
+    first.commit("root original");
+    first.write("a", "second\n");
+    first.commit("tip original");
+    let second = Fixture::new();
+    second.git(&["fetch", first.0.to_str().unwrap(), "HEAD"]);
+    second.git(&["checkout", "--detach", "FETCH_HEAD"]);
+    let token = Cancel::default();
+    let commits = first
+        .repo()
+        .snapshot(None, 20, None, &token)
+        .unwrap()
+        .commits;
+    let replaced = second.git(&["commit-tree", "HEAD^{tree}", "-m", "other root replacement"]);
+    second.git(&["replace", &commits[0].id, &replaced]);
+    let entry = |root: &PathBuf, index: usize| Entry {
+        root: Arc::new(root.clone()),
+        commit: commits[index].clone(),
+        display_parents: None,
+    };
+    let entries = vec![entry(&first.0, 0), entry(&second.0, 0), entry(&first.0, 1)];
+    let details = selection::metadata(&entries, &token).unwrap();
+    assert_eq!(
+        details.iter().map(|d| d.message.trim()).collect::<Vec<_>>(),
+        ["tip original", "other root replacement", "root original"]
+    );
+    let mut missing = entries;
+    missing[1].commit.id = "1".repeat(40);
+    assert!(selection::metadata(&missing, &token).is_err());
+    token.cancel();
+    assert!(selection::metadata(&[], &token).is_err());
+}
+
+#[test]
+fn metadata_batch_preserves_full_text_order_and_rejects_partial_results() {
+    let f = Fixture::new();
+    f.write("a", "one\n");
+    f.commit("第一行\n\n正文\n带制表符\t和分隔符\u{1e}");
+    f.write("a", "two\n");
+    f.commit("second");
+    f.write("a", "three\n");
+    f.commit("third");
+    let repo = f.repo();
+    let token = Cancel::default();
+    let history = repo.snapshot(None, 20, None, &token).unwrap();
+    let mut selected = vec![history.commits[2].clone(), history.commits[0].clone()];
+    selected[0].id.make_ascii_uppercase();
+    selected[1].shallow_boundary = true;
+    let refs: Vec<_> = selected.iter().collect();
+    let actual = repo.commit_metadata_batch(&refs, &token).unwrap();
+    for (commit, actual) in refs.iter().zip(actual) {
+        let expected = repo.commit_metadata(commit, &token).unwrap();
+        assert_eq!(actual.message, expected.message);
+        assert_eq!(actual.author, expected.author);
+        assert_eq!(actual.authored, expected.authored);
+        assert_eq!(actual.committer, expected.committer);
+        assert_eq!(actual.committed, expected.committed);
+        assert_eq!(actual.base, expected.base);
+        assert!(actual.files.is_empty());
+    }
+    assert!(repo.commit_metadata_batch(&[], &token).unwrap().is_empty());
+    assert!(
+        repo.commit_metadata_batch(&[refs[0], refs[0]], &token)
+            .is_err()
+    );
+    let mut missing = selected[0].clone();
+    missing.id = "1".repeat(40);
+    assert!(
+        repo.commit_metadata_batch(&[refs[0], &missing], &token)
+            .is_err()
+    );
+    assert!(
+        repo.commit_metadata_batch(&vec![refs[0]; 51], &token)
+            .is_err()
+    );
+    token.cancel();
+    assert!(repo.commit_metadata_batch(&[], &token).is_err());
+}
+
+// These are cache-invalidation dependencies, not permission to ignore Git's
+// replacement/config semantics when introducing longer-lived detail caches.
+#[test]
+fn detail_content_can_change_without_oid_parent_or_shallow_key_changes() {
+    use std::sync::Arc;
+    let f = Fixture::new();
+    f.write("a", "base\n");
+    f.commit("base");
+    let parent = f.git(&["rev-parse", "HEAD"]);
+    f.write("a", "original\n");
+    f.commit("original message");
+    let original_id = f.git(&["rev-parse", "HEAD"]);
+    let token = Cancel::default();
+    let repo = f.repo();
+    let original = repo.snapshot(None, 20, None, &token).unwrap().commits[0].clone();
+    let details = Arc::new(repo.details(&original, &token).unwrap());
+    let observation = plico::branch_updates::HistoryObservation::read(&repo, &token).unwrap();
+    let mut cache = plico::detail_cache::Cache::default();
+    cache.insert(&repo.path, &original, details.clone());
+    let replacement = f.git(&[
+        "commit-tree",
+        &f.git(&["rev-parse", "HEAD^{tree}"]),
+        "-p",
+        &parent,
+        "-m",
+        "replacement message",
+    ]);
+    f.git(&["replace", &original_id, &replacement]);
+    let changed = repo.snapshot(None, 20, None, &token).unwrap().commits[0].clone();
+    assert_eq!(original.id, changed.id);
+    assert_eq!(original.parents, changed.parents);
+    assert_eq!(original.shallow_boundary, changed.shallow_boundary);
+    assert!(
+        !observation.unchanged(&repo, &token),
+        "replacement changes must invalidate a rendered history and no-op Fetch baseline"
+    );
+    let replacement_snapshot = repo.snapshot(None, 20, None, &token).unwrap();
+    assert!(!replacement_snapshot.tips.contains(&replacement));
+    assert!(
+        !replacement_snapshot
+            .branches
+            .iter()
+            .any(|branch| branch.name.starts_with("refs/replace/"))
+    );
+    assert_eq!(replacement_snapshot.commits.len(), 2);
+    let shared = plico::history::read(&repo, None, 0, 20, None, None, &token).unwrap();
+    assert_eq!(
+        shared.observation.unwrap(),
+        plico::branch_updates::HistoryObservation::read(&repo, &token).unwrap()
+    );
+    let fresh = repo.details(&changed, &token).unwrap();
+    assert!(
+        !observation
+            .references
+            .same_replacements(&plico::branch_updates::References::read(&repo, &token).unwrap())
+    );
+    assert_ne!(fresh.message, details.message);
+    assert!(fresh.message.contains("replacement message"));
+    assert!(Arc::ptr_eq(
+        &cache.get(&repo.path, &changed).unwrap(),
+        &details
+    ));
+    cache.clear(); // Current explicit refresh invalidates this interpretation.
+    cache.insert(&repo.path, &changed, Arc::new(fresh));
+    assert!(
+        cache
+            .get(&repo.path, &changed)
+            .unwrap()
+            .message
+            .contains("replacement message")
+    );
+    f.git(&["replace", "-d", &original_id]);
+    assert!(observation.unchanged(&repo, &token));
+    assert_eq!(
+        repo.details(&original, &token).unwrap().message,
+        details.message
+    );
+}
+
+#[test]
+fn detail_rename_detection_depends_on_config_even_for_fixed_commit_ids() {
+    let f = Fixture::new();
+    for (name, prefix) in [("old-a", "aaaa"), ("old-b", "bbbb")] {
+        f.write(
+            name,
+            &(0..30)
+                .map(|n| format!("{prefix} original line {n}\n"))
+                .collect::<String>(),
+        );
+    }
+    f.commit("base");
+    for (old, new, prefix) in [("old-a", "new-x", "aaaa"), ("old-b", "new-y", "bbbb")] {
+        fs::remove_file(f.0.join(old)).unwrap();
+        f.write(
+            new,
+            &(0..30)
+                .map(|n| {
+                    format!(
+                        "{prefix} {} line {n}\n",
+                        if n < 25 { "original" } else { "changed" }
+                    )
+                })
+                .collect::<String>(),
+        );
+    }
+    f.commit("rename files");
+    let repo = f.repo();
+    let token = Cancel::default();
+    let commit = repo.snapshot(None, 20, None, &token).unwrap().commits[0].clone();
+    f.git(&["config", "diff.renameLimit", "1"]);
+    let limited = repo.details(&commit, &token).unwrap();
+    f.git(&["config", "diff.renameLimit", "1000"]);
+    let expanded = repo.details(&commit, &token).unwrap();
+    assert_eq!(
+        limited.files.len(),
+        4,
+        "low limit skips exhaustive matching"
+    );
+    assert_eq!(expanded.files.len(), 2);
+    assert!(
+        expanded
+            .files
+            .iter()
+            .all(|change| change.old_path.is_some())
+    );
+    assert_eq!(limited.message, expanded.message);
+
+    // Config is an interpretation input, not necessarily a file in the
+    // observed worktree. A linked worktree reads the common config, and an
+    // included file can change without touching that config or any ref.
+    let linked_path = f.0.join("linked-audit");
+    f.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        linked_path.to_str().unwrap(),
+        "HEAD",
+    ]);
+    let linked = Repository::new(linked_path.clone());
+    let linked_before = plico::branch_updates::HistoryObservation::read(&linked, &token).unwrap();
+    f.git(&["config", "--unset", "diff.renameLimit"]);
+    f.git(&["config", "include.path", "rename-settings"]);
+    let common_config = fs::read(f.0.join(".git/config")).unwrap();
+    fs::write(
+        f.0.join(".git/rename-settings"),
+        "[diff]\nrenameLimit = 1\n",
+    )
+    .unwrap();
+    assert_eq!(linked.details(&commit, &token).unwrap().files.len(), 4);
+    fs::write(
+        f.0.join(".git/rename-settings"),
+        "[diff]\nrenameLimit = 1000\n",
+    )
+    .unwrap();
+    assert_eq!(linked.details(&commit, &token).unwrap().files.len(), 2);
+    assert_eq!(fs::read(f.0.join(".git/config")).unwrap(), common_config);
+    assert_eq!(
+        plico::branch_updates::HistoryObservation::read(&linked, &token).unwrap(),
+        linked_before,
+        "reference observation is not a config dependency fingerprint"
+    );
+
+    // Per-worktree config overrides common config only for its own worktree.
+    f.git(&["config", "extensions.worktreeConfig", "true"]);
+    f.git(&[
+        "-C",
+        linked_path.to_str().unwrap(),
+        "config",
+        "--worktree",
+        "diff.renameLimit",
+        "1",
+    ]);
+    assert_eq!(linked.details(&commit, &token).unwrap().files.len(), 4);
+    assert_eq!(repo.details(&commit, &token).unwrap().files.len(), 2);
+    f.git(&["worktree", "remove", linked_path.to_str().unwrap()]);
+}
+
 impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
@@ -1293,6 +1675,79 @@ fn full_diff_metadata_rename_retains_text_and_missing_newline() {
         repo.full_patch(Some(&commit), &change, &token).unwrap(),
         patch
     );
+}
+
+#[test]
+fn captured_diff_preserves_parent_and_empty_base_after_object_replacement() {
+    use plico::diff_target::Target;
+    for format in ["sha1", "sha256"] {
+        let container = Fixture::new();
+        let f = Fixture(container.0.join("objects"));
+        fs::create_dir(&f.0).unwrap();
+        f.git(&["init", "-b", "main", &format!("--object-format={format}")]);
+        f.git(&["config", "user.name", "Test"]);
+        f.git(&["config", "user.email", "test@example.invalid"]);
+        f.git(&["config", "commit.gpgsign", "false"]);
+        let repo = f.repo();
+        let token = Cancel::default();
+        f.write("a.txt", "base\n");
+        f.commit("root");
+        let root = repo
+            .snapshot(None, 1, None, &token)
+            .unwrap()
+            .commits
+            .remove(0);
+        let root_file = repo.details(&root, &token).unwrap().files.remove(0);
+        let root_target = Target::new(repo.clone(), Some(root.clone()), root_file).unwrap();
+        f.write("a.txt", "ours\n");
+        f.commit("review");
+        let commit = repo
+            .snapshot(None, 1, None, &token)
+            .unwrap()
+            .commits
+            .remove(0);
+        let file = repo.details(&commit, &token).unwrap().files.remove(0);
+        let target = Target::new(repo.clone(), Some(commit.clone()), file).unwrap();
+        let original = target.read_full(&token).unwrap();
+        f.write("a.txt", "theirs\n");
+        f.commit("later");
+        let later = f.git(&["rev-parse", "HEAD"]);
+        // The replacement's own first-parent comparison is empty. An opened
+        // comparison still owns its earlier base (or an absent root base).
+        let replacement = f.git(&[
+            "commit-tree",
+            "HEAD^{tree}",
+            "-p",
+            &later,
+            "-m",
+            "replacement",
+        ]);
+        f.git(&["replace", &commit.id, &replacement]);
+        let patch = target.read_full(&token).unwrap();
+        assert!(patch.contains("-base\n+theirs\n"), "{format}: {patch}");
+        let contents = plico::combined_changes::read_contents(
+            &repo,
+            &target.committed_endpoints().unwrap(),
+            &token,
+        )
+        .unwrap();
+        assert_eq!(contents.before.as_deref(), Some("base\n"));
+        assert_eq!(contents.after.as_deref(), Some("theirs\n"));
+        assert_eq!(target.identity().parents, commit.parents);
+        f.git(&["replace", "-d", &commit.id]);
+        assert_eq!(target.read_full(&token).unwrap(), original);
+        f.git(&["replace", &root.id, &replacement]);
+        let patch = root_target.read_full(&token).unwrap();
+        assert!(patch.contains("new file mode"), "{format}: {patch}");
+        assert!(patch.contains("+theirs\n"), "{format}: {patch}");
+        assert!(!patch.contains("-ours"));
+        f.git(&["replace", "-d", &root.id]);
+        let cancelled = Cancel::default();
+        cancelled.cancel();
+        assert!(target.read_full(&cancelled).is_err());
+        assert_eq!(f.git(&["rev-parse", "HEAD"]), later);
+        assert!(f.git(&["status", "--porcelain"]).is_empty());
+    }
 }
 
 #[test]
@@ -7366,6 +7821,10 @@ fn combined_revision_contents_are_full_literal_and_distinguish_absence() {
     f.write("empty", "");
     fs::write(f.0.join("binary"), b"a\0b").unwrap();
     fs::write(f.0.join("non-utf8"), [0xff]).unwrap();
+    fs::create_dir(f.0.join("directory")).unwrap();
+    f.write("directory/file", "nested");
+    #[cfg(unix)]
+    f.write("line\nbreak", "literal newline path");
     f.commit("base");
     let base = f.git(&["rev-parse", "HEAD"]);
     f.git(&["mv", "old[1].txt", "new[2].txt"]);
@@ -7414,7 +7873,7 @@ fn combined_revision_contents_are_full_literal_and_distinguish_absence() {
     .unwrap();
     assert_eq!(deleted.before.as_deref(), Some(original.as_str()));
     assert!(deleted.after.is_none());
-    for path in ["binary", "non-utf8", "missing", "../outside"] {
+    for path in ["binary", "non-utf8", "missing", "directory", "../outside"] {
         assert!(
             read_contents(
                 &repo,
@@ -7427,6 +7886,20 @@ fn combined_revision_contents_are_full_literal_and_distinguish_absence() {
             .is_err(),
             "{path}"
         );
+    }
+    #[cfg(unix)]
+    {
+        let contents = read_contents(
+            &repo,
+            &Combined {
+                before: Some(revision(&base, "line\nbreak")),
+                after: Some(revision(&base, "empty")),
+            },
+            &token,
+        )
+        .unwrap();
+        assert_eq!(contents.before.as_deref(), Some("literal newline path"));
+        assert_eq!(contents.after.as_deref(), Some(""));
     }
     token.cancel();
     assert!(read_contents(&repo, &change, &token).is_err());

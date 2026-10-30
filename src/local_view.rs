@@ -635,7 +635,7 @@ mod refresh_tests {
             let query = cx.new(|_| {
                 crate::changes_refresh::ChangesRefresh::with_loader(
                     Repository::new("unused"),
-                    std::rc::Rc::new(move |_, _, _, cx| {
+                    std::rc::Rc::new(move |_, _, _, _, cx| {
                         let n = count.get() + 1;
                         count.set(n);
                         let timer =

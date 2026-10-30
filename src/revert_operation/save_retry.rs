@@ -322,7 +322,10 @@ impl SavedPending {
 }
 impl SavedChanges {
     pub fn record_exists(repo: &Repository, token: &Cancel) -> Result<bool, String> {
-        match fs::symlink_metadata(repo.editor_directory(token)?.join(NAME)) {
+        Self::record_exists_at(&repo.editor_directory(token)?)
+    }
+    pub(crate) fn record_exists_at(directory: &std::path::Path) -> Result<bool, String> {
+        match fs::symlink_metadata(directory.join(NAME)) {
             Ok(_) => Ok(true),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e.to_string()),

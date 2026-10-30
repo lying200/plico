@@ -30,6 +30,15 @@ pub struct HistoryObservation {
     shallow: (bool, std::collections::HashSet<String>),
 }
 impl HistoryObservation {
+    pub(crate) fn from_parts(
+        references: References,
+        shallow: (bool, std::collections::HashSet<String>),
+    ) -> Self {
+        Self {
+            references,
+            shallow,
+        }
+    }
     pub fn read(repo: &Repository, token: &Cancel) -> Result<Self> {
         Ok(Self {
             references: References::read(repo, token)?,
@@ -56,8 +65,20 @@ pub enum RemoteState {
     Unfetched,
 }
 impl References {
+    pub fn same_replacements(&self, other: &Self) -> bool {
+        self.fingerprint
+            .lines()
+            .filter(|line| line.starts_with("refs/replace/"))
+            .eq(other
+                .fingerprint
+                .lines()
+                .filter(|line| line.starts_with("refs/replace/")))
+    }
     pub fn read(repo: &Repository, token: &Cancel) -> Result<Self> {
-        let refs=repo.text(&["for-each-ref", "--format=%(refname)%09%(objectname)%09%(HEAD)%09%(upstream)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(push)","refs/heads","refs/remotes","refs/tags"],token)?;
+        // Replacement objects can change history and details without moving
+        // HEAD or ordinary branch/tag refs. They invalidate the observation,
+        // but never become displayed branches or incoming/outgoing targets.
+        let refs=repo.text(&["for-each-ref", "--format=%(refname)%09%(objectname)%09%(HEAD)%09%(upstream)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(push)","refs/heads","refs/remotes","refs/tags","refs/replace"],token)?;
         let head = repo
             .text(&["rev-parse", "--verify", "HEAD"], token)
             .ok()
@@ -65,6 +86,9 @@ impl References {
         if token.cancelled() {
             return Err("Cancelled".into());
         }
+        Ok(Self::from_records(refs, head))
+    }
+    pub(crate) fn from_records(refs: String, head: Option<String>) -> Self {
         let rows = refs
             .lines()
             .map(|s| s.split('\t').collect::<Vec<_>>())
@@ -84,13 +108,13 @@ impl References {
                 oid: oids.get(r[3]).map(|s| s.to_string()),
             });
         let push_oid = current.and_then(|r| oids.get(r[6])).map(|s| s.to_string());
-        Ok(Self {
+        Self {
             fingerprint: refs,
             head,
             branch,
             upstream,
             push_oid,
-        })
+        }
     }
     pub fn counts(&self, repo: &Repository, token: &Cancel) -> Result<Counts> {
         let Some(head) = &self.head else {

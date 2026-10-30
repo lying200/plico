@@ -37,8 +37,9 @@ impl GitPaths {
         }
         if let Some(relative) = relative(path, &self.common) {
             // A linked worktree must not observe the main/another worktree's
-            // HEAD, index or sequencer as its own. Only shared refs and shallow boundaries enter here.
+            // HEAD, index or sequencer as its own. Config, refs and shallow are shared.
             if relative == Path::new("packed-refs")
+                || relative == Path::new("config")
                 || relative == Path::new("shallow")
                 || relative.starts_with("refs")
                 || relative.starts_with("reftable")
@@ -115,8 +116,20 @@ mod tests {
             paths.route(root, Path::new("/main/.git/shallow")),
             Some(root.join(".git/shallow"))
         );
+        assert_eq!(
+            paths.route(root, Path::new("/main/.git/config")),
+            Some(root.join(".git/config"))
+        );
+        assert_eq!(
+            paths.route(
+                root,
+                Path::new("/main/.git/worktrees/topic/config.worktree")
+            ),
+            Some(root.join(".git/config.worktree"))
+        );
         for path in [
             "/main/.git/index",
+            "/main/.git/config.worktree",
             "/main/.git/HEAD",
             "/main/.git/worktrees/other/index",
             "/main/.git/objects/ab/cd",

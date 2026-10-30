@@ -76,7 +76,10 @@ impl View {
             && plico::recent_projects::identity(root)
                 == plico::recent_projects::identity(&self.repo.path)
         {
-            self.refresh(false, cx);
+            self.refresh(
+                batch.configuration || batch.interpretation || batch.shallow || batch.all,
+                cx,
+            );
         }
     }
     pub(super) fn refresh(&mut self, force: bool, cx: &mut Context<Self>) {

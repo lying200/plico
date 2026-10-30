@@ -525,6 +525,7 @@ impl Review {
                             }
                             Err(error) => s.error = Some(error),
                         }
+                        s.flush_pending_log_details(cx);
                         cx.notify();
                     });
                 });

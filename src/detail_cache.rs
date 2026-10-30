@@ -26,6 +26,13 @@ impl Cache {
         self.entries.clear();
         self.bytes = 0;
     }
+    /// Repository interpretation changed; keep unrelated roots' bounded data.
+    pub fn invalidate_repository(&mut self, repository: &Path) {
+        let identity = crate::recent_projects::identity(repository);
+        self.entries
+            .retain(|entry| crate::recent_projects::identity(&entry.repository) != identity);
+        self.bytes = self.entries.iter().map(|entry| entry.bytes).sum();
+    }
     pub fn get(&mut self, repository: &Path, commit: &Commit) -> Option<Arc<Details>> {
         let index = self.entries.iter().position(|entry| {
             entry.repository == repository
@@ -142,6 +149,23 @@ mod tests {
         assert!(cache.bytes <= MAX_BYTES);
         cache.clear();
         assert!(cache.get(path, &commit(0)).is_none());
+        assert_eq!(cache.bytes, 0);
+    }
+    #[test]
+    fn repository_invalidation_preserves_other_roots_and_releases_budget() {
+        let mut cache = Cache::default();
+        let value = details("message".into());
+        cache.insert(Path::new("parent"), &commit(0), value.clone());
+        cache.insert(Path::new("child"), &commit(0), value.clone());
+        let bytes = cache.bytes;
+        cache.invalidate_repository(Path::new("child"));
+        assert!(cache.get(Path::new("child"), &commit(0)).is_none());
+        assert!(Arc::ptr_eq(
+            &cache.get(Path::new("parent"), &commit(0)).unwrap(),
+            &value
+        ));
+        assert!(cache.bytes < bytes);
+        cache.invalidate_repository(Path::new("parent"));
         assert_eq!(cache.bytes, 0);
     }
 }

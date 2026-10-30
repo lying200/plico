@@ -137,13 +137,22 @@ fn run_inner(
     input: Option<&[u8]>,
     output: Option<std::fs::File>,
 ) -> io::Result<Outcome> {
+    use crate::performance_trace::{Phase, Span};
+    let mut trace = Span::new(
+        "operation",
+        crate::performance_trace::command_name(command.get_args()),
+        crate::performance_trace::command_root(command),
+    );
+    trace.outcome("error");
     if cancel.cancelled() {
+        trace.outcome("cancelled");
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
             "Cancelled before start",
         ));
     }
     *progress.0.lock().unwrap_or_else(|e| e.into_inner()) = Tail::default();
+    trace.phase(Phase::Spawn);
     let mut tree = ProcessTree::spawn(
         command
             .stdin(if input.is_some() {
@@ -154,6 +163,7 @@ fn run_inner(
             .stdout(output.map(Stdio::from).unwrap_or_else(Stdio::piped))
             .stderr(Stdio::piped()),
     )?;
+    trace.phase(Phase::Run);
     let out = tree.child.stdout.take();
     let err = tree.child.stderr.take().unwrap();
     let stdin = tree.child.stdin.take();
@@ -195,6 +205,7 @@ fn run_inner(
         };
         // Even on successful leader exit, helpers may still hold inherited pipes.
         // Drop closes the owned tree before waiting for EOF from either reader.
+        trace.phase(Phase::Drain);
         drop(tree);
         let out = stdout
             .join()
@@ -215,6 +226,12 @@ fn run_inner(
         }
         let (stdout, stdout_events, stdout_commit) = out??;
         let (stderr, stderr_events, stderr_commit) = err??;
+        trace.outcome(match stopped {
+            Some(StopReason::Cancelled) => "cancelled",
+            Some(StopReason::TimedOut) => "timeout",
+            None if status.as_ref().is_ok_and(|s| s.success()) && input_error.is_none() => "ok",
+            None => "error",
+        });
         Ok(Outcome {
             status: status?,
             stopped,

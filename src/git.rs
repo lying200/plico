@@ -1,10 +1,13 @@
 //! Read-only Git access. Commands are bounded, cancellable, and never invoke external diffs.
+#[path = "git_history_inputs.rs"]
+mod history_inputs;
 #[path = "git_push_changes.rs"]
 mod push_changes;
+pub(crate) use history_inputs::HistoryInputs;
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
@@ -570,10 +573,17 @@ impl Repository {
     /// inferring conflict state from a failed command's translated stderr.
     pub fn operation_state(&self, token: &Cancel) -> Result<crate::operation_state::State> {
         let directory = self.editor_directory(token)?;
+        self.operation_state_in(&directory, token)
+    }
+    pub(crate) fn operation_state_in(
+        &self,
+        directory: &Path,
+        token: &Cancel,
+    ) -> Result<crate::operation_state::State> {
         let detached = self
             .text(&["symbolic-ref", "--quiet", "HEAD"], token)
             .is_err();
-        self.operation_state_at(&directory, detached, token)
+        self.operation_state_at(directory, detached, token)
     }
     /// Reuse identity freshly read by the caller within this same check, never
     /// a cached dialog snapshot. Markers and unmerged index entries are always
@@ -909,6 +919,19 @@ impl Repository {
     pub(crate) fn read(&self, args: &[&OsStr], token: &Cancel) -> Result<Vec<u8>> {
         self.read_stream(args, token, |out, flag| drain(out, OUTPUT_LIMIT, flag))
     }
+    pub(crate) fn read_with_input(
+        &self,
+        args: &[&OsStr],
+        input: Vec<u8>,
+        token: &Cancel,
+    ) -> Result<Vec<u8>> {
+        if input.len() > OUTPUT_LIMIT {
+            return Err("Git query input exceeds the 8 MiB limit".into());
+        }
+        self.read_stream_input(args, Some(input), token, |out, flag| {
+            drain(out, OUTPUT_LIMIT, flag)
+        })
+    }
     fn read_stream<T: Send + 'static>(
         &self,
         args: &[&OsStr],
@@ -917,43 +940,84 @@ impl Repository {
         + Send
         + 'static,
     ) -> Result<T> {
+        self.read_stream_input(args, None, token, consume)
+    }
+    fn read_stream_input<T: Send + 'static>(
+        &self,
+        args: &[&OsStr],
+        input: Option<Vec<u8>>,
+        token: &Cancel,
+        consume: impl FnOnce(std::process::ChildStdout, Arc<AtomicBool>) -> std::io::Result<T>
+        + Send
+        + 'static,
+    ) -> Result<T> {
+        use crate::performance_trace::{Phase, Span};
+        let mut trace = Span::new(
+            "query",
+            crate::performance_trace::command_name(args.iter().copied()),
+            Some(&self.path),
+        );
+        trace.outcome("error");
         if token.cancelled() {
+            trace.outcome("cancelled");
             return Err("Cancelled".into());
         }
         let mut command = self.command();
+        trace.phase(Phase::Spawn);
         let mut tree = crate::process_tree::ProcessTree::spawn(
             command
                 .args(args)
-                .stdin(Stdio::null())
+                .stdin(if input.is_some() {
+                    Stdio::piped()
+                } else {
+                    Stdio::null()
+                })
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()),
         )
         .map_err(|e| format!("Cannot start Git: {e}"))?;
+        trace.phase(Phase::Run);
         let out = tree.child.stdout.take().unwrap();
         let err = tree.child.stderr.take().unwrap();
         let overflow = Arc::new(AtomicBool::new(false));
         let flag = overflow.clone();
+        let tracing = trace.enabled();
         let stdout = thread::spawn(move || {
+            let started = tracing.then(Instant::now);
             let result = consume(out, flag.clone());
             if result.is_err() {
                 flag.store(true, Ordering::Relaxed);
             }
-            result
+            (result, started.map(|s| s.elapsed()))
         });
         // Diagnostic chatter is not query data. Drain it to avoid blocking Git,
         // but retain only a bounded prefix; warnings must not trip stdout's cap.
         let stderr = thread::spawn(move || drain_diagnostics(err, 64 * 1024));
+        let write_failed = Arc::new(AtomicBool::new(false));
+        let writer = input.zip(tree.child.stdin.take()).map(|(input, mut pipe)| {
+            let failed = write_failed.clone();
+            thread::spawn(move || {
+                let result = pipe.write_all(&input);
+                if result.is_err() {
+                    failed.store(true, Ordering::Release);
+                }
+                result
+            })
+        });
         let start = Instant::now();
         let mut aborted = None;
         let status = loop {
             if token.cancelled()
                 || overflow.load(Ordering::Relaxed)
+                || write_failed.load(Ordering::Acquire)
                 || start.elapsed() > Duration::from_secs(30)
             {
                 aborted = Some(if token.cancelled() {
                     "Cancelled"
                 } else if overflow.load(Ordering::Relaxed) {
                     "Git output exceeds the 8 MiB limit; choose a smaller scope"
+                } else if write_failed.load(Ordering::Acquire) {
+                    "Could not deliver Git query input"
                 } else {
                     "Git timed out after 30 seconds"
                 });
@@ -972,21 +1036,31 @@ impl Repository {
         };
         // Git launchers/helpers can inherit the pipes; reap the entire owned tree
         // before joining readers, including when the launcher has already exited.
+        trace.phase(Phase::Drain);
         let _ = tree.terminate();
         // Join both readers even if one fails; no detached pipe reader survives
         // completion or cancellation of the owning request.
         let output = stdout.join();
         let error = stderr.join();
+        let input_result = writer.map(|writer| writer.join());
         if token.cancelled() {
+            trace.outcome("cancelled");
             return Err("Cancelled".into());
         }
-        let output = output
-            .map_err(|_| "Output reader failed")?
-            .map_err(|e| e.to_string())?;
+        let (output, output_time) = output.map_err(|_| "Output reader failed")?;
+        trace.output_time(output_time);
+        let output = output.map_err(|e| e.to_string())?;
         let error = error
             .map_err(|_| "Error reader failed")?
             .map_err(|e| e.to_string())?;
         if let Some(message) = aborted {
+            trace.outcome(if message == "Git timed out after 30 seconds" {
+                "timeout"
+            } else if message == "Could not deliver Git query input" {
+                "input-error"
+            } else {
+                "output-limit"
+            });
             return Err(message.into());
         }
         if overflow.load(Ordering::Relaxed) {
@@ -995,6 +1069,12 @@ impl Repository {
         if !status.map_err(|e| e.to_string())?.success() {
             return Err(String::from_utf8_lossy(&error).trim().to_owned());
         }
+        if let Some(result) = input_result {
+            result
+                .map_err(|_| "Git input writer failed")?
+                .map_err(|e| e.to_string())?;
+        }
+        trace.outcome("ok");
         Ok(output)
     }
     pub(crate) fn text(&self, args: &[&str], token: &Cancel) -> Result<String> {
@@ -1295,7 +1375,16 @@ impl Repository {
     /// Branch menus need reference metadata, not a history page. Reuse the
     /// same peeling/parser rules with an explicitly empty commit selection.
     pub fn reference_snapshot(&self, token: &Cancel) -> Result<Snapshot> {
-        self.snapshot_query(&[], 0, 1, None, None, Some(&[]), token)
+        self.snapshot_query(
+            &self.history_inputs(token)?,
+            &[],
+            0,
+            1,
+            None,
+            None,
+            Some(&[]),
+            token,
+        )
     }
 
     pub fn snapshot(
@@ -1348,7 +1437,28 @@ impl Repository {
         text_filter: Option<&LogFilter>,
         token: &Cancel,
     ) -> Result<Snapshot> {
+        self.snapshot_branches_with_inputs(
+            &self.history_inputs(token)?,
+            branches,
+            offset,
+            limit,
+            fixed_tips,
+            text_filter,
+            token,
+        )
+    }
+    pub(crate) fn snapshot_branches_with_inputs(
+        &self,
+        inputs: &HistoryInputs,
+        branches: &[String],
+        offset: usize,
+        limit: usize,
+        fixed_tips: Option<&[String]>,
+        text_filter: Option<&LogFilter>,
+        token: &Cancel,
+    ) -> Result<Snapshot> {
         let mut snapshot = self.snapshot_query(
+            inputs,
             branches,
             offset,
             limit,
@@ -1365,7 +1475,8 @@ impl Repository {
                 .iter()
                 .map(|c| c.id.clone())
                 .collect::<Vec<_>>();
-            let original = self.snapshot_commits(&ids, &snapshot.tips, token)?;
+            let original =
+                self.snapshot_commits_with_inputs(inputs, &ids, &snapshot.tips, token)?;
             snapshot.commits = original.commits;
         }
         Ok(snapshot)
@@ -1380,7 +1491,20 @@ impl Repository {
         if ids.len() > HISTORY_MAX || ids.iter().any(|id| !is_oid(id)) {
             return Err("Invalid selected history IDs".into());
         }
+        self.snapshot_commits_with_inputs(&self.history_inputs(token)?, ids, roots, token)
+    }
+    pub(crate) fn snapshot_commits_with_inputs(
+        &self,
+        inputs: &HistoryInputs,
+        ids: &[String],
+        roots: &[String],
+        token: &Cancel,
+    ) -> Result<Snapshot> {
+        if ids.len() > HISTORY_MAX || ids.iter().any(|id| !is_oid(id)) {
+            return Err("Invalid selected history IDs".into());
+        }
         self.snapshot_query(
+            inputs,
             &[],
             0,
             ids.len().max(1),
@@ -1392,6 +1516,7 @@ impl Repository {
     }
     fn snapshot_query(
         &self,
+        inputs: &HistoryInputs,
         selected_branches: &[String],
         offset: usize,
         limit: usize,
@@ -1400,21 +1525,17 @@ impl Repository {
         selected: Option<&[String]>,
         token: &Cancel,
     ) -> Result<Snapshot> {
+        if inputs.path != self.path {
+            return Err("History inputs belong to another repository".into());
+        }
+        if token.cancelled() {
+            return Err("Cancelled".into());
+        }
         if let Some(filter) = text_filter {
             filter.validate_paths()?;
         }
-        self.text(&["rev-parse", "--git-dir"], token)?;
-        let refs = self.text(
-            &[
-                "for-each-ref",
-                "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream)%00%(upstream:remotename)%00%(objecttype)%00%(*objecttype)",
-                "refs/heads",
-                "refs/remotes",
-                "refs/tags",
-            ],
-            token,
-        )?;
-        let remotes = self.text(&["remote"], token)?;
+        let refs = &inputs.refs;
+        let remotes = &inputs.remotes;
         let remotes: Vec<_> = remotes.lines().collect();
         let mut upstreams = HashMap::new();
         let mut decorations: HashMap<String, Vec<RefLabel>> = HashMap::new();
@@ -1423,8 +1544,13 @@ impl Repository {
         let mut tips = vec![];
         for line in refs.lines() {
             let fields = line.split('\0').collect::<Vec<_>>();
-            if fields.len() != 7 {
+            if fields.len() != 10 {
                 return Err("Invalid refs record".into());
+            }
+            // Included only in the refresh fingerprint. Traversing replacement
+            // targets as extra roots would invent commits in the displayed Log.
+            if fields[0].starts_with("refs/replace/") {
+                continue;
             }
             if let (Some(local), Some(remote)) = (
                 fields[0].strip_prefix("refs/heads/"),
@@ -1465,7 +1591,7 @@ impl Repository {
                             &[
                                 "rev-parse",
                                 "--verify",
-                                &format!("{}^{{commit}}", fields[0]),
+                                &format!("{}^{{commit}}", fields[1]),
                             ],
                             token,
                         )
@@ -1488,10 +1614,8 @@ impl Repository {
                 tips.push(fields[1].into());
             }
         }
-        let mut head_id = None;
-        if let Ok(head) = self.text(&["rev-parse", "--verify", "HEAD"], token) {
-            let id = head.trim().to_owned();
-            head_id = Some(id.clone());
+        let head_id = inputs.head.clone();
+        if let Some(id) = head_id.clone() {
             decorations.entry(id.clone()).or_default().push(RefLabel {
                 kind: RefKind::Head,
                 name: "HEAD".into(),
@@ -1524,7 +1648,7 @@ impl Repository {
         if tips.iter().any(|s| !is_oid(s)) {
             return Err("Invalid history root".into());
         }
-        let (shallow, boundaries) = self.shallow_boundaries(token)?;
+        let (shallow, boundaries) = &inputs.shallow;
         let mut commits = vec![];
         if !tips.is_empty() && !text_filter.is_some_and(LogFilter::matches_no_authors) {
             let count = format!("--max-count={}", limit.clamp(1, HISTORY_MAX) + 1);
@@ -1578,14 +1702,7 @@ impl Repository {
 
         let more = commits.len() > limit.clamp(1, HISTORY_MAX);
         commits.truncate(limit.clamp(1, HISTORY_MAX));
-        let current_branch = self
-            .text(&["symbolic-ref", "--quiet", "HEAD"], token)
-            .ok()
-            .and_then(|name| {
-                name.trim_end()
-                    .strip_prefix("refs/heads/")
-                    .map(str::to_owned)
-            });
+        let current_branch = inputs.branch.clone();
         let ref_titles = Arc::new(
             decorations
                 .iter()
@@ -1631,7 +1748,7 @@ impl Repository {
             tags,
             tips,
             more,
-            shallow,
+            shallow: *shallow,
         })
     }
     /// One streaming walk, not repeated --skip queries through all of HEAD.
@@ -2164,19 +2281,22 @@ impl Repository {
     fn working_tree_base(&self, token: &Cancel) -> Result<String> {
         match crate::commit_operation::head(self, token)? {
             Some(head) => Ok(head),
-            // Compute the repository-format empty tree without writing an object.
-            None => Ok(utf8(self.read(
-                &[
-                    OsStr::new("hash-object"),
-                    OsStr::new("-t"),
-                    OsStr::new("tree"),
-                    OsStr::new("--stdin"),
-                ],
-                token,
-            )?)?
-            .trim()
-            .to_owned()),
+            None => self.empty_tree_id(token),
         }
+    }
+    // Compute the repository-format empty tree without writing an object.
+    fn empty_tree_id(&self, token: &Cancel) -> Result<String> {
+        Ok(utf8(self.read(
+            &[
+                OsStr::new("hash-object"),
+                OsStr::new("-t"),
+                OsStr::new("tree"),
+                OsStr::new("--stdin"),
+            ],
+            token,
+        )?)?
+        .trim()
+        .to_owned())
     }
     /// Compare two immutable revision trees (Rebased GitChangeUtils.getDiff,
     /// two-dot semantics). Neither ancestry nor the current HEAD is implied.
@@ -2414,6 +2534,18 @@ impl Repository {
         } else {
             None
         };
+        let commit_base = if change.area == Area::Commit {
+            let commit = commit.ok_or("Select a commit")?;
+            if !is_oid(&commit.id) || commit.parents.iter().any(|id| !is_oid(id)) {
+                return Err("Invalid commit ID".into());
+            }
+            Some(match commit.parents.first() {
+                Some(parent) => parent.clone(),
+                None => self.empty_tree_id(token)?,
+            })
+        } else {
+            None
+        };
         let mut args = vec![
             "diff",
             "--no-color",
@@ -2426,27 +2558,11 @@ impl Repository {
             "--submodule=short",
             "--ignore-submodules=none",
         ];
-        if change.area == Area::Commit {
-            let c = commit.ok_or("Select a commit")?;
-            if !is_oid(&c.id) {
-                return Err("Invalid commit ID".into());
-            }
-            args = vec![
-                "show",
-                "--format=",
-                "--no-show-signature",
-                "--no-color",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--diff-merges=first-parent",
-                "--find-renames",
-                "--src-prefix=a/",
-                "--dst-prefix=b/",
-                context,
-                "--submodule=short",
-                "--ignore-submodules=none",
-                &c.id,
-            ];
+        if let Some(base) = &commit_base {
+            // The displayed comparison owns its parent. `show` would resolve
+            // a different parent after replace/graft interpretation changes.
+            args.push(base);
+            args.push(&commit.unwrap().id);
         } else if change.area == Area::Staged {
             args.push("--cached");
         }
@@ -2778,6 +2894,77 @@ mod query_cancellation_tests {
             start.elapsed() < Duration::from_secs(2),
             "descendant kept query pipes open: {:?}",
             start.elapsed()
+        );
+    }
+}
+
+#[cfg(test)]
+mod query_input_tests {
+    use super::*;
+    #[test]
+    fn input_writer_is_joined_when_git_never_reads_or_exits_early() {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = Fixture(std::env::temp_dir().join(format!(
+            "plico-query-input-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        )));
+        std::fs::create_dir(&dir.0).unwrap();
+        assert!(
+            Command::new("git")
+                .args(["init", "-q"])
+                .arg(&dir.0)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let repo = Repository::new(&dir.0);
+        let token = Cancel::default();
+        let worker_token = token.clone();
+        let marker = dir.0.join("ready");
+        let cancel = thread::spawn(move || {
+            let started = Instant::now();
+            while !marker.exists() && started.elapsed() < Duration::from_secs(5) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            let ready = marker.exists();
+            worker_token.cancel();
+            ready
+        });
+        let result = repo.read_with_input(
+            &[
+                OsStr::new("-c"),
+                OsStr::new("alias.slow=!echo ready > ready; sleep 10"),
+                OsStr::new("slow"),
+            ],
+            vec![b'x'; OUTPUT_LIMIT],
+            &token,
+        );
+        assert!(
+            cancel.join().unwrap(),
+            "Git helper must start before cancellation"
+        );
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        assert!(
+            repo.read_with_input(
+                &[
+                    OsStr::new("-c"),
+                    OsStr::new("alias.early=!exit 0"),
+                    OsStr::new("early")
+                ],
+                vec![b'x'; OUTPUT_LIMIT],
+                &Cancel::default(),
+            )
+            .is_err(),
+            "successful Git exit cannot hide failed input delivery"
+        );
+        assert!(
+            repo.read_with_input(&[], vec![0; OUTPUT_LIMIT + 1], &Cancel::default())
+                .is_err()
         );
     }
 }

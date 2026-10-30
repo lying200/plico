@@ -215,6 +215,7 @@ fn fixture_window(commits: Vec<Commit>) -> history::Window {
     };
     let rows = plico::graph::layout(&snapshot.commits);
     history::Window {
+        observation: None,
         snapshot,
         rows,
         projected_parents: None,

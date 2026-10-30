@@ -32,15 +32,16 @@ pub fn read_contents(
     change: &Change,
     token: &crate::git::Cancel,
 ) -> Result<Contents, String> {
-    use std::{
-        ffi::{OsStr, OsString},
-        path::Component,
-    };
-    fn read(
-        repo: &crate::git::Repository,
-        revision: &Revision,
-        token: &crate::git::Cancel,
-    ) -> Result<String, String> {
+    use std::{ffi::OsStr, path::Component};
+    if change.before.is_none() && change.after.is_none() {
+        return Err("Change has no revisions".into());
+    }
+    if token.cancelled() {
+        return Err("Cancelled".into());
+    }
+    let mut input = Vec::new();
+    let mut count = 0;
+    for revision in change.before.iter().chain(change.after.iter()) {
         if !crate::git::is_oid(&revision.revision)
             || revision.path.as_os_str().is_empty()
             || revision
@@ -50,45 +51,71 @@ pub fn read_contents(
         {
             return Err("Invalid preview revision or file path".into());
         }
-        let mut spec = OsString::from(&revision.revision);
-        spec.push(":");
-        spec.push(&revision.path);
-        // Raw immutable blob content: never run repository filters/textconv or
-        // interpret a tree/gitlink as text. Paths are literal, not pathspecs.
-        let bytes = repo.read(&[OsStr::new("cat-file"), OsStr::new("blob"), &spec], token)?;
-        if bytes.contains(&0) {
-            return Err("Binary file — text preview unavailable".into());
-        }
-        String::from_utf8(bytes).map_err(|_| "Non-UTF-8 text cannot be displayed safely".into())
+        input.extend_from_slice(revision.revision.as_bytes());
+        input.push(b':');
+        input.extend(crate::commit_operation::path_input(std::slice::from_ref(
+            &revision.path,
+        ))?);
+        count += 1;
     }
-    if change.before.is_none() && change.after.is_none() {
-        return Err("Change has no revisions".into());
-    }
-    if token.cancelled() {
-        return Err("Cancelled".into());
-    }
-    let before = change
-        .before
-        .as_ref()
-        .map(|r| read(repo, r, token))
-        .transpose()?;
-    let after = change
-        .after
-        .as_ref()
-        .map(|r| read(repo, r, token))
-        .transpose()?;
-    if before
-        .as_ref()
-        .map_or(0, String::len)
-        .saturating_add(after.as_ref().map_or(0, String::len))
-        > crate::git::OUTPUT_LIMIT
-    {
-        return Err("Combined file exceeds the preview output limit".into());
-    }
+    // NUL input preserves literal paths, including newlines. Successful output
+    // has fixed-format headers and length-delimited bodies; any non-blob/error
+    // header fails the entire request, never attempts to recover at a newline.
+    let bytes = repo.read_with_input(
+        &[
+            OsStr::new("cat-file"),
+            OsStr::new("--batch"),
+            OsStr::new("-z"),
+        ],
+        input,
+        token,
+    )?;
+    let mut blobs = parse_blob_batch(&bytes, count)?.into_iter();
+    let before = change.before.as_ref().map(|_| blobs.next().unwrap());
+    let after = change.after.as_ref().map(|_| blobs.next().unwrap());
     if token.cancelled() {
         return Err("Cancelled".into());
     }
     Ok(Contents { before, after })
+}
+
+fn parse_blob_batch(mut bytes: &[u8], count: usize) -> Result<Vec<String>, String> {
+    let mut blobs = Vec::with_capacity(count);
+    for _ in 0..count {
+        let end = bytes
+            .iter()
+            .position(|b| *b == b'\n')
+            .ok_or("Incomplete Git object header")?;
+        let header = std::str::from_utf8(&bytes[..end]).map_err(|_| "Invalid Git object header")?;
+        let fields = header.split(' ').collect::<Vec<_>>();
+        let [id, kind, size] = fields.as_slice() else {
+            return Err("Could not read fixed file revision".into());
+        };
+        if !crate::git::is_oid(id) || *kind != "blob" {
+            return Err("Fixed file revision is unavailable or is not a blob".into());
+        }
+        let size = size
+            .parse::<usize>()
+            .map_err(|_| "Invalid Git object size")?;
+        bytes = &bytes[end + 1..];
+        if bytes.get(size) != Some(&b'\n') {
+            return Err("Incomplete Git object content".into());
+        }
+        let body = &bytes[..size];
+        if body.contains(&0) {
+            return Err("Binary file — text preview unavailable".into());
+        }
+        blobs.push(
+            std::str::from_utf8(body)
+                .map_err(|_| "Non-UTF-8 text cannot be displayed safely")?
+                .to_owned(),
+        );
+        bytes = &bytes[size + 1..];
+    }
+    if !bytes.is_empty() {
+        return Err("Unexpected extra Git object output".into());
+    }
+    Ok(blobs)
 }
 
 /// Convert a committed file status to the revision endpoints used by zipChanges.
@@ -199,6 +226,28 @@ pub fn zip_changes(changes: impl IntoIterator<Item = Change>) -> Result<Vec<Chan
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn batch_content_is_length_delimited_and_rejects_incomplete_or_non_blob_results() {
+        let id = "a".repeat(40);
+        let first = format!("{id} blob 4\na\nb\n\n");
+        let empty = format!("{id} blob 0\n\n");
+        assert_eq!(
+            parse_blob_batch(format!("{first}{empty}").as_bytes(), 2).unwrap(),
+            ["a\nb\n", ""]
+        );
+        for bytes in [
+            format!("{id} tree 0\n\n").into_bytes(),
+            format!("{id}:missing\nname missing\n").into_bytes(),
+            format!("{id} blob 5\nshort").into_bytes(),
+            format!("{id} blob 9999999999999999999999999\n").into_bytes(),
+            format!("{empty}extra").into_bytes(),
+            format!("{id} blob 1\n\0\n").into_bytes(),
+            [format!("{id} blob 1\n").as_bytes(), &[255, b'\n']].concat(),
+        ] {
+            assert!(parse_blob_batch(&bytes, 1).is_err(), "{bytes:?}");
+        }
+        assert!(parse_blob_batch(first.as_bytes(), 2).is_err());
+    }
     fn r(path: &str, n: u8) -> Revision {
         Revision {
             path: path.into(),

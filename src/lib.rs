@@ -9,6 +9,8 @@ pub mod file_save;
 pub mod file_tree;
 pub mod filtered_graph;
 pub mod git;
+mod git_log_changes;
+mod git_metadata;
 pub mod graph;
 pub mod graph_print;
 pub mod history;
@@ -37,6 +39,7 @@ pub mod fetch;
 pub mod process_tree;
 
 pub mod operation_process;
+pub mod performance_trace;
 
 mod operation_queue;
 
@@ -52,6 +55,7 @@ pub mod pull;
 
 pub mod update_method;
 
+pub mod operation_inspection;
 pub mod operation_state;
 
 pub mod operation_events;

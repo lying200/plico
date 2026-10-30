@@ -48,6 +48,8 @@ pub struct Snapshot {
 }
 impl Snapshot {
     pub fn load(repo: &Repository, token: &Cancel) -> Result<Self, String> {
+        let mut trace = crate::performance_trace::Span::new("request", "changes", Some(&repo.path));
+        trace.outcome("error");
         let head = crate::commit_operation::head(repo, token)?;
         let review_versions = repo.local_changes(token)?;
         let staged: HashSet<_> = review_versions
@@ -76,6 +78,7 @@ impl Snapshot {
             return Err("HEAD changed; refresh local changes".into());
         }
         let files = collect(&review_versions, &net)?;
+        trace.outcome("ok");
         Ok(Self {
             head,
             files,

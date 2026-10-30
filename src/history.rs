@@ -5,6 +5,9 @@ use crate::{
 };
 
 pub struct Window {
+    /// Captured before this request's history reads, never after them. Navigation
+    /// with pre-existing fixed roots does not publish a new observer baseline.
+    pub observation: Option<crate::branch_updates::HistoryObservation>,
     /// None for unfiltered history; Git parents remain untouched.
     pub projected_parents: Option<Vec<Vec<(String, bool)>>>,
     pub snapshot: Snapshot,
@@ -53,15 +56,17 @@ pub fn read_branches(
     start: Option<Layout>,
     token: &Cancel,
 ) -> Result<Window, String> {
+    let inputs = repo.history_inputs(token)?;
     // The first window needs no frontier reconstruction. Its own snapshot
     // establishes roots, so a one-row bootstrap would duplicate all metadata
     // reads and run history twice on every open / first-window refresh.
     if offset == 0 {
         let snapshot =
-            repo.snapshot_branches_filtered_at(branches, 0, limit, fixed, None, token)?;
+            repo.snapshot_branches_with_inputs(&inputs, branches, 0, limit, fixed, None, token)?;
         let start = start.unwrap_or_default();
         let (rows, end) = graph::layout_window(&snapshot.commits, start.clone(), 500_000)?;
         return Ok(Window {
+            observation: Some(inputs.observation()?),
             snapshot,
             rows,
             projected_parents: None,
@@ -74,7 +79,7 @@ pub fn read_branches(
     let roots = match fixed {
         Some(roots) => roots.to_vec(),
         None => {
-            repo.snapshot_branches_filtered_at(branches, 0, 1, None, None, token)?
+            repo.snapshot_branches_with_inputs(&inputs, branches, 0, 1, None, None, token)?
                 .tips
         }
     };
@@ -88,7 +93,8 @@ pub fn read_branches(
                     return Err("Cancelled".into());
                 }
                 let count = HISTORY_PAGE.min(offset - skipped);
-                let page = repo.snapshot_branches_filtered_at(
+                let page = repo.snapshot_branches_with_inputs(
+                    &inputs,
                     branches,
                     skipped,
                     count,
@@ -105,10 +111,18 @@ pub fn read_branches(
             start
         }
     };
-    let snapshot =
-        repo.snapshot_branches_filtered_at(branches, offset, limit, Some(&roots), None, token)?;
+    let snapshot = repo.snapshot_branches_with_inputs(
+        &inputs,
+        branches,
+        offset,
+        limit,
+        Some(&roots),
+        None,
+        token,
+    )?;
     let (rows, end) = graph::layout_window(&snapshot.commits, start.clone(), 500_000)?;
     Ok(Window {
+        observation: Some(inputs.observation()?),
         snapshot,
         rows,
         projected_parents: None,
@@ -141,8 +155,9 @@ pub fn read_branches_filtered(
     filter: &crate::git::LogFilter,
     token: &Cancel,
 ) -> Result<Window, String> {
+    let inputs = repo.history_inputs(token)?;
     if let Some(hashes) = filter.hashes() {
-        if let Some(window) = read_hashes(repo, &hashes, offset, limit, fixed, token)? {
+        if let Some(window) = read_hashes(repo, &inputs, &hashes, offset, limit, fixed, token)? {
             return Ok(window);
         }
     }
@@ -151,12 +166,21 @@ pub fn read_branches_filtered(
     // Path simplification may change traversal order and parent IDs. Select IDs
     // through Git's structure query, then use the complete graph for display.
     let snapshot = if path_filter {
-        repo.snapshot_branches_filtered_at(branches, 0, 1, fixed, None, token)?
+        repo.snapshot_branches_with_inputs(&inputs, branches, 0, 1, fixed, None, token)?
     } else {
-        repo.snapshot_branches_filtered_at(branches, offset, limit, fixed, Some(filter), token)?
+        repo.snapshot_branches_with_inputs(
+            &inputs,
+            branches,
+            offset,
+            limit,
+            fixed,
+            Some(filter),
+            token,
+        )?
     };
     if snapshot.commits.is_empty() {
         return Ok(Window {
+            observation: Some(inputs.observation()?),
             snapshot,
             rows: Vec::new(),
             projected_parents: None,
@@ -180,9 +204,11 @@ pub fn read_branches_filtered(
             .iter()
             .map(|&i| topology[i].id.clone())
             .collect::<Vec<_>>();
-        let mut snapshot = repo.snapshot_commits(&ids, &snapshot.tips, token)?;
+        let mut snapshot =
+            repo.snapshot_commits_with_inputs(&inputs, &ids, &snapshot.tips, token)?;
         snapshot.more = projected.more;
         return Ok(Window {
+            observation: Some(inputs.observation()?),
             snapshot,
             rows: projected.rows,
             projected_parents: Some(projected.parents),
@@ -200,6 +226,7 @@ pub fn read_branches_filtered(
         return Err("History changed while filtering; refresh to reload".into());
     }
     Ok(Window {
+        observation: Some(inputs.observation()?),
         snapshot,
         rows: projected.rows,
         projected_parents: Some(projected.parents),
@@ -211,13 +238,14 @@ pub fn read_branches_filtered(
 /// Hash matches take priority over other filters, as in Rebased applyHashFilter.
 fn read_hashes(
     repo: &Repository,
+    inputs: &crate::git::HistoryInputs,
     hashes: &[String],
     offset: usize,
     limit: usize,
     fixed: Option<&[String]>,
     token: &Cancel,
 ) -> Result<Option<Window>, String> {
-    let initial = repo.snapshot_at(None, 0, 1, fixed, token)?;
+    let initial = repo.snapshot_branches_with_inputs(inputs, &[], 0, 1, fixed, None, token)?;
     let topology = read_topology(repo, &initial.tips, token)?;
     let matched = hash_matches(repo, &initial.tips, &topology, hashes, token)?;
     if matched.is_empty() {
@@ -233,9 +261,10 @@ fn read_hashes(
         .iter()
         .map(|&i| topology[i].id.clone())
         .collect();
-    let mut snapshot = repo.snapshot_commits(&ids, &initial.tips, token)?;
+    let mut snapshot = repo.snapshot_commits_with_inputs(inputs, &ids, &initial.tips, token)?;
     snapshot.more = projected.more;
     Ok(Some(Window {
+        observation: Some(inputs.observation()?),
         snapshot,
         rows: projected.rows,
         projected_parents: Some(projected.parents),
@@ -351,6 +380,7 @@ pub fn locate_filtered(
     }
     Ok(FilteredLocation::Found(Located {
         window: Window {
+            observation: None,
             snapshot,
             rows: projected.rows,
             projected_parents: Some(projected.parents),

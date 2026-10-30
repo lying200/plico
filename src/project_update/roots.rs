@@ -118,16 +118,19 @@ impl Roots {
                         path: module.path.clone(),
                     });
                 }
-            } else if child.pull_targets(token)?.tracked.is_some() {
-                result.branches.push(Branch {
-                    repository: child.clone(),
-                    request: super::prepare(child, token)?,
-                });
             } else {
-                result.skipped.push(Skipped {
-                    path: child.path.clone(),
-                    reason: SkipReason::NoUpstream,
-                });
+                let targets = child.pull_targets(token)?;
+                if targets.tracked.is_some() {
+                    result.branches.push(Branch {
+                        repository: child.clone(),
+                        request: super::prepare_observed(child, targets, token)?,
+                    });
+                } else {
+                    result.skipped.push(Skipped {
+                        path: child.path.clone(),
+                        reason: SkipReason::NoUpstream,
+                    });
+                }
             }
         }
         if token.cancelled() {

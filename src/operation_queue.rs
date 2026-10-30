@@ -23,6 +23,9 @@ pub(crate) fn acquire_many(
     mut directories: Vec<PathBuf>,
     cancel: &Cancel,
 ) -> Result<Guard, String> {
+    let mut trace = crate::performance_trace::Span::new("queue", "write-reservation", None);
+    trace.phase(crate::performance_trace::Phase::Queue);
+    trace.outcome("cancelled");
     directories.sort();
     directories.dedup();
     loop {
@@ -36,6 +39,7 @@ pub(crate) fn acquire_many(
                 .all(|directory| !busy.contains(directory))
             {
                 busy.extend(directories.iter().cloned());
+                trace.outcome("acquired");
                 return Ok(Guard(directories));
             }
         }

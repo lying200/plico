@@ -1559,3 +1559,48 @@ project_operations、两个 operation_observation 和配置 missing include 回�
 本批仅测试与审计记录：cargo fmt 检查、git diff --check、doctest（0 示例）及
 `cargo clippy --locked --no-default-features --all-targets` 成功；既有 clippy 警告保留，
 日志为 operation-binding-audit-20261030/clippy.log。没有运行全量核心/桌面、原生 UI 或 CI。
+
+### 已是最新 Push：原生查询时间线与首屏重复读取（22fdfca 后）
+
+使用 computer-use 操作 Windows Plico；release SHA256 仍为
+06565C639B77F84FB0C45EBBF0EE9BD343E6CBD7279F680C8E2D715B23195F58，最近两批只有
+测试/文档，功能与该构建一致。使用已有 parent/child 临时仓库及本地 bare remote，
+选中 child 提交、展开 Changes；正常打开 Push 并执行已是最新检查。没有并行构建或
+测试，没有改变远端引用、HEAD 或工作区内容。结果、选中行、详情、1 项修改/4 项未跟踪
+文件保留。仅关闭本次自建 Plico，Rebased 窗口保留。
+
+证据 `artifacts/push-completion-20261030/`：build.json、times.json、before/after.png、
+backend.jsonl、git.jsonl、execute-queries.json、summary.json。times 是操作工具调用
+边界，不能把 execute 到 observed 的约 10 秒当实际 UI 延迟。以下使用 Git Trace2
+顶层 start/exit，嵌套子进程排除；单次样本，无方差、无 Rebased 同条件计时比较。
+
+本地 Push 进程 05:14:39.621805Z 启动，39.709688Z 退出，t_abs 0.095012 秒。
+其后的操作状态复验仍保留。39.997455Z 至 44.411202Z 是明显后续查询突发段：
+85 次顶层 Git 启动，进程内 t_abs 累计 1.924361 秒，首 start 到末 exit 约 4.414 秒。
+执行按钮到最终观察的整个窗口共有 105 次；末尾包含常规轮询，不能全归因到 Push。
+这些量不是帧绘制时间或 CPU 时间，也不把本地 bare 的 Push 时长外推到公网。
+
+源码定位到确定的重复，而非仅根据时间邻近推测：
+
+- ui/remote.rs 完成后调用 refresh_impl；repository.rs 刷新成员、Changes 与历史。
+- ui/project_navigation.rs::reload_project_history 在 fresh 分支执行
+  `project_log::read(&queries, limit, token)?.scope`，丢弃已经读取的首屏 page 和 offsets。
+- project_log::read 实际逐根读取历史、合并 page、记录固定 tips 并 advance_offsets，
+  绝非只建立查询范围。之后 navigation::window_at 从空 offsets 开始，即使 offset=0
+  也调用 next_page(limit)，逐根重新读取同一首屏。Trace2 中父子根先各读首屏、主根
+  再读 limit=1 元数据，随后父子根又各读首屏，与此流程相符。
+- ProjectRoots 的 Checking/Ready 已有 pending_project_reload 协调；当前证据不足以
+  归咎于重复通知启动了两次刷新。真正可确认的是同一次 fresh worker 内的数据被丢弃。
+
+再次读取 Rebased 245042348669114adb8e24e5b0fc0ce73763f3c4
+plugins/git4idea/backend/src/log/GitLogProvider.kt::readFirstBlock：collectMetadata 得到
+commits/refs，按需补 refs/tag 数据后排序并返回这些 commits；没有为取得 scope 而丢弃
+整块 metadata 再读相同首屏的步骤。保留 Plico 的 tag-only history 与多根预算差异。
+
+下一批优先处理这处结果所有权交接：首屏应从已读 Read 构造导航 Window，保留每根
+offsets、固定 tips、错误根、more 和 graph frontier，避免 next_page 从零重复读取。
+先覆盖 offset=0 的 fresh 首屏，同时明确非零窗口与 continuation 的路径；不能在
+已经 advance_offsets 的 Read 上直接 next_page 而跳过首屏。检验跨根交错排序、空根、
+失败根、分页接续、取消和选择保留。先完成对应 Rebased 原生场景记录，再修改功能，
+随后用同 fixture/trace 做后验。这与按结果缩小 Push 刷新范围是两件事，本批发现不依赖
+放宽 hooks、失败或恢复检查。当前仅新增测量及源码证据，没有修改功能或声称提速完成。

@@ -15288,3 +15288,14 @@ worktree_events 的绑定证据。两者轮询期限、失败保留和送达确�
 watcher 路径。旧空闲 Trace2 中 46/100 次启动为目录解析；新 CLI 探针显示配置损坏即使
 目录指向不变也会导致当前目录解析失败。具体实验与后续设计边界见性能审计相应节。
 本轮仅分析，不新增产品行为，不宣称完成原生前置或后验；未来实现须补对应实机场景。
+
+### Push 完成刷新中的多根首屏重复读取（2026-10-30，定位记录）
+
+本轮 Plico 已是最新 Push 的原生采样位于 artifacts/push-completion-20261030，
+构建、截图与查询分段见性能审计相应节。未新采 Rebased 计时，不作速度胜负结论。
+再次读取参考 245042348669114adb8e24e5b0fc0ce73763f3c4 的
+backend/src/log/GitLogProvider.kt::readFirstBlock，metadata 的 commits/refs 被加工后
+直接返回。Plico reload_project_history 则丢弃 project_log::read 已加载的 page，仅
+保留 scope，再由 window_at 从零读取，增加一轮逐根首屏查询。
+拟保留首轮 Read 并交接给导航 Window，维持 offsets、固定 tips、错误根与图布局；
+目前尚未实施。既有 Push 原生对照证明基本操作状态，不替代新首屏交接的具体前置验收。
